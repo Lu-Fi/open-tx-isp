@@ -124,7 +124,7 @@ static inline int t32_tmo_adr_reg_params_print(const u32 *ttp, const u32 *asit, 
 
 /* ---- tisp_params_print (0x3a6a4) / tisp_params_print_detect (0x3b1a8): the AWB parameters of a channel ---- */
 /* the array printers of tx_isp_t32_dbg.h (print_array_awb_8 / 16 / 32: " %d," per element, "]\n") */
-#ifndef T32_DBG_PRINTK
+#if !defined(__KERNEL__) && !defined(T32_DBG_PRINTK)
 #define T32_DBG_PRINTK		T32_SHOW_PRINTK
 #endif
 #include "tx_isp_t32_dbg.h"
