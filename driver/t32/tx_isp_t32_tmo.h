@@ -2086,3 +2086,59 @@ static inline void t32_tmo_stat_limit(u8 *tb, const u8 *ctx, u8 *rec53, void (*d
 	memcpy(tb + 7520, tb, 7520);
 	*rec53 = 1;
 }
+
+/* ---- phase 11a: adr_reg_write_sometimes, adr_reg_write_one, adr_reg_write_5x5 (tisp_reg_write (ch, reg, value) = regw) ---- */
+
+/*
+ * The vendor selects the register number with the global byte d03a0: != 0 the second numbering (the shadow numbers below), else the direct
+ * numbers.  Vendor quirk kept: in adr_reg_write_5x5 the shadow number is one constant per group of 8 / 15 writes (7806, 7814, 7822, 7830,
+ * 7838, 8040), it does not advance with the write.
+ */
+typedef void (*t32_tmo_regw_fn)(void *cb, int ch, u32 reg, u32 val);
+
+/* tisp_tmo_adr_reg_write_sometimes (ch): ctx = the channel's context; three register writes */
+static inline void t32_tmo_adr_reg_write_sometimes(const u8 *ctx, u8 d03a0, t32_tmo_regw_fn regw, void *cb, int ch)
+{
+	int s = d03a0 != 0;
+
+	regw(cb, ch, s ? 7795 : 28976, (u32)(ctx[637] & 1) << 4 | (u32)(ctx[638] & 1) << 8 | (u32)(ctx[636] & 1) | (u32)(ctx[639] & 1) << 12);
+	regw(cb, ch, s ? 7796 : 28980, (t32_tmo_ld16(ctx, 9954) & 1U) << 1 | (t32_tmo_ld16(ctx, 9952) & 1U));
+	regw(cb, ch, s ? 7797 : 28984, (t32_tmo_ld16(ctx, 9958) & 0xfffU) << 16 | (t32_tmo_ld16(ctx, 9956) & 0xfffU));
+}
+
+/* tisp_tmo_adr_reg_write_one (ch): seven register writes of 13 bit fields of the context u16 at 320 .. 342 */
+static inline void t32_tmo_adr_reg_write_one(const u8 *ctx, u8 d03a0, t32_tmo_regw_fn regw, void *cb, int ch)
+{
+	static const u16 lo[7] = { 320, 324, 328, 330, 334, 338, 342 };	/* low field offsets; the high field is lo + 2 (none for 328 and 342) */
+	int s = d03a0 != 0, i;
+
+	for (i = 0; i < 7; i++) {
+		u32 v = t32_tmo_ld16(ctx, lo[i]) & 0x1fffU;
+
+		if (i != 2 && i != 6)
+			v |= (t32_tmo_ld16(ctx, lo[i] + 2U) & 0x1fffU) << 16;
+		regw(cb, ch, s ? 7799U + (u32)i : 28992U + 4U * (u32)i, v);
+	}
+}
+
+/*
+ * tisp_tmo_adr_reg_write_5x5 (ch): five groups g of 8 writes (direct registers 29020 + 4 n, n = 8 g + j, shadow 7806 + 8 g constant per group):
+ * value = bytes b0 .. b3 of the context word ctx + 640 + 32 g + 4 j: (b0 & 31) | (b1 & 31) << 8 | (b2 & 31) << 16 | (b3 & 31) << 24;
+ * then 15 writes (direct 29956 + 4 j, shadow 8040) of the context word ctx + 574 + 4 j (two u16, low | high << 16);
+ * finally the u16 at ctx + 634 to 8055 / 30016.
+ */
+static inline void t32_tmo_adr_reg_write_5x5(const u8 *ctx, u8 d03a0, t32_tmo_regw_fn regw, void *cb, int ch)
+{
+	int s = d03a0 != 0, g, j;
+
+	for (g = 0; g < 5; g++)
+		for (j = 0; j < 8; j++) {
+			const u8 *b = ctx + 640 + 32 * g + 4 * j;
+
+			regw(cb, ch, s ? 7806U + 8U * (u32)g : 29020U + 4U * (u32)(8 * g + j),
+			     (u32)(b[0] & 31) | (u32)(b[1] & 31) << 8 | (u32)(b[2] & 31) << 16 | (u32)(b[3] & 31) << 24);
+		}
+	for (j = 0; j < 15; j++)
+		regw(cb, ch, s ? 8040 : 29956U + 4U * (u32)j, t32_tmo_ld16(ctx, 574 + 4 * (u32)j) | t32_tmo_ld16(ctx, 576 + 4 * (u32)j) << 16);
+	regw(cb, ch, s ? 8055 : 30016, t32_tmo_ld16(ctx, 634));
+}
