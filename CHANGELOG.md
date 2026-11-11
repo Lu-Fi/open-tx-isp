@@ -27,6 +27,7 @@ marked otherwise. Release tags `vYYYY.MM.DD` on the `aperto` branch are planned 
 - `t32_txframe_oracle`: `tx_isp_t32_txframe.h` (tx_isp_frame_chan_misc_register), 30000 random cases, 14 mutations detected.
 - `t32_txivdc_oracle`: `tx_isp_t32_txivdc.h` (tx_isp_ivdc_probe), 30000 random cases, 22 mutations detected. Vendor: a failed buffer allocation or misc_register leaves the device allocated.
 - `t32_txfs_oracle`: `tx_isp_t32_txfs.h` (tx_isp_fs_probe), 20000 random cases (0..4 pads), 25 mutations detected. Vendor bugs named: the channel array allocation is not tested; the rollback for a NULL / ERR_PTR channel or pad never ends for pad 0 and skips channel 0 (unreachable with a valid array; ours returns -EINVAL there, not compared).
+- `t32_txsubdev_oracle`: `tx_isp_t32_txsubdev.h` (tx_isp_subdev_init with the inlined device init: resources, clocks, pads), 30000 random platform devices, 29 mutations detected; module_init / request_irq / free_irq / module_deinit run the vendor functions against our ports. Vendor bugs kept: the in-pad allocation is tested through the out-pad pointer, the unwind unmaps the address of the +244 field and releases the last resource (NULL faults).
 
 ## 2026-11-07: T32 host oracle from Matt Davis' recovered C, CCM init bit-exact (planned, host only, not device-tested)
 
