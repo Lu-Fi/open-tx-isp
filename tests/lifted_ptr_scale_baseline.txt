@@ -241,8 +241,6 @@ t23 vic_sensor_ops_ioctl ctr 1 dead #189 T23 pass 5: dead - sensor ops slot only
 t23 vic_sensor_ops_ioctl loop 1 dead #189 T23 pass 5: dead - sensor ops slot only; the lifted body returns -ENOSYS for every event (vendor calls tx_isp_vic_start for 0x200000c/f); VIC start is done by the hand-written vic stream path
 t23 vic_sensor_ops_ioctl step 4 dead #189 T23 pass 5: dead - sensor ops slot only; the lifted body returns -ENOSYS for every event (vendor calls tx_isp_vic_start for 0x200000c/f); VIC start is done by the hand-written vic stream path
 t30 apical_api_init_idx_array postret 1 shim hand-written tail call / dispatcher in front of the old lifted body (the lifted rest never runs, no delay slot lost at runtime)
-t30 isp_vic_interrupt_service_routine postret 1 shim hand-written tail call / dispatcher in front of the old lifted body (the lifted rest never runs, no delay slot lost at runtime)
-t30 ispcore_interrupt_service_routine postret 1 shim hand-written tail call / dispatcher in front of the old lifted body (the lifted rest never runs, no delay slot lost at runtime)
 t30 ncu_pad_event_handle tailcall 1 ok #189: unreachable epilogue leftover; the OEM tail call (t9 = 0x1264c = ncu_frame_channel_streamoff, switch slot 12) is the hand-written `case 12: return ncu_frame_channel_streamoff(a0)`; nothing to fix
 t40 Tisp_lce_soft ctr 1 unreach
 t40 Tisp_lce_soft loop 7 unreach

@@ -4,6 +4,11 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD[-rcN]` are set on the `aperto` branch, the same tag in open-tx-isp and OpenIMP: RC1 `v2026.10.11-rc1`, RC2 `v2026.10.25-rc2`, RC3 `v2026.11.07-rc3` (2026-11-07). Gate SoCs of RC3 and Release 1: T10, T20, T21, T23, T30, T31, T40, T41 (T32/T33 planned, QEMU only); release notes: [docs/releases/ in OpenIMP](https://github.com/Lu-Fi/openimp/blob/next/docs/releases/README.md). Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-11-11: T30 module size: dead recovered code removed, section garbage collection (#274; cross-build + host tests, not on a camera)
+
+- `tx-isp-t30.ko` builds with per-function sections, `--gc-sections`, `-x` and `-mno-pdr` like the other SoCs, still at `-O0` (`TX_ISP_GC=n` restores the old layout). Sections text/data/bss 662551 / 49088 / 36624 -> 565047 / 49088 / 36624 (vendor 257384 / 56688 / 34676).
+- `tx_isp_t30_recovered.c` loses 11673 dead lines: 151 functions no reference reaches (the linker dropped them; e.g. the `*_raw` lifts replaced by clean code, unused sbus/i2c sample helpers, `load_tx_isp_parameters`, `dump_vic_reg`), 7 `#if 0` provenance blocks and the unreachable lifted tails behind the early `return` of `isp_vic_interrupt_service_routine` / `ispcore_interrupt_service_routine`. The remaining functions compile to the same code (per-function disassembly against the build before; only `__LINE__` constants differ, and the two ISR wrappers no longer zero their unused stack slots).
+- The rest of the gap to the vendor (text 257384) is `-O0` code generation: `TX_ISP_T30_OS=y` builds at `-Os` (text 243959) for A/B runs, untested; `docs/SIZE.md` lists what blocks it as the default. Found on the way: the AE event 5 path is unreachable because of missing braces (#283, not changed here).
 
 ## 2026-11-11: T10/T20 AE takes the analog reserve before the gain caps like the OEM (openimp #284; build- and host-tested only, device check pending)
 

@@ -200,9 +200,19 @@ have to come back together (`tisp_event_init` caller + queue path in
   statistics, histogram and zone readers (`tisp_ae0_get_statistics`,
   `tisp_ae_get_y_zone`, ...) use the other. Sharing one buffer changes what
   those readers return unless they are proven idle with the lifted AE.
-- **T30 at -O0.** `-Os` with `--gc-sections` would shrink the module from
-  845 to 342 KB (RAM 677 to 289 KB), but there is no host equivalence
-  harness for the T30 recovered driver (like `tests/t20_fw`) and no T30
-  test camera. The layout-only part (`-ffunction-sections`,
-  `--gc-sections`, `-x`, `-mno-pdr`, still `-O0`) gives 673 KB (RAM 574
-  KB) without changing code generation.
+- **T30 at -O0** (Lu-Fi/openimp#274). The layout-only part is done:
+  `-ffunction-sections`, `--gc-sections`, `-x`, `-mno-pdr`, still `-O0`
+  (`TX_ISP_GC=n` restores the old layout), and the recovered source lost
+  151 functions no reference reaches (the other 810 compile to the same
+  code apart from `__LINE__` constants and the two ISR wrappers below,
+  per-function disassembly), 7 `#if 0` blocks and two dead lifted tails
+  behind an early `return` (the ISR wrappers no longer zero 18 resp. 35
+  unused stack slots). Module sections text/data/bss 662551 / 49088 /
+  36624 -> 565047 / 49088 / 36624 (vendor 257384 / 56688 / 34676). The
+  rest is `-O0` code generation: `TX_ISP_T30_OS=y` builds at `-Os` (text
+  243959, below the vendor) but is untested; a `-Os` build warns at 47
+  places that may rely on `-O0` (14 maybe-uninitialised locals, 25
+  out-of-bounds accesses, 3 missing returns, one returned stack address,
+  a 4.4 KB stack frame in `awb_calc_avg_weighted_gr_gb_mesh`). Needs those
+  fixed and a host or QEMU -O0 vs -Os equivalence run (like
+  `tests/t20_fw`) before -Os can be the default.
