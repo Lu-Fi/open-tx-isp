@@ -4,6 +4,13 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD[-rcN]` are set on the `aperto` branch, the same tag in open-tx-isp and OpenIMP: RC1 `v2026.10.11-rc1`, RC2 `v2026.10.25-rc2`, RC3 `v2026.11.07-rc3` (2026-11-07). Gate SoCs of RC3 and Release 1: T10, T20, T21, T23, T30, T31, T40, T41 (T32/T33 planned, QEMU only); release notes: [docs/releases/ in OpenIMP](https://github.com/Lu-Fi/openimp/blob/next/docs/releases/README.md). Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-11-11 (night): T30 OEM AE inputs at init vendor-equal (openimp #338, #344; Unicorn host test + cross-build, not on a camera)
+
+- #338 `AE_fsm_clear` now writes what the OEM writes (SDK ko 0x2de80): it zeroes +16..+36 (step, exposure, s64 accumulator, s64 pending value) and sets 0x40 at +40/+44. The lift put 0x40 into the pending value, so the first `ae_calculate_exposure` started from the accumulator 0x40_00000040.
+- #338 `cmos_fsm_clear` is rewritten from the OEM (0x2d810). Its +484 (FSM manager +740, the ISP digital-gain term of the AE exposure limit) is `log2_fixed_to_fixed(4095, 12, 16) + 0x40000` = 262112. The lift passed only the first argument, so stale registers decided the value and the exposure limit came out far too high (item 16 overflowed to 0). ctx+100/+104 are the sensor attribute max again/dgain, copied by `sensor_init` as in the OEM.
+- #344 `adjust_exposure` no longer writes through NULL and runs over all 8 frame exposure sets. `ae_exposure_correction` takes the carry unsigned. Default calibration 206 points at the exposure-correction LUT, not at the function.
+- New `make -C tests t30_ae_init_check` (`tools/ko_emu/diff_t30_ae_init.py`) runs our code against the vendor ko in Unicorn. It checks every byte of the cleared AE and CMOS contexts and 200 `adjust_exposure` cases: 202/202 equal, and the old behaviour fails. The default `simple_3a=1` does not use this path.
+
 ## 2026-11-11: T31 IPU ahb1 clk_put under its #ifdef, sensor s_register documented (openimp #341; k7 cross-build, not on a camera)
 
 - `t31_ipu`: the probe error path and `remove` now put the ahb1 gate only under `IPU_T31_AHB1`, the same guard as its `clk_get` (no behaviour change, the macro is 1).
