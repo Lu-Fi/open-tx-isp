@@ -2090,6 +2090,10 @@ static int t41_raw_trace;
 static int t41_raw_sync = 1;
 /* Off until the board reset after the first RDMA start is understood
  * (#320): the controls answer EPERM ("not implemented") as before. */
+/* OpenIMP test pattern mode 5 (openimp #103): bit 0 keeps the MDNS reference (t41_mdns_hold_value). */
+static unsigned int t41_mdns_ref_hold;
+module_param_named(mdns_ref_hold, t41_mdns_ref_hold, uint, 0644);
+MODULE_PARM_DESC(mdns_ref_hold, "bit 0: the MDNS writer keeps the reference fields at 0xff (OpenIMP test pattern mode 5; default 0)");
 static bool t41_raw_ring = true;
 module_param(t41_raw_ring, bool, 0644);
 MODULE_PARM_DESC(t41_raw_ring, "serve the RAW ring controls 0x80000a7/0x80000a8 of IMP_ISP_RAW_RwControl (default 1; 0 answers -EPERM)");
@@ -126952,7 +126956,8 @@ static int t41_mdns_write_checked(uint32_t channel, int enable)
     if (count < 0)
         return -EINVAL;
     for (i = 0; i < count; ++i)
-        system_reg_write(words[i].address, words[i].value);
+        system_reg_write(words[i].address,
+                         t41_mdns_hold_value(words[i].address, words[i].value, READ_ONCE(t41_mdns_ref_hold)));
     return 0;
 }
 
