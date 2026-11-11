@@ -14283,7 +14283,11 @@ static int regtrace_framechan_index(struct file *file)
  * AE/AWB algo open, ...) ran on the sensor subdev: no register window -> NULL+0x40060 oops on the Eufy T40XP. */
 /* #322: OEM tx_isp_create_graph_and_nodes also puts the frame source (isp-fs, pdata 01 02 00 14 -> slot 4) into the
  * graph; tx_isp_unlocked_ioctl 0xc0045430 SET_PREDQTIME (OEM 0x14ed0: lw v0,64(priv); lw s0,268(v0); sw 288(s0))
- * reads it.  The controlled registration left slot 4 NULL -> oops at BadVA 0x10c. */
+ * reads it.  The controlled registration left slot 4 NULL -> oops at BadVA 0x10c.
+ * #346 (review 2026-11-11): the slot walkers (tx_isp_notify, open/release, sensor ioctls) now also see isp-fs.
+ * Checked with printk in fs_core_ops_ioctl / fs_activate_module / fs_slake_module / tx_isp_frame_chan_misc_register
+ * on the Eufy T40XP (load, sensor register, timps stream, apitest t40dev incl. SetPreDqtime, DisableSensor) and in
+ * QEMU ingenic-t40 (the same plus rmmod): none of them is called, 0 oops.  Slot 4 stays as in the OEM graph. */
 #define REGTRACE_TX_ISP_SUBDEV_SLOT_FS (REGTRACE_TX_ISP_SUBDEV_SLOT0 + 4 * 4)
 static void *regtrace_fs_subdev;
 static void regtrace_sync_tx_isp_slots(void)
