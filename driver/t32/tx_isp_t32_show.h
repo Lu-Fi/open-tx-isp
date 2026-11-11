@@ -17,6 +17,11 @@
  *  - t32_tisp_module_version_debug counts the channels in a u8: with more
  *    than 255 channels (t32_data_dc608) the loop never ends;
  *  - lib_tisp_vic_debug_info: its result is 2 (the VIC loop bound);
+ *  - tx_isp_ivdc_show does not check its proc data: NULL or an error
+ *    pointer reads the IVDC device at 0 (+500); the max-line register
+ *    (+236 of the IVDC registers) is read twice (UV half first);
+ *  - isp_framesource_show prints the buffer lists under the channel's spin
+ *    lock and compares the channel count signed;
  *  - lib_tisp_debug_info hands an 11th, unused word (+68 of the interrupt
  *    counters) to its 10-column line (ours does not); the sensor loop counts in a u8 against
  *    t32_data_dc284 +900 unbounded (the vendor's stack buffers hold 4
@@ -253,6 +258,162 @@ static inline int t32_lib_tisp_debug_info(u8 *m, const struct t32_dbgi_src *s)
 	T32_SHOW_PSEQ(m, "%9s%9s\n", "all", "lsc");
 	T32_SHOW_PSEQ(m, "%9d%9d\n", t32_g_rd32(s->rcfg, 64), t32_g_rd32(s->rcfg, 68));
 	T32_SHOW_PSEQ(m, "\n");
+	return 0;
+}
+
+/* ---- tx_isp_ivdc_show (0xddd8): IVDC buffer and interrupt statistics ---- */
+/* st = the IVDC statistics words from t32_data_d9898 (index = (symbol - 0xd9898) / 4) */
+#define T32_IVDC_ST(sym)	(((sym) - 0xd9898U) / 4U)
+
+static inline int t32_tx_isp_ivdc_show(u8 *m, const u32 *st, const u32 *aov_en, const u32 *direct_mode)
+{
+	static const char *const cnt[30] = {
+		" SID Discard                 : %d\n",
+		" VPU Cmd Fifo Overflow       : %d\n",
+		" Check Sum Err               : %d\n",
+		" Dout Addr Hit Err           : %d\n",
+		" VPU Work Sid Err            : %d\n",
+		" Check Point Err             : %d\n",
+		" IVDC Work Overflow          : %d\n",
+		" VPU Ack Timeout             : %d\n",
+		" ISP Frm Lost                : %d\n",
+		" Sync Hit Timeout            : %d\n",
+		" Check Hit Timeout           : %d\n",
+		" VPU1 Frm Done               : %d\n",
+		" VPU0 Frm Done               : %d\n",
+		" ISP Frm Start               : %d\n",
+		" ISP Frm Done                : %d\n",
+		" VPU1 Half Done              : %d\n",
+		" VPU0 Half Done              : %d\n",
+		" ISP Half Done               : %d\n",
+		" DDR Half Full1              : %d\n",
+		" DDR Half Full0              : %d\n",
+		" VPU Work Timeout            : %d\n",
+		" ISP Wait Timeout            : %d\n",
+		" ISP Rst                     : %d\n",
+		" ISP Frm Err                 : %d\n",
+		" VPU Abandon Over            : %d\n",
+		" ISP Discard Over            : %d\n",
+		" FIFO Y Overflow             : %d\n",
+		" FIFO UV Overflow            : %d\n",
+		" DDR Y Overflow              : %d\n",
+		" DDR UV Overflow             : %d\n",
+	};
+	u32 dev = t32_g_rd32(m, T32_SEQ_PRIVATE), ivdc = 0, y = 0, uv = 0, i;
+
+	if (dev && !T32_SHOW_IS_ERR(dev))
+		ivdc = t32_g_rd32(T32_PTR(dev), T32_CSI_SHOW_SD);
+	T32_SHOW_PSEQ(m, "****************** IVDC INFO **********************\n");
+	T32_SHOW_PSEQ(m, " IVDC DDR Addr               : 0x%08x\n", t32_g_rd32(T32_PTR(ivdc), 500));
+	T32_SHOW_PSEQ(m, " IVDC DDR Buffer Size        : %d\n", t32_g_rd32(T32_PTR(ivdc), 504));
+	for (i = 0; i < 30; i++)	/* d98bc .. d9930 */
+		T32_SHOW_PSEQ(m, cnt[i], st[T32_IVDC_ST(0xd98bcU) + i]);
+	if (st[T32_IVDC_ST(0xd9898U)]) {	/* registers mapped: max DDR lines, Y in 14..0, UV in 30..16 */
+		const u8 *regs = T32_PTR(t32_g_rd32(T32_PTR(ivdc), 284));
+
+		uv = (t32_g_rd32(regs, 236) >> 16) & 0x7fff;
+		y = t32_g_rd32(regs, 236) & 0x7fff;
+	}
+	T32_SHOW_PSEQ(m, " IVDC Y Max ddr line         : %d\n", y);
+	T32_SHOW_PSEQ(m, " IVDC UV Max ddr line        : %d\n", uv);
+	T32_SHOW_PSEQ(m, " AOV enable %d,direct_mode %d: (%d, %d, %d, %d)\n", *aov_en, *direct_mode,
+		      st[T32_IVDC_ST(0xd98f0U)] - st[T32_IVDC_ST(0xd98a8U)],
+		      st[T32_IVDC_ST(0xd98f4U)] - st[T32_IVDC_ST(0xd98acU)],
+		      st[T32_IVDC_ST(0xd98ecU)] - st[T32_IVDC_ST(0xd98a4U)],
+		      st[T32_IVDC_ST(0xd98e8U)] - st[T32_IVDC_ST(0xd98a0U)]);
+	T32_SHOW_PSEQ(m, " help:\n");
+	T32_SHOW_PSEQ(m, " clean Max ddr line : set 0x131000ec to 0\n,such as:devmem 0x131000ec 32 0x0\n");
+	return 0;
+}
+
+/* ---- isp_framesource_show (0x12628): state, format, scaler / crop and buffers of every frame channel ---- */
+#define T32_FS_CHANS		288U	/* fs device: channel array */
+#define T32_FS_NCHAN		292U	/* fs device: channel count (int) */
+#define T32_FS_CHAN_SIZE	816U
+#define T32_FS_BUFS		276U	/* channel: 64 buffer pointers */
+#define T32_FS_QLIST		536U	/* channel: queued list head, node at buffer +124 */
+#define T32_FS_QCOUNT		544U
+#define T32_FS_DLIST		548U	/* channel: done list head, node at buffer +132 */
+#define T32_FS_DCOUNT		556U
+#define T32_FS_WIDTH		588U
+#define T32_FS_HEIGHT		592U
+#define T32_FS_FOURCC		596U
+#define T32_FS_CROP_EN		636U
+#define T32_FS_CROP		640U	/* top, left, width, height */
+#define T32_FS_SCALER_EN	656U
+#define T32_FS_SCALER		660U	/* width, height */
+#define T32_FS_LOCK		724U
+#define T32_FS_STATE		736U	/* 4 = running */
+#define T32_FS_OUT_BUFS		764U
+#define T32_FS_LOST_BUFS	768U
+#define T32_FS_DEBUG		804U
+#define T32_FS_BUF_ADDR		52U	/* buffer: DMA address */
+
+struct t32_show_lock_ops {
+	void (*lock_irqsave)(void *lock, unsigned long *flags);		/* __private_spin_lock_irqsave */
+	void (*unlock_irqrestore)(void *lock, unsigned long flags);	/* private_spin_unlock_irqrestore */
+};
+
+static inline void t32_fs_show_list(u8 *m, const char *fmt, const u8 *head, u32 node)
+{
+	const u8 *e;
+
+	for (e = T32_PTR(t32_g_rd32(head, 0)) - node; e + node != head; e = T32_PTR(t32_g_rd32(e, node)) - node)
+		T32_SHOW_PSEQ(m, fmt, t32_g_rd32(e, T32_FS_BUF_ADDR));
+}
+
+static inline int t32_isp_framesource_show(u8 *m, const struct t32_show_lock_ops *os)
+{
+	u32 dev = t32_g_rd32(m, T32_SEQ_PRIVATE), fs = 0, k;
+	unsigned long flags = 0;
+	const u8 *c, *b;
+	int i;
+
+	if (dev && !T32_SHOW_IS_ERR(dev))
+		fs = t32_g_rd32(T32_PTR(dev), T32_CSI_SHOW_SD);
+	if (!fs || T32_SHOW_IS_ERR(fs)) {
+		isp_printf(2, "The parameter is invalid!\n");
+		return 0;
+	}
+	for (i = 0; i < (int)t32_g_rd32(T32_PTR(fs), T32_FS_NCHAN); i++) {
+		T32_SHOW_PSEQ(m, "############## framesource %d ###############\n", i);
+		c = T32_PTR(t32_g_rd32(T32_PTR(fs), T32_FS_CHANS)) + i * T32_FS_CHAN_SIZE;
+		T32_SHOW_PSEQ(m, "chan status: %s\n", t32_g_rd32(c, T32_FS_STATE) == 4 ? "running" : "stop");
+		if (t32_g_rd32(c, T32_FS_STATE) != 4)
+			continue;
+		T32_SHOW_PSEQ(m, "output pixformat: %c%c%c%c\n", (int8_t)c[T32_FS_FOURCC], (int8_t)c[T32_FS_FOURCC + 1],
+			      (int8_t)c[T32_FS_FOURCC + 2], (int8_t)c[T32_FS_FOURCC + 3]);
+		T32_SHOW_PSEQ(m, "output resolution: %d * %d\n", t32_g_rd32(c, T32_FS_WIDTH), t32_g_rd32(c, T32_FS_HEIGHT));
+		T32_SHOW_PSEQ(m, "scaler : %s\n", c[T32_FS_SCALER_EN] ? "enable" : "disable");
+		if (c[T32_FS_SCALER_EN]) {
+			T32_SHOW_PSEQ(m, "scaler width: %d\n", t32_g_rd32(c, T32_FS_SCALER));
+			T32_SHOW_PSEQ(m, "scaler height: %d\n", t32_g_rd32(c, T32_FS_SCALER + 4));
+		}
+		T32_SHOW_PSEQ(m, "crop : %s\n", c[T32_FS_CROP_EN] ? "enable" : "disable");
+		if (c[T32_FS_CROP_EN]) {
+			T32_SHOW_PSEQ(m, "crop top: %d\n", t32_g_rd32(c, T32_FS_CROP));
+			T32_SHOW_PSEQ(m, "crop left: %d\n", t32_g_rd32(c, T32_FS_CROP + 4));
+			T32_SHOW_PSEQ(m, "crop width: %d\n", t32_g_rd32(c, T32_FS_CROP + 8));
+			T32_SHOW_PSEQ(m, "crop height: %d\n", t32_g_rd32(c, T32_FS_CROP + 12));
+		}
+		T32_SHOW_PSEQ(m, "the state of buffers:\n");
+		os->lock_irqsave((void *)(uintptr_t)(c + T32_FS_LOCK), &flags);
+		T32_SHOW_PSEQ(m, "queue count: %d\n", t32_g_rd32(c, T32_FS_QCOUNT));
+		t32_fs_show_list(m, "queue addr: 0x%08lx\n", c + T32_FS_QLIST, 124);
+		T32_SHOW_PSEQ(m, "done count: %d\n", t32_g_rd32(c, T32_FS_DCOUNT));
+		t32_fs_show_list(m, "done addr: 0x%08lx\n", c + T32_FS_DLIST, 132);
+		os->unlock_irqrestore((void *)(uintptr_t)(c + T32_FS_LOCK), flags);
+		T32_SHOW_PSEQ(m, "the output buffers is: %d\n", t32_g_rd32(c, T32_FS_OUT_BUFS));
+		T32_SHOW_PSEQ(m, "the losted buffers is: %d\n", t32_g_rd32(c, T32_FS_LOST_BUFS));
+		T32_SHOW_PSEQ(m, "---------------------------\n");
+		for (k = 0; k < 64; k++) {
+			b = T32_PTR(t32_g_rd32(c, T32_FS_BUFS + 4 * k));
+			if (b)
+				T32_SHOW_PSEQ(m, "buf:%d, state:%d, buf_state:%d, buf_qcnt:%d, buf_dqcnt:%d\n", k,
+					      t32_g_rd32(b, 100), b[104], t32_g_rd32(b, 108), t32_g_rd32(b, 112));
+		}
+		T32_SHOW_PSEQ(m, "debug: %d\n", t32_g_rd32(c, T32_FS_DEBUG));
+	}
 	return 0;
 }
 
