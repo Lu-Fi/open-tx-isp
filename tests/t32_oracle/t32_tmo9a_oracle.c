@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0
 /*
  * T32 host oracle, TMO phase 9a: our readable port (driver/t32/tx_isp_t32_tmo.h) against the unmodified vendor functions
- * (Matt Davis' recovered C, PR #15 @ 2e2e06bc): tisp_tmo_param_array_set, tisp_tmo_api_set_curve, tisp_tmo_wake_up.
+ * (Matt Davis' recovered C, PR #15 @ 2e2e06bc): tisp_tmo_param_array_set, tisp_tmo_api_set_curve, tisp_tmo_wake_up, tisp_tmo_dn_params_refresh (phase 9c; new context pointer dd0a4[ch] + 11976, gamma block dc274[ch] + 32).
  * Four channels in a canary framed arena.  The setters run the vendor refs of params_hard_refresh, dark_ctr_interp,
  * satcurve_ev_interp, ev_interp, adr_hardpars_ctl and adr_gauss_local (ours: the ports) with random context fields; the unported
  * register refresh callees (tmoadr_default_reg_refresh, tmo_default_reg_refresh, ramY_vi0 / vi1, adr_reg_write_one / 5x5 /
@@ -57,11 +57,12 @@ __asm__(".weak t32_data_e3528\n.set t32_data_e3528, t32_evblk\n"
 u64 tisp_tmo_param_array_set(u32, u32, u32, u32);
 u64 tisp_tmo_api_set_curve(u32, u32, u32, u32);
 u64 tisp_tmo_wake_up(u32, u32, u32, u32);
+u64 tisp_tmo_dn_params_refresh(u32, u32, u32, u32);
 u64 tisp_math_exp2(u32, u32, u32, u32);
 #define FN(x) ((t32o_fn)(void (*)(void))(x))
 
-enum { F_SET, F_CURVE, F_WAKE, F_N };
-static const char *const fname[F_N] = { "param_array_set", "api_set_curve", "wake_up" };
+enum { F_SET, F_CURVE, F_WAKE, F_DN, F_N };
+static const char *const fname[F_N] = { "param_array_set", "api_set_curve", "wake_up", "dn_params_refresh" };
 
 /* vendor stubs: symbol id << 8 | channel (arguments of the unported callees) */
 enum { S_ADR, S_LCAC, S_TMOD, S_VI1, S_VI0, S_SOM, S_F2P, S_SOFT, S_ONE, S_5X5, S_EVERY };
@@ -95,7 +96,8 @@ static u32 rs = 0x9a17e3u;
 static u32 rnd(void) { rs ^= rs << 13; rs ^= rs >> 17; rs ^= rs << 5; return rs; }
 static u32 rb(u32 n) { return rnd() % n; }
 
-static u32 CH, ACH, AIDX, EV0, EV1, EV1M, DRC, STR, OC[4], OS[4], OO[4], OG[4], OB[4], OT[4], OD[4], OSRC, TOT, cur, REG[4];
+static u32 CH, ACH, AIDX, EV0, EV1, EV1M, DRC, STR, OC[4], OS[4], OO[4], OG[4], OB[4], OT[4], OD[4], OSRC, OCN, OGM, VCTXO, TOT, cur, REG[4];
+static struct t32_tmo_rec OR;
 static struct { u16 e3520[4], e3518[4]; s16 pend[4]; u16 r50[4]; u8 r52[4]; u8 d03a0; s16 cache[4]; int g[24]; } TB, TO;
 static u8 TAB[780];
 static u8 IMG[ARN];
@@ -199,6 +201,9 @@ static void gen(int f)
 	OD[3] = lay(20);
 	OSRC = lay(CTXN);
 	fillctx(OSRC);
+	OCN = lay(CTXN);
+	fillctx(OCN);
+	OGM = lay(272);
 	for (i = 0; i < 4; i++) {
 		OC[i] = lay(CTXN);
 		OS[i] = lay(STN);
@@ -246,7 +251,7 @@ static void gen(int f)
 	for (k = 0; k < 24; k++)
 		TB.g[k] = (int)rnd();
 	if (rb(3) == 0) {	/* a cache that matches the context after the copy (gauss_local returns early) */
-		u32 s = f == F_SET ? OSRC : OC[CH];
+		u32 s = f == F_SET ? OSRC : f == F_DN ? OCN : OC[CH];
 		int V = (s16)(IMG[s + 9898] | IMG[s + 9899] << 8) + 80, t = (s16)(IMG[s + 9900] | IMG[s + 9901] << 8);
 		int sc = (s16)(IMG[s + 9902] | IMG[s + 9903] << 8), kk = (s16)(IMG[s + 9904] | IMG[s + 9905] << 8);
 
@@ -262,7 +267,7 @@ static void gen(int f)
 static u64 run_vendor(int f)
 {
 	u8 *b = VA;
-	u32 *rec = t32o_alloc(4 * 64), *rg = t32o_alloc(4 * 16), i;
+	u32 *rec = t32o_alloc(4 * 64), *rg = t32o_alloc(4 * 16), *dcr = t32o_alloc(4 * 64), i;
 	static const u32 lab[10] = { 0x9ea50, 0x9ea6c, 0x9ea88, 0x9eaa4, 0x9eac0, 0x9eadc, 0x9eaf8, 0x9eb14, 0x9eb30, 0x9eb4c };
 	u64 ret = 0;
 
@@ -285,6 +290,9 @@ static u64 run_vendor(int f)
 		t32_data_e35e0[i] = T32O_PTR(r);
 		rg[i * 4 + 2] = REG[i];
 		t32_data_e35d0[i] = T32O_PTR(&rg[i * 4]);
+		dcr[i * 16 + 8] = T32O_PTR(b + OGM);
+		t32_data_dc274[i] = T32O_PTR(&dcr[i * 16]);
+		t32_data_dd0a4[i] = T32O_PTR(b + OCN) - 11976u;
 	}
 	memcpy(t32_data_c029c, b + OD[0], 402);
 	memcpy(t32_data_d89a0, b + OD[1], 402);
@@ -304,8 +312,10 @@ static u64 run_vendor(int f)
 	switch (f) {
 	case F_SET: ret = t32o_call(FN(tisp_tmo_param_array_set), CH, T32O_PTR(b + OSRC), 0, 0, 0); break;
 	case F_CURVE: ret = t32o_call(FN(tisp_tmo_api_set_curve), ACH, AIDX, T32O_PTR(b + OSRC), 0, 0); break;
-	default: ret = t32o_call(FN(tisp_tmo_wake_up), CH, 0, 0, 0, 0); break;
+	case F_WAKE: ret = t32o_call(FN(tisp_tmo_wake_up), CH, 0, 0, 0, 0); break;
+	default: ret = t32o_call(FN(tisp_tmo_dn_params_refresh), CH, 0, 0, 0, 0); break;
 	}
+	VCTXO = rec[CH * 16] - T32O_PTR(b);
 	for (i = 0; i < 4; i++) {
 		TB.r50[i] = ((u16 *)&rec[i * 16])[25];
 		TB.r52[i] = ((u8 *)&rec[i * 16])[52];
@@ -323,24 +333,24 @@ static void sync_cb(u8 *buf, u32 len) { (void)buf; (void)len; SYN_N++; }
 
 static void run_ours(int f)
 {
-	struct t32_tmo_rec r;
+	struct t32_tmo_rec *rp = &OR;
 	struct t32_tmo_set_env e;
 
-	memset(&r, 0, sizeof(r));
-	r.ctx = OA + OC[CH];
-	r.st = OA + OS[CH];
-	r.out = (u16 *)(OA + OO[CH]);
-	r.geom = (u16 *)(OA + OG[CH]);
-	r.big = OA + OB[CH];
-	r.ev0 = EV0; r.ev1 = EV1; r.ev1m = EV1M;
-	r.drc_on = (u16)DRC; r.strength = (u16)STR;
-	r.dflt = (const u16 *)(OA + OD[0]);
-	r.d89a0 = (const u16 *)(OA + OD[1]);
-	r.c0544 = (const u16 *)(OA + OD[2]);
-	r.tbuf = OA + OT[CH];
-	r.c0430 = (const u16 *)(OA + OD[3]);
-	r.dma_sync = sync_cb;
-	e.r = &r;
+	memset(rp, 0, sizeof(*rp));
+	rp->ctx = OA + OC[CH];
+	rp->st = OA + OS[CH];
+	rp->out = (u16 *)(OA + OO[CH]);
+	rp->geom = (u16 *)(OA + OG[CH]);
+	rp->big = OA + OB[CH];
+	rp->ev0 = EV0; rp->ev1 = EV1; rp->ev1m = EV1M;
+	rp->drc_on = (u16)DRC; rp->strength = (u16)STR;
+	rp->dflt = (const u16 *)(OA + OD[0]);
+	rp->d89a0 = (const u16 *)(OA + OD[1]);
+	rp->c0544 = (const u16 *)(OA + OD[2]);
+	rp->tbuf = OA + OT[CH];
+	rp->c0430 = (const u16 *)(OA + OD[3]);
+	rp->dma_sync = sync_cb;
+	e.r = rp;
 	e.rec50 = &TO.r50[CH];
 	e.rec52 = &TO.r52[CH];
 	e.pend = (u16 *)&TO.pend[CH];
@@ -360,7 +370,8 @@ static void run_ours(int f)
 	switch (f) {
 	case F_SET: t32_tmo_param_array_set(&e, OA + OSRC, (int)CH); break;
 	case F_CURVE: t32_tmo_api_set_curve(&e, AIDX, OA + OSRC, (int)ACH); break;
-	default: t32_tmo_wake_up(OA + OC[CH], REG[CH], TO.d03a0, h_regw, h_wake, 0, (int)CH); break;
+	case F_WAKE: t32_tmo_wake_up(OA + OC[CH], REG[CH], TO.d03a0, h_regw, h_wake, 0, (int)CH); break;
+	default: t32_tmo_dn_params_refresh(&e, OA + OCN, OA + OGM, (int)CH); break;
 	}
 }
 
@@ -395,12 +406,14 @@ int main(void)
 						return 1;
 					}
 			} else {
-				u32 want = IMG[(f == F_SET ? OSRC : OC[CH]) + 10042] == 0;
-				u32 s4 = *(u8 *)(VA + OC[CH] + 10042) == 0;
+				u32 want = 0;
+				u32 s4 = *(u8 *)(VA + (f == F_DN ? OCN : OC[CH]) + 10042) == 0;
 
 				(void)want;
 				if (t32o_log.n || t32o_log.printfs != s4) { printf("MISMATCH %s printf %u (expect %u) writes %u\n", fname[f], t32o_log.printfs, s4, t32o_log.n); return 1; }
 			}
+			if (f != F_DN) VCTXO = OC[CH];
+			if ((u32)(OR.ctx - OA) != VCTXO) { printf("MISMATCH %s case %u: ctx pointer %u vs %u\n", fname[f], c, VCTXO, (u32)(OR.ctx - OA)); return 1; }
 			if (memcmp(&TB, &TO, sizeof(TB))) {
 				u8 *x = (u8 *)&TB, *y = (u8 *)&TO;
 				u32 q;
@@ -417,6 +430,6 @@ int main(void)
 				return 1;
 			}
 		}
-	printf("t32_tmo9a_oracle: %u cases compared (3 functions), 0 mismatches\n", compared);
+	printf("t32_tmo9a_oracle: %u cases compared (4 functions), 0 mismatches\n", compared);
 	return 0;
 }

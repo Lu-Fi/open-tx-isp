@@ -1831,3 +1831,108 @@ static inline void t32_tmo_faceae_refresh(u8 *st, u32 flag, const u8 *a, const u
 	memcpy(st + 36, d, 12);
 	hook(cb, ch);
 }
+
+/* ---- phase 9c: deinit, dn_params_refresh, interrupt_static ---- */
+
+/*
+ * tisp_tmo_deinit (ch): the channel's four allocation records are released in this order (all pointers are 32 bit addresses
+ * stored in the slots; each member is freed only when non-zero and cleared afterwards):
+ *  e35d0 slot P: P[1] kfree'd, then P itself vfree'd and the slot cleared; e35c0 slot: vfree'd and cleared;
+ *  e35e0 slot R: R[3] (+12) vfree, R[1] (+4) vfree, R[4] (+16) vfree, R[5] (+20) kfree, R[2] (+8) vfree, then R vfree'd and the slot
+ *  cleared; e35b0 slot B: B[0], B[1], B[2] kfree'd, then B kfree'd and the slot cleared.  A slot that is 0 is skipped (for e35d0
+ * and e35e0 / e35b0 with all their members; the e35c0 slot is tested on its own).  Return value 0.
+ */
+static inline void t32_tmo_deinit(u32 *e35d0, u32 *e35c0, u32 *e35e0, u32 *e35b0, void (*vfree)(void *, u32), void (*kfree)(void *, u32),
+				  void *cb)
+{
+	u32 *p;
+	static const u8 vo[3] = { 3, 1, 4 };
+	int i;
+
+	if (*e35d0) {
+		p = (u32 *)(uintptr_t)*e35d0;
+		if (p[1]) {
+			kfree(cb, p[1]);
+			p[1] = 0;
+		}
+		vfree(cb, *e35d0);
+		*e35d0 = 0;
+	}
+	if (*e35c0) {
+		vfree(cb, *e35c0);
+		*e35c0 = 0;
+	}
+	if (*e35e0) {
+		p = (u32 *)(uintptr_t)*e35e0;
+		for (i = 0; i < 3; i++)
+			if (p[vo[i]]) {
+				vfree(cb, p[vo[i]]);
+				p[vo[i]] = 0;
+			}
+		if (p[5]) {
+			kfree(cb, p[5]);
+			p[5] = 0;
+		}
+		if (p[2]) {
+			vfree(cb, p[2]);
+			p[2] = 0;
+		}
+		vfree(cb, *e35e0);
+		*e35e0 = 0;
+	}
+	if (*e35b0) {
+		p = (u32 *)(uintptr_t)*e35b0;
+		for (i = 0; i < 3; i++)
+			if (p[i]) {
+				kfree(cb, p[i]);
+				p[i] = 0;
+			}
+		kfree(cb, *e35b0);
+		*e35b0 = 0;
+	}
+}
+
+/*
+ * tisp_tmo_dn_params_refresh (ch): 258 bytes (the gamma block of dc274[ch]) are copied to the OLD context + 9272, then the
+ * record's context pointer is replaced by new_ctx (dd0a4[ch] + 11976) and the same refresh as the setters runs (new context).
+ */
+static inline void t32_tmo_dn_params_refresh(struct t32_tmo_set_env *e, u8 *new_ctx, const u8 *gamma, int ch)
+{
+	memcpy(e->r->ctx + 9272, gamma, 258);
+	e->r->ctx = new_ctx;
+	t32_tmo_set_refresh(e, ch);
+}
+
+/*
+ * tisp_tmo_interrupt_static (ch): the counters e3516 (u16, +1, back to 0 at 201) and e350c (u32, +1, back to 0 at 601) advance;
+ * reg = system_reg_read (28952); the 16 KB half (reg & 3) << 14 of the buffer buf (e35d0 record word 1) is synced
+ * (private_dma_cache_sync (0, buf + off, 16384, 0)) and passed to tmoadr_get_statistics (hook 0, arg = buf + off); stat byte 385 == 1:
+ * tmo2fbf_input_prep (hook 1), tmo2fbf_process (hook 2); == 0: adr_soft_process (hook 3); other: nothing.  Then record +44 (u16) = +1, or 1
+ * when that is >= 2, +50 = 1, +46 = 0, *e3504 = ch.  Returns 1.  hook(cb, id, ch, arg).
+ */
+static inline int t32_tmo_interrupt_static(u16 *e3516, u32 *e350c, u32 (*rdreg)(void *, u32), void (*dma)(void *, u32, u32),
+					   u32 buf, const u8 *st, u16 *rec44, u16 *rec46, u16 *rec50, u32 *e3504,
+					   void (*hook)(void *, int, int, u32), void *cb, int ch)
+{
+	u32 s4 = st[385], v, s2;
+
+	v = (u32)(u16)(*e3516 + 1U);
+	*e3516 = v < 201 ? (u16)v : 0;
+	v = *e350c + 1U;
+	*e350c = (int)v < 601 ? v : 0;
+	s2 = buf + ((rdreg(cb, 28952) & 3U) << 14);
+	dma(cb, s2, 16384);
+	hook(cb, 0, ch, s2);
+	if (s4 == 1) {
+		hook(cb, 1, ch, 0);
+		hook(cb, 2, ch, 0);
+	} else if (s4 == 0) {
+		hook(cb, 3, ch, 0);
+	}
+	v = (u32)(u16)(*rec44 + 1U);
+	*rec44 = v < 2 ? (u16)v : 1;
+	*rec50 = 1;
+	*rec46 = 0;
+	*e3504 = (u32)ch;
+	return 1;
+}
