@@ -792,7 +792,7 @@ u32 t32_data_dd0b4[24] __attribute__((weak));	/* per channel 6 bank tuning point
 /* ---- op7-lib-rest (fix_point_*, log2, ae_lib, block leftovers) ---- */
 /* printk format strings of fix_point_sub / _sub_32 / _sub_64 (c79e8) and fix_point_intp (bee70 function name,
  * c7a2c format): only handed to isp_printf */
-char t32_data_c79e8[4] = "f", t32_data_bee70[4] = "f", t32_data_c7a2c[4] = "f";
+char t32_data_c79e8[4] = "f", t32_data_bee70[4] __attribute__((weak)) = "f", t32_data_c7a2c[4] __attribute__((weak)) = "f";
 /* tisp_api_get/set_bayer_type: function names (bf328, bf310) and format (c84c4), only handed to isp_printf */
 char t32_data_bf328[4] = "f", t32_data_bf310[4] = "f", t32_data_c84c4[4] = "f";
 /* lib_tisp_vic_get_par: VIC parameter words (.bss e3f30, e3f2c); lib_tisp_api_get_3a_info: AE debug trace
@@ -929,7 +929,7 @@ char t32_data_c40c0[24] __attribute__((weak)) = "VIC:%d  Frame %d Start";
 u32 t32_data_c40d8[1] __attribute__((weak)), t32_data_bd790[1] __attribute__((weak));
 /* ---- op10-lce-v4 (Tisp_lce_soft_simd_v4, t32_lcev4_*_oracle) ---- */
 /* memcpy_simd (the vendor's MXU2 block copy): a plain copy for the host */
-u64 memcpy_simd(u32 a0, u32 a1, u32 a2, u32 a3)
+__attribute__((weak)) u64 memcpy_simd(u32 a0, u32 a1, u32 a2, u32 a3)
 {
 	(void)a3;
 	memmove((void *)(uintptr_t)a0, (const void *)(uintptr_t)a1, a2);
