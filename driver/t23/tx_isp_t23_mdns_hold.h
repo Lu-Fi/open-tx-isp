@@ -11,7 +11,9 @@
  * the gain-step rewrite.  While the hold is set the writers emit these
  * words instead of the computed ones.  Value 0 = no change, zero cost.
  *
- *   bit 0  0x799c / 0x7a6c  f_max = f_min = b_max = 0xff, b_min = 0
+ *   bit 0  0x799c / 0x7a6c  f_max = f_min = b_max = b_min = 0xff (b_min 0 left
+ *          the chroma reference weight below 1: injected chroma U/V SSIM
+ *          0.87/0.89 instead of 0.97 on the device, 2026-11-11)
  *   bit 1  0x7998 / 0x7a68  fake and mv weight = 0xff (other fields kept)
  *   bit 2  0x79a0 / 0x7a70  r_max = r_min = 0xff (increase kept)
  */
@@ -30,7 +32,7 @@ static inline unsigned int t23_mdns_hold_word(unsigned int hold, unsigned int re
     switch (reg) {
     case 0x799c:
     case 0x7a6c:
-        return (hold & T23_MDNS_HOLD_WEI) ? 0x00ffffffu : computed;
+        return (hold & T23_MDNS_HOLD_WEI) ? 0xffffffffu : computed;
     case 0x7998:
     case 0x7a68:
         return (hold & T23_MDNS_HOLD_FAKEMV) ?

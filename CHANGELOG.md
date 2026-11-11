@@ -4,6 +4,10 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD[-rcN]` are set on the `aperto` branch, the same tag in open-tx-isp and OpenIMP: RC1 `v2026.10.11-rc1`, RC2 `v2026.10.25-rc2`, RC3 `v2026.11.07-rc3` (2026-11-07). Gate SoCs of RC3 and Release 1: T10, T20, T21, T23, T30, T31, T40, T41 (T32/T33 planned, QEMU only); release notes: [docs/releases/ in OpenIMP](https://github.com/Lu-Fi/openimp/blob/next/docs/releases/README.md). Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-11-11: T23 mdns_ref_hold holds b_min too (openimp #103; T23 device-tested)
+
+- Bit 0 of `mdns_ref_hold` now writes `0x799c` / `0x7a6c` = `0xffffffff` (before `0x00ffffff`, `b_min` 0). With `b_min` 0 the chroma reference weight stayed below 1, so the injected test picture's chroma (OpenIMP test pattern mode 5) reached only U/V SSIM 0.87/0.89. With the register value set by hand on the installed driver it reaches 0.96. Test module on the T23 (sc1a4t): the hold words read back `0xffffffff`, luma 0.963, 3 on/off cycles restore the computed words. Host test `tx_isp_t23_mdns_hold_test` updated. Open (openimp #340): in colour day mode the chroma still leaks about 30 % live picture with bit 0 alone (U/V 0.90); `mdns_ref_hold=7` (also the fake/mv and r weights 0x7a68/0x7a70) gives U/V 0.97 day and night, same on the installed driver, so not a driver regression.
+
 ## 2026-11-11: T31 IPU ahb1 clk_put under its #ifdef, sensor s_register documented (openimp #341; k7 cross-build, not on a camera)
 
 - `t31_ipu`: the probe error path and `remove` now put the ahb1 gate only under `IPU_T31_AHB1`, the same guard as its `clk_get` (no behaviour change, the macro is 1).
