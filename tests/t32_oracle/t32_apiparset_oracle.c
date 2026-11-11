@@ -104,7 +104,7 @@ int main(void)
 {
 	u8 *in = t32o_alloc(INB);
 	static u8 mo[32], mp[MPB], ma[512];
-	unsigned long n, N = 20000, per[18] = { 0 };
+	unsigned long n, N = 20000, per[18] = { 0 }, nbad = 0;
 	u32 i;
 
 	for (n = 0; n < N; n++) {
@@ -115,7 +115,8 @@ int main(void)
 		id = a2 & 0xffff;
 		rv_seed = rnd();
 		fill(in, INB);
-		if (rnd() & 7) { in[T32_APS_CHN_SEL] %= 3; in[T32_APS_BLK_SEL] &= 7; }
+		if (rnd() & 7) { in[T32_APS_CHN_SEL] %= 3; in[T32_APS_BLK_SEL] = rnd() % 3 ? in[T32_APS_BLK_SEL] & 7 : in[T32_APS_BLK_SEL] % 20; }
+		else if (rnd() & 1) { in[T32_APS_CHN_SEL] = 2 + rnd() % 2; in[T32_APS_BLK_SEL] = 7 + rnd() % 14; }	/* bounds +-1 */
 		fill(t32_data_e4000, 32); memcpy(mo, t32_data_e4000, 32);
 		fill(t32_data_f0928, MPB); memcpy(mp, t32_data_f0928, MPB);
 		fill(ma, 512); memcpy(t32_data_f3258, ma, 512);
@@ -129,6 +130,21 @@ int main(void)
 		memset(&vl, 0, sizeof(vl)); cur = &vl;
 		rv = (u32)t32o_call((t32o_fn)(void (*)(void))tisp_api_param_array_set, a0, T32O_PTR(in), a2, rnd(), 0);
 
+		/*
+		 * BEYOND VENDOR (#281): an out-of-range selector returns -22 after the store copy, without a
+		 * setter call; the stores are still compared, the call log and return value are ours only.
+		 */
+		if ((id == 3 && in[T32_APS_BLK_SEL] >= 20) || (id == 4 && in[T32_APS_BLK_SEL] >= 8) ||
+		    ((id == 5 || id == 8) && in[T32_APS_CHN_SEL] >= 3)) {	/* literal bounds: the header's may be mutated */
+			if (ro != 0xffffffeaU || ol.n || memcmp(t32_data_f3258, ma, 512) || memcmp(t32_data_e4000, mo, 32) ||
+			    memcmp(t32_data_f0928, mp, MPB)) {
+				printf("t32_apiparset_oracle: FAIL case %lu id %#x: selector guard (beyond vendor) ret %#x calls %u\n",
+				       n, a2, ro, ol.n);
+				return 1;
+			}
+			nbad++;
+			continue;
+		}
 		if ((id < 17 && id != 0 && id != 6 && id != 15 && id != 16 && rv != ro) || vl.n != ol.n ||
 		    memcmp(vl.e, ol.e, sizeof(vl.e)) || memcmp(t32_data_f3258, ma, 512) || memcmp(t32_data_e4000, mo, 32) ||
 		    memcmp(t32_data_f0928, mp, MPB)) {
@@ -148,6 +164,6 @@ int main(void)
 	}
 	printf("t32_apiparset_oracle: PASS %lu cases (", N);
 	for (i = 0; i < 18; i++) printf("%s%lu", i ? " " : "", per[i]);
-	printf(" per id, last = unknown)\n");
-	return 0;
+	printf(" per id, last = unknown), %lu out-of-range selectors (beyond vendor, ours only)\n", nbad);
+	return nbad ? 0 : 1;
 }
