@@ -6,6 +6,7 @@
  * - tisp_vic_mdma_enable: VIC memory DMA size, strides, buffer addresses, enable.
  * - tisp_ae_algo_init: fill the AE algorithm init block from tuning / parameters.
  * - tisp_ae_ai_interrupt_static: AE statistics latch, window area, ROI point.
+ * - tisp_ae_par_update_trig: AE parameter refresh from tuning / sensor attributes.
  *
  * OS calls are hooks.  Pointers the vendor keeps in its tables are 32-bit
  * words (MIPS32 kernel), read and cleared in place.
@@ -315,6 +316,62 @@ static inline int t32_ae_ai_interrupt_static(struct t32_aeirq *a, u32 ch)
 			  t32_br_rd16(par + T32_AEI_PAR_ROI + 8),
 			  t32_br_rd16(par + T32_AEI_PAR_ROI + 12));
 	return 1;
+}
+
+/* ---- tisp_ae_par_update_trig (vendor 0x30a8c), oracle t32_aeupd_oracle ---- */
+
+#define T32_AEU_TUN_SRC		12833	/* 9 bytes tuning -> parameter +1276 */
+#define T32_AEU_PAR_DST		1276
+#define T32_AEU_COPY		9
+#define T32_AEU_CTX_WDR		8	/* AE context word: 1 = WDR (short frame too) */
+#define T32_AEU_BLK_SRC		908	/* 256 bytes of the context's first block -> parameter +928 */
+#define T32_AEU_PAR_SHORT	928
+#define T32_AEU_SHORT_COPY	256
+#define T32_AEU_SENSOR_STRIDE	232	/* t32_data_dd2d4: sensor attributes per channel, passed by value */
+
+struct t32_aeu_ops {
+	void (*sensor_update)(u32 ch, const u8 *attr);		/* tisp_ae_sensor_par_ctrls_update */
+	void (*short_sensor_update)(u32 ch, const u8 *attr);	/* tisp_ae_short_sensor_par_ctrls_update */
+	void (*par_calc)(u32 ch);				/* tisp_ae_par_calc */
+	void (*deflicker_cfg)(u32 ch);				/* tisp_ae_clac_deflicker_cfg */
+	u32 (*set_sensor_fps)(u32 ch);				/* tisp_set_ae_sensor_fps */
+};
+
+struct t32_aeu {
+	const struct t32_aeu_ops *ops;
+	const u32 *ctx;		/* t32_data_e15a8[4]: +0 block, +4 tuning block, +8 WDR word */
+	const u32 *par;		/* t32_data_e1588[4]: AE parameter block */
+	const u8 *sensor;	/* t32_data_dd2d4 */
+	const u8 *shadow;	/* t32_data_d03a0 */
+};
+
+/*
+ * tisp_ae_par_update_trig: refresh the AE parameters from the tuning and
+ * sensor attributes, recalculate, then (direct register mode only) the
+ * sensor fps.  Returns the fps result, or in shadow mode the shadow byte
+ * (vendor left-over register).
+ */
+static inline u32 t32_ae_par_update_trig(struct t32_aeu *a, u32 ch)
+{
+	const u8 *ctx = t32_br_ptr(a->ctx[ch]);
+	const u8 *attr = a->sensor + T32_AEU_SENSOR_STRIDE * ch;
+	u8 shadow;
+
+	memcpy(t32_br_ptr(a->par[ch]) + T32_AEU_PAR_DST, t32_br_ptr(t32_br_rd32(ctx + 4)) + T32_AEU_TUN_SRC,
+	       T32_AEU_COPY);
+	a->ops->sensor_update(ch & 0xff, attr);
+	ctx = t32_br_ptr(a->ctx[ch]);
+	if (t32_br_rd32(ctx + T32_AEU_CTX_WDR) == 1) {
+		memcpy(t32_br_ptr(a->par[ch]) + T32_AEU_PAR_SHORT, t32_br_ptr(t32_br_rd32(ctx)) + T32_AEU_BLK_SRC,
+		       T32_AEU_SHORT_COPY);
+		a->ops->short_sensor_update(ch & 0xff, attr);
+	}
+	a->ops->par_calc(ch);
+	a->ops->deflicker_cfg(ch);
+	shadow = *a->shadow;
+	if (shadow)
+		return shadow;
+	return a->ops->set_sensor_fps(ch & 0xff);
 }
 
 #endif /* TX_ISP_T32_BLKREST_H */

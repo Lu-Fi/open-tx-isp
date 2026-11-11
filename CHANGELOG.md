@@ -28,6 +28,7 @@ marked otherwise. Release tags `vYYYY.MM.DD` on the `aperto` branch are planned 
 - `tx_isp_t32_blkrest.h` + tisp_vic_mdma_enable (VIC memory DMA: size, strides, up to 4 buffer addresses for raw / Y / UV / NV12, enable word per mode; mode 1 returns 1 without enable). `t32_vicmdma_oracle`: 30000 cases, every register write, 17/17 mutations.
 - `tx_isp_t32_blkrest.h` + tisp_ae_algo_init (enable word; on enable: completion init, AE algorithm init block from 8 tuning / 16 parameter words, exposure / gain register read when the tuning word is 0, zone word). Vendor result is a left-over register; info +126..+131 are vendor stack left-over (0 here). `t32_aealgo_oracle`: 20000 cases, 19/19 mutations.
 - `tx_isp_t32_blkrest.h` + tisp_ae_ai_interrupt_static (6 AE statistics words latched; on a change of the first three: store them, window area from the window registers (each read twice, as the vendor), then tisp_ae_roi_point with the 4 ROI words). `t32_aeirq_oracle`: 20000 cases, every register read and the ROI call with 5 arguments, 17/17 mutations.
+- `tx_isp_t32_blkrest.h` + tisp_ae_par_update_trig (9 tuning bytes to the parameters, sensor update with the 232-byte attributes by value, WDR: 256-byte short block + short sensor update, par_calc, deflicker cfg, sensor fps in direct register mode; shadow mode returns the shadow byte, vendor left-over). `t32_aeupd_oracle`: 20000 cases, callees with all by-value bytes, 16/16 mutations.
 
 ## 2026-11-11: T32 API getters, 69 functions (planned, host only, not device-tested)
 
