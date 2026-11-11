@@ -18945,6 +18945,8 @@ static void tx_isp_t20_simple_awb_update(int32_t *awb_fsm)
 	const u16 *light_sources;
 	const u16 *ct_mesh;
 	const u8 *average_coefficient;
+	u32 light_source_count;
+	u32 low_rg, high_rg, low_bg, high_bg;
 	u64 weighted_rg = 0;
 	u64 weighted_bg = 0;
 	u64 total_weight = 0;
@@ -19022,7 +19024,19 @@ static void tx_isp_t20_simple_awb_update(int32_t *awb_fsm)
 		T20_CAL_MESH_RGBG_WEIGHT, 15, 15);
 	light_source_mesh = tx_isp_t20_awb_u16_table(
 		T20_CAL_MESH_LS_WEIGHT, 15, 15);
-	light_sources = tx_isp_t20_awb_u16_table(T20_CAL_LIGHT_SRC, 2, 2);
+	/*
+	 * openimp #353: CALIBRATION_LIGHT_SRC is one (R/G, B/G) row per known
+	 * light source; OEM awb_calc_avg_weighted_gr_gb_mesh loops over
+	 * _GET_ROWS(239) rows of _GET_COLS(239) entries.  The jxf23 bin has 2
+	 * rows, the jxf22 bin 4: requiring exactly 2x2 left the AWB without
+	 * tables on jxf22, so the gains stayed at the static WB.
+	 */
+	light_source_count = _GET_ROWS(T20_CAL_LIGHT_SRC);
+	light_sources = _GET_COLS(T20_CAL_LIGHT_SRC) == 2 &&
+		_GET_WIDTH(T20_CAL_LIGHT_SRC) == sizeof(u16) &&
+		light_source_count ?
+		(const u16 *)(uintptr_t)_GET_USHORT_PTR(T20_CAL_LIGHT_SRC) :
+		NULL;
 	ct_mesh = tx_isp_t20_awb_u16_table(
 		T20_CAL_MESH_COLOR_TEMPERATURE, 15, 15);
 	if (!static_wb || !average_coefficient || !average_coefficient[0] ||
@@ -19030,6 +19044,17 @@ static void tx_isp_t20_simple_awb_update(int32_t *awb_fsm)
 	    !light_sources || !ct_mesh)
 		return;
 	coefficient = average_coefficient[0];
+	/* OEM: the accepted box spans the mesh axes and every light source */
+	low_rg = rg_pos[0];
+	high_rg = rg_pos[14];
+	low_bg = bg_pos[0];
+	high_bg = bg_pos[14];
+	for (zone = 0; zone < light_source_count; zone++) {
+		low_rg = min_t(u32, low_rg, light_sources[zone * 2]);
+		high_rg = max_t(u32, high_rg, light_sources[zone * 2]);
+		low_bg = min_t(u32, low_bg, light_sources[zone * 2 + 1]);
+		high_bg = max_t(u32, high_bg, light_sources[zone * 2 + 1]);
+	}
 
 	/*
 	 * OEM T20 awb_read_statistics() adds the 0x8000 statistics-bank base
@@ -19057,13 +19082,13 @@ static void tx_isp_t20_simple_awb_update(int32_t *awb_fsm)
 			continue;
 		mesh_rg = 0xffffU / scaled_rg;
 		mesh_bg = 0xffffU / scaled_bg;
-		if (mesh_rg < rg_pos[0] || mesh_rg > rg_pos[14] ||
-		    mesh_bg < bg_pos[0] || mesh_bg > bg_pos[14])
+		if (mesh_rg < low_rg || mesh_rg > high_rg ||
+		    mesh_bg < low_bg || mesh_bg > high_bg)
 			continue;
 
 		mesh_weight = tx_isp_t20_awb_mesh_lookup(rg_pos, bg_pos,
 			weight_mesh, mesh_rg, mesh_bg);
-		for (i = 0; i < 2; i++) {
+		for (i = 0; i < light_source_count; i++) {
 			u32 source_weight = tx_isp_t20_awb_known_source_weight(
 				light_source_mesh, mesh_rg, mesh_bg,
 				light_sources[i * 2], light_sources[i * 2 + 1]);
