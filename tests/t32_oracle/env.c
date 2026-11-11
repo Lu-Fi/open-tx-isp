@@ -851,3 +851,8 @@ u32 t32_data_cd364[1] __attribute__((weak)), t32_data_cd390[1] __attribute__((we
 u32 t32_data_d9008[1] __attribute__((weak)), t32_data_f3314[1] __attribute__((weak)), t32_data_f3354[1] __attribute__((weak));
 u32 t32_data_d8e6c[3] __attribute__((weak)), t32_data_d8e78[3] __attribute__((weak)), t32_data_d8e84[3] __attribute__((weak));
 u32 t32_data_f3360[3] __attribute__((weak)), t32_data_c3660[1] __attribute__((weak)), t32_data_cd04c[1] __attribute__((weak));
+/* ispcore_activate_module: data.c:16408..16414 (ccfcc "mux_isp", ccfd4 "mux_isps", ccfe0 "mux_ldc"), formats by address only */
+u32 t32_data_ccfcc[2] __attribute__((weak)) = { 0x5f78756d, 0x00707369 };
+u32 t32_data_ccfd4[3] __attribute__((weak)) = { 0x5f78756d, 0x73707369, 0x00000000 };
+u32 t32_data_ccfe0[2] __attribute__((weak)) = { 0x5f78756d, 0x0063646c };
+u32 t32_data_c3648[1] __attribute__((weak)), t32_data_ccfe8[1] __attribute__((weak)), t32_data_cd028[1] __attribute__((weak));
