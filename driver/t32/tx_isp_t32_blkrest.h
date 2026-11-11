@@ -9,6 +9,7 @@
  * - tisp_ae_par_update_trig: AE parameter refresh from tuning / sensor attributes.
  * - tisp_lce_par: per-frame LCE calculation (locked statistics copy, soft path, curve).
  * - tisp_lce_interrupt_static: LCE statistics bank, histogram rearm, curve roll.
+ * - tisp_api_param_array_get: ISP API parameter read by id.
  *
  * OS calls are hooks.  Pointers the vendor keeps in its tables are 32-bit
  * words (MIPS32 kernel), read and cleared in place.
@@ -502,6 +503,104 @@ static inline int t32_lce_interrupt_static(struct t32_lci *l, u32 ch)
 	t32_lci_wr(l, ch, T32_LCI_R_CURVE_ADDR, T32_LCI_S_CURVE_ADDR, b->curve_phys);
 	*l->last_ch = ch;
 	return 1;
+}
+
+/* ---- tisp_api_param_array_get (vendor 0xb2a54), oracle t32_apiget_oracle ---- */
+
+enum t32_api_par_id {		/* jump table t32_data_c2f00, 17 entries */
+	T32_API_MASK_ATTR = 0,	/* 32 B per channel, t32_data_f3258 */
+	T32_API_PIPE_EN = 1,	/* channel state (t32_data_dc284, 904 B) byte +37, as a u32 */
+	T32_API_MASK_OUT = 2,	/* 24 B via tisp_msca_api_get_mask_out_cfg */
+	T32_API_MSCA_PAR3 = 3,	/* 3 .. 6 and 8: the 2636 B MSCA parameters */
+	T32_API_FCROP = 7,	/* 20 B via tisp_g_fcrop_control */
+	T32_API_AUTOZOOM = 9,	/* 60 B via tisp_msca_api_get_autozoom */
+	T32_API_BRIGHT = 10,	/* 1 B via tisp_bcsh_api_get_brightness */
+	T32_API_ZERO11 = 11,	/* 11 .. 16: one 0 byte */
+	T32_API_IDS = 17,
+};
+
+#define T32_API_MASK_ATTR_LEN	32
+#define T32_API_PIPE_STRIDE	904
+#define T32_API_PIPE_BYTE	37
+#define T32_API_MASK_OUT_LEN	24
+#define T32_API_MSCA_PAR_LEN	2636
+#define T32_API_FCROP_LEN	20
+#define T32_API_AUTOZOOM_LEN	60
+
+struct t32_apig_ops {
+	void (*mask_out_cfg)(u32 ch, u8 *cfg);		/* tisp_msca_api_get_mask_out_cfg */
+	void (*fcrop)(u32 ch, u8 *buf);			/* tisp_g_fcrop_control */
+	void (*msca_par)(u32 ch, u8 *par);		/* tisp_msca_api_get_par */
+	void (*brightness)(u32 ch, u8 *b);		/* tisp_bcsh_api_get_brightness */
+	void (*autozoom)(u32 ch, u8 *buf);		/* tisp_msca_api_get_autozoom */
+};
+
+struct t32_apig {
+	const struct t32_apig_ops *ops;
+	const u8 *mask_attr;	/* t32_data_f3258 */
+	const u8 *pipe;		/* t32_data_dc284 */
+	u8 *mask_out;		/* t32_data_e4000 (one 24 B block for all channels) */
+	u8 *msca_par;		/* t32_data_f0928, 2636 B per channel */
+};
+
+/*
+ * tisp_api_param_array_get: copy parameter id of channel ch & 0xff into out
+ * and its length into *len.  The vendor's result is a left-over register:
+ * the length, except for the MSCA parameters (the out pointer) and an
+ * unknown id (no copy, no length, debug print); 0 is returned for those.
+ */
+static inline u32 t32_api_param_array_get(struct t32_apig *g, u32 ch, u8 *out, u32 *len, u32 id)
+{
+	u8 buf[T32_API_AUTOZOOM_LEN];
+	u32 n, w;
+
+	ch &= 0xff;
+	id &= 0xffff;
+	memset(buf, 0, sizeof(buf));
+	switch (id) {
+	case T32_API_MASK_ATTR:
+		n = T32_API_MASK_ATTR_LEN;
+		memcpy(out, g->mask_attr + T32_API_MASK_ATTR_LEN * ch, n);
+		break;
+	case T32_API_PIPE_EN:
+		n = 4;
+		w = g->pipe[T32_API_PIPE_STRIDE * ch + T32_API_PIPE_BYTE];
+		memcpy(out, &w, n);
+		break;
+	case T32_API_MASK_OUT:
+		n = T32_API_MASK_OUT_LEN;
+		g->ops->mask_out_cfg(ch, g->mask_out);
+		memcpy(out, g->mask_out, n);
+		break;
+	case T32_API_MSCA_PAR3: case 4: case 5: case 6: case 8:
+		g->ops->msca_par(ch, g->msca_par + T32_API_MSCA_PAR_LEN * ch);
+		memcpy(out, g->msca_par + T32_API_MSCA_PAR_LEN * ch, T32_API_MSCA_PAR_LEN);
+		*len = T32_API_MSCA_PAR_LEN;
+		return 0;
+	case T32_API_FCROP:
+		n = T32_API_FCROP_LEN;
+		g->ops->fcrop(ch, buf);
+		memcpy(out, buf, n);
+		break;
+	case T32_API_AUTOZOOM:
+		n = T32_API_AUTOZOOM_LEN;
+		g->ops->autozoom(ch, buf);
+		memcpy(out, buf, n);
+		break;
+	case T32_API_BRIGHT:
+		n = 1;
+		g->ops->brightness(ch, buf);
+		memcpy(out, buf, n);
+		break;
+	default:
+		if (id >= T32_API_IDS)
+			return 0;
+		n = 1;			/* 11 .. 16 */
+		memcpy(out, buf, n);
+		break;
+	}
+	*len = n;
+	return n;
 }
 
 #endif /* TX_ISP_T32_BLKREST_H */
