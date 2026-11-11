@@ -4,6 +4,12 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD[-rcN]` are set on the `aperto` branch, the same tag in open-tx-isp and OpenIMP: RC1 `v2026.10.11-rc1`, RC2 `v2026.10.25-rc2`, RC3 `v2026.11.07-rc3` (2026-11-07). Gate SoCs of RC3 and Release 1: T10, T20, T21, T23, T30, T31, T40, T41 (T32/T33 planned, QEMU only); release notes: [docs/releases/ in OpenIMP](https://github.com/Lu-Fi/openimp/blob/next/docs/releases/README.md). Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-11-11: T41 RAW ring no longer resets the board; IMP_ISP_RAW_RwControl served by default (openimp #320; T41 gc5603)
+
+- Root cause of the watchdog reset right after the first RDMA start: the lifted `tisp_raw_rdma_fd_interrupt` (irq slot 69) kept `rpars` in a `uint32_t *` and called `complete(a0 + 16)`, i.e. `rpars + 64`, 16 bytes past the 48-byte state block (the OEM completes `rpars + 0x10`). The first RDMA frame-done ran `complete()` on that garbage in hard-IRQ context and hung the board. Both RAW DMA frame-done handlers (slots 68/69) are now written out from the OEM (0x78c68, 0x78d6c); the register sequence of the enable/start path was already vendor-equal (compared with the vendor module).
+- `t41_raw_ring` now defaults to 1 (vendor serves the controls always).
+- Device (T41, gc5603, runtime module swap): RAW8 x1 ring 2880x1620, callback 12.7/s (one buffer: WDMA and RDMA alternate), read-back proof (callback blackens the RAW top half -> ISP output top third luma 102 -> 16 -> 110 after), 5/5 enable/disable cycles, RAW16 x2 -4094 as vendor (rmem), kill -9 during the ring -> ring stopped on fd release, 0 oops.
+
 ## 2026-11-11: T31 IPU ahb1 clk_put under its #ifdef, sensor s_register documented (openimp #341; k7 cross-build, not on a camera)
 
 - `t31_ipu`: the probe error path and `remove` now put the ahb1 gate only under `IPU_T31_AHB1`, the same guard as its `clk_get` (no behaviour change, the macro is 1).

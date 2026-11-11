@@ -2090,9 +2090,9 @@ static int t41_raw_trace;
 static int t41_raw_sync = 1;
 /* Off until the board reset after the first RDMA start is understood
  * (#320): the controls answer EPERM ("not implemented") as before. */
-static bool t41_raw_ring;
+static bool t41_raw_ring = true;
 module_param(t41_raw_ring, bool, 0644);
-MODULE_PARM_DESC(t41_raw_ring, "serve the RAW ring controls 0x80000a7/0x80000a8 (bring-up, resets the board on the Vanhua T41; default 0)");
+MODULE_PARM_DESC(t41_raw_ring, "serve the RAW ring controls 0x80000a7/0x80000a8 of IMP_ISP_RAW_RwControl (default 1; 0 answers -EPERM)");
 static unsigned int t41_raw_diag;	/* bring-up only: 1 no RDMA start, 2 no requeue, 4 ISR log */
 module_param(t41_raw_diag, uint, 0644);
 static unsigned int t41_raw_isr_log;
@@ -156137,189 +156137,48 @@ int32_t tisp_raw_pm_get_regsize(void)
 /* WHOLE_DRIVER_CANDIDATE fn_000000000006afc8 origin=fragment_seed original=tisp_raw_rdma_fd_interrupt */
 int32_t tisp_raw_rdma_fd_interrupt(void)
 {
-    uint32_t local_14 = 0;
-    uint32_t *local_18 = 0;
-    uint32_t local_1c = 0;
-    uint32_t *a0 = 0;
-    uint32_t a1 = 0;
-    uint32_t a2 = 0;
-    uint32_t *a3 = 0;
-    uint32_t ra = 0;
-    uintptr_t *s0 = 0;
-    uint32_t *s1 = 0;
-    uintptr_t v0 = 0;   /* #189: plain integers, byte arithmetic as the OEM (typed pointers stepped the frame counters by 4) */
-    uintptr_t v1 = 0;
+    /*
+     * OEM 0x78c68, written out (openimp #320).  The recovered copy held the
+     * rpars value in a uint32_t * and completed "a0 + 16", i.e. rpars + 64:
+     * 16 bytes past the 48-byte vmalloc block.  complete() on that garbage
+     * (spinlock + wait list) ran in hard-IRQ context on the first RDMA
+     * frame-done and hung the board until the watchdog reset it.
+     */
+    uint32_t *rp = (uint32_t *)(uintptr_t)rpars;
 
-    /* fragment 0: Prologue */
-    /* function prologue: stack frame and callee-saved register setup */
+    if (!rp)
+        return 1;	/* OEM derefs NULL here */
+    if (rp[2] == 1) {			/* RDMA on */
+        if (rp[3] == 1) {		/* WDMA on: requeue the frame just read */
+            uint32_t addr = system_reg_read(0x2101c);
 
-    /* fragment 1: Arithmetic */
-    s0 = (unsigned int *)&rpars;
-
-    /* fragment 2: MemoryAccess */
-    v0 = *(uint32_t *)((char *)((char *)&rpars));
-    local_1c = ra;
-    local_18 = s1;
-    /* IRQ callback: rpars was dereferenced before its NULL check. */
-    if (!v0)
-        return 0;
-    a0 = *(uint32_t *)((char *)v0 + 8);
-    v1 = 1;
-
-    /* fragment 3: Branch */
-    int _bc_a0_3 = a0 != v1;
-    v1 = *(uint32_t *)((char *)((char *)&rpars));
-    if (_bc_a0_3) { goto tisp_raw_rdma_fd_interrupt0xb8; }
-
-    /* fragment 4: Branch */
-    int _bc_v0_4 = v0 != 0;
-    v0 = *(uint32_t *)((char *)((char *)&rpars));
-    if (_bc_v0_4) { goto tisp_raw_rdma_fd_interrupt0x58; }
-
-    /* fragment 5: CallSetup */
-    v0 = (uintptr_t)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(2, &LC0, &__pow2_lut, 40); /* jalr target resolved by relocation */
-
-    /* fragment 6: MemoryAccess */
-    v0 = *(uint32_t *)((char *)((char *)&rpars));
-
-tisp_raw_rdma_fd_interrupt0x58:
-    /* fragment 7: MemoryAccess */
-    v1 = *(uint32_t *)((char *)v0 + 12);
-    v0 = 1;
-
-    /* fragment 8: Branch */
-    s1 = 131072;
-    if (v1 != v0) { goto tisp_raw_rdma_fd_interrupt0xdc; }
-
-    /* fragment 9: CallSetup */
-    v0 = (uintptr_t)((uintptr_t (*)(uintptr_t))(uintptr_t)system_reg_read)(s1 + 4124); /* jalr target resolved by relocation */
-    if ((t41_raw_diag & 4) && t41_raw_isr_log++ < 12)
-        printk(KERN_WARNING "t41: raw rdma isr requeue 0x%08x wdma20=0x%08x\n", (uint32_t)v0, system_reg_read(0x20020));
-
-    /* fragment 10: CallSetup */
-    if (!(t41_raw_diag & 2))
-    v0 = (uintptr_t)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)(s1 + 24, v0); /* jalr target resolved by relocation */
-
-    /* fragment 11: CallSetup */
-    v0 = (uintptr_t)&tisp_raw_info;
-    v0 = v0;
-    v1 = *(uint32_t *)((char *)v0 + 12);
-    v1 = v1 + 1;
-    *(uint32_t *)((char *)v0 + 12) = v1;
-    a0 = *(uint32_t *)((char *)((char *)&rpars));
-
-tisp_raw_rdma_fd_interrupt0xa4:
-    /* fragment 12: CallSetup */
-    v0 = (uintptr_t)((uintptr_t (*)(uintptr_t))(uintptr_t)private_complete)(a0 + 16); /* jalr target resolved by relocation */
-
-    /* fragment 13: MemoryAccess */
-    v1 = *(uint32_t *)((char *)((char *)&rpars));
-
-tisp_raw_rdma_fd_interrupt0xb8:
-    /* fragment 14: MemoryAccess */
-    v0 = *(uint8_t *)((char *)v1 + 0);
-    v0 = v0 + 1;
-    *(uint8_t *)((char *)v1 + 0) = v0;
-    ra = local_1c;
-    s1 = local_18;
-    s0 = local_14;
-    v0 = 1;
-
-    /* fragment 15: Epilogue */
-    /* function epilogue: restore registers and return */
-    return (int32_t)v0;
-
-tisp_raw_rdma_fd_interrupt0xdc:
-    /* fragment 16: CallSetup */
-    /* The recovered call fed a six-conversion format two arguments
-     * ("%s" then read an undefined vararg) from IRQ context. */
-    printk_ratelimited(KERN_WARNING "t41: raw rdma fd: unexpected state\n");
-
-    /* fragment 17: Branch */
-    a0 = *(uint32_t *)((char *)((char *)&rpars));
-    goto tisp_raw_rdma_fd_interrupt0xa4;
-
-    return 0;
+            if ((t41_raw_diag & 4) && t41_raw_isr_log++ < 12)
+                printk(KERN_WARNING "t41: raw rdma isr requeue 0x%08x wdma20=0x%08x\n",
+                       addr, system_reg_read(0x20020));
+            if (!(t41_raw_diag & 2))
+                system_reg_write(0x20018, addr);
+            ((uint32_t *)(void *)tisp_raw_info_storage)[3]++;
+        } else {
+            printk_ratelimited(KERN_WARNING "t41: raw rdma fd: WDMA off\n");
+        }
+        complete((struct completion *)((char *)rp + 16));
+    }
+    *(uint8_t *)rp += 1;
+    return 1;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000006b0cc origin=fragment_seed original=tisp_raw_wdma_fd_interrupt */
 int32_t tisp_raw_wdma_fd_interrupt(void)
 {
-    uint32_t *local_10 = 0;
-    uint32_t local_14 = 0;
-    uintptr_t *a0 = 0;
-    uint32_t a1 = 0;
-    uint32_t a2 = 0;
-    uint32_t *a3 = 0;
-    uint32_t ra = 0;
-    uintptr_t *s0 = 0;
-    uintptr_t *v0 = 0;
-    uintptr_t *v1 = 0;
+    /* OEM 0x78d6c, written out (same typed-pointer pattern as above). */
+    uint32_t *rp = (uint32_t *)(uintptr_t)rpars;
 
-    /* fragment 0: Arithmetic */
-    v0 = (unsigned int *)&rpars;
-
-    /* fragment 1: MemoryAccess */
-    v1 = *(uint32_t *)((char *)((char *)&rpars));
-    if (!v1)    /* no RAW DMA session: OEM derefs NULL here */
+    if (!rp || rp[3] != 1)		/* WDMA off */
         return 1;
-    a0 = 1;
-    a1 = *(uint32_t *)((char *)v1 + 12);
-
-    /* fragment 2: Branch */
-    if (a1 != a0) { goto tisp_raw_wdma_fd_interrupt0x9c; }
-
-    /* fragment 3: Prologue */
-    /* function prologue: stack frame and callee-saved register setup */
-
-    /* fragment 4: Branch */
-    s0 = v0;
-    if (v1 != 0) { goto tisp_raw_wdma_fd_interrupt0x50; }
-
-    /* fragment 5: CallSetup */
-    v0 = (unsigned int *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(2, &LC0, &__pow2_lut, 19); /* jalr target resolved by relocation */
-
-tisp_raw_wdma_fd_interrupt0x50:
-    /* fragment 6: MemoryAccess */
-    a0 = *(uint32_t *)((char *)((char *)&rpars));
-    v0 = 1;
-    v1 = *(uint32_t *)((char *)a0 + 8);
-
-    /* fragment 7: Branch */
-    int _bc_v1_7 = v1 != v0;
-    v0 = (unsigned int *)&private_complete;
-    if (_bc_v1_7) { goto tisp_raw_wdma_fd_interrupt0x7c; }
-
-    /* fragment 8: CallSetup */
-    v0 = (unsigned int *)&tisp_raw_info;
-    v0 = v0;
-    v1 = *(uint32_t *)((char *)v0 + 16);
-    v1 = (uintptr_t)v1 + 1;
-    *(uint32_t *)((char *)v0 + 16) = v1;
-    v0 = (unsigned int *)&private_complete;
-
-tisp_raw_wdma_fd_interrupt0x7c:
-    /* fragment 9: CallSetup */
-    v0 = (uintptr_t)((uintptr_t (*)(uintptr_t))(uintptr_t)private_complete)((uintptr_t)a0 + 32); /* jalr target resolved by relocation */
-
-    /* fragment 10: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    /* fragment 11: Arithmetic */
-    v0 = 1;
-
-    /* fragment 12: Epilogue */
-    /* function epilogue: restore registers and return */
-    return (int32_t)v0;
-
-tisp_raw_wdma_fd_interrupt0x9c:
-    /* fragment 13: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    /* fragment 14: Arithmetic */
-    v0 = 1;
-
-    return 0;
+    if (rp[2] == 1)
+        ((uint32_t *)(void *)tisp_raw_info_storage)[4]++;
+    complete((struct completion *)((char *)rp + 32));
+    return 1;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000006b170 origin=fragment_seed original=tisp_raw_pm_suspend */
