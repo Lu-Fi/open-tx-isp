@@ -1226,7 +1226,9 @@ static int ipu_probe(struct platform_device *pdev)
 	return 0;
 
 err_set_drvdata:
+#ifdef IPU_T31_AHB1
 	clk_put(ipu->ahb1_gate);
+#endif
 	clk_put(ipu->clk);
 err_get_clk:
 	free_irq(ipu->irq, ipu);
@@ -1264,7 +1266,9 @@ static int ipu_do_remove(struct platform_device *pdev)
 #endif
 	if (ipu->clk_always_on)
 		ipu_clk_off(ipu->clk);
+#ifdef IPU_T31_AHB1
 	clk_put(ipu->ahb1_gate);
+#endif
 	clk_put(ipu->clk);
 	if (ipu->pbuf.vaddr_alloc) {
 		kfree((void *)(ipu->pbuf.vaddr_alloc));

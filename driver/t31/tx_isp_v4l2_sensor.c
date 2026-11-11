@@ -405,6 +405,14 @@ static int tx_v4l2_sensor_ioctl(struct tx_isp_subdev *sd, unsigned int cmd,
  * drivers do: 16-bit register address, 8-bit value (SmartSens, GalaxyCore
  * gc4653/gc4023, OmniVision), 8-bit address for the gc2053 family.  The
  * adapter lock serialises this with the sensor driver's own transfers.
+ *
+ * Like the vendor ioctl, a write goes straight to the chip and bypasses the
+ * sensor driver: it is not reflected in any driver state (shadowed controls,
+ * a regmap cache), and the driver may overwrite it on its next stream start,
+ * mode set or control update.  It is a debug/tuning path only; drivers in
+ * this bridge use the v4l2-cci regmap, which has no cache (REGCACHE_NONE),
+ * so there is no cache to desync and reads always come from the chip.  A
+ * sensor driver with a register cache would need its cache invalidated here.
  */
 static bool tx_v4l2_sensor_reg8(const struct tx_isp_v4l2_sensor *s)
 {
