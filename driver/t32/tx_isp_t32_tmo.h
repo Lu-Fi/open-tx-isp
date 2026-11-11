@@ -1769,3 +1769,65 @@ static inline void t32_tmo_wake_up(const u8 *ctx, u32 reg, u8 d03a0, void (*regw
 	hook(cb, 7, ch);
 	hook(cb, 8, ch);
 }
+
+/* ---- phase 9b: malloc_cfg, fbf_malloc_cfg, faceae_refresh (allocators and the register write are callbacks) ---- */
+
+/*
+ * tisp_tmo_malloc_cfg (ch): rec = private_vmalloc (12) is stored in the channel slot (t32_data_e35d0[ch], a 32 bit address); buf =
+ * private_kmalloc (0x10000, 0x24000c0); the registers (second set when d03a0 != 0: 7786 + i, else 28928 + 4 i) get tisp_reg_write
+ * (ch, reg, value) = phys 0x80000000 + buf, + 0x4000, + 0x8000, + 0xc000, in this order; rec = { 4, buf, buf + 0x80000000 };
+ * finally register 7790 / 28944 = 3 (a tail call in the vendor).  Dropped: the vendor's isp_printf when an allocation failed;
+ * a NULL vmalloc result is a NULL dereference in the vendor (not tested, unchanged here); a NULL kmalloc result goes on with buf = 0.
+ */
+static inline void t32_tmo_malloc_cfg(u32 *slot, int ch, void *(*vmalloc)(void *, u32), void *(*kmalloc)(void *, u32, u32),
+				      void (*regw)(void *, int, u32, u32), u8 d03a0, void *cb)
+{
+	u32 *rec = vmalloc(cb, 12);
+	u32 buf, phys;
+	int s = d03a0 != 0;
+
+	*slot = (u32)(uintptr_t)rec;
+	buf = (u32)(uintptr_t)kmalloc(cb, 0x10000, 0x24000c0);
+	phys = buf + 0x80000000U;
+	regw(cb, ch, s ? 7786 : 28928, phys);
+	regw(cb, ch, s ? 7787 : 28932, buf + 0x80004000U);
+	regw(cb, ch, s ? 7788 : 28936, buf + 0x80008000U);
+	regw(cb, ch, s ? 7789 : 28940, buf + 0x8000c000U);
+	rec[0] = 4;
+	rec[1] = buf;
+	rec[2] = phys;
+	regw(cb, ch, s ? 7790 : 28944, 3);
+}
+
+/*
+ * tisp_tmo_fbf_malloc_cfg: blk = private_vmalloc (20) is stored in the slot (t32_data_e35c0[ch]); blk = { 1, cfg[1], cfg[2],
+ * tbuf, tbuf + 0x80000000 } with cfg = the malloc_cfg record (t32_data_e35d0[ch]) and tbuf = the channel record's word +20.
+ * Dropped: isp_printf (vmalloc failed / tbuf == 0).  A NULL vmalloc result is a NULL dereference in the vendor.
+ */
+static inline void t32_tmo_fbf_malloc_cfg(u32 *slot, const u32 *cfg, u32 tbuf, void *(*vmalloc)(void *, u32), void *cb)
+{
+	u32 *blk = vmalloc(cb, 20);
+
+	*slot = (u32)(uintptr_t)blk;
+	blk[0] = 1;
+	blk[1] = cfg[1];
+	blk[2] = cfg[2];
+	blk[3] = tbuf;
+	blk[4] = tbuf + 0x80000000U;
+}
+
+/*
+ * tisp_tmo_faceae_refresh (ch, flag, a, b, c = arg4, d = arg5, e = arg6) on the stat record st: st[377] = flag; 12 bytes a -> st + 0, b -> st + 12,
+ * c -> st + 24, e... (arg6) 6 bytes -> st + 371, d (arg5) 12 bytes -> st + 36; then tisp_tmo_faceae_reg_refresh (ch) (a tail call, hook).
+ */
+static inline void t32_tmo_faceae_refresh(u8 *st, u32 flag, const u8 *a, const u8 *b, const u8 *c, const u8 *d, const u8 *e,
+					  void (*hook)(void *, int), void *cb, int ch)
+{
+	st[377] = (u8)flag;
+	memcpy(st, a, 12);
+	memcpy(st + 12, b, 12);
+	memcpy(st + 24, c, 12);
+	memcpy(st + 371, e, 6);
+	memcpy(st + 36, d, 12);
+	hook(cb, ch);
+}
