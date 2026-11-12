@@ -15,6 +15,7 @@ Runs functions of the SDK-built vendor tx-isp-t30.ko (4ea12e1f) and of our drive
   awb_calc_avg_weighted_gr_gb_mesh              every FSM byte, fifo state (vendor rg_avg/gb_avg)
   ispcore/ncu_pad_event_handle, mscaler_frame_channel_streamoff   gp = thread_info: preempt_count, flags,
                                                 unlock sequence, heap, GET_FORMAT buffer (#371)
+  ldc_pad_event_handle / ldc_frame_channel_streamoff / tx_isp_ldc_show   same, LDC fifos (#365)
   tx_isp_unlocked_ioctl                         user vs kernel argument: return, copies to user (addr_limit, #371)
 
 Callees outside the function under test are hooked at their entry in both modules and logged; the
@@ -395,16 +396,22 @@ def gp_hooks(m):
     m.hook("arch_local_irq_restore", lambda e: (lg.append(("unlock", e.get_reg(UC_MIPS_REG_A0))), 0)[1])
     def unlock(e):
         ti = m.e.gp; pc = struct.unpack("<i", e.read(ti + 20, 4))[0]
-        e.write(ti + 20, struct.pack("<i", pc - 1)); lg.append(("unlock", e.get_reg(UC_MIPS_REG_A1))); return 0
+        e.write(ti + 20, struct.pack("<i", pc - 1)); lg.append(("unlock", e.get_reg(UC_MIPS_REG_A1)))
+        if struct.unpack("<I", e.read(ti + 8, 4))[0] & 4: lg.append(("preempt_schedule",))   # its preempt_enable()
+        return 0
     m.hook("private_spin_unlock_irqrestore", unlock)
     def mset(e):
         a, c, k = (e.get_reg(r) for r in (UC_MIPS_REG_A0, UC_MIPS_REG_A1, UC_MIPS_REG_A2))
         lg.append(("memset", a, c, k)); e.write(a, bytes([c & 0xff]) * k); return a
     m.hook("memset", mset)
-    for f in ("printk", "isp_printf", "__might_sleep", "msleep", "private_msleep", "seq_printf", "preempt_schedule"):
+    for f in ("printk", "isp_printf", "__might_sleep", "msleep", "private_msleep", "seq_printf", "seq_vprintf"):
         m.hook(f, lambda e: 0)
+    m.hook("preempt_schedule", m.rec("preempt_schedule", 0))   # resched check after the preempt_count-- (#365)
     m.hook("tx_isp_reg_set", m.rec("tx_isp_reg_set", 4))
-    m.hook("tx_isp_send_event_to_remote", m.rec("tx_isp_send_event_to_remote", 2))
+    # a2 too: ncu QUEUE_BUFFER passes the held buffer (OEM 0x1372c lw a2,412(s1); review M1, #365)
+    m.hook("tx_isp_send_event_to_remote", m.rec("tx_isp_send_event_to_remote", 3))
+    for f in ("private_mutex_lock", "private_mutex_unlock", "isp_free_buffer", "ldc_restart_module"):
+        m.hook(f, m.rec(f, 1))
     regfile(m, {}, [])
 
 def gp_case(m, r, kind):
@@ -433,13 +440,38 @@ def gp_case(m, r, kind):
             return "ncu_pad_event_handle", (b[0], 0x3000006, r.choice([b[2], 0])), True
         W(b[0], 0, b[4]); W(b[4], 208, b[5]); W(b[5], 20, r.choice([0, 0x20])); W(b[1], 412, r.choice([0, b[6]]))
         return "ncu_pad_event_handle", (b[0], 0x3000005, b[2]), True
+    if kind in ("ldc_qbuf", "ldc_done", "ldc_free"):   # ldc_pad_event_handle fifos (OEM 0x152dc / 0x151c0 / 0x15380, #365)
+        B(b[0], 5, 1); W(b[0], 20, r.choice([0, 0, 0x20])); W(b[0], 32, b[1])
+        tg = [r.randrange(1, 1 << 20) << 8 for _ in range(4)]
+        for j in range(4): W(b[3], 16 * j + 8, tg[j])
+        W(b[1], 0x1c0, r.randrange(0, 5)); W(b[1], 0x1b8, b[3]); W(b[1], 0xb8, b[4]); W(b[4], 4, r.choice([0, 2, 4, 6]))
+        W(b[1], 0x178, r.choice([4, 4, 3])); W(b[1], 0x188, r.choice([0, 0, 1]))
+        for o in (0x1c4, 0x1d0):                    # fifo heads: empty or one node
+            if r.random() < 0.5: W(b[1], o, b[1] + o); W(b[1], o + 4, b[1] + o)
+            else:
+                nd = b[7] if o == 0x1d0 else b[8]
+                W(b[1], o, nd); W(b[1], o + 4, nd); W(nd, 0, b[1] + o); W(nd, 4, b[1] + o)
+        W(b[2], 8, r.choice(tg + [0x1234500]))
+        ev = {"ldc_qbuf": 0x3000005, "ldc_done": 0x3000006, "ldc_free": 0x3000007}[kind]
+        return "ldc_pad_event_handle", (b[0], ev, r.choice([b[2], b[2], 0])), True
+    if kind == "ldc_off":                           # ldc_frame_channel_streamoff (OEM 0x13c8c): two lock sections
+        B(b[0], 5, 2); W(b[0], 32, b[1]); W(b[1], 0xd0, b[5]); s4 = r.choice([4, 4, 3]); B(b[5], 7, s4); B(b[0], 7, r.choice([s4, s4, 3]))
+        W(b[1], 0xb8, b[4]); W(b[4], 0, r.choice([0, 0, 4])); W(b[1], 0x1c0, r.randrange(0, 4)); W(b[1], 0x1b8, b[3])
+        W(b[1], 0x80, r.choice([0, 1])); W(b[1], 0x88, CB)
+        return "ldc_frame_channel_streamoff", (b[0],), True
+    if kind == "ldc_show":                          # tx_isp_ldc_show (OEM 0x13a38): lock around the fifo dump
+        W(b[0], 0x3c, b[1]); W(b[1], 0xd4, b[2]); W(b[2], 0x178, r.choice([4, 4, 3]))
+        for o in (0x1c4, 0x1d0): W(b[2], o, b[2] + o); W(b[2], o + 4, b[2] + o)
+        W(b[2], 0x1cc, r.choice([0, b[3]])); W(b[2], 0x1d8, r.choice([0, b[3]]))
+        return "tx_isp_ldc_show", (b[0],), False
     # mscaler_frame_channel_streamoff (OEM 1677c, void): lock, poll, list drain, memset tail call
     B(b[0], 7, r.choice([4, 4, 3])); W(b[0], 32, b[1]); W(b[1], 100, b[2]); W(b[1], 80, r.choice([4, 3]))
     W(b[1], 76, r.randrange(0, 3)); W(b[2], 184, b[3]); W(b[1], 124, b[1] + 124)
     W(b[1], 12, r.choice([0x34524742, 0x50424752, 0]))
     return "mscaler_frame_channel_streamoff.isra.0", (b[0],), False
 
-GP_KINDS = ("isp_qbuf", "isp_free", "isp_fmt", "ncu_qbuf", "msc_off", "ncu_dq", "ncu_qb2")
+GP_KINDS = ("isp_qbuf", "isp_free", "isp_fmt", "ncu_qbuf", "msc_off", "ncu_dq", "ncu_qb2",
+            "ldc_qbuf", "ldc_done", "ldc_free", "ldc_off", "ldc_show")
 def t_gp_lock(V, O, rnd, n):
     V, O = Mod(V.path, {}), Mod(O.path, {})          # fresh modules: no hooks/state of the other groups
     bad = 0
