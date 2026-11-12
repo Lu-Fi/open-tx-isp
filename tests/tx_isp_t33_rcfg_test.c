@@ -25,6 +25,7 @@
 #include "../driver/t32/tx_isp_t33_lce.h"
 #include "../driver/t32/tx_isp_t33_af.h"
 #include "../driver/t32/tx_isp_t33_bcsh.h"
+#include "../driver/t32/tx_isp_t33_tmo.h"
 
 static int bad;
 #define CHECK(c) do { if (!(c)) { bad++; printf("FAIL line %d: %s\n", __LINE__, #c); } } while (0)
@@ -293,6 +294,21 @@ int main(void)
 				/* 0x1812c: no store in the vendor code, its list word is stale memory */
 				vs_list_skip("af", T33_MOD_AF, lb, t33_af_init(asec, 1920, 1080, dma, lb, T33_SLOT_WORDS),
 					     0x1812c);
+			}
+			{
+				/* TMO: EV 0, the V table DMA address (0x70e0) as the vendor's */
+				static u32 tv[T33_TMO_WORDS], vt[T33_TMO_V_WORDS];
+				u32 dma = 0;
+
+				for (id = 0; id < ref_n[T33_MOD_TMO]; id++)
+					if (ref_reg[T33_MOD_TMO][id] == 0x70e0)
+						dma = ref_val[T33_MOD_TMO][id];
+				off = t32_iq_section(bin, bytes, T33_SEC_TMO, &len);
+				CHECK(off && len == T33_TMO_SEC_BYTES);
+				CHECK(t33_tp_offset(bin, T33_SEC_TMO) == 0x279c);
+				vs_list("tmo", T33_MOD_TMO, lb, t33_tmo_init(bin + off, 1920, 1080, 0, dma, tv, lb, T33_SLOT_WORDS));
+				t33_tmo_vtable(vt);
+				CHECK(vt[0] == 0x3319a000 && vt[1] == 0x06664cd3 && vt[1499] == vt[3]);
 			}
 			{
 				/* BCSH: CT 5000 K, EV 0 (T33_BCSH_CT / T33_BCSH_EV override) */

@@ -42,6 +42,7 @@
 #include "tx_isp_t33_lce.h"
 #include "tx_isp_t33_af.h"
 #include "tx_isp_t33_bcsh.h"
+#include "tx_isp_t33_tmo.h"
 #include "tx_isp_t32_lsc.h"
 #include "tx_isp_t32_stats.h"
 #include "tx_isp_t32_iq.h"
@@ -246,6 +247,9 @@ static u8 t33_lce_sec[T33_LCE_SEC_BYTES];
 static unsigned long t33_af_pages;
 static u8 t33_af_sec[T33_AF_SEC_BYTES];
 #define T33_AF_ORDER	get_order(T33_AF_DMA_BYTES)
+/* TMO V table (0x70e0, read by the core; also written through 0x32260 / 0x32264) */
+static unsigned long t33_tmo_pages;
+#define T33_TMO_ORDER	get_order(T33_TMO_V_BYTES)
 
 static void t33_mod_free(void)
 {
@@ -266,6 +270,9 @@ static void t33_mod_free(void)
 	if (t33_af_pages)
 		free_pages(t33_af_pages, T33_AF_ORDER);
 	t33_af_pages = 0;
+	if (t33_tmo_pages)
+		free_pages(t33_tmo_pages, T33_TMO_ORDER);
+	t33_tmo_pages = 0;
 
 	for (i = 0; i < T33_MODULES; i++) {
 		if (t33_mod_page[i])
@@ -524,6 +531,7 @@ static u32 t33_dmsc_v[T33_DMSC_WORDS], t33_dpc_v[T33_DPC_WORDS], t33_ysp_v[T33_Y
 static u32 t33_rdns_v[T33_RDNS_WORDS], t33_ccm_v[T33_CCM_WORDS], t33_lsc_v[T33_LSC_WORDS];
 static struct t33_lsc t33_lsc_m;
 static u8 t33_bcsh_sec[T33_BCSH_SEC_BYTES], t33_bcsh_st[T33_BCSH_ST_BYTES];
+static u32 t33_tmo_v[T33_TMO_WORDS];
 #define T33_INIT_EV	0xffffffffU	/* the vendor's EV before the first AE run */
 #define T33_DG_UNITY	0x04000400U	/* DG list 0x4060 at init (DG 1.0), until #389 builds list 5 */
 
@@ -635,6 +643,26 @@ static void t33_tisp_init(const u8 *bin, u32 bytes)
 				     t33_lce_init(t33_lce_sec, width, height, 0, 0,
 						  (u32)virt_to_phys((void *)t33_lce_curve_pages),
 						  (u32)virt_to_phys((void *)t33_lce_stat_pages), buf, T33_SLOT_WORDS));
+		}
+	}
+	off = t32_iq_section(bin, bytes, T33_SEC_TMO, &len);
+	if (off && len == T33_TMO_SEC_BYTES && !t32_core_sensor_size(&width, &height)) {
+		u32 *buf = t33_mod_buf(T33_MOD_TMO), *vt, i;
+
+		if (!t33_tmo_pages)
+			t33_tmo_pages = __get_free_pages(GFP_KERNEL | __GFP_ZERO, T33_TMO_ORDER);
+		if (buf && t33_tmo_pages) {
+			/* the V table uncached, then the vendor's direct writes (0x7094, V ram) */
+			vt = (u32 *)CKSEG1ADDR(virt_to_phys((void *)t33_tmo_pages));
+			t33_tmo_vtable(vt);
+			t33_mod_done(T33_MOD_TMO, t33_tmo_init(bin + off, width, height, T33_CCM_INIT_EV,
+							       (u32)virt_to_phys((void *)t33_tmo_pages), t33_tmo_v,
+							       buf, T33_SLOT_WORDS));
+			isp_wr(0x7094, 1);
+			isp_wr(0x32260, 0x101);
+			for (i = 0; i < T33_TMO_V_WORDS; i++)
+				isp_wr(0x32264, vt[i]);
+			isp_wr(0x32260, 0x10102);
 		}
 	}
 	off = t32_iq_section(bin, bytes, T33_SEC_BCSH, &len);
