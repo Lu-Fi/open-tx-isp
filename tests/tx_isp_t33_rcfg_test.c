@@ -27,6 +27,7 @@
 #include "../driver/t32/tx_isp_t33_bcsh.h"
 #include "../driver/t32/tx_isp_t33_tmo.h"
 #include "../driver/t32/tx_isp_t33_clm.h"
+#include "../driver/t32/tx_isp_t33_msca.h"
 
 static int bad;
 #define CHECK(c) do { if (!(c)) { bad++; printf("FAIL line %d: %s\n", __LINE__, #c); } } while (0)
@@ -296,6 +297,9 @@ int main(void)
 				vs_list_skip("af", T33_MOD_AF, lb, t33_af_init(asec, 1920, 1080, dma, lb, T33_SLOT_WORDS),
 					     0x1812c);
 			}
+			off = t32_iq_section(bin, bytes, T33_SEC_MSCA, &len);
+			CHECK(off && len > 0x30);
+			vs_list("msca", T33_MOD_MSCA, lb, t33_msca_init(1920, 1080, bin + off, lb, T33_SLOT_WORDS));
 			{
 				/* CLM: CT 5000 K, the csc section */
 				u32 coff, clen;

@@ -44,6 +44,7 @@
 #include "tx_isp_t33_bcsh.h"
 #include "tx_isp_t33_tmo.h"
 #include "tx_isp_t33_clm.h"
+#include "tx_isp_t33_msca.h"
 #include "tx_isp_t32_lsc.h"
 #include "tx_isp_t32_stats.h"
 #include "tx_isp_t32_iq.h"
@@ -545,6 +546,69 @@ static u32 t33_tmo_v[T33_TMO_WORDS];
 								     buf_, T33_SLOT_WORDS));	\
 	} while (0)
 
+/* TMO, MSCA, CLM, BCSH: a frame of their own (stack) */
+static noinline_for_stack void t33_tisp_init_tone(const u8 *bin, u32 bytes)
+{
+	u32 off, len, width, height;
+
+	off = t32_iq_section(bin, bytes, T33_SEC_TMO, &len);
+	if (off && len == T33_TMO_SEC_BYTES && !t32_core_sensor_size(&width, &height)) {
+		u32 *buf = t33_mod_buf(T33_MOD_TMO), *vt, i;
+
+		if (!t33_tmo_pages)
+			t33_tmo_pages = __get_free_pages(GFP_KERNEL | __GFP_ZERO, T33_TMO_ORDER);
+		if (buf && t33_tmo_pages) {
+			/* the V table uncached, then the vendor's direct writes (0x7094, V ram) */
+			vt = (u32 *)CKSEG1ADDR(virt_to_phys((void *)t33_tmo_pages));
+			t33_tmo_vtable(vt);
+			t33_mod_done(T33_MOD_TMO, t33_tmo_init(bin + off, width, height, T33_CCM_INIT_EV,
+							       (u32)virt_to_phys((void *)t33_tmo_pages), t33_tmo_v,
+							       buf, T33_SLOT_WORDS));
+			isp_wr(0x7094, 1);
+			isp_wr(0x32260, 0x101);
+			for (i = 0; i < T33_TMO_V_WORDS; i++)
+				isp_wr(0x32264, vt[i]);
+			isp_wr(0x32260, 0x10102);
+		}
+	}
+	if (!t32_core_sensor_size(&width, &height)) {
+		u32 *buf = t33_mod_buf(T33_MOD_MSCA), i;
+
+		/* MSCA init list (single sensor: per-channel 0xf0048 blocks at 0xf06b4) */
+		off = t32_iq_section(bin, bytes, T33_SEC_MSCA, &len);
+		if (buf) {
+			for (i = 0; i < 3; i++)
+				isp_wr(0xf0128 + 0x100 * i, 0);
+			t33_mod_done(T33_MOD_MSCA, t33_msca_init(width, height, off && len > 0x30 ? bin + off : NULL,
+								 buf, T33_SLOT_WORDS));
+		}
+	}
+	off = t32_iq_section(bin, bytes, T33_SEC_CLM, &len);
+	if (off && len == T33_CLM_SEC_BYTES) {
+		u32 *buf = t33_mod_buf(T33_MOD_CLM), coff, clen;
+
+		/* CT 5000 K as the CCM; the colour space section for the csc set */
+		coff = t32_iq_section(bin, bytes, T32_IQ_SEC_CSC, &clen);
+		if (buf && coff && clen == T32_CSC_BYTES)
+			t33_mod_done(T33_MOD_CLM, t33_clm_init(bin + off, bin + off + len,
+							       t32_iq_payload(bin + off, bytes - off, T33_SEC_CLM),
+							       bin + coff, T33_CCM_INIT_CT, buf, T33_SLOT_WORDS));
+	}
+	off = t32_iq_section(bin, bytes, T33_SEC_BCSH, &len);
+	if (off && len == T33_BCSH_SEC_BYTES) {
+		u32 *buf = t33_mod_buf(T33_MOD_BCSH), coff, clen;
+
+		/* CT 5000 K, EV 0 as the CCM; the colour space section for the csc set */
+		coff = t32_iq_section(bin, bytes, T32_IQ_SEC_CSC, &clen);
+		memcpy(t33_bcsh_sec, bin + off, sizeof(t33_bcsh_sec));
+		if (buf && coff && clen == T32_CSC_BYTES)
+			t33_mod_done(T33_MOD_BCSH,
+				     t33_bcsh_init(t33_bcsh_sec, bin + off + len,
+						   t32_iq_payload(bin + off, bytes - off, T33_SEC_BCSH), bin + coff,
+						   T33_CCM_INIT_CT, T33_CCM_INIT_EV, t33_bcsh_st, buf, T33_SLOT_WORDS));
+	}
+}
+
 static void t33_tisp_init(const u8 *bin, u32 bytes)
 {
 	u32 off, len, code, width, height;
@@ -646,50 +710,7 @@ static void t33_tisp_init(const u8 *bin, u32 bytes)
 						  (u32)virt_to_phys((void *)t33_lce_stat_pages), buf, T33_SLOT_WORDS));
 		}
 	}
-	off = t32_iq_section(bin, bytes, T33_SEC_TMO, &len);
-	if (off && len == T33_TMO_SEC_BYTES && !t32_core_sensor_size(&width, &height)) {
-		u32 *buf = t33_mod_buf(T33_MOD_TMO), *vt, i;
-
-		if (!t33_tmo_pages)
-			t33_tmo_pages = __get_free_pages(GFP_KERNEL | __GFP_ZERO, T33_TMO_ORDER);
-		if (buf && t33_tmo_pages) {
-			/* the V table uncached, then the vendor's direct writes (0x7094, V ram) */
-			vt = (u32 *)CKSEG1ADDR(virt_to_phys((void *)t33_tmo_pages));
-			t33_tmo_vtable(vt);
-			t33_mod_done(T33_MOD_TMO, t33_tmo_init(bin + off, width, height, T33_CCM_INIT_EV,
-							       (u32)virt_to_phys((void *)t33_tmo_pages), t33_tmo_v,
-							       buf, T33_SLOT_WORDS));
-			isp_wr(0x7094, 1);
-			isp_wr(0x32260, 0x101);
-			for (i = 0; i < T33_TMO_V_WORDS; i++)
-				isp_wr(0x32264, vt[i]);
-			isp_wr(0x32260, 0x10102);
-		}
-	}
-	off = t32_iq_section(bin, bytes, T33_SEC_CLM, &len);
-	if (off && len == T33_CLM_SEC_BYTES) {
-		u32 *buf = t33_mod_buf(T33_MOD_CLM), coff, clen;
-
-		/* CT 5000 K as the CCM; the colour space section for the csc set */
-		coff = t32_iq_section(bin, bytes, T32_IQ_SEC_CSC, &clen);
-		if (buf && coff && clen == T32_CSC_BYTES)
-			t33_mod_done(T33_MOD_CLM, t33_clm_init(bin + off, bin + off + len,
-							       t32_iq_payload(bin + off, bytes - off, T33_SEC_CLM),
-							       bin + coff, T33_CCM_INIT_CT, buf, T33_SLOT_WORDS));
-	}
-	off = t32_iq_section(bin, bytes, T33_SEC_BCSH, &len);
-	if (off && len == T33_BCSH_SEC_BYTES) {
-		u32 *buf = t33_mod_buf(T33_MOD_BCSH), coff, clen;
-
-		/* CT 5000 K, EV 0 as the CCM; the colour space section for the csc set */
-		coff = t32_iq_section(bin, bytes, T32_IQ_SEC_CSC, &clen);
-		memcpy(t33_bcsh_sec, bin + off, sizeof(t33_bcsh_sec));
-		if (buf && coff && clen == T32_CSC_BYTES)
-			t33_mod_done(T33_MOD_BCSH,
-				     t33_bcsh_init(t33_bcsh_sec, bin + off + len,
-						   t32_iq_payload(bin + off, bytes - off, T33_SEC_BCSH), bin + coff,
-						   T33_CCM_INIT_CT, T33_CCM_INIT_EV, t33_bcsh_st, buf, T33_SLOT_WORDS));
-	}
+	t33_tisp_init_tone(bin, bytes);
 	off = t32_iq_section(bin, bytes, T33_SEC_LSC, &len);
 	if (off && len == T33_LSC_SEC_BYTES && !t32_core_sensor_size(&width, &height)) {
 		u32 *buf = t33_mod_buf(T33_MOD_LSC);
