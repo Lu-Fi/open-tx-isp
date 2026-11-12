@@ -104,6 +104,11 @@ static int t32_wait_clear(u32 off, u32 mask, int us)
 /* ------------------------------------------------------------------ */
 /* interrupts                                                         */
 
+#ifdef TX_ISP_T33
+static u32 t33_mod_dirty;	/* lists 0..31 to run again at the next frame end (tisp*Refresh) */
+extern u32 t33_rcfg_runs;
+#endif
+
 static irqreturn_t t32_isp_irq(int irq, void *dev)
 {
 	u32 sta, done, msca, s3, s4, s5 = 0;
@@ -126,8 +131,17 @@ static irqreturn_t t32_isp_irq(int irq, void *dev)
 	isp_wr(T32_INT4_CLR, s4);
 	isp_wr(T32_RDMA_IRQ_CLR, 0);
 	t32_hw_stats.isp_irqs++;
-	if (sta & 1)
+	if (sta & 1) {
 		t32_hw_stats.frame_ends++;
+#ifdef TX_ISP_T33
+		/* the vendor's frame-done list refresh: modules marked since, when no list runs */
+		if (t33_mod_dirty && !isp_rd(T33_RCFG_TRIG)) {
+			isp_wr(T33_RCFG_TRIG, t33_mod_dirty);
+			t33_mod_dirty = 0;
+			t33_rcfg_runs++;
+		}
+#endif
+	}
 	if (sta & T32_INT_AWB)
 		t32_hw_stats.awb_irqs++;
 	if (sta & T32_INT_AE)
@@ -283,6 +297,9 @@ static void t33_mod_free(void)
 		t33_mod_page[i] = 0;
 	}
 	t33_mod_built = 0;
+#ifdef TX_ISP_T33
+	t33_mod_dirty = 0;
+#endif
 }
 
 /* tisp_rcfg_init: table, control and masks; at the core init */
@@ -1012,13 +1029,15 @@ int t32_hw_input_setup(const void *attr, u32 w, u32 h)
 		isp_printf(2, "tx-isp-t32: VIC reset did not finish\n");
 	for (i = 0; i < seq.n; i++)
 		t32_vic_wr(0, seq.w[i].off, seq.w[i].val);
-	/* MSCA input size and channel defaults */
-	isp_wr(0xf0404, size);
-	isp_wr(0xf0090, 0);
-	isp_wr(0xf0094, size);
-	isp_wr(T32_MSCA_CH_EN2, 0);
-	isp_wr(T32_MSCA_CH_EN, 0);
-	isp_wr(T32_MSCA_UPDATE, 1);
+	/* MSCA input size and channel defaults (T33: list 23 carries them) */
+	if (!T32_SOC_LIST_IRQ) {
+		isp_wr(0xf0404, size);
+		isp_wr(0xf0090, 0);
+		isp_wr(0xf0094, size);
+		isp_wr(T32_MSCA_CH_EN2, 0);
+		isp_wr(T32_MSCA_CH_EN, 0);
+		isp_wr(T32_MSCA_UPDATE, 1);
+	}
 	isp_wr(T32_CORE_IDLE_REQ, 0);
 	isp_printf(0, "tx-isp-t32: VIC %ux%u fmt %u line %u words, CSI %u lanes settle %#x\n",
 		   w, h, t32_attr_u32(attr, T32_ATTR_SC_CSI_FMT), seq.w[1].val,
@@ -1077,7 +1096,12 @@ void t32_hw_stream_on(void)
 	t32_stats_init();
 	t32_tisp_init();
 	if (T32_SOC_LIST_IRQ) {
+		int ch;
+
 		t33_rcfg_write_all();
+		/* lib_tisp_msca_chx_reg_stream_off for the three channels */
+		for (ch = 0; ch < 3; ch++)
+			isp_wr(T32_MSCA_CH_EN, isp_rd(T32_MSCA_CH_EN) & ~(1U << ch));
 	} else {
 		t32_hw_rcfg_run_stream_on();
 		isp_wr(0x002c, 2);
@@ -1143,7 +1167,10 @@ void t32_hw_msca_push(int ch, u32 y, u32 uv)
 {
 	ch_wr(ch, T32_MSCA_Y_PUSH, y);
 	ch_wr(ch, T32_MSCA_UV_PUSH, uv);
-	/* the vendor writes 0 to the clears after a push: only bit 0 clears */
+	/* the T32 vendor writes 0 to the clears after a push: only bit 0
+	 * clears (T33 single sensor: the two addresses only) */
+	if (T32_SOC_LIST_IRQ)
+		return;
 	ch_wr(ch, T32_MSCA_Y_CLR, 0);
 	ch_wr(ch, T32_MSCA_UV_CLR, 0);
 }
@@ -1202,9 +1229,89 @@ static void t32_hw_msca_load_curves(void)
  * the filter select pulse, the update and the enable.  in_w x in_h is the
  * MSCA input (the sensor picture).
  */
+#ifdef TX_ISP_T33
+/* channels started on the direct path since the last stream-on (no list 23 runs then) */
+static u32 t33_msca_direct, t33_msca_listed;
+
+/* one module list alone (the vendor's single-bit 0x22010 trigger), its table word set at stream-on */
+static void t33_rcfg_run(unsigned int id)
+{
+	unsigned int i;
+
+	wmb();
+	isp_wr(T33_RCFG_TRIG, 1U << id);
+	for (i = 0; i < 1000 && (isp_rd(T33_RCFG_TRIG) & (1U << id)); i++)
+		udelay(1);
+	if (i == 1000)
+		t33_rcfg_timeouts++;
+	t33_rcfg_runs++;
+}
+
+/*
+ * tisp_msca_t33_chx_cfg_load + tisp_msca_t33_chx_en on the single-sensor
+ * path for an unscaled channel whose list 23 geometry (from the init) is
+ * the asked one: the scaling enables 0 (tisp_msca_t33_scaling_algorithm),
+ * 0xf0128 and the strides direct, the slot stores (CfgMode slot numbers,
+ * ch * 0x1e + ...), the enable bit, then list 23 alone.  Other channels
+ * go the direct way (scaled curves not yet from the list).
+ */
+static bool t33_msca_list_start(int ch, u32 w, u32 h, u32 stride, u32 in_w, u32 in_h)
+{
+	u32 *l = (t33_mod_built & (1ULL << T33_MOD_MSCA)) ? t33_mod_buf(T33_MOD_MSCA) : NULL;
+	u32 b = 0x1e * (u32)ch;
+
+	if (!l || t33_msca_direct || w != in_w || h != in_h || l[0] < b + 0x33 ||
+	    l[b + 0x1b + 1] != t32_msca_size_word(w, h)) {
+		t33_msca_direct |= 1U << ch;
+		return false;
+	}
+	T33_SW(l, 6, 0);
+	T33_SW(l, 1, 1);
+	isp_wr(0xf0128 + 0x100 * ch, 0);
+	T33_SW(l, b + 0x22, 0xffffffff);
+	ch_wr(ch, T32_MSCA_Y_STRIDE, stride);
+	ch_wr(ch, T32_MSCA_UV_STRIDE, stride);
+	T33_SW(l, 1, 1);
+	T33_SW(l, b + 0x2a, 0);
+	T33_SW(l, b + 0x32, 0);
+	T33_SW(l, 3, l[3 + 1] | 1U << ch);
+	t33_msca_listed |= 1U << ch;
+	t33_rcfg_run(T33_MOD_MSCA);
+	t33_mod_dirty |= 1U << T33_MOD_MSCA;	/* tisp_msca_t33_api_chx_stream_on: tispMscaRefresh */
+	return true;
+}
+
+/* lib_tisp_msca_chx_reg_stream_off, the FIFO clears, tisp_msca_t33_api_chx_stream_off */
+static bool t33_msca_list_stop(int ch)
+{
+	u32 *l = t33_mod_buf(T33_MOD_MSCA), b = 0x1e * (u32)ch;
+
+	t33_msca_direct &= ~(1U << ch);
+	if (!(t33_msca_listed & (1U << ch)) || !l)
+		return false;
+	t33_msca_listed &= ~(1U << ch);
+	isp_wr(T32_MSCA_CH_EN, isp_rd(T32_MSCA_CH_EN) & ~(1U << ch));
+	ch_wr(ch, T32_MSCA_Y_CLR, 1);
+	ch_wr(ch, T32_MSCA_UV_CLR, 1);
+	ch_wr(ch, T32_MSCA_Y_DONE_CLR, 1);
+	ch_wr(ch, T32_MSCA_UV_DONE_CLR, 1);
+	T33_SW(l, b + 0x2a, 0);
+	T33_SW(l, b + 0x32, 0);
+	T33_SW(l, 3, l[3 + 1] & ~(1U << ch));
+	if (!t33_msca_direct)
+		t33_rcfg_run(T33_MOD_MSCA);
+	return true;
+}
+#endif
+
 void t32_hw_msca_start(int ch, u32 w, u32 h, u32 stride, u32 in_w, u32 in_h)
 {
 	u32 size = t32_msca_size_word(w, h);
+
+#ifdef TX_ISP_T33
+	if (t33_msca_list_start(ch, w, h, stride, in_w, in_h))
+		return;
+#endif
 
 	curve_geom[ch].in_w = in_w;
 	curve_geom[ch].in_h = in_h;
@@ -1236,6 +1343,10 @@ void t32_hw_msca_start(int ch, u32 w, u32 h, u32 stride, u32 in_w, u32 in_h)
 
 void t32_hw_msca_stop(int ch)
 {
+#ifdef TX_ISP_T33
+	if (t33_msca_list_stop(ch))
+		return;
+#endif
 	curve_geom[ch].on = false;
 	isp_wr(T32_MSCA_CH_EN, isp_rd(T32_MSCA_CH_EN) & ~(1U << ch));
 	isp_wr(T32_MSCA_UPDATE, 1);
