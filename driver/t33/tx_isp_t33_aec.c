@@ -44,6 +44,7 @@ static const u8 *zbufs, *hbufs;
 static DEFINE_MUTEX(aec_lock);
 static bool ready;
 static u32 aec_it, aec_ag, aec_sent;
+static u32 tgain_old;	/* tisp_long_tgain_update's last gain (vendor .bss, not reset per stream) */
 static struct {
 	u32 frames, writes, dg_sets, expo_sets, expo_fail, fps_sets, events, irq5;
 	u32 tgain, ev_lo, ev_hi, bv, dg, mean, target;
@@ -89,7 +90,11 @@ static void drv_event(u32 ch, const u32 *ev)
 	st.events++;
 	if (ev[2] == 4) {
 		st.tgain = ev[4];
-		t33_awbc_ae_event(4, ev[4], ev[5]);
+		if (ev[4] != tgain_old || ev[5]) {
+			t33_tgain_refresh(ev[4]);
+			t33_awbc_ae_event(4, ev[4], ev[5]);
+			tgain_old = ev[4];
+		}
 	}
 	if (ev[2] == 6) {
 		st.ev_lo = ev[4];

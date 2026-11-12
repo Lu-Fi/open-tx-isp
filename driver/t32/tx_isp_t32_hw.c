@@ -897,10 +897,145 @@ static noinline_for_stack void t33_tisp_init_awb(const u8 *bin, u32 bytes)
 		isp_printf(1, "tx-isp-t33: per-frame AWB not started\n");
 }
 
+/*
+ * tisp_long_tgain_update's block refreshes (AE event 4, the long total
+ * gain, log2 Q16; process context, the AE work).  Each vendor
+ * tisp_*_par_refresh keeps the last gain and leaves when the new one is
+ * closer than the init parameter word +1000 (fstframe_defaultp word 20,
+ * 0x100); DPC has no such gate, MDNS reruns its list unchanged below it.
+ * The blocks are rebuilt with their init builders at the new gain into a
+ * scratch page and copied into the list page when that list is idle; the
+ * list runs at the next frame end (the vendor's tisp*Refresh at the
+ * block's frame-done interrupt).
+ */
+#define T33_GAIN_THR	0x100U
+static u32 t33_gr_last[T33_MODULES], t33_gr_ev = T33_INIT_EV;
+static DEFINE_MUTEX(t33_gr_lock);
+static u32 *t33_gr_tmp;
+u32 t33_gr_runs[T33_MODULES];
+
+static void t33_gref_reset(void)
+{
+	unsigned int i;
+
+	for (i = 0; i < T33_MODULES; i++)
+		t33_gr_last[i] = T33_INIT_GAIN;
+	t33_gr_ev = T33_INIT_EV;
+}
+
+/* the vendor's gate: true (and the gain kept) when the block refreshes */
+static bool t33_gr_gate(unsigned int id, u32 gain)
+{
+	u32 last = t33_gr_last[id], d = last > gain ? last - gain : gain - last;
+
+	if (last != 0xffffffffU && d < T33_GAIN_THR)
+		return false;
+	t33_gr_last[id] = gain;
+	return true;
+}
+
+/* the rebuilt list (t33_gr_tmp) into the list page, then run it at the next frame end */
+static void t33_gr_commit(unsigned int id, int len)
+{
+	unsigned long flags;
+	u32 *buf;
+	unsigned int i;
+
+	if (len <= 0 || !(t33_mod_built & (1ULL << id)) || !(buf = t33_mod_buf(id)))
+		return;
+	t32_wait_clear(T33_RCFG_TRIG, 1U << id, 2000);	/* the core reads the page while the list runs */
+	local_irq_save(flags);
+	for (i = 0; i < T33_SLOT_WORDS; i++)
+		if (buf[i] != t33_gr_tmp[i])
+			buf[i] = t33_gr_tmp[i];
+	t33_mod_dirty |= 1U << id;
+	local_irq_restore(flags);
+	t33_gr_runs[id]++;
+}
+
+static void t33_gr_rerun(unsigned int id)
+{
+	unsigned long flags;
+
+	if (!(t33_mod_built & (1ULL << id)))
+		return;
+	local_irq_save(flags);
+	t33_mod_dirty |= 1U << id;
+	local_irq_restore(flags);
+	t33_gr_runs[id]++;
+}
+
+static int t33_gr_tmpl(const struct t33_tcmd *t, unsigned int nt, int n)
+{
+	return n > 0 ? t33_rcfg_build_tmpl(t33_gr_tmp, T33_SLOT_WORDS, t, nt, tisp_w, (unsigned int)n) : n;
+}
+
+void t33_tgain_refresh(u32 gain)
+{
+	const u8 *bin;
+	u32 bytes, off, len, width, height, pa, d[2], blc = 0, dg = 0, *b;
+
+	if (t32_core_iq_bin(&bin, &bytes) || !tisp_w)
+		return;
+	mutex_lock(&t33_gr_lock);
+	if (!t33_gr_tmp)
+		t33_gr_tmp = kmalloc(T33_SLOT_WORDS * 4, GFP_KERNEL);
+	if (!t33_gr_tmp)
+		goto out;
+#define T33_GR_SEC(BLK)	((off = t32_iq_section(bin, bytes, T33_SEC_##BLK, &len)) && len == T33_##BLK##_SEC_BYTES)
+	/* tisp_dpc_l_gain_update: every change */
+	if (T33_GR_SEC(DPC)) {
+		t33_gr_gate(T33_MOD_DPC, gain);
+		memset(t33_gr_tmp, 0, T33_SLOT_WORDS * 4);
+		t33_gr_commit(T33_MOD_DPC, t33_dpc_init(bin + off, gain, t33_dpc_v, t33_gr_tmp, T33_SLOT_WORDS));
+	}
+	if (T33_GR_SEC(DMSC) && t33_gr_gate(T33_MOD_DMSC, gain)) {
+		memset(t33_gr_tmp, 0, T33_SLOT_WORDS * 4);
+		t33_gr_commit(T33_MOD_DMSC, t33_dmsc_init(bin + off, gain, t33_dmsc_v, t33_gr_tmp, T33_SLOT_WORDS));
+	}
+	if (T33_GR_SEC(YSP) && t33_gr_gate(T33_MOD_YSP, gain)) {
+		memset(t33_gr_tmp, 0, T33_SLOT_WORDS * 4);
+		t33_gr_commit(T33_MOD_YSP, t33_ysp_init(bin + off, gain, t33_ysp_v, t33_gr_tmp, T33_SLOT_WORDS));
+	}
+	if (T33_GR_SEC(YDNS) && t33_gr_gate(T33_MOD_YDNS, gain)) {
+		memset(t33_gr_tmp, 0, T33_SLOT_WORDS * 4);
+		t33_gr_commit(T33_MOD_YDNS, t33_gr_tmpl(T33_TMPL(t33_ydns_tmpl), t33_ydns_init(bin + off, gain, tisp_w)));
+	}
+	if (T33_GR_SEC(SDNS) && t33_gr_gate(T33_MOD_SDNS, gain)) {
+		memset(t33_gr_tmp, 0, T33_SLOT_WORDS * 4);
+		t33_gr_commit(T33_MOD_SDNS, t33_gr_tmpl(T33_TMPL(t33_sdns_tmpl), t33_sdns_init(bin + off, gain, tisp_w)));
+	}
+	if (T33_GR_SEC(RDNS) && t33_gr_gate(T33_MOD_RDNS, gain)) {
+		if ((t33_mod_built & (1ULL << T33_MOD_BLC)) && (b = t33_mod_buf(T33_MOD_BLC)))
+			blc = b[4];
+		if ((t33_mod_built & (1ULL << T33_MOD_DG)) && (b = t33_mod_buf(T33_MOD_DG)))
+			dg = b[4];
+		memset(t33_gr_tmp, 0, T33_SLOT_WORDS * 4);
+		t33_gr_commit(T33_MOD_RDNS, t33_rdns_init(bin + off, gain, t33_gr_ev, blc, dg, t33_rdns_v, t33_gr_tmp,
+							  T33_SLOT_WORDS));
+	}
+	if (T33_GR_SEC(MDNS) && !t32_core_sensor_size(&width, &height) && !t32_core_isp_mem(&pa)) {
+		if (t33_gr_gate(T33_MOD_MDNS, gain)) {
+			memset(t33_gr_tmp, 0, T33_SLOT_WORDS * 4);
+			len = (u32)t33_mdns_init(bin + off, gain, width, height, t32_core_memopt(), pa, t33_mdns_v,
+						 t33_gr_tmp, T33_SLOT_WORDS, d);
+			if ((int)len > 0 && (t33_mod_built & (1ULL << T33_MOD_YSP)))
+				t33_mdns_decode(t33_ysp_v, t33_gr_tmp);
+			t33_gr_commit(T33_MOD_MDNS, (int)len);
+		} else {
+			t33_gr_rerun(T33_MOD_MDNS);	/* tispMdnsRefresh = 1 below the gate */
+		}
+	}
+#undef T33_GR_SEC
+out:
+	mutex_unlock(&t33_gr_lock);
+}
+
 static void t33_tisp_init(const u8 *bin, u32 bytes)
 {
 	u32 off, len, code, width, height;
 
+	t33_gref_reset();
 	t33_tisp_init_ae(bin, bytes);
 	t33_tisp_init_awb(bin, bytes);
 	off = t32_iq_section(bin, bytes, T33_SEC_BLC, &len);
@@ -1712,6 +1847,8 @@ void t32_hw_exit(void)
 #ifdef TX_ISP_T33
 	cancel_work_sync(&t33_stats_w);	/* it reads registers and the statistics buffers */
 	t33_evq_free();
+	kfree(t33_gr_tmp);
+	t33_gr_tmp = NULL;
 #endif
 	if (regs)
 		writel(0, csi_base + 0x0c);	/* CSI host back into reset */
