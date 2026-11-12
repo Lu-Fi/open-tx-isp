@@ -49,7 +49,15 @@ int main(void)
 				c0[i] = rd();
 			for (i = 0; i < 225; i++)
 				c2[i] = rd();
-			printf("%u\n", t40_aet_wmean(s0, s1, s2, c0, c2, rowh, colw, rows, cols, w, p3, p4, p10 & 0xffffU));
+			{
+				uint32_t band[3], l = t40_aet_wmean_b(s0, s1, s2, c0, c2, rowh, colw, rows, cols, w, p3, p4,
+								      p10 & 0xffffU, band);
+
+				if (band[2])
+					printf("%u %u %u\n", l, band[0], band[1]);
+				else
+					printf("%u - -\n", l);	/* OEM: divide by zero */
+			}
 		} else if (m == 'A') {	/* A luma mode scene thr mp4 mp5 mp6 hl5..hl10 npix hist[256] -> p3 p4 p10 luma' */
 			static uint32_t hist[256];
 			struct t40_aet_bank b = { { 0 } };
@@ -92,6 +100,37 @@ int main(void)
 			for (i = 0; i < 10; i++)
 				printf(" %u", t[i]);
 			printf("\n");
+		} else if (m == 'S') {	/* S it ag dg luma b0 b1 refresh refresh_t ftune stable tgt lh[15] n s7 s8 af0 spd[5]
+					 * stab[4] ev[10] tgt[10] -> new EV, ev, stable, target (#410/#412) */
+			struct t40_aet_bank b = { { 0 } };
+			struct t40_aet_tune st = { { 0 } };
+			uint32_t it = rd(), ag = rd(), dg = rd(), luma = rd(), band[2], e[10], t[10], ev, r;
+
+			band[0] = rd();
+			band[1] = rd();
+			st.refresh = (uint8_t)rd();
+			st.refresh_t = (uint8_t)rd();
+			st.ftune = (uint8_t)rd();
+			st.stable = rd();
+			st.tgt = rd();
+			for (i = 0; i < 15; i++)
+				st.lh[i] = rd();
+			b.mp48[2] = (uint16_t)rd();
+			b.mp48[7] = (uint16_t)rd();
+			b.mp48[8] = (uint16_t)rd();
+			b.af[0] = (uint16_t)rd();
+			for (i = 0; i < 5; i++)
+				b.spd[i] = (uint16_t)rd();
+			for (i = 0; i < 4; i++)
+				b.stab[i] = (uint16_t)rd();
+			for (i = 0; i < 10; i++)
+				b.ev[i] = rd();
+			for (i = 0; i < 10; i++)
+				b.tgt[i] = (uint16_t)rd();
+			t40_aet_lists(&b, 0, e, t);
+			ev = t40_aet_ev_q10(it, ag, dg);
+			r = t40_aet_tune2(&b, e, t, &st, ev, luma, band);
+			printf("%u %u %u %u\n", r, ev, st.stable & 0xffffU, st.tgt & 0xffffU);
 		} else if (m == 'I') {	/* I curve[129] -> bad: values whose inverse does not land on their output run, or not nearest */
 			uint16_t g[129];
 			uint8_t inv[256];

@@ -703,6 +703,93 @@ static inline bool t40_ae_oem_fine_trim(u32 lum, u32 tl, const u16 *tol, bool *s
 	return true;
 }
 
+/* Q10 gain of a 16.16 log2 value (1024 x 2^(l / 65536)), 64 bit: no 32x cap like t40_ae_q10_exp2_floor */
+static inline u64 t40_ae_exp2_q10(u32 l)
+{
+	return (u64)t40_ae_q10_exp2_floor(l & 0xffffU) << (l >> 16 > 40U ? 40U : l >> 16);
+}
+
+/*
+ * #410 / #412: allocation of the EV the OEM step produced (vendor tx-isp-t40.ko tisp_ae_long_tune2 0x35b58 l.587-737,
+ * deflicker ladder branch; tisp_ae_ev_list_alloc_calc keeps the same order on the T40 bins): integration time
+ * first (antiflicker: the highest rung not above EV / minimum gain, the top rung clamped to max_it = it_cap;
+ * without antiflicker or below one rung in AUTO mode continuous), then the analog gain (here the highest ladder
+ * index the rest covers: the OEM analog gain is continuous, this ladder has 1.17x steps), the ISP digital gain
+ * the remainder below one analog step or above the analog maximum, clamped to [1024, dgain_max].  A fixed
+ * (manual) stage keeps its value and the others take the rest.  ev_q10 = lines x gain (Q10, t40_aet_ev_q10).
+ * Returns bit 0 when *it / *again changed (sensor write), bit 1 when *dgain changed.
+ * Replaces the gain-stage ladder of the frame AE on the OEM statistics path: the fall had no stage below one
+ * analog index at ISP dgain 1x (#410), the ladder stepped fixed 1.08x / 1.17x moves per 3-frame sample (#412).
+ */
+struct t40_ae_alloc_lim {
+	u32 it_floor, it_cap, af_step;	/* af_step 0: no antiflicker */
+	u32 lo, hi;			/* analog gain index range */
+	u32 dgain_max;
+	bool it_fixed, ag_fixed, dg_fixed;
+};
+
+static inline u32 t40_ae_oem_alloc(u32 ev_q10, u32 *it, u32 *again, u32 *dgain,
+				   const struct t40_ae_alloc_lim *l, u32 (*log2_gain)(u32 idx))
+{
+	u32 i = *it, a = *again, d = *dgain, hi = l->hi, lo = l->lo, rem, gmin, ret = 0;
+	u64 base;
+
+	if (!log2_gain || !l->it_cap)
+		return 0;
+	if (hi > T40_AE_AGAIN_LADDER_MAX)
+		hi = T40_AE_AGAIN_LADDER_MAX;
+	if (lo > hi)
+		lo = hi;
+	if (ev_q10 < 1024U)
+		ev_q10 = 1024U;
+	if (!l->ag_fixed && (a < lo || a > hi))
+		a = a < lo ? lo : hi;
+	/* the smallest gain the free stages allow (log2 16.16): analog lo or the fixed index, dgain 1x or fixed */
+	gmin = log2_gain(l->ag_fixed ? a : lo) + (l->dg_fixed ? t40_ae_log2_ratio(d, 1024U) : 0U);
+	if (!l->it_fixed) {
+		u64 want = t40_ae_div64((u64)ev_q10 << 10, t40_ae_exp2_q10(gmin));	/* lines at the minimum gain */
+		u32 w = want > 0xffffffULL ? 0xffffffU : (u32)want;
+
+		if (l->af_step && w >= l->af_step)
+			w = t40_ae_af_floor(w, l->af_step);
+		if (w > l->it_cap)
+			w = l->it_cap;
+		if (w < l->it_floor)
+			w = l->it_floor;
+		if (!w)
+			w = 1;
+		i = w;
+	}
+	/* gain the exposure needs on top of the integration time */
+	base = (u64)i << 10;
+	rem = base < 0xffffffffULL ? t40_ae_log2_ratio(ev_q10, (u32)base) : 0U;
+	if (!l->ag_fixed) {
+		u32 avail = rem > (l->dg_fixed ? t40_ae_log2_ratio(d, 1024U) : 0U) ?
+			    rem - (l->dg_fixed ? t40_ae_log2_ratio(d, 1024U) : 0U) : 0U;
+
+		a = lo;
+		while (a < hi && log2_gain(a + 1U) <= avail)
+			a++;
+	}
+	if (!l->dg_fixed) {
+		u32 g = log2_gain(a);
+		u64 nd = rem > g ? t40_ae_exp2_q10(rem - g) : 1024U;
+		u32 dmax = l->dgain_max < 1024U ? 1024U : l->dgain_max;
+
+		d = nd > dmax ? dmax : (u32)nd;
+		if (d < 1024U)
+			d = 1024U;
+	}
+	if (i != *it || a != *again)
+		ret |= 1U;
+	if (d != *dgain)
+		ret |= 2U;
+	*it = i;
+	*again = a;
+	*dgain = d;
+	return ret;
+}
+
 /* ---------------- IMPISPAEExprInfo ---------------- */
 
 struct t40_ae_expr {

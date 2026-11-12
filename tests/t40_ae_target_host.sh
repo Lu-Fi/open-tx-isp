@@ -44,13 +44,13 @@ rm -rf "$W0"
 [ "$(echo $r)" = "0 0 0 0 invalid" ] || { echo "t40_ae_target_host: FAIL (inverse gamma: $r)"; exit 1; }
 if [ ! -r "${T40_OEM_KO:-}" ] || ! python3 -c "import unicorn, elftools" 2>/dev/null; then echo "t40_ae_target_host: SKIP (T40_OEM_KO / python3 unicorn+pyelftools missing)"; [ -z "${T40_ORACLE_STRICT:-}" ] || exit 1; exit 0; fi
 W=$(mktemp -d); trap 'rm -rf "$W"' EXIT
-run() {	# $1 = header, $2 = cases
+run() {	# $1 = header, $2 = cases, $3 = case kinds
 	cc -O1 -Wall -Werror -DAE_TARGET_H="\"$1\"" -o "$W/h" "$H/t40_ae_target/harness.c" || return 2
-	python3 "$H/../tools/ko_emu/diff_ae_target.py" "$T40_OEM_KO" "$W/h" --n "$2"
+	python3 "$H/../tools/ko_emu/diff_ae_target.py" "$T40_OEM_KO" "$W/h" --n "$2" --kinds "${3:-TWAGCS}"
 }
 run "$f" ${N:-1000} || { echo "t40_ae_target_host: FAIL"; exit 1; }
 nm=0; fail=0; tot=0
-while IFS='@' read -r a b; do
+while IFS='@' read -r a b k; do
 	[ -n "$a" ] || continue
 	tot=$((tot + 1))
 	python3 - "$a" "$b" "$f" "$W/m.h" <<'PY' || { echo "t40_ae_target_host: mutation text not found: $a"; fail=1; continue; }
@@ -59,7 +59,8 @@ a, b, src, dst = sys.argv[1:5]; t = open(src).read()
 if a not in t: sys.exit(1)
 open(dst, "w").write(t.replace(a, b, 1))
 PY
-	if run "$W/m.h" ${NMUT:-150} > /dev/null; then echo "t40_ae_target_host: mutation NOT detected: $a => $b"; fail=1; else nm=$((nm + 1)); fi
+	n=${NMUT:-150}; [ -z "$k" ] || n=${NMUT_S:-300}
+	if run "$W/m.h" "$n" "${k:-TWAGC}" > /dev/null; then echo "t40_ae_target_host: mutation NOT detected: $a => $b"; fail=1; else nm=$((nm + 1)); fi
 done <<'MUT'
 if (ev <= evl[0] << q)@if (ev < evl[0] << q)
 return tgl[9];@return tgl[8];
@@ -82,6 +83,26 @@ b0 = ((thr_hi << 1) / 3U) & 0xffffU;@b0 = ((thr_hi << 1) / 3U + 1U) & 0xffffU;
 k = t40_aet_div32(16, (p4 - 1U) << 16, p10 << 16) & 0xffffU;@k = t40_aet_div32(16, (p4 - 1U) << 16, p10 << 16);
 sum += t40_aet_mul32(5, hist[b0 + i] << 5, x >> 11) >> 5;@sum += t40_aet_mul32(5, hist[b0 + i] << 5, x >> 10) >> 5;
 return (npix + sum) * luma / npix;@return (npix + sum) * luma / (npix + 1U);
+band[0] = t40_aet_div32(T40_AET_Q, sh << T40_AET_Q, band[2]);@band[0] = t40_aet_div32(T40_AET_Q, sh << (T40_AET_Q - 1U), band[2]);@W
+band[2] = d32 << T40_AET_Q;@band[2] = d32 << (T40_AET_Q - 1U);@W
+if (0U - (uint32_t)p->spd[4] < 0U - e)@if (0U - (uint32_t)p->spd[4] <= 0U - e)@S
+R = p->spd[3] < e ?@R = p->spd[3] <= e ?@S
+(uint64_t)(one - e) << q);@(uint64_t)(one - e + 1U) << q);@S
+f = cap;@f = cap - 1U;@S
+if (m < f && f < one2)@if (m <= f && f < one2)@S
+if (f < m && one2 < f)@if (f < m && one2 <= f)@S
+if (R <= one3 && one2 - R > fl)@if (R <= one3 && one2 - R >= fl + 1024U)@S
+((uint64_t)1U << (q + 9U)), w0q@((uint64_t)1U << (q + 8U)), w0q@S
+128U << q)) & 0xffffU;@127U << q)) & 0xffffU;@S
+if (one < a + w0)@if (one <= a + w0)@S
+s = p->af[0] == 0 ? p->mp48[7]@s = p->af[0] == 0 ? p->mp48[8]@S
+luma += i * v;@luma += (i + 1U) * v;@S
+if (ratio < p->stab[0] && p->stab[1] < ratio)@if (ratio <= p->stab[0] && p->stab[1] < ratio)@S
+if (t0 - p->stab[2] <= luma@if (t0 - p->stab[2] < luma@S
+if (st->refresh_t != 1U)@if (st->refresh_t == 1U)@S
+t0 = st->refresh == 1U ?@t0 = st->refresh != 1U ?@S
+r = (uint32_t)(t40_aet_mul64(q2, f, (uint64_t)ev << q) >> q);@r = (uint32_t)(t40_aet_mul64(q2, f, (uint64_t)ev << q) >> q) + 1U;@S
+return ((ah * bh) << (n & 63U)) + al * bh + ah * bl + ((al * bl) >> (n & 63U));@return ((ah * bh) << (n & 63U)) + al * bh + ah * bl;@S
 MUT
 [ $fail = 0 ] && echo "t40_ae_target_host: ok ($nm/$tot mutations detected)"
 exit $fail

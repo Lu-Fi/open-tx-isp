@@ -70,6 +70,7 @@ TESTS += tx_isp_t31_autozoom_test
 TESTS += tx_isp_t31_af_test
 TESTS += tx_isp_t31_framedrop_test
 TESTS += tx_isp_t40_ae_api_test
+TESTS += tx_isp_t40_ae_step_test
 TESTS += tx_isp_t40_osd_slot_test
 TESTS += tx_isp_t40_draw_test
 
@@ -80,6 +81,10 @@ tx_isp_t40_osd_slot_test: tx_isp_t40_osd_slot_test.c ../driver/t40/tx_isp_t40_os
 	$(CC) $(CFLAGS) -o $@ $<
 
 tx_isp_t40_ae_api_test: tx_isp_t40_ae_api_test.c ../driver/t40/tx_isp_t40_ae_api.h
+	$(CC) $(CFLAGS) -o $@ $< -lm
+
+# #410 / #412: OEM AE exposure step + allocation on a plant model (sensor 2 / ISP 1-2 frames late)
+tx_isp_t40_ae_step_test: tx_isp_t40_ae_step_test.c ../driver/t40/tx_isp_t40_ae_api.h ../driver/t40/tx_isp_t40_ae_target.h
 	$(CC) $(CFLAGS) -o $@ $< -lm
 
 tx_isp_t31_framedrop_test: tx_isp_t31_framedrop_test.c ../driver/t31/tx_isp_t31_framedrop.h

@@ -9148,7 +9148,7 @@ static bool regtrace_enable_awb_set_gain = true;
 static bool regtrace_enable_awb_grayworld;
 static void regtrace_awb_grayworld_apply(uint32_t rgain, uint32_t bgain);
 static void regtrace_awb_grayworld_update(void);
-static void regtrace_frame_3a_sample(int channel, uint32_t y_phys, uint32_t uv_phys);
+static void regtrace_frame_3a_sample(int channel, uint32_t y_phys, uint32_t uv_phys, bool ae_only);
 static uint regtrace_awb_grayworld_interval = 2;
 static uint32_t regtrace_awb_grayworld_updates;
 static uint32_t regtrace_awb_grayworld_irqs;
@@ -9458,6 +9458,31 @@ static bool t40_ae_oem_live T40C2;              /* the last sample used the OEM 
 static uint32_t t40_ae_oem_tout T40C2;          /* its target (output Y) */
 static uint32_t t40_ae_oem_diag[6] T40C2;
 static bool t40_ae_oem_hw T40C2;                /* #232: the last OEM metering used the hardware AE statistics */       /* luma (stats), luma after the highlight term, EV, target (stats), aim EV, luma out */
+/*
+ * #410 / #412: on the OEM hardware-statistics path the frame AE runs the OEM exposure step (t40_aet_tune2 =
+ * tisp_ae_long_tune2 0x35b58: EV x damped target / luma, bit-exact, tools/ko_emu/diff_ae_target.py case S) and
+ * allocates the new EV like the OEM (t40_ae_oem_alloc), on every AE statistics frame like the OEM
+ * (tisp_ae_main_process): between the 3-frame frame-3A samples an AE-only pass meters the hardware statistics
+ * (no frame scan, no AWB).  The gain-stage ladder (fixed 1.08x / 1.17x moves, no stage below one analog index at
+ * ISP dgain 1x) stays for the frame-grid fallback and HLC / BLC / face AE.  t40_ae_oem_step 0 = the ladder (A/B);
+ * t40_ae_every_frame 0 = the step on the 3-frame samples only.
+ */
+static uint t40_ae_oem_step T40C2 = 1;
+module_param_named(t40_ae_oem_step, t40_ae_oem_step, uint, 0644);
+static uint t40_ae_every_frame T40C2 = 1;
+module_param_named(t40_ae_every_frame, t40_ae_every_frame, uint, 0644);
+static uint t40_ae_oem_steps T40C2;             /* OEM steps run / allocations that moved (diagnostic) */
+module_param_named(t40_ae_oem_steps, t40_ae_oem_steps, uint, 0444);
+static uint t40_ae_oem_allocs T40C2;
+module_param_named(t40_ae_oem_allocs, t40_ae_oem_allocs, uint, 0444);
+static uint t40_ae_only_runs T40C2;             /* AE-only passes between the frame-3A samples */
+module_param_named(t40_ae_only_runs, t40_ae_only_runs, uint, 0444);
+static struct t40_aet_tune t40_ae_tune_st T40C2;
+static uint32_t f3a_evl[T40_AET_N] T40C2, f3a_tgl[T40_AET_N] T40C2, f3a_band[3] T40C2;
+static uint32_t t40_ae_tune_irqs T40C2;         /* hardware zone interrupt count of the last step */
+static uintptr_t t40_ae_tune_bank T40C2;        /* tuning bank of the last step (day / night switch = refresh) */
+static uint32_t t40_ae_tune_comp T40C2;
+static bool t40_ae_tune_on T40C2;
 
 static uint32_t regtrace_t40_frame_3a_target_eff(void)
 {
@@ -47135,6 +47160,7 @@ out:
  * EXPO write) to its own work item.
  */
 static uint32_t regtrace_frame_3a_work_y, regtrace_frame_3a_work_uv;
+static bool regtrace_frame_3a_work_ae_only;   /* #412: AE-only pass (see regtrace_frame_3a_tick) */
 static int regtrace_frame_3a_work_chn;
 /*
  * T40-DN1025: the frame 3A (AE/AWB/EV fan-out) samples completed main-channel
@@ -47296,9 +47322,14 @@ static void regtrace_frame_3a_workfn_run(struct work_struct *work)
     regtrace_frame_3a_work_runs++;
     if (!regtrace_enable_frame_3a || !y || !uv)
         return;
+    if (READ_ONCE(regtrace_frame_3a_work_ae_only)) {
+        regtrace_frame_3a_sample(chn, y, uv, true);
+        regtrace_ae_sensor_apply_maybe(0, "frame-ae-work");
+        return;
+    }
     if (chn)
         regtrace_frame_3a_ch1_samples++;
-    regtrace_frame_3a_sample(chn, y, uv);
+    regtrace_frame_3a_sample(chn, y, uv, false);
     regtrace_ae_sensor_apply_maybe(0, "frame-3a-work");
     regtrace_frame_done_tuning_follow();
 }
@@ -47308,16 +47339,31 @@ static DECLARE_WORK(regtrace_frame_3a_work, regtrace_frame_3a_work_timed);
 static void regtrace_frame_3a_tick(int channel, uint32_t y, uint32_t uv)
 {
     static uint32_t f3a_tick;
+    uint32_t iv = max_t(uint32_t, regtrace_frame_3a_interval, 1U);
+    bool ae_only = false;
 
     if (!regtrace_enable_frame_3a || !y || !uv)
         return;
-    if (++f3a_tick < max_t(uint32_t, regtrace_frame_3a_interval, 1U))
-        return;
-    f3a_tick = 0;
+    if (++f3a_tick < iv) {
+        /*
+         * #412: the OEM AE steps on every AE statistics frame (tisp_ae_main_process); between the samples an
+         * AE-only pass while the last sample ran the OEM step on the hardware statistics.
+         */
+        if (!READ_ONCE(t40_ae_every_frame) || !READ_ONCE(t40_ae_oem_step) || !READ_ONCE(t40_ae_oem_live) ||
+            !READ_ONCE(t40_ae_oem_hw) || !READ_ONCE(t40_ae_tune_on))
+            return;
+        ae_only = true;
+    }
     if (atomic_cmpxchg(&regtrace_frame_3a_work_pending, 0, 1) != 0) {
-        regtrace_frame_3a_work_busy++;
+        if (!ae_only) {
+            regtrace_frame_3a_work_busy++;
+            f3a_tick = iv - 1U;   /* the full sample (AWB) is not dropped behind an AE-only pass: next frame */
+        }
         return;
     }
+    if (!ae_only)
+        f3a_tick = 0;
+    WRITE_ONCE(regtrace_frame_3a_work_ae_only, ae_only);
     WRITE_ONCE(regtrace_frame_3a_work_chn, channel);
     WRITE_ONCE(regtrace_frame_3a_work_y, y);
     WRITE_ONCE(regtrace_frame_3a_work_uv, uv);
@@ -77010,7 +77056,7 @@ static uint32_t regtrace_t40_ae_af_step(bool *normal)
     return t40_ae_af_lines(regtrace_t40_lines_per_s(), freq);
 }
 
-static void regtrace_frame_3a_sample(int channel, uint32_t y_phys, uint32_t uv_phys)
+static void regtrace_frame_3a_sample(int channel, uint32_t y_phys, uint32_t uv_phys, bool ae_only)
 {
     static void __iomem *win;
     static uint32_t win_base;
@@ -77039,6 +77085,23 @@ static void regtrace_frame_3a_sample(int channel, uint32_t y_phys, uint32_t uv_p
     uv_height = height / 2U;
     y_size = (uint64_t)width * height;
     uv_size = (uint64_t)width * uv_height;
+
+    /*
+     * #412: AE-only pass between the frame-3A samples (regtrace_frame_3a_tick): no frame scan (the frame values of
+     * the last sample stand), the OEM metering on the hardware AE statistics and the AE step, no AWB.
+     */
+    if (ae_only) {
+        oem = READ_ONCE(t40_ae_target_oem) && tparamsN[0] &&
+              !t40_aet_parse((const uint8_t *)(uintptr_t)tparamsN[0], &f3a_bank);
+        if (!oem)
+            return;
+        luma = regtrace_frame_3a_last_luma;
+        umean = regtrace_frame_3a_last_u;
+        vmean = regtrace_frame_3a_last_v;
+        highlight_permille = regtrace_frame_3a_last_highlight_permille;
+        t40_ae_only_runs++;
+        goto ae_meter;
+    }
 
     /* Native NV12 may straddle a fixed 32-MiB alignment boundary. */
     if (regtrace_frame_3a_slide_window &&
@@ -77177,6 +77240,8 @@ static void regtrace_frame_3a_sample(int channel, uint32_t y_phys, uint32_t uv_p
     regtrace_frame_3a_last_v = vmean;
     regtrace_frame_3a_last_highlight_permille = highlight_permille;
     regtrace_frame_3a_samples++;
+
+ae_meter:
 
     /*
      * AE: proportional, slew-limited integration trim before analog gain.
@@ -77317,12 +77382,14 @@ static void regtrace_frame_3a_sample(int channel, uint32_t y_phys, uint32_t uv_p
             }
             WRITE_ONCE(t40_ae_oem_hw, hw);
             t40_aet_band_params(b, 0, &p3, &p4, &p10);
-            lum = t40_aet_wmean(s[0], s[1], s[2], c[0], c[1], rowh, colw, rows, cols, wz, p3, p4, p10);
+            lum = t40_aet_wmean_b(s[0], s[1], s[2], c[0], c[1], rowh, colw, rows, cols, wz, p3, p4, p10, f3a_band);
             lumb = b->hl[0] == 1U ? t40_aet_hl_boost(lum, hs, b->zone[35], p4, p10, npix) : lum;
             ag = tx_isp_exp2_u32(regtrace_gc4653_again_log2_gain(READ_ONCE(regtrace_ae_soft_cur_again)), 16, 10);
             ev = t40_aet_ev_q10(READ_ONCE(regtrace_ae_soft_cur_it), ag ? ag : 1024U,
                                 clamp_t(uint32_t, READ_ONCE(regtrace_ae_isp_dgain_cur), 1024U, 32767U));
             t40_aet_lists(b, t40_aet_comp_word(b->sc[2], READ_ONCE(t40_ae_sc.comp)), evl, tgl);
+            memcpy(f3a_evl, evl, sizeof(f3a_evl));
+            memcpy(f3a_tgl, tgl, sizeof(f3a_tgl));
             tl = t40_aet_target(evl, tgl, ev, lumb, &aim);
             metered = max_t(uint32_t, t40_aet_gamma8(g, lumb), 1U);
             WRITE_ONCE(t40_ae_oem_tout, clamp_t(uint32_t, t40_aet_gamma8(g, tl), 8U, 250U));
@@ -77338,6 +77405,9 @@ static void regtrace_frame_3a_sample(int channel, uint32_t y_phys, uint32_t uv_p
         }
         WRITE_ONCE(t40_ae_metered, metered);
     }
+    /* #412: the AE-only pass steps on fresh hardware statistics only (else the next full sample does) */
+    if (ae_only && !(READ_ONCE(t40_ae_oem_live) && READ_ONCE(t40_ae_oem_hw)))
+        return;
 
     /*
      * AE: proportional, slew-limited integration trim before analog gain.
@@ -77372,7 +77442,7 @@ static void regtrace_frame_3a_sample(int channel, uint32_t y_phys, uint32_t uv_p
         struct t40_ae_expr ex;
         uint32_t man_it, man_ag, min_again, it_cap, it_floor, af_step, speed;
         bool af_normal = false, it_fixed, ag_fixed, dg_fixed, up, it_down = false;
-        bool oem_split = !READ_ONCE(t40_ae_split_legacy);
+        bool oem_split = !READ_ONCE(t40_ae_split_legacy), oem_step;
         /* #219 C1: rung trades in the gain the sensor applies */
         uint32_t (*trade_gain)(uint32_t) = READ_ONCE(t40_ae_trade_sensor_gain) ?
                                           t40_ae_trade_log2_gain : regtrace_gc4653_again_log2_gain;
@@ -77483,6 +77553,63 @@ static void regtrace_frame_3a_sample(int channel, uint32_t y_phys, uint32_t uv_p
             moves = 0;
         WRITE_ONCE(t40_ae_stable, luma_ae + again_band >= target &&
                                   luma_ae <= target + again_band);
+
+        /*
+         * #410 / #412: OEM exposure step on the hardware statistics (t40_aet_tune2) and OEM allocation
+         * (t40_ae_oem_alloc) instead of the gain-stage ladder, the fine trim and the re-split below.  One step per
+         * AE statistics frame (zone interrupt count); a new target (AeTargetComp), a bank switch (day / night) or a
+         * restart after a frozen / ladder phase is the OEM refresh (s[0x26] / s[0x29]).
+         */
+        oem_step = READ_ONCE(t40_ae_oem_step) && oem_split && READ_ONCE(t40_ae_oem_live) &&
+                   READ_ONCE(t40_ae_oem_hw);
+        if (oem_step) {
+            uint32_t irqs = READ_ONCE(t40_ae_hw_zone_irqs), comp = READ_ONCE(t40_ae_sc.comp);
+
+            moves = 0;
+            if (!t40_ae_tune_on || ex.freeze || comp != t40_ae_tune_comp ||
+                t40_ae_tune_bank != (uintptr_t)tparamsN[0]) {
+                t40_ae_tune_st.refresh = 1;
+                t40_ae_tune_st.refresh_t = 1;
+                t40_ae_tune_comp = comp;
+                t40_ae_tune_bank = (uintptr_t)tparamsN[0];
+            }
+            t40_ae_tune_on = !ex.freeze;
+            if (!ex.freeze && irqs != t40_ae_tune_irqs) {
+                struct t40_ae_alloc_lim al = {
+                    .it_floor = it_floor, .it_cap = it_fixed ? max_it : it_cap, .af_step = af_step,
+                    .lo = ag_fixed ? again : min_again, .hi = ag_fixed ? again : max_again,
+                    .dgain_max = dgain_max, .it_fixed = it_fixed, .ag_fixed = ag_fixed, .dg_fixed = dg_fixed,
+                };
+                uint32_t agq = tx_isp_exp2_u32(regtrace_gc4653_again_log2_gain(again), 16, 10);
+                uint32_t ev0 = t40_aet_ev_q10(it, agq ? agq : 1024U, dgain), ev1;
+
+                t40_ae_tune_irqs = irqs;
+                ev1 = t40_aet_tune2(&f3a_bank, f3a_evl, f3a_tgl, &t40_ae_tune_st, ev0, t40_ae_oem_diag[1],
+                                    f3a_band);
+                t40_ae_tune_st.refresh = 0;   /* OEM: cleared by tisp_ae_main_long_ev_alloc after the step */
+                speed = READ_ONCE(t40_ae_speed[ev1 > ev0 ? 1 : 0]);
+                if (ev1 != ev0 && speed != T40_AE_SPEED_NEUTRAL) {   /* SetAeSpeed: scale the step (open API) */
+                    uint32_t dv = t40_ae_speed_scale(ev1 > ev0 ? ev1 - ev0 : ev0 - ev1, speed);
+
+                    ev1 = ev1 > ev0 ? ev0 + dv : (ev0 > dv + 1024U ? ev0 - dv : 1024U);
+                }
+                if (ev1 != ev0) {   /* OEM: no allocation while the step holds the EV */
+                    uint32_t r = t40_ae_oem_alloc(ev1, &it, &again, &dgain, &al,
+                                                  regtrace_gc4653_again_log2_gain);
+
+                    if (r & 1U)
+                        changed = true;
+                    if (r & 2U)
+                        dgain_changed = true;
+                    if (r)
+                        WRITE_ONCE(t40_ae_oem_allocs, t40_ae_oem_allocs + 1U);
+                }
+                WRITE_ONCE(t40_ae_oem_steps, t40_ae_oem_steps + 1U);
+            }
+            WRITE_ONCE(t40_ae_stable, t40_ae_tune_st.stable == 1U);
+        } else {
+            t40_ae_tune_on = false;
+        }
 
         for (n = 0; n < moves; n++) {
         if (!protect_highlights &&
@@ -77613,7 +77740,7 @@ static void regtrace_frame_3a_sample(int channel, uint32_t y_phys, uint32_t uv_p
             t40_ae_oem_stable = false;
             t40_ae_oem_stable_comp = READ_ONCE(t40_ae_sc.comp);
         }
-        if (READ_ONCE(t40_ae_oem_live) && !ex.freeze && !dg_fixed &&
+        if (!oem_step && READ_ONCE(t40_ae_oem_live) && !ex.freeze && !dg_fixed &&
             READ_ONCE(t40_ae_fine_trim) && !changed && !dgain_changed && !protect_highlights &&
             (it >= it_cap || it_fixed || af_step) &&
             t40_ae_oem_fine_trim(t40_ae_oem_diag[1], t40_ae_oem_diag[3], f3a_bank.stab,
@@ -77627,7 +77754,7 @@ static void regtrace_frame_3a_sample(int channel, uint32_t y_phys, uint32_t uv_p
          * the path (analog-only rung trade, ISP dgain ratchet).  Not with manual gains or a frozen AE; IT stays
          * when it is manual or stepped down in this sample (the next sample lowers the gain first).
          */
-        if (oem_split && !ex.freeze && !ag_fixed && !dg_fixed &&
+        if (!oem_step && oem_split && !ex.freeze && !ag_fixed && !dg_fixed &&
             t40_ae_oem_split(&it, &again, &dgain, af_step, max_it,
                              min_again, max_again, dgain_max, !it_fixed && !it_down,
                              regtrace_gc4653_again_log2_gain)) {
@@ -77650,6 +77777,9 @@ static void regtrace_frame_3a_sample(int channel, uint32_t y_phys, uint32_t uv_p
         if (changed || dgain_changed)
             regtrace_gc4653_tuning_again_update(again);
     }
+
+    if (ae_only)
+        return;
 
     /* AWB is a distinct tuning loop; never alter WBG merely because AE runs. */
     if (regtrace_enable_awb_grayworld &&

@@ -8,6 +8,10 @@ driver/t40/tx_isp_t40_ae_target.h (HOST_BIN, built from tests/t40_ae_target/harn
   G  tisp_ae_long_tune2 up to the target calls (EV at both tisp_ae_long_target calls and the EV / target lists they get;
                                                 tisp_ae_long_target hooked)
   C  tisp_ae_s_comp                            (the target-scale word it stores)
+  S  tisp_ae_long_tune2 exposure step          (#410/#412: luma history, stable / tolerance logic, aim target,
+                                                tisp_ae_long_tune, damping; the new EV handed to
+                                                tisp_ae_ev_list_alloc_calc or the hold, stored target / stable flag)
+  W also checks the bright / dark band shares weight_mean2 returns in *param_6
 Exit 1 on any difference."""
 import argparse, os, random, struct, subprocess, sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -17,6 +21,7 @@ from unicorn.mips_const import UC_MIPS_REG_PC, UC_MIPS_REG_RA, UC_MIPS_REG_V0, U
 
 ap = argparse.ArgumentParser(); ap.add_argument("ko"); ap.add_argument("host")
 ap.add_argument("--n", type=int, default=2000); ap.add_argument("--seed", type=int, default=84)
+ap.add_argument("--kinds", default="TWAGCS")
 a = ap.parse_args(); rnd = random.Random(a.seed)
 def _div64(em):
     x = em.get_reg(UC_MIPS_REG_A0) | em.get_reg(UC_MIPS_REG_A1) << 32; y = em.get_reg(UC_MIPS_REG_A2) | em.get_reg(UC_MIPS_REG_A3) << 32
@@ -27,7 +32,7 @@ def u32(addr): return struct.unpack("<I", e.read(addr, 4))[0]
 def reg(r): return e.get_reg(r)
 
 # ---- hooks ----
-hk = {"wm": None, "tune2": None, "tgt": [], "tret": [], "stop_tgt": None}
+hk = {"wm": None, "tune2": None, "tgt": [], "tret": [], "stop_tgt": None, "alloc": None}
 def ret(uc, v):
     uc.reg_write(UC_MIPS_REG_V0, v & M); uc.reg_write(UC_MIPS_REG_PC, uc.reg_read(UC_MIPS_REG_RA))
 def on_wm(uc, addr, size, ud):
@@ -47,6 +52,10 @@ def on_tgt(uc, addr, size, ud):
     if len(hk["tgt"]) >= hk["stop_tgt"]: uc.emu_stop()
 def on_stop(uc, addr, size, ud):
     if hk["stop_tgt"] is not None: uc.emu_stop()
+def on_alloc(uc, addr, size, ud):
+    if hk["alloc"] is None: return
+    hk["alloc"] = reg(UC_MIPS_REG_A3); ret(uc, 0)
+ad = e.addr("tisp_ae_ev_list_alloc_calc"); e.uc.hook_add(UC_HOOK_CODE, on_alloc, begin=ad, end=ad)
 for name, fn in (("tisp_ae_long_weight_mean2", on_wm), ("tisp_ae_long_tune2", on_tune2), ("tisp_ae_long_target", on_tgt),
                  ("tisp_ae_long_tune", on_stop), ("tisp_ae_ev_list_alloc_calc", on_stop)):
     ad = e.addr(name); e.uc.hook_add(UC_HOOK_CODE, fn, begin=ad, end=ad)
@@ -75,7 +84,7 @@ def lists():
 
 cases, oem = [], []
 for n in range(a.n):
-    kind = "TWAGC"[n % 5]
+    kind = a.kinds[n % len(a.kinds)]
     if kind == "T":
         ev, tg = lists(); q = rnd.choice([10, 10, 10, 0, 4, 16]); x = rnd.choice([rnd.choice(ev) << q, (rnd.choice(ev) << q) + rnd.randrange(-2048, 2048), rnd.getrandbits(32)]) & M
         e.heap_reset(); pe = e.alloc(40, struct.pack("<10I", *ev)); pt = e.alloc(40, struct.pack("<10I", *tg))
@@ -97,10 +106,10 @@ for n in range(a.n):
             else: v = [rnd.choice([0, rnd.getrandbits(8), rnd.getrandbits(14), rnd.getrandbits(20)]) for _ in range(225)]
             pl.append(v); e.write(s[(0x14, 0x15, 0x16, 0x18, 0x19)[k]], struct.pack("<225I", *v))
         p3, p4, p10 = rnd.choice([1, 1, 6, 0, rnd.getrandbits(4)]), rnd.choice([1, 6, 8, 0, rnd.getrandbits(4)]), rnd.choice([3, 1, 2, rnd.randint(1, 255)])
-        outs = [e.alloc(4, b"\0" * 4) for _ in range(5)]
+        outs = [e.alloc(8, b"\0" * 8) for _ in range(5)]
         r = e.call("tisp_ae_long_weight_mean2", 0, c, p3, p4, stack_args=tuple(outs) + (p10,))
         assert r.stop is None, r.stop
-        oem.append("%u" % u32(outs[0]))
+        oem.append("%u %u %u" % (u32(outs[0]), u32(outs[1]), u32(outs[1] + 4)))
         cases.append("W %u %u %u %u %u %s %s %s %s" % (p3, p4, p10, rows, cols, " ".join(map(str, rowh)), " ".join(map(str, colw)),
                                                      " ".join(map(str, w)), " ".join(" ".join(map(str, v)) for v in pl)))
     elif kind == "A":
@@ -151,6 +160,44 @@ for n in range(a.n):
         (ev0, el, tl), (ev1, _, _) = hk["tgt"]
         oem.append("%u %u %s %s" % (ev0, ev1, " ".join(map(str, el)), " ".join(map(str, tl))))
         cases.append("G %u %u %u %u %u %u %u %u %s %s %s" % (it, ag, dg, luma, t0, sc0, sc1, scword, " ".join(map(str, ev)), " ".join(map(str, tg)), " ".join(map(str, scw))))
+    elif kind == "S":
+        c, s = ctx()
+        ev = [50, 200, 1500, 6000, 8500, 15000, 35000, 80000, 140000, 320000]
+        tg = [72, 68, 64, 60, 58, 55, 50, 45, 44, 40] if rnd.random() < 0.7 else [rnd.randint(1, 255) for _ in range(10)]
+        if rnd.random() < 0.2: ev, tg = lists(); tg = [x & 0xffff for x in tg]; ev = sorted(ev)
+        e.write(s[0x4c], struct.pack("<10I", *ev)); e.write(s[0x4d], struct.pack("<10H", *tg))
+        e.write(s[1], struct.pack("<4H", 10, 0, 0, 1))                  # q 10, ev_list_alloc_calc branch
+        it = rnd.choice([2241, 450, 176, 8, rnd.randint(1, 2250)])
+        ag = rnd.choice([1024, 1696, 32768, rnd.randint(1024, 65535)]); dg = rnd.choice([1024, 1109, 5120, rnd.randint(1024, 8191)])
+        e.write(s[2], struct.pack("<3I", it, ag, dg))
+        tgt, stable = rnd.choice([62, 55, 40, 72, rnd.randint(1, 255)]), rnd.choice([0, 0, 1, 1, 2])
+        e.write(s[3], struct.pack("<5H", tgt, stable, 0, 0, 0))
+        lh = [rnd.choice([rnd.randint(1, 255), rnd.randint(0, 4095), 60]) for _ in range(15)]
+        e.write(s[4], struct.pack("<15I", *lh))
+        nl, s7, s8 = rnd.choice([1, 1, 1, 0, 3, 15, 20]), rnd.choice([2, 2, 0, rnd.randint(0, 255)]), rnd.choice([2, 2, 0, rnd.randint(0, 255)])
+        e.write(s[0x48], struct.pack("<11H", 1, 10, nl, 0, 0, 0, 0, s7, s8, 0, 2))
+        spd = rnd.choice([[154, 51, 4, 1024, 512], [350, 51, 4, 1024, 512], [rnd.randint(0, 1100), rnd.randint(0, 1100),
+                          rnd.randint(0, 64), rnd.randint(0, 3000), rnd.randint(0, 1100)]])
+        e.write(s[0x49], struct.pack("<5H", *spd))
+        stab = rnd.choice([[1150, 950, 1, 1], [1150, 950, 1, 1], [rnd.randint(1000, 2000), rnd.randint(0, 1024), rnd.randint(0, 9), rnd.randint(0, 9)]])
+        e.write(s[0x4a], struct.pack("<4H", *stab))
+        af0 = rnd.choice([0, 1, 1, 2]); e.write(s[0x4e], struct.pack("<3H", af0, 0, 20))
+        rf, rft, ft = rnd.choice([0, 0, 1]), rnd.choice([0, 0, 1]), rnd.choice([0, 1])
+        e.write(s[0x26], bytes([rf])); e.write(s[0x29], bytes([rft])); e.write(s[0x2a], b"\0"); e.write(s[0x2b], b"\x01")
+        e.write(s[0x41], b"\0"); e.write(FTUNE, struct.pack("<I", ft))
+        e.write(s[0x47], struct.pack("<36H", *([0, 15, 0, 15] + [128] * 15 + [72] * 15 + [30, 230])))
+        luma = rnd.choice([1, 40, 60, 62, 63, 61, 120, 250, 255, rnd.randint(1, 255), rnd.randint(1, 4095)])
+        b0, b1 = rnd.choice([0, 1024, rnd.randint(0, 1024), rnd.randint(0, 4096)]), rnd.choice([0, 1024, rnd.randint(0, 1024)])
+        bp = e.alloc(8, struct.pack("<2I", b0, b1))
+        hk["alloc"] = -1
+        r = e.call("tisp_ae_long_tune2", 0, c, 0, luma, stack_args=(bp, 0, 0, 0, 0, 0, 0))
+        assert r.stop is None, r.stop
+        a3 = hk["alloc"]; hk["alloc"] = None
+        t3 = struct.unpack("<2H", e.read(s[3], 4))
+        oem.append("%s %u %u" % ("H" if a3 == -1 else "%u" % a3, t3[1], t3[0]))
+        cases.append("S %u %u %u %u %u %u %u %u %u %u %u %s %u %u %u %u %s %s %s %s" % (
+            it, ag, dg, luma, b0, b1, rf, rft, ft, stable, tgt, " ".join(map(str, lh)), nl, s7, s8, af0,
+            " ".join(map(str, spd)), " ".join(map(str, stab)), " ".join(map(str, ev)), " ".join(map(str, tg))))
     else:
         e.heap_reset()
         slots = [e.alloc(0x800, b"\0" * 0x800) for _ in range(0x58)]
@@ -167,7 +214,12 @@ out = subprocess.run([a.host], input="\n".join(cases) + "\n", capture_output=Tru
 bad = 0; cnt = {}
 for c, o, h in zip(cases, oem, out):
     cnt[c[0]] = cnt.get(c[0], 0) + 1
-    if o.split() != h.split():
+    ok = o.split() == h.split()
+    if c[0] == "W" and h.split()[1:] == ["-", "-"]: ok = o.split()[0] == h.split()[0]      # OEM divides by zero
+    if c[0] == "S":
+        oo, hh = o.split(), h.split()     # hold: no allocation, the EV stays (open returns its ev)
+        ok = len(hh) == 4 and (hh[0] == hh[1] if oo[0] == "H" else oo[0] == hh[0]) and oo[1:] == hh[2:]
+    if not ok:
         bad += 1
         if bad <= 6: print("diff_ae_target: %s\n  OEM  %s\n  open %s" % (c[:140], o[:200], h[:200]))
 if len(out) != len(cases): print("diff_ae_target: host gave %d lines for %d cases" % (len(out), len(cases))); bad += 1

@@ -40,7 +40,9 @@
 #define T40_AET_OUTER		0x80U	/* tparams + 0x80 = OEM stMainAeOuter */
 #define T40_AET_ZONE		0x000U	/* u16: [0] y0 [1] rows [2] x0 [3] cols [4..18] col w [19..33] row h [34] lo [35] hi */
 #define T40_AET_STAB		0x2a8U	/* u16[4]: stable exit hi / lo (Q10 target/luma), tolerance lo / hi (#239) */
-#define T40_AET_MP48		0x288U	/* u16[11] (word 9: Pweight enable) */
+#define T40_AET_MP48		0x288U	/* u16[11]: [1] stable count, [2] luma history length, [7] / [8] speed weight
+					 * (antiflicker off / on), [9] Pweight enable (#410/#412) */
+#define T40_AET_SPD		0x29eU	/* u16[5]: fall / rise coefficient, minimum step, rise / fall square limit (Q10) */
 #define T40_AET_AF		0x314U	/* u16[3]: antiflicker enable, mode NORMAL (1) / AUTO (0), - */
 #define T40_AET_AFREQ		0x320U	/* u16: antiflicker frequency */
 #define T40_AET_EV		0x2d8U	/* u32[10] EV nodes */
@@ -65,6 +67,8 @@ struct t40_aet_bank {
 	uint8_t w[T40_AET_ZN * T40_AET_ZN];
 	uint16_t af[2], afreq;
 	uint16_t stab[4];
+	uint16_t mp48[11];
+	uint16_t spd[5];
 };
 
 static inline uint32_t t40_aet_ld32(const uint8_t *b, uint32_t off)
@@ -103,6 +107,10 @@ static inline int t40_aet_parse(const uint8_t *bank, struct t40_aet_bank *p)
 	p->afreq = t40_aet_ld16(o, T40_AET_AFREQ);
 	for (i = 0; i < 4U; i++)
 		p->stab[i] = t40_aet_ld16(o, T40_AET_STAB + 2U * i);
+	for (i = 0; i < 11U; i++)
+		p->mp48[i] = t40_aet_ld16(o, T40_AET_MP48 + 2U * i);
+	for (i = 0; i < 5U; i++)
+		p->spd[i] = t40_aet_ld16(o, T40_AET_SPD + 2U * i);
 	for (i = 1; i < T40_AET_N; i++)
 		if (p->ev[i] < p->ev[i - 1U])
 			return -1;
@@ -264,13 +272,19 @@ static inline void t40_aet_band_params(const struct t40_aet_bank *p, unsigned in
  *        sum(w * area + (p3 - 1) * c0 / p10 + (p4 - 1) * c2 / p10), 32-bit terms, 64-bit sums, 0 -> 1.
  * Arrays have the OEM 15-word row stride.
  */
-static inline uint32_t t40_aet_wmean(const uint32_t *s0, const uint32_t *s1, const uint32_t *s2,
-				     const uint32_t *c0, const uint32_t *c2, const uint16_t *rowh, const uint16_t *colw,
-				     uint32_t rows, uint32_t cols, const uint8_t *w, uint32_t p3, uint32_t p4, uint32_t p10)
+static inline uint32_t t40_aet_wmean_b(const uint32_t *s0, const uint32_t *s1, const uint32_t *s2,
+				       const uint32_t *c0, const uint32_t *c2, const uint16_t *rowh, const uint16_t *colw,
+				       uint32_t rows, uint32_t cols, const uint8_t *w, uint32_t p3, uint32_t p4, uint32_t p10,
+				       uint32_t *band)
 {
 	uint64_t num = 0, den = 0;
-	uint32_t r, c;
+	uint32_t r, c, sh = 0, sl = 0, d32 = 0;
 
+	if (band) {
+		band[0] = 0;
+		band[1] = 0;
+		band[2] = 0;
+	}
 	if (!p10)
 		return 1;	/* OEM: divide by zero (p10 is 1 or more from t40_aet_band_params) */
 	for (r = 0; r < rows; r++)
@@ -282,13 +296,33 @@ static inline uint32_t t40_aet_wmean(const uint32_t *s0, const uint32_t *s1, con
 			uint32_t lo = (p3 - 1U) * c0[z] / p10 + wt * c0[z];
 
 			den += (uint32_t)(wt * (area - (c0[z] + c2[z])) + hi + lo);
+			d32 += wt * (area - (c0[z] + c2[z])) + hi + lo;
+			sh += hi;
+			sl += lo;
 			num += (uint32_t)(wt * s0[z] + (s1[z] + s2[z]) * wt + (p3 - 1U) * s0[z] / p10 +
 					  (p4 - 1U) * s2[z] / p10);
 		}
+	/*
+	 * #412: the OEM also returns the weighted share of the bright / dark band pixels (*param_6 [0] / [1], Q10,
+	 * 32-bit sums, l.174-178); tisp_ae_long_tune scales the AE step coefficients with them.  band[2] = the
+	 * divisor (0: the OEM divides by zero, band[0..1] stay 0).
+	 */
+	if (band) {
+		band[2] = d32 << T40_AET_Q;
+		band[0] = t40_aet_div32(T40_AET_Q, sh << T40_AET_Q, band[2]);
+		band[1] = t40_aet_div32(T40_AET_Q, sl << T40_AET_Q, band[2]);
+	}
 	if (!den)
 		return 1;	/* OEM: divide by zero */
 	num = t40_aet_div64(num, den);
 	return (uint32_t)num ? (uint32_t)num : 1U;
+}
+
+static inline uint32_t t40_aet_wmean(const uint32_t *s0, const uint32_t *s1, const uint32_t *s2,
+				     const uint32_t *c0, const uint32_t *c2, const uint16_t *rowh, const uint16_t *colw,
+				     uint32_t rows, uint32_t cols, const uint8_t *w, uint32_t p3, uint32_t p4, uint32_t p10)
+{
+	return t40_aet_wmean_b(s0, s1, s2, c0, c2, rowh, colw, rows, cols, w, p3, p4, p10, (uint32_t *)0);
 }
 
 /*
@@ -393,6 +427,191 @@ static inline uint32_t t40_aet_comp_out(const uint16_t *g, uint32_t base_out, ui
 	}
 	v = best * word >> 7;
 	return t40_aet_gamma8(g, v > 255U ? 255U : v);
+}
+
+/* ---- #410 / #412: the OEM AE exposure step (tisp_ae_long_tune2 @0x35b58, l.256-565, tisp_ae_long_tune @0x35a40) ---- */
+
+/* OEM fix_point_mult2_64: a * b >> n in pieces, 64-bit wrap (0x16b7c) */
+static inline uint64_t t40_aet_mul64(uint32_t n, uint64_t a, uint64_t b)
+{
+	uint64_t m = n ? 0xffffffffffffffffULL >> ((64U - n) & 63U) : 0, ah = a >> (n & 63U), bh = b >> (n & 63U);
+	uint64_t al = a & m, bl = b & m;
+
+	return ((ah * bh) << (n & 63U)) + al * bh + ah * bl + ((al * bl) >> (n & 63U));
+}
+
+/* OEM fix_point_div (fix_point_div_64 tail call, 0x16960): x * 2^n / y by long division, 64 bit */
+static inline uint64_t t40_aet_div64q(uint32_t n, uint64_t x, uint64_t y)
+{
+	uint64_t q, r, f = 0;
+	uint32_t i;
+
+	if (!y)
+		return 0;	/* OEM: div64_u64 by zero (unreachable: the divisor is (1 - error) << q, error < 1) */
+	q = t40_aet_div64(x, y);
+	r = x - q * y;
+	for (i = 0; i < n; i++) {
+		r <<= 1;
+		f <<= 1;
+		if (y < r) {
+			f |= 1;
+			r -= y;
+		} else if (y == r) {
+			f = (f | 1) << ((n - 1U - i) & 63U);
+			break;
+		}
+	}
+	return (n < 64 ? q << n : 0) | f;
+}
+
+/*
+ * OEM AE step state: s[4] luma history, s[3] word 0 / 1 (target, stable flag), ftune_wmeans, the one-shot
+ * refresh bytes s[0x26] (tisp_ae_dn_params_refresh / ev_start_set set it, the ev alloc clears it) and s[0x29]
+ * (new target: SetAeComp etc.).  Zero-initialised = OEM start state plus refresh = refresh_t = 1.
+ */
+struct t40_aet_tune {
+	uint32_t lh[15];
+	uint32_t tgt, stable;
+	uint8_t ftune, refresh, refresh_t;
+};
+
+/*
+ * OEM tisp_ae_long_tune2 exposure step (l.256-565), on the metered luma of tisp_ae_long_weight_mean2 (+ highlight
+ * term) and the band shares band[0] (bright) / band[1] (dark) it returns.  ev = it x again x dgain (Q10,
+ * t40_aet_ev_q10); evl / tgl = the target lists (t40_aet_lists).  Returns the new EV (Q10): ev itself when the AE
+ * holds (stable, or inside the +-tolerance without a refresh).
+ *   luma: weighted mean of the last mp48[2] samples (weights = history index + 1) unless a refresh is pending;
+ *   target: the stored target (the last aim target) or, on a refresh, the list target at ev;
+ *   stable: hold while target / luma (Q10) stays inside (stab[1], stab[0]); not stable: stable once
+ *     target - stab[2] <= luma <= target + stab[3];
+ *   step: t2 = list target at ev x target / luma, error e = |luma - t2| / luma (Q10), the coefficients spd[0]
+ *     (fall) / spd[1] (rise) raised by tisp_ae_long_tune by mp48[7|8] x share^2 / 128 (antiflicker off | on);
+ *     falling: factor = 1 - w0 x e (e >= spd[4]) or 1 - w0 x e^2 / (1 - e), at least 0.5;
+ *     rising:  factor = 1 + w1 x e (e > spd[3]) or 1 + w1 x e^2, at most 1.5;
+ *     a factor that moves less than spd[2] / 1024 is raised to that minimum step; new EV = ev x factor, >= 1.0.
+ * Not ported (off on the T40 bins / open stack): the AE-cache manual target and its 8-entry EV average
+ * (ae_cache + 0x1dd, + 0x1e0), the custom EV override (s[0x41]), the histogram target factor (s[0x46]), the
+ * stable-at-limit counter (s[3] word 4 with the ladder allocation).  Bit-exact against the OEM instructions:
+ * tools/ko_emu/diff_ae_target.py case S.
+ */
+static inline uint32_t t40_aet_tune2(const struct t40_aet_bank *p, const uint32_t *evl, const uint32_t *tgl,
+				     struct t40_aet_tune *st, uint32_t ev, uint32_t luma, const uint32_t *band)
+{
+	const uint32_t q = T40_AET_Q, q2 = 2U * T40_AET_Q, one = 1U << T40_AET_Q;
+	const uint64_t one2 = (uint64_t)one << q, one3 = (uint64_t)one << q2;
+	uint32_t t0, ratio, aim, t2, e, d, w0 = p->spd[0], w1 = p->spd[1], s, r, k, f4;
+	int smooth;
+	uint64_t f, m, R, eq;
+
+	for (k = 0; k < 14U; k++)
+		st->lh[k] = st->lh[k + 1U];
+	st->lh[14] = luma;
+	if (st->refresh == 1U) {
+		st->ftune = 1;
+		smooth = 0;
+		if (st->stable == 1U) {
+			st->ftune = 0;
+			smooth = 1;
+		}
+	} else {
+		if (st->stable == 1U)
+			st->ftune = 0;
+		smooth = st->ftune != 1U;
+	}
+	if (smooth) {
+		uint32_t n = p->mp48[2], i, sw = 0;
+
+		if (n < 16U) {
+			if (!n)
+				n = 1;
+		} else {
+			n = 15;
+		}
+		i = 15U - n;
+		luma = 0;
+		do {
+			uint32_t v = st->lh[i];
+
+			i++;
+			sw += i;
+			luma += i * v;
+		} while (i != 15U);
+		luma /= sw;
+	}
+	if (!luma)
+		luma = 1;
+	t0 = st->refresh == 1U ? t40_ae_long_target(ev, evl, tgl, q) & 0xffffU : st->tgt;
+	ratio = t40_aet_div32(q, t0 << q, luma << q);
+	aim = t40_aet_mul32(q, ev, ratio);
+	r = st->stable == 1U ? ev : 0U;	/* OEM: a stable word other than 0 / 1 allocates EV 0 (l.333-337) */
+	if (st->stable == 1U) {
+		if (ratio < p->stab[0] && p->stab[1] < ratio) {
+			f4 = 1;		/* inside the exit window: hold */
+		} else {
+			f4 = 0;
+			st->stable = 0;
+		}
+	} else {
+		f4 = st->stable;
+	}
+	if (f4 == 0) {
+		if (t0 - p->stab[2] <= luma && luma <= p->stab[3] + t0) {
+			st->stable = 1;
+			st->tgt = t0;
+			f4 = 1;
+			r = ev;
+			if (st->refresh_t != 1U)
+				goto out;
+		}
+		st->refresh_t = 0;
+		t2 = t40_ae_long_target(aim, evl, tgl, q);
+		st->tgt = t2 & 0xffffU;
+		d = luma < t2 ? t2 - luma : luma - t2;
+		e = t40_aet_div32(q, d << q, luma << q);
+		s = p->af[0] == 0 ? p->mp48[7] : p->af[0] == 1U ? p->mp48[8] : 0;
+		if (s && band) {	/* tisp_ae_long_tune: coefficients + s x share^2 / 128 */
+			uint32_t a = band[0], b = band[1];
+
+			if (one < a + w0)
+				a = one - w0;
+			if (one < b + w1)
+				b = one - w1;
+			w0 = (w0 + t40_aet_div32(q, t40_aet_mul32(q, t40_aet_mul32(q, s << q, a), a), 128U << q)) & 0xffffU;
+			w1 = (w1 + t40_aet_div32(q, t40_aet_mul32(q, t40_aet_mul32(q, s << q, b), b), 128U << q)) & 0xffffU;
+		}
+		eq = (uint64_t)e << q;
+		if (luma >= t2) {
+			uint64_t fl = ((uint64_t)0x400U << q) - ((uint64_t)1U << (q + 9U)), w0q = (uint64_t)w0 << q;
+
+			if (0U - (uint32_t)p->spd[4] < 0U - e)
+				R = t40_aet_div64q(q2, t40_aet_mul64(q2, t40_aet_mul64(q2, w0q, eq), eq),
+						   (uint64_t)(one - e) << q);
+			else
+				R = t40_aet_mul64(q2, w0q, eq);
+			f = fl;
+			if (R <= one3 && one2 - R > fl)
+				f = one2 - R;
+			m = one2 - ((uint64_t)p->spd[2] << q);
+			if (m < f && f < one2)
+				f = m;
+		} else {
+			uint64_t cap = ((uint64_t)0x400U << q) + ((uint64_t)1U << (q + 9U)), w1q = (uint64_t)w1 << q;
+
+			R = p->spd[3] < e ? t40_aet_mul64(q2, w1q, eq) : t40_aet_mul64(q2, t40_aet_mul64(q2, w1q, eq), eq);
+			f = R + one2;
+			if (f >= cap)
+				f = cap;
+			m = ((uint64_t)p->spd[2] << q) + one2;
+			if (f < m && one2 < f)
+				f = m;
+		}
+		r = (uint32_t)(t40_aet_mul64(q2, f, (uint64_t)ev << q) >> q);
+		if (r < one)
+			r = one;
+	}
+out:
+	st->stable = f4;
+	return r;
 }
 
 #endif /* TX_ISP_T40_AE_TARGET_H */
