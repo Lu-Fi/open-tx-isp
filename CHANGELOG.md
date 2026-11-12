@@ -4,6 +4,12 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD[-rcN]` are set on the `aperto` branch, the same tag in open-tx-isp and OpenIMP: RC1 `v2026.10.11-rc1`, RC2 `v2026.10.25-rc2`, RC3 `v2026.11.07-rc3` (2026-11-07). Gate SoCs of RC3 and Release 1: T10, T20, T21, T23, T30, T31, T40, T41 (T32/T33 planned, QEMU only); release notes: [docs/releases/ in OpenIMP](https://github.com/Lu-Fi/openimp/blob/next/docs/releases/README.md). Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-11-12: T30 review Low findings (openimp #418; host oracle)
+
+- `ldc_core_ops_init` (LDC parameter file check): four typed-pointer steps fixed to the vendor byte/integer arithmetic (`s1 - 24` size compare, `s3 - 1` counter, `a3 += 4` checksum walk, `a0 = s0 + 476` unlock argument); the six #375 LDC baseline entries are gone.
+- Review L1: the raw REQBUFS already has the vendor `min(req, 64)` (#369); the path is dead (handled by `tx_isp_t30_frame_reqbufs`), now commented. L2: the `#error` for !PREEMPT_COUNT / SMP / DEBUG_SPINLOCK sits in the only unit using the GP macros, so it covers every user. L3: `TX_ISP_T30_KEEPSYMS=y` keeps static symbol names for readable oops traces (text/data/bss identical, file +35 KB, RAM for the symtab); default stays `-x`. L4: `TX_ISP_T30_OS=y` builds (ko 408 KB) but the lift oracle fails (6 groups, 1224 differences, dqbuf_signal aborts): stays off.
+- Evidence: `tests/t30_lift_oracle.sh` (vendor ko 4ea12e1f) 0 differences on the default build.
+
 ## 2026-11-12: T40 AE exposure step like the vendor, every AE frame (openimp #410, #412; Unicorn oracle, Eufy .184 light box 5000 K)
 
 - Cause: on the OEM statistics path the frame AE stepped fixed gain stages (ISP dgain x12/13, one analog index ~1.17x) against 9 % / 5 % bands every 3rd frame. The fall had no stage below one analog index at ISP dgain 1x (#410: comp end point 10-14 % apart from bright and dark history), and a light step took 3.65 s with 12.5 % overshoot (#412, 3000 K; vendor 1.75 s / 2.2 %).
