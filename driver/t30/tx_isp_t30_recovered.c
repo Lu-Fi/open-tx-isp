@@ -23158,7 +23158,7 @@ static long frame_channel_unlocked_ioctl_raw(struct file *a0_file,
     s1 = a2;
 
     /* fragment 3: Branch */
-    a0 = v0 + 22213;
+    a0 = (uintptr_t)v0 + 22213;	/* OEM byte arithmetic on the lui value; the typed v0 scaled it x4 (#381) */
     if (s8 == 0) { goto frame_channel_unlocked_ioctl0x4c; }
 
     /* fragment 4: Arithmetic */
@@ -23173,16 +23173,16 @@ frame_channel_unlocked_ioctl0x4c:
     if (a1 == a0) { goto frame_channel_unlocked_ioctl0x650; }
 
     /* fragment 7: Arithmetic */
-    v1 = v0 + 22214;
+    v1 = (uintptr_t)v0 + 22214;	/* OEM byte arithmetic on the lui value; the typed v0 scaled it x4 (#381) */
     v1 = a1 < v1;
 
     /* fragment 8: Branch */
     int _bc_v1_8 = v1 == 0;
-    v1 = v0 + 22034;
+    v1 = (uintptr_t)v0 + 22034;	/* OEM byte arithmetic on the lui value; the typed v0 scaled it x4 (#381) */
     if (_bc_v1_8) { goto frame_channel_unlocked_ioctl0xc84; }
 
     /* fragment 9: Branch */
-    v0 = v0 + 22035;
+    v0 = (uintptr_t *)((uintptr_t)v0 + 22035);	/* OEM byte arithmetic on the lui value; the typed v0 scaled it x4 (#381) */
     if (a1 == v1) { goto frame_channel_unlocked_ioctl0x650; }
 
     /* fragment 10: Arithmetic */
@@ -23200,7 +23200,7 @@ frame_channel_unlocked_ioctl0x4c:
     if (_bc_a1_13) { goto frame_channel_unlocked_ioctl0xbfc; }
 
     /* fragment 14: Arithmetic */
-    v0 = v0 + 22212;
+    v0 = (uintptr_t *)((uintptr_t)v0 + 22212);	/* OEM byte arithmetic on the lui value; the typed v0 scaled it x4 (#381) */
 
     /* fragment 15: Branch */
     s0 = -22;
@@ -23331,10 +23331,10 @@ frame_channel_unlocked_ioctl0x180:
 
 frame_channel_unlocked_ioctl0x1a0:
     /* fragment 47: CallSetup */
-    v0 = (uintptr_t *)__copy_user((void *)(int32_t *)a0, (void *)(uintptr_t)&local_10, 76); /* jalr target resolved by relocation */
+    a2 = __copy_to_user((void __user *)(uintptr_t)a0, &local_10, 76);	/* OEM inlined access_ok + __copy_user: a2 = bytes not copied (#381) */
 
     /* fragment 48: Branch */
-    s0 = a2;
+    s0 = (uintptr_t *)(uintptr_t)a2;	/* OEM 186b0 move s0,a2 */
     if (a2 == 0) { goto frame_channel_unlocked_ioctl0x258; }
 
 frame_channel_unlocked_ioctl0x1c0:
@@ -23435,7 +23435,7 @@ frame_channel_unlocked_ioctl0x294:
     v0 = (uintptr_t *)copy_from_user((void *)(int32_t *)&local_10, (const void __user *)(uintptr_t)((void *)(uintptr_t)s1), 20); /* jalr target resolved by relocation */
 
     /* fragment 72: Branch */
-    s0 = a2;
+    s0 = v0;	/* OEM 187d4 move s0,a2 = bytes not copied; the lift took the ioctl arg a2, so REQBUFS(0) etc. returned the user pointer (#381) */
     if (v0 != 0) { goto frame_channel_unlocked_ioctl0xea8; }
 
     /* fragment 73: MemoryAccess */
@@ -23616,10 +23616,10 @@ frame_channel_unlocked_ioctl0x4b0:
     __might_sleep((const char *)(uintptr_t)a0, 201, 0); /* jalr target resolved by relocation */
 
     /* fragment 115: CallSetup */
-    v0 = (uintptr_t *)__copy_user((void *)(int32_t *)s1, (void *)(uintptr_t)&local_10, 20); /* jalr target resolved by relocation */
+    a2 = __copy_to_user((void __user *)(uintptr_t)s1, &local_10, 20);	/* OEM inlined access_ok + __copy_user: a2 = bytes not copied (#381) */
 
     /* fragment 116: Branch */
-    s0 = a2;
+    s0 = (uintptr_t *)(uintptr_t)a2;	/* OEM 189e0 move s0,a2 */
     if (a2 == 0) { goto frame_channel_unlocked_ioctl0x4fc; }
 
 frame_channel_unlocked_ioctl0x4f0:
@@ -23914,10 +23914,10 @@ frame_channel_unlocked_ioctl0x7a4:
 
 frame_channel_unlocked_ioctl0x7d8:
     /* fragment 184: CallSetup */
-    v0 = (uintptr_t *)__copy_user((void *)(int32_t *)a0, (void *)(uintptr_t)&local_10, 68); /* jalr target resolved by relocation */
+    a2 = __copy_to_user((void __user *)(uintptr_t)a0, &local_10, 68);	/* OEM inlined access_ok + __copy_user: a2 = bytes not copied (#381) */
 
     /* fragment 185: Branch */
-    s0 = a2;
+    s0 = (uintptr_t *)(uintptr_t)a2;	/* OEM 18ce8 move s0,a2 */
     if (a2 == 0) { goto frame_channel_unlocked_ioctl0x14c; }
 
     /* fragment 186: Branch */
@@ -24131,7 +24131,7 @@ frame_channel_unlocked_ioctl0xa00:
     v0 = (uintptr_t *)copy_from_user((void *)(int32_t *)&local_10, (const void __user *)(uintptr_t)((void *)(uintptr_t)s1), 4); /* jalr target resolved by relocation */
 
     /* fragment 234: Branch */
-    s0 = a2;
+    s0 = v0;	/* OEM 18f50 move s0,a2 = bytes not copied; the lift took the ioctl arg a2, so REQBUFS(0) etc. returned the user pointer (#381) */
     if (v0 != 0) { goto frame_channel_unlocked_ioctl0xea8; }
 
     /* fragment 235: MemoryAccess */
@@ -24252,7 +24252,7 @@ frame_channel_unlocked_ioctl0xb48:
     v0 = (uintptr_t *)copy_from_user((void *)(int32_t *)&local_10, (const void __user *)(uintptr_t)((void *)(uintptr_t)s1), 4); /* jalr target resolved by relocation */
 
     /* fragment 264: Branch */
-    s0 = a2;
+    s0 = v0;	/* OEM 1909c move s0,a2 = bytes not copied; the lift took the ioctl arg a2, so REQBUFS(0) etc. returned the user pointer (#381) */
     if (v0 != 0) { goto frame_channel_unlocked_ioctl0xea8; }
 
     /* fragment 265: CallSetup */
@@ -24319,11 +24319,12 @@ frame_channel_unlocked_ioctl0xc24:
 
 frame_channel_unlocked_ioctl0xc84:
     /* fragment 281: ConstantLoad */
-    v0 = 0xc044560f;
+    v0 = (uintptr_t *)(uintptr_t)0xc0440000;	/* OEM 19178 lui v0,0xc044; the lift folded addiu v1,v0,22031 into v0 (#381) */
+    v1 = 0xc044560f;
 
     /* fragment 282: Branch */
     int _bc_a1_282 = a1 == v1;
-    v1 = v0 + 22032;
+    v1 = 0xc0445610;	/* OEM addiu v1,v0,22032 (#381) */
     if (_bc_a1_282) { goto frame_channel_unlocked_ioctl0x650; }
 
     /* fragment 283: Arithmetic */
@@ -24338,7 +24339,7 @@ frame_channel_unlocked_ioctl0xc84:
     v1 = v1 + 22024;
 
     /* fragment 286: Branch */
-    v0 = v0 + 22025;
+    v0 = (uintptr_t *)((uintptr_t)v0 + 22025);	/* OEM byte arithmetic on the lui value; the typed v0 scaled it x4 (#381) */
     if (a1 == v1) { goto frame_channel_unlocked_ioctl0x650; }
 
 frame_channel_unlocked_ioctl0xcac:
@@ -24352,7 +24353,7 @@ frame_channel_unlocked_ioctl0xcac:
 
 frame_channel_unlocked_ioctl0xcbc:
     /* fragment 289: Arithmetic */
-    v0 = v0 + 22033;
+    v0 = (uintptr_t *)((uintptr_t)v0 + 22033);	/* OEM byte arithmetic on the lui value; the typed v0 scaled it x4 (#381) */
 
     /* fragment 290: Branch */
     int _bc_a1_290 = a1 == v0;
@@ -24360,13 +24361,13 @@ frame_channel_unlocked_ioctl0xcbc:
     if (_bc_a1_290) { goto frame_channel_unlocked_ioctl0x650; }
 
     /* fragment 291: Branch */
-    v0 = v0 + 22211;
+    v0 = (uintptr_t *)((uintptr_t)v0 + 22211);	/* OEM byte arithmetic on the lui value; the typed v0 scaled it x4 (#381) */
     goto frame_channel_unlocked_ioctl0xcac;
 
 frame_channel_unlocked_ioctl0xcd0:
     /* fragment 292: Branch */
     int _bc_a1_292 = a1 == a0;
-    a0 = v0 + 22214;
+    a0 = (uintptr_t)v0 + 22214;	/* OEM byte arithmetic on the lui value; the typed v0 scaled it x4 (#381) */
     if (_bc_a1_292) { goto frame_channel_unlocked_ioctl0xb48; }
 
     /* fragment 293: Arithmetic */
@@ -24402,10 +24403,10 @@ frame_channel_unlocked_ioctl0xcd0:
 
 frame_channel_unlocked_ioctl0xd14:
     /* fragment 302: Arithmetic */
-    a0 = v0 + 22034;
+    a0 = (uintptr_t)v0 + 22034;	/* OEM byte arithmetic on the lui value; the typed v0 scaled it x4 (#381) */
 
     /* fragment 303: Branch */
-    v0 = v0 + 22035;
+    v0 = (uintptr_t *)((uintptr_t)v0 + 22035);	/* OEM byte arithmetic on the lui value; the typed v0 scaled it x4 (#381) */
     if (a1 == a0) { goto frame_channel_unlocked_ioctl0x9d0; }
 
     /* fragment 304: Branch */
@@ -24449,11 +24450,12 @@ frame_channel_unlocked_ioctl0xd14:
 
 frame_channel_unlocked_ioctl0xd9c:
     /* fragment 314: ConstantLoad */
-    v0 = 0xc044560f;
+    v0 = (uintptr_t *)(uintptr_t)0xc0440000;	/* OEM 19290 lui v0,0xc044; the lift folded addiu a0,v0,22031 into v0 (#381) */
+    a0 = 0xc044560f;
 
     /* fragment 315: Branch */
     int _bc_a1_315 = a1 == a0;
-    a0 = v0 + 22032;
+    a0 = 0xc0445610;	/* OEM addiu a0,v0,22032 (#381) */
     if (_bc_a1_315) { goto frame_channel_unlocked_ioctl0x5ac; }
 
     /* fragment 316: Arithmetic */
@@ -24468,7 +24470,7 @@ frame_channel_unlocked_ioctl0xd9c:
     a0 = a0 + 22024;
 
     /* fragment 319: Branch */
-    v0 = v0 + 22025;
+    v0 = (uintptr_t *)((uintptr_t)v0 + 22025);	/* OEM byte arithmetic on the lui value; the typed v0 scaled it x4 (#381) */
     if (a1 == a0) { goto frame_channel_unlocked_ioctl0x278; }
 
     /* fragment 320: Branch */
@@ -24520,7 +24522,7 @@ frame_channel_unlocked_ioctl0xe34:
 
 frame_channel_unlocked_ioctl0xe40:
     /* fragment 332: Arithmetic */
-    v0 = v0 + 22033;
+    v0 = (uintptr_t *)((uintptr_t)v0 + 22033);	/* OEM byte arithmetic on the lui value; the typed v0 scaled it x4 (#381) */
 
     /* fragment 333: Branch */
     int _bc_a1_333 = a1 == v0;
@@ -24528,7 +24530,7 @@ frame_channel_unlocked_ioctl0xe40:
     if (_bc_a1_333) { goto frame_channel_unlocked_ioctl0x800; }
 
     /* fragment 334: Arithmetic */
-    v0 = v0 + 22211;
+    v0 = (uintptr_t *)((uintptr_t)v0 + 22211);	/* OEM byte arithmetic on the lui value; the typed v0 scaled it x4 (#381) */
 
     /* fragment 335: Branch */
     s2 = s1 + 76;
