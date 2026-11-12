@@ -915,6 +915,25 @@ be 0.84 (`t40_ae_hi_thr` overrides the band threshold). Not ported: histogram ta
 target. `t40_ae_target_oem=0` = the old fixed target; diagnostics: line `oem` of `t40_ae_api`. Oracle:
 `tests/t40_ae_target_host.sh` (Unicorn, 0 differences, 21 mutations).
 
+Exposure step (#410 / #412, 2026-11-12): on the OEM hardware-statistics path the frame AE no longer steps gain
+stages (ISP dgain x12/13, one analog index ~1.17x, band 9 % / 5 %, every 3rd frame): the fall had no stage below
+one analog index at ISP dgain 1x (comp end point 10-14 % apart from bright and dark history) and a light step took
+3.65 s with 12.5 % overshoot (vendor 1.75 s / 2.2 %). It runs the OEM step `tisp_ae_long_tune2` 0x35b58 as
+`t40_aet_tune2` (`tx_isp_t40_ae_target.h`): luma history (bank +0x288 word 2), stable / tolerance logic (+0x2a8),
+target at the aimed EV, error e = |luma - target| / luma, factor = 1 - w0 e (or w0 e^2 / (1 - e) for e < word 4)
+falling, 1 + w1 e (or w1 e^2 for e <= word 3) rising, clamped 0.5..1.5, minimum step word 2 (+0x29e, sc830ai
+{154, 51, 4, 1024, 512}); w0 / w1 raised by `tisp_ae_long_tune` 0x35a40 with the bright / dark band shares of
+`tisp_ae_long_weight_mean2` (bank +0x288 words 7 / 8). The new EV is allocated like the OEM (`t40_ae_oem_alloc` in
+`tx_isp_t40_ae_api.h`: IT rung, analog index, ISP dgain remainder; manual stages stay) and the step runs on every
+AE statistics frame: between the 3-frame frame-3A samples an AE-only pass meters the hardware statistics (no frame
+scan, no AWB). Oracle: `tests/t40_ae_target_host.sh` case S (Unicorn, whole `tisp_ae_long_tune2` up to the
+allocation call, 0 differences, 21 more mutations); plant test `tests/tx_isp_t40_ae_step_test.c`. Not ported: the
+AE-cache manual target with its EV average, the custom EV override, the stable-at-limit counter of the ladder
+allocation. An OEM step that moves the sensor part writes its ISP dgain one AE frame later (the ISP dgain acts one
+frame before the sensor IT / gain; `t40_ae_dg_delay=0` = at once). `t40_ae_oem_step=0` = the old ladder + fine trim +
+re-split (A/B), `t40_ae_every_frame=0` = the step on the 3-frame samples only; diagnostics `t40_ae_oem_steps`, `t40_ae_oem_allocs`, `t40_ae_only_runs`. HLC / BLC / face AE
+and the frame-grid fallback keep the ladder.
+
 Night antiflicker per tuning bank (#84): the OEM `tisp_s_antiflick` writes the request into tparamsN and into the
 bank of the running mode, and the day/night switch loads the other bank's words (+0x80 + 0x314 enable / NORMAL,
 +0x320 frequency). A day request therefore does not reach the night; the sc830ai night bank has antiflicker off,
