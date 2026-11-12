@@ -4,6 +4,13 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD[-rcN]` are set on the `aperto` branch, the same tag in open-tx-isp and OpenIMP: RC1 `v2026.10.11-rc1`, RC2 `v2026.10.25-rc2`, RC3 `v2026.11.07-rc3` (2026-11-07). Gate SoCs of RC3 and Release 1: T10, T20, T21, T23, T30, T31, T40, T41 (T32/T33 planned, QEMU only); release notes: [docs/releases/ in OpenIMP](https://github.com/Lu-Fi/openimp/blob/next/docs/releases/README.md). Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-11-12: T23/T31 custom AE/AWB library ioctls (openimp #401; device T31L, T23)
+
+- T31: `tisp_ae_algo_handle` was a stub, so a custom AE library (`IMP_ISP_SetAeAlgoFunc`) never reached the sensor. Now as the stock module: integration time and analog gain through the sensor allocators and the driver's sensor write, the rest of the gain in the ISP digital gain (0x1030/0x1034), events 7/4/5. The open fills the init attribute with the limits and fps.
+- T31: the AWB library ioctls 0xc00456e1..e4 (open, get handle with the gains and zone statistics, set handle -> manual white balance, close) were missing; JZ_Isp_Awb completes the library's wait. The last close of /dev/tx-isp closes a library left open.
+- T23: the stock AE/AWB library ioctls (open with the init attribute, set handle -> exposure / ISP gain / EV and total-gain blocks, AWB set -> manual white balance, close) were not handled. The stock module has no get-handle handler (it answers at once without data, the library thread spins); `algo_get_wait=1` (default) waits up to 2 s for the next AE/AWB run instead (deviation, 0 = stock).
+- Device: apitest customalgo_t31 on the T31L (open and vendor 1.1.6 libimp on this module, and the full vendor stack) and customalgo_t23 on the T23 Jooan: the library's integration time / gain move the exposure readback and the picture, its R/B gains move the colour, close 1 of 1, 0 oops.
+
 ## 2026-11-12: t31_ipu Kbuild only builds on mainline-based kernels (openimp #264; host test)
 
 - `driver/ipu/Kbuild` sets `obj-m` only when the kernel `VERSION` is 5 or newer. The vendor 3.10 kernel keeps its built-in jz_ipu driver, so `make M=driver/ipu` there builds nothing instead of a second /dev/ipu provider. Checked by evaluating the Kbuild with VERSION=3 (empty obj-m) and VERSION=7 (`t31_ipu.o`). No code change; k7 build path unchanged.
