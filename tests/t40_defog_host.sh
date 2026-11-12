@@ -2,7 +2,8 @@
 # t40_defog_host.sh (#332): the soft step of driver/t40/tx_isp_t40_defog.h (t40_dfg_soft: statistics -> luma, air light
 # curve, transmission by luma, motion weighting, output smoothing, value caches) against the OEM instructions of
 # Tiziano_defog_soft (Unicorn, tools/ko_emu/diff_defog_soft.py), several frames per case with the state carried over,
-# (host side with t40_defog_motion_var=0, OEM-exact) plus one-token mutations of the header that must be detected.  Needs T40_OEM_KO and python3 unicorn + pyelftools, else SKIP.
+# (host side with t40_defog_motion_var=0, OEM-exact) plus one-token mutations of the header that must be detected; with
+# T40_TUNING_BIN also the day/night flow (tools/ko_emu/diff_defog_dn.py, air light curve).  Needs T40_OEM_KO and python3 unicorn + pyelftools, else SKIP.
 H=$(cd "$(dirname "$0")" && pwd); f=$H/../driver/t40/tx_isp_t40_defog.h
 if [ ! -r "${T40_OEM_KO:-}" ] || ! python3 -c "import unicorn, elftools" 2>/dev/null; then echo "t40_defog_host: SKIP (T40_OEM_KO / python3 unicorn+pyelftools missing)"; [ -z "${T40_ORACLE_STRICT:-}" ] || exit 1; exit 0; fi
 W=$(mktemp -d); trap 'rm -rf "$W"' EXIT
@@ -33,5 +34,20 @@ int32_t off = s->ctl[6] << 4, lo = s->ctl[7] << 2, hi = s->ctl[8] << 6;@int32_t 
 a = s->curve[v >> 4];@a = s->curve[(v + 8) >> 4];
 w = 255;@w = 254;
 MUT
-[ $fail = 0 ] && echo "t40_defog_host: ok ($nm/$nmut mutations detected)"
+# day/night flow (#332): OEM init(day) -> frames -> dn refresh(night) -> same frames vs the header; the OEM serves the
+# day air light curve from its per-value cache, t40_defog_air_day=1 must match it, =0 (night curve) must not
+if [ -r "${T40_TUNING_BIN:-}" ]; then
+	if cc -O1 -w -DDEFOG_H="\"$f\"" -o "$W/dn" "$H/t40_defog/dn_harness.c"; then
+		P="$H/../tools/ko_emu/diff_defog_dn.py"
+		python3 "$P" "$T40_OEM_KO" "$T40_TUNING_BIN" "$W/dn" --n ${N_DN:-6} --air-day 1 || fail=1
+		if python3 "$P" "$T40_OEM_KO" "$T40_TUNING_BIN" "$W/dn" --n 2 --air-day 0 > /dev/null; then
+			echo "t40_defog_host: air_day=0 NOT detected by the day/night oracle"; fail=1
+		fi
+	else
+		fail=1
+	fi
+else
+	echo "t40_defog_host: day/night part SKIP (T40_TUNING_BIN missing)"
+fi
+[ $fail = 0 ] && echo "t40_defog_host: ok ($nm/$nmut mutations detected, day/night flow)"
 exit $fail

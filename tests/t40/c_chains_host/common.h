@@ -71,6 +71,7 @@ static uint32_t (*reg_read_hook)(uint32_t r);	/* a chain test can feed statistic
 static uint32_t system_reg_read(uint32_t r) { return reg_read_hook ? reg_read_hook(r) : r < sizeof(regs) ? regs[r / 4] : 0; }
 
 static uintptr_t tparamsN[0x4000];
+static uintptr_t tparams_day;	/* defog: day bank air light curve (t40_defog_air_day) */
 /* inputs where the literal OEM code is undefined (division by zero, ...): run.sh instruments it */
 static unsigned lit_ub;
 

@@ -32,7 +32,7 @@ static void kfree(const void *p) { free((void *)p); }
 static uint32_t regs[0x40000 / 4];
 static int system_reg_write(uint32_t r, uint32_t v) { if (r < sizeof(regs)) regs[r / 4] = v; return 0; }
 static uint32_t system_reg_read(uint32_t r) { return r < sizeof(regs) ? regs[r / 4] : 0; }
-static uintptr_t tparamsN[2];
+static uintptr_t tparamsN[2], tparams_day;
 static unsigned char tispinfo[128];
 static uint32_t tisp_get_tuning(void) { return 0; }
 static int32_t system_irq_func_set(int32_t irq, int32_t fn) { (void)irq; (void)fn; return 0; }

@@ -138,6 +138,19 @@ static bool t40_defog_motion_var T40C2 = true;
 module_param(t40_defog_motion_var, bool, 0644);
 MODULE_PARM_DESC(t40_defog_motion_var, "defog: 1 (default) motion weighting uses the variance over the 5x5 window, 0 = OEM (last cell only)");
 
+/* Air light curve of the day bank (#332).  The OEM caches the air light per value (Tiziano_defog_soft, flags bit 0)
+ * and nothing but tisp_defog_init / param_array_set / wdr_en drops that cache: tisp_defog_dn_params_refresh
+ * (0x52f18) resets only the four outputs (memset 0x53148..0x53184).  The OEM driver always starts in the day bank
+ * (an early SetISPRunningMode fails before the tuning init), so every value it sees before the night switch keeps
+ * the day curve and output range (ctl[2]/[3]) for good; in practice the night bank curve is not used (Unicorn,
+ * vendor init(day) -> frames -> dn refresh(night) on the .184 night statistics: air light mean 101.0 against 79.5
+ * with the night curve, the vendor's darker night picture).  Here the switch is applied before the defog init, so
+ * the curve is taken from the day bank explicitly - deterministic, without the OEM's history dependence.
+ * 0 = curve of the active bank (night curve at night). */
+static bool t40_defog_air_day T40C2 = true;
+module_param(t40_defog_air_day, bool, 0644);
+MODULE_PARM_DESC(t40_defog_air_day, "defog: 1 (default, OEM-equal) air light curve + output range from the day bank in both modes, 0 = from the active bank");
+
 static const uint16_t t40_dfg_w24_base[24] = {
 	255, 521, 799, 1090, 1395, 1717, 2057, 2417, 2799, 3207, 3643, 4114,
 	4624, 5180, 5792, 6471, 7237, 8111, 9133, 10359, 11896, 13953, 17075, 23792
@@ -276,6 +289,13 @@ static void t40_dfg_update_reg2(struct t40_dfg_ctx *c)
 	memcpy(s->k9, t + DFG_T_K9, 9);
 	memcpy(s->k25, t + DFG_T_K25, 25);
 	memcpy(s->curve, t + DFG_T_CURVE, 17);
+	if (t40_defog_air_day && tparams_day) {	/* see t40_defog_air_day */
+		const uint8_t *d = (const uint8_t *)(uintptr_t)tparams_day + T40_DFG_TOOL_OFFSET;
+
+		memcpy(s->curve, d + DFG_T_CURVE, 17);
+		s->ctl[2] = d[DFG_T_CTL + 2];
+		s->ctl[3] = d[DFG_T_CTL + 3];
+	}
 }
 
 /* OEM tisp_defog_write_reg_para2 */
