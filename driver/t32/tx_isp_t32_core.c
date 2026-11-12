@@ -462,6 +462,35 @@ static long t32_sensor_g_register(struct t32_vi *vi, unsigned long arg)
 }
 
 /*
+ * S_REGISTER 0xc040540d (tx_isp_sensor_s_register, T33 vendor module 0x267a0,
+ * line 0x3a9): 64 B block in, sensor event 0x02000011, ENOIOCTLCMD skipped,
+ * other errors returned, nothing copied back, no sensor answers 0.
+ */
+static long t32_sensor_s_register(struct t32_vi *vi, unsigned long arg)
+{
+	u8 b[64];
+	int (*ioctl)(void *sd, unsigned int cmd, void *arg);
+	void *ops, *grp;
+
+	if (copy_from_user(b, (void __user *)arg, sizeof(b))) {
+		isp_printf(2, "[ %s:%d ] copy from user error\n", "tx_isp_sensor_s_register", 0x3a9);
+		return -EFAULT;
+	}
+	if (vi->registered && vi->sd) {
+		ops = T32_AT(vi->sd, T32_SD_OPS, void *);
+		grp = ops ? T32_AT(ops, T32_OPS_SENSOR, void *) : NULL;
+		ioctl = grp ? T32_AT(grp, T32_SENSOR_OPS_IOCTL, void *) : NULL;
+		if (ioctl) {
+			int r = ioctl(vi->sd, T32_EVENT_SENSOR_SET_REG, b);
+
+			if (r && r != -ENOIOCTLCMD)
+				return r;
+		}
+	}
+	return 0;
+}
+
+/*
  * SET_FRAME_DROP 0xc004542c / GET_FRAME_DROP 0xc004542d (tx_isp_set_frame_drop
  * / tx_isp_get_frame_drop, vendor 0x267a0; tisp_msca_api_{set,get}_frame_drop,
  * single-sensor direct path): 40 B block {u8 vi, 3 x {u32 enable, u8 lsize,
@@ -705,6 +734,9 @@ static long t32_isp_ioctl(struct file *file, unsigned int cmd, unsigned long arg
 	case T32_IOC_SET_AE_START_EV:
 	case T32_IOC_GET_AE_START_EV:
 		ret = t32_tunctl_ae_start(cmd, arg);
+		break;
+	case T32_IOC_SET_SENSOR_REGISTER:
+		ret = t32_sensor_s_register(vi, arg);
 		break;
 	case T32_IOC_GET_SENSOR_REGISTER:
 		ret = t32_sensor_g_register(vi, arg);

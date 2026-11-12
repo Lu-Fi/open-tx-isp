@@ -4,6 +4,11 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD[-rcN]` are set on the `aperto` branch, the same tag in open-tx-isp and OpenIMP: RC1 `v2026.10.11-rc1`, RC2 `v2026.10.25-rc2`, RC3 `v2026.11.07-rc3` (2026-11-07). Gate SoCs of RC3 and Release 1: T10, T20, T21, T23, T30, T31, T40, T41 (T32/T33 planned, QEMU only); release notes: [docs/releases/ in OpenIMP](https://github.com/Lu-Fi/openimp/blob/next/docs/releases/README.md). Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-11-13: T32/T33 /dev/tx-isp: sensor S_REGISTER (openimp #434; planned, QEMU only)
+
+- `0xc040540d` S_REGISTER (vendor `tx_isp_sensor_s_register`, T33 module `tx_isp_unlocked_ioctl` 0x267a0): 64 B block in, sensor event 0x02000011, a sensor without a handler is skipped, no sensor answers 0, nothing copied back. Before: -ENOTTY. Same handler shape as G_REGISTER (#429), `tx_isp_t32_core.c`, both modules.
+- Evidence: QEMU `-M ingenic-t33`, vendor libimp 2.0.2.1 (see the issue). Not tested on a camera.
+
 ## 2026-11-12: T32/T33 /dev/tx-isp: sensor G_REGISTER, frame drop, internal channel attribute (openimp #429; planned, QEMU only)
 
 - The core served none of four commands the vendor libimp 2.0.2.1 issues, so `IMP_ISP_GetSensorRegister`, `IMP_ISP_SetFrameDrop` / `GetFrameDrop` and `IMP_ISP_GetInternalChnAttr` got -ENOTTY (-25) from the open module and 0 from the vendor module. Now served in `tx_isp_t32_core.c` (both modules).
