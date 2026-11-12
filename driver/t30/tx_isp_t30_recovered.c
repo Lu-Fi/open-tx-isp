@@ -6909,7 +6909,7 @@ int32_t get_index(int32_t arg1, void *arg2);
 int32_t AWB_mesh_isra_1(uint32_t arg1, uint32_t arg2, int16_t *arg3, int16_t *arg4, void *arg5) __asm__("AWB_mesh.isra.1");
 #endif
 int32_t AWB_mesh_isra_1(uint32_t arg1, uint32_t arg2, int16_t *arg3, int16_t *arg4, void *arg5);
-int16_t * init_interp_2d_point_LUT(int16_t *out, int32_t x, int32_t y, int32_t base, int16_t x_min, int16_t x_step, int16_t y_min, int16_t y_step, int16_t y_base, void *lut);
+int16_t * init_interp_2d_point_LUT(int16_t *out, int32_t x, int32_t y, int32_t base, int16_t x_max, int16_t x_step, int16_t y_base, int16_t y_max, int16_t y_step, void *lut);
 int32_t AWB_mesh_LUT(int32_t arg1, int32_t arg2, int32_t arg3, int32_t arg4, int16_t arg5, int16_t arg6, int16_t arg7, int16_t arg8, int16_t arg9, void *arg10);
 int32_t mesh_AWB_getKnownSourceLight_weight_LUT(int32_t arg1, int16_t arg2, int16_t arg3, int32_t arg4, int32_t arg5);
 int32_t awb_coeffs_write(void);
@@ -9486,7 +9486,7 @@ int apical_isp_table_s_attr(void *arg1, void *arg2)
     int var_2c;
     int var_24;
     int var_20;
-    char var_38[24];
+    uint32_t var_38[6];
     int retval;
 
     ptr = *(void **)((char *)arg1 + 0xd4);
@@ -9495,17 +9495,25 @@ int apical_isp_table_s_attr(void *arg1, void *arg2)
     if (*(int *)((char *)ptr + 0x19c) == 0)
         goto err_alloc;
 
-    if ((((unsigned int)(arg2 + 0x18) | (unsigned int)arg2) & *(unsigned int *)(entry_gp + 0x18)) == 0) {
-        __might_sleep("include/linux/kernel.h", 0xc9, 0);
-        copy_from_user(var_38, (const void __user *)(uintptr_t)(arg2), 0x18);
-    }
+    /*
+     * OEM SDK ko 0x3820: the 24-byte request {u32 id; u32 a, b, c; u32 res;
+     * u32 user_buf} is copied to sp+24, size = a * b * c (sp+28/32/36), buffer
+     * pointer sp+44.  The lift read the fields at var_38 + 0x1c..0x2c (past
+     * the 24-byte copy, stack garbage) and tested the user range against
+     * entry_gp[24] (outside the 16-word stand-in for gp/thread_info, so not
+     * the addr_limit).  copy_from_user() does the OEM access_ok check; on a
+     * fault the OEM continued with an uncopied stack buffer, here it is zero.
+     */
+    memset(var_38, 0, sizeof(var_38));
+    if (copy_from_user(var_38, (const void __user *)(uintptr_t)(arg2), 0x18))
+        memset(var_38, 0, sizeof(var_38));
 
-    var_34 = *(int *)(var_38 + 0x1c);
-    var_30 = *(int *)(var_38 + 0x20);
-    var_2c = *(int *)(var_38 + 0x2c);
+    var_34 = (int)var_38[1];
+    var_30 = (int)var_38[2];
+    var_2c = (int)var_38[3];
     size = var_34 * var_30 * var_2c;
-    var_24 = *(int *)(var_38 + 0x24);
-    type = var_38[0];
+    var_24 = (int)var_38[5];
+    type = (char)var_38[0];
 
     if (var_24 == 0) {
         ((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))printk)((uintptr_t)("%s,%d, param err\n"), (uintptr_t)("apical_isp_table_s_attr"), (uintptr_t)(0xbaa));
@@ -9519,10 +9527,9 @@ int apical_isp_table_s_attr(void *arg1, void *arg2)
         goto err_alloc;
     }
 
-    if ((((unsigned int)(size + var_24) | (unsigned int)size | (unsigned int)var_24) & *(unsigned int *)(entry_gp + 0x18)) == 0) {
-        __might_sleep("include/linux/kernel.h", 0xc9, 0);
-        __copy_user(buf, (void *)var_24, size);
-    }
+    /* OEM: access_ok + __copy_user; buf is __GFP_ZERO (0x80d0) if it faults */
+    if (copy_from_user(buf, (const void __user *)(uintptr_t)var_24, size))
+        memset(buf, 0, size);
 
     ret = apical_api_calibration(type & 0xff, 0, (uintptr_t)buf, size, &var_20);
     status = var_20;
@@ -9771,12 +9778,13 @@ int apical_isp_stab_g_attr(void *arg1)
     memset(buf, 0, 0x70);
     memcpy(buf, (void *)stab, 0x3c);
 
-    result = ((user_ptr + 0x70) | user_ptr) & *(int *)(entry_gp + 0x18);
-    if (result != 0)
-        return result;
-
-    __might_sleep("include/linux/kernel.h", 0xc9, 0);
-    return copy_to_user((void __user *)(uintptr_t)((void *)(uintptr_t)(user_ptr)), buf, 0x70);
+    /*
+     * OEM SDK ko 0x4384: access_ok(user, 0x70) on the addr_limit at gp+24,
+     * then __copy_user.  The lift read entry_gp[24] (past the 16-word
+     * stand-in, not the addr_limit); copy_to_user() does the real check.
+     */
+    (void)result;
+    return copy_to_user((void __user *)(uintptr_t)user_ptr, buf, 0x70);
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000004428 origin=model_output original=apical_isp_gamma_g_attr.isra.0 */
@@ -23376,6 +23384,13 @@ int32_t __enqueue_in_driver_isra_0(void *arg1)
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000184f4 origin=fragment_seed original=frame_channel_unlocked_ioctl */
+/*
+ * Lu-Fi/openimp#274 lift check: nine loads of this function had lost their
+ * base register ("(char *)(uintptr_t *) + off" = absolute address off); the
+ * OEM (SDK ko 0x184f4 +0x104/0x1cc/0x37c/0x464/0x714/0x91c/0x9d0/0xaa4/
+ * 0xb48) reads all of them from s8 (the frame channel): +52 buffer size,
+ * +532 irq flags, +560 state byte, +656 subdev, +660 channel index.
+ */
 static long frame_channel_unlocked_ioctl_raw(struct file *a0_file,
 					     unsigned int a1,
 					     unsigned long a2)
@@ -23558,7 +23573,7 @@ frame_channel_unlocked_ioctl0xf4:
 
 frame_channel_unlocked_ioctl0x104:
     /* fragment 32: CallSetup */
-    v0 = (uintptr_t)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tx_isp_send_event_to_remote)(*(uint32_t *)((char *)(uintptr_t *) + 656), a1 + 2, &local_10); /* jalr target resolved by relocation */
+    v0 = (uintptr_t)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tx_isp_send_event_to_remote)(*(uint32_t *)((char *)s8 + 656), a1 + 2, &local_10); /* jalr target resolved by relocation */
 
     /* fragment 33: Branch */
     s0 = v0;
@@ -23635,7 +23650,7 @@ frame_channel_unlocked_ioctl0x1c4:
 
 frame_channel_unlocked_ioctl0x1cc:
     /* fragment 51: CallSetup */
-    v0 = (uintptr_t)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tx_isp_send_event_to_remote)(*(uint32_t *)((char *)(uintptr_t *) + 656), TX_ISP_FRAME_EVENT_GET_FORMAT, &local_10); /* jalr target resolved by relocation */
+    v0 = (uintptr_t)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tx_isp_send_event_to_remote)(*(uint32_t *)((char *)s8 + 656), TX_ISP_FRAME_EVENT_GET_FORMAT, &local_10); /* jalr target resolved by relocation */
 
     /* fragment 52: Branch */
     s0 = v0;
@@ -23796,7 +23811,7 @@ frame_channel_unlocked_ioctl0x364:
 
 frame_channel_unlocked_ioctl0x37c:
     /* fragment 90: CallSetup */
-    v0 = (uintptr_t)__kmalloc(*(uint32_t *)((char *)(uintptr_t *) + 52), 32976); /* jalr target resolved by relocation */
+    v0 = (uintptr_t)__kmalloc(*(uint32_t *)((char *)s8 + 52), 32976); /* jalr target resolved by relocation */
 
     /* fragment 91: Branch */
     a1 = (uint32_t *)&LC47;
@@ -23871,7 +23886,7 @@ frame_channel_unlocked_ioctl0x42c:
 frame_channel_unlocked_ioctl0x464:
     /* fragment 106: CallSetup */
     *(uint32_t *)((char *)s8 + 524) = s2;
-    v0 = (uintptr_t)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tx_isp_send_event_to_remote)(*(uint32_t *)((char *)(uintptr_t *) + 656), TX_ISP_T30_FRAME_EVENT_SET_BANKS, &local_5c); /* jalr target resolved by relocation */
+    v0 = (uintptr_t)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tx_isp_send_event_to_remote)(*(uint32_t *)((char *)s8 + 656), TX_ISP_T30_FRAME_EVENT_SET_BANKS, &local_5c); /* jalr target resolved by relocation */
 
     /* fragment 107: Branch */
     s0 = v0;
@@ -24167,7 +24182,7 @@ frame_channel_unlocked_ioctl0x714:
     *(uint32_t *)((char *)(*(uint32_t *)((char *)(s8) + 532)) + 0) = (s0 + 76);
     *(uint32_t *)((char *)s0 + 72) = 1;
     *(uint32_t *)((char *)s8 + 536) = ((*(uint32_t *)((char *)(s8) + 536)) + 1);
-    v0 = (uintptr_t)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_spin_unlock_irqrestore)(s8 + 664, v0, *(uint32_t *)((char *)(uintptr_t *) + 532)); /* jalr target resolved by relocation */
+    v0 = (uintptr_t)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_spin_unlock_irqrestore)(s8 + 664, v0, *(uint32_t *)((char *)s8 + 532)); /* jalr target resolved by relocation */
 
     /* fragment 176: MemoryAccess */
     v0 = *(uint8_t *)((char *)s8 + 560);
@@ -24327,7 +24342,7 @@ frame_channel_unlocked_ioctl0x91c:
     finish_wait((void *)(uintptr_t)a0, (void *)(uintptr_t)&local_5c); /* jalr target resolved by relocation */
 
     /* fragment 215: Branch */
-    v0 = *(uint8_t *)((char *)(uintptr_t *) + 560);
+    v0 = *(uint8_t *)((char *)s8 + 560);
     goto frame_channel_unlocked_ioctl0x87c;
 
 frame_channel_unlocked_ioctl0x934:
@@ -24388,7 +24403,7 @@ frame_channel_unlocked_ioctl0x9d0:
     if (a3 == v0) { goto frame_channel_unlocked_ioctl0xa00; }
 
     /* fragment 226: CallSetup */
-    v0 = (uintptr_t)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(2, &LC61, *(uint32_t *)((char *)(uintptr_t *) + 660)); /* jalr target resolved by relocation */
+    v0 = (uintptr_t)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(2, &LC61, *(uint32_t *)((char *)s8 + 660)); /* jalr target resolved by relocation */
 
     /* fragment 227: Branch */
     s0 = -1;
@@ -24467,7 +24482,7 @@ frame_channel_unlocked_ioctl0xaa4:
     if (s3 != v0) { goto frame_channel_unlocked_ioctl0xb08; }
 
     /* fragment 245: CallSetup */
-    v0 = (uintptr_t)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tx_isp_send_event_to_remote)(*(uint32_t *)((char *)(uintptr_t *) + 656), a1 + 3, 0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tx_isp_send_event_to_remote)(*(uint32_t *)((char *)s8 + 656), a1 + 3, 0); /* jalr target resolved by relocation */
 
     /* fragment 246: Arithmetic */
     s1 = v0;
@@ -24545,7 +24560,7 @@ frame_channel_unlocked_ioctl0xb48:
     if (v0 != 0) { goto frame_channel_unlocked_ioctl0xea8; }
 
     /* fragment 265: CallSetup */
-    v0 = (uintptr_t)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tx_isp_send_event_to_remote)(*(uint32_t *)((char *)(uintptr_t *) + 656), TX_ISP_T30_FRAME_EVENT_SET_BANKS, &local_10); /* jalr target resolved by relocation */
+    v0 = (uintptr_t)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tx_isp_send_event_to_remote)(*(uint32_t *)((char *)s8 + 656), TX_ISP_T30_FRAME_EVENT_SET_BANKS, &local_10); /* jalr target resolved by relocation */
 
     /* fragment 266: Branch */
     s1 = v0;
@@ -30229,26 +30244,22 @@ int32_t line_offset(uint32_t a0, uint32_t a1)
 /* WHOLE_DRIVER_CANDIDATE fn_000000000001e010 origin=model_output original=apical_event_queue_push */
 uint32_t apical_event_queue_push(int32_t *arg1, char arg2)
 {
-    int32_t *qlock = (int32_t *)((char *)&_qlock1);
-    int32_t head = arg1[0];
-    int32_t tail = arg1[1];
-    int32_t size = arg1[3];
+    /*
+     * OEM apical_event_queue_push (SDK ko 0x1d730): _qlock1 (.sbss+4) ++,
+     * write the event byte at the loop buffer head, store the new head unless
+     * the buffer is full (new head == tail), _qlock1 --.  Both OEM branches
+     * on head/size/tail call the same write.  The lift counted in the word
+     * after _qlock1 (qlock[1], treating &_qlock1 as the .sbss base), i.e. in
+     * an unrelated variable.
+     */
     int32_t ret;
 
-    qlock[1]++;
-
-    if (head >= 0 && head < size && tail >= 0) {
-        ret = apical_loop_buffer_write_u8(arg1, 0, arg2);
-        if (ret != arg1[1])
-            ((void **)arg1)[0] = ret;
-    } else {
-        ret = apical_loop_buffer_write_u8(arg1, 0, arg2);
-        if (ret != arg1[1])
-            ((void **)arg1)[0] = ret;
-    }
-
-    qlock[1]--;
-    return (uint32_t)qlock[1];
+    _qlock1++;
+    ret = apical_loop_buffer_write_u8(arg1, 0, arg2);
+    if (ret != arg1[1])
+        arg1[0] = ret;
+    _qlock1--;
+    return (uint32_t)_qlock1;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000001e0a8 origin=model_output original=apical_event_queue_pop */
@@ -33670,6 +33681,9 @@ int32_t sinter_strength(int32_t arg1, int32_t arg2, char arg3, int32_t *arg4)
         } else if (s2 == 1) {
             *arg4 = (int32_t)(uint8_t)stab[43];
             return 0;
+        } else {
+            /* OEM 0x22e64: selector other than 0/1 returns 2 (lift: uninitialised) */
+            result = 2;
         }
     } else {
         result = 2;
@@ -33689,9 +33703,10 @@ int32_t temper(int32_t arg1, int32_t arg2, char arg3, int32_t *arg4)
 
     *arg4 = 0;
     status = APICAL_READ_32(0x40);
+    /* OEM 0x22f2c: temper disabled in 0x40 (bit 10) returns 2 (lift: uninitialised) */
+    ret = 2;
 
     if ((status & 0x400) == 0) {
-        ret = 2;
         if (arg3 == 0) {
             if (arg2 == 0x3b) {
                 val = APICAL_READ_32(0x2c0) | 1;
@@ -33755,6 +33770,9 @@ int32_t temper_strength(int32_t arg1, int32_t arg2, char arg3, int32_t *arg4)
         } else if (mode == 1) {
             *arg4 = stab[46];
             return 0;
+        } else {
+            /* OEM 0x23070: selector other than 0/1 returns 2 (lift: uninitialised) */
+            result = 2;
         }
     } else {
         result = 2;
@@ -37487,58 +37505,44 @@ int32_t general_initialize(int32_t *arg1)
 /* WHOLE_DRIVER_CANDIDATE fn_000000000002a3d0 origin=model_output original=general_frame_start */
 uint32_t general_frame_start(uint32_t *arg1)
 {
-	uint32_t result = *(uint8_t *)(arg1 + 0x10);
+	/*
+	 * OEM general_frame_start (SDK ko 0x29af0), void there.  Byte offsets of
+	 * the general FSM (a0) and its context (v1 = *a0): enable +64, mode +60,
+	 * counter +65; context sums +0x710 (10 words) plus +0x338 (10 words, mode
+	 * 0, or 50 words, mode != 0), divisor +0x738 (1848), flag +0x1527 (5415).
+	 * Mode 0: brightness ratio >= 65 for 21 frames -> adjust_exposure(+0x3762f);
+	 * mode != 0: ratio < 65 for 21 frames -> adjust_exposure(-0x3762f).
+	 * The lift scaled +0x41/+0x738/+0x1527 as word indices (4x the OEM byte
+	 * offsets) and never computed the ratio / counter in mode 0.  Divisor 0:
+	 * the OEM traps (teq), kept as an early return.
+	 */
+	uint8_t *fsm = (uint8_t *)arg1;
+	uint8_t *ctx;
+	uint32_t sum = 0, n, i, q;
+	uint8_t cnt;
 
-	if (result == 0)
+	if (fsm[64] == 0)
 		return 0;
-
-	uint32_t *v1 = *(uint32_t **)arg1;
-	uint32_t sum = 0;
-	uint32_t *i;
-
-	for (i = 0; (uintptr_t)i != 0x28; i = (uintptr_t)i + 4)
-		sum += *(uintptr_t *)((uintptr_t)v1 + 0x308 + (uintptr_t)i + 0x408);
-
-	uint32_t count = *(uint8_t *)(arg1 + 0xf);
-	uint32_t divisor;
-	uint32_t quotient;
-	uint32_t val;
-
-	if (count != 0) {
-		for (i = 0; (uintptr_t)i != 0xc8; i = (uintptr_t)i + 4)
-			sum += *(uintptr_t *)((uintptr_t)v1 + 0x308 + (uintptr_t)i + 0x30);
-		divisor = *(v1 + 0x738);
-		if (divisor == 0)
-			return 0;
-		quotient = (sum * 0x3e8) / divisor;
-		if (quotient >= 0x41) {
-			*(uint8_t *)(arg1 + 0x41) = 0;
-			return 0;
-		}
-		val = (*(uint8_t *)(arg1 + 0x41) + 1) & 0xff;
-		*(uint8_t *)(arg1 + 0x41) = val;
-		if (val >= 0x15)
-			return 0;
-		*(uint8_t *)(arg1 + 0x41) = 0;
-		*(uint8_t *)(v1 + 0x1527) = 0;
-		return adjust_exposure(*(void **)(v1 + 1), 0xfffc89d1);
-	} else {
-		for (i = 0; (uintptr_t)i != 0x28; i = (uintptr_t)i + 4)
-			sum += *(uintptr_t *)((uintptr_t)v1 + 0x308 + (uintptr_t)i + 0x30);
-		divisor = *(v1 + 0x738);
-		if (divisor == 0)
-			return 0;
-		if (quotient < 0x41) {
-			*(uint8_t *)(arg1 + 0x41) = 0;
-			return 0;
-		}
-		*(uint8_t *)(arg1 + 0x41) = val;
-		if (val >= 0x15)
-			return 0;
-		*(uint8_t *)(arg1 + 0x41) = 0;
-		*(uint8_t *)(v1 + 0x1527) = 0;
-		return adjust_exposure(*(void **)(v1 + 1), 0x3762f);
+	ctx = *(uint8_t **)fsm;
+	for (i = 0; i < 10; i++)
+		sum += *(uint32_t *)(ctx + 0x308 + 0x408 + 4 * i);
+	n = fsm[60] ? 50 : 10;
+	for (i = 0; i < n; i++)
+		sum += *(uint32_t *)(ctx + 0x308 + 0x30 + 4 * i);
+	if (*(uint32_t *)(ctx + 0x738) == 0)
+		return 0;
+	q = (sum * 1000) / *(uint32_t *)(ctx + 0x738);
+	if ((fsm[60] == 0) == (q < 65)) {
+		fsm[65] = 0;
+		return 0;
 	}
+	cnt = fsm[65] + 1;
+	fsm[65] = cnt;
+	if (cnt < 21)
+		return 0;
+	fsm[65] = 0;
+	ctx[0x1527] = 0;
+	return adjust_exposure(*(void **)(ctx + 4), fsm[60] ? (int32_t)0xfffc89d1 : 0x3762f);
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000002a4fc origin=model_output original=general_frame_end */
@@ -38998,78 +39002,57 @@ static int tx_isp_t30_fsm_request_interrupt(int32_t *fsm, int32_t mask)
 /* WHOLE_DRIVER_CANDIDATE fn_000000000002dd5c origin=model_output original=sensor_fsm_switch_state */
 uint32_t sensor_fsm_switch_state(int32_t *fsm, int32_t new_state)
 {
-	int32_t old_state;
-	uint32_t *result;
+	/*
+	 * OEM sensor_fsm_switch_state (SDK ko 0x2d47c), void there.  The lift
+	 * called sensor_stop_calibrate() when the NEW state was 3 (OEM: when the
+	 * OLD state is 3, before raising 0x10 / starting the new state) and
+	 * returned an uninitialised value.  States compare unsigned (OEM sltiu).
+	 */
+	uint32_t old_state = (uint32_t)fsm[1];
+	uint32_t ns = (uint32_t)new_state;
 
-	old_state = fsm[1];
+	if (ns == old_state)
+		return 0;
 
-	if (new_state == old_state)
-		goto out;
+	fsm[1] = new_state;
 
-	((void **)fsm)[1] = new_state;
-
-	if (old_state >= 3) {
-		if (new_state < 3) {
-			apical_isp_raise_event(*(void **)fsm, 0x10);
-			result = 2;
-		} else {
-			if (new_state == 3) {
-				sensor_stop_calibrate();
-			} else {
-				if (new_state < 3) {
-					apical_isp_raise_event(*(void **)fsm, 0x10);
-					result = 2;
-				} else {
-					result = 3;
-				}
-			}
-		}
+	if (old_state < 3) {
+		if (ns < 3)
+			goto low;
+		apical_isp_raise_event(*(void **)fsm, 0xf);
 	} else {
-		if (new_state < 3) {
-			result = 2;
-		} else {
-			apical_isp_raise_event(*(void **)fsm, 0xf);
-			result = 3;
+		if (old_state == 3)
+			sensor_stop_calibrate();
+		if (ns < 3) {
+			apical_isp_raise_event(*(void **)fsm, 0x10);
+			goto low;
 		}
 	}
 
-	if (new_state == 2) {
-		sensor_update_black(fsm);
-		uint8_t cnt = *(uint8_t *)((char *)fsm + 0xde);
-		uint8_t flag;
-
-		if (cnt != 0) {
-			*(uint8_t *)((char *)fsm + 0xde) = cnt - 1;
-			flag = *(uint8_t *)((char *)fsm + 0xf0);
-		} else {
-			apical_isp_raise_event(*(void **)fsm, 0xc);
-			flag = *(uint8_t *)((char *)fsm + 0xf0);
-		}
-
-		result = 1;
-
-		if (flag == 1) {
-			result = apical_isp_raise_event(*(void **)fsm, 0x11);
-			*(uint8_t *)((char *)fsm + 0xf0) = 0;
-		}
-	}
-
-	if (new_state == 3) {
+	if (ns == 3) {
 		*(int32_t *)((char *)fsm + 0xd4) = 0xa;
-		return sensor_start_calibrate();
-	}
-
-	result = 5;
-
-	if (new_state == 4) {
-		result = sensor_hw_init(fsm);
+		sensor_start_calibrate();
+	} else if (ns == 4) {
+		sensor_hw_init(fsm);
 		*(uint8_t *)((char *)fsm + 0xd8) = 0;
-	} else if (new_state == 5) {
-		return sensor_sw_init(fsm);
+	} else if (ns == 5) {
+		sensor_sw_init(fsm);
 	}
+	return 0;
 
-out:
-	return result;
+low:
+	if (ns != 2)
+		return 0;
+	sensor_update_black(fsm);
+	if (*(uint8_t *)((char *)fsm + 0xde) == 0)
+		apical_isp_raise_event(*(void **)fsm, 0xc);
+	else
+		*(uint8_t *)((char *)fsm + 0xde) -= 1;
+	if (*(uint8_t *)((char *)fsm + 0xf0) == 1) {
+		apical_isp_raise_event(*(void **)fsm, 0x11);
+		*(uint8_t *)((char *)fsm + 0xf0) = 0;
+	}
+	return 0;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000002def0 origin=model_output original=sensor_fsm_process_state */
@@ -39234,40 +39217,49 @@ int32_t cmos_request_interrupt(int32_t *arg1, int32_t arg2)
 /* WHOLE_DRIVER_CANDIDATE fn_000000000002e20c origin=model_output original=cmos_fsm_switch_state */
 int cmos_fsm_switch_state(int32_t *arg1, int32_t arg2)
 {
+	/*
+	 * OEM cmos_fsm_switch_state (SDK ko 0x2d92c), void there.  The lift had
+	 * the state tests in the wrong order (inttime/antiflicker before the long
+	 * exposure / init step, calc_target_gain keyed on the old state 6..8) and
+	 * fell off the end.  Ranges compare unsigned (OEM sltiu).
+	 */
 	int32_t old_state = arg1[1];
 
-	if (arg2 != old_state) {
-		((void **)arg1)[1] = arg2;
+	if (arg2 == old_state)
+		return 0;
+	arg1[1] = arg2;
 
-		if (old_state != 1) {
-			if ((uint32_t)(old_state - 3) < 3) {
-				if ((uint32_t)(arg2 - 3) >= 3)
-					apical_isp_raise_event(*arg1, 19);
-			}
-		} else {
-			cmos_update_wdr_mode();
-		}
+	if (old_state == 1)
+		cmos_update_wdr_mode();
+	else if ((uint32_t)(old_state - 3) < 3 && (uint32_t)(arg2 - 3) >= 3)
+		apical_isp_raise_event(*arg1, 19);
 
-		if ((uint32_t)(old_state - 6) >= 3) {
-			if (arg2 == 7)
-				return cmos_inttime_update(arg1);
-			if (arg2 == 8)
-				return cmos_antiflicker_update(arg1);
-		} else {
-			if ((uint32_t)(old_state - 3) >= 3)
-				cmos_calc_target_gain(arg1);
-			if (arg2 == 4)
-				return cmos_analog_gain_update(arg1);
-			if (arg2 == 5)
-				return cmos_digital_gain_update(arg1);
-		}
-
-		if ((uint32_t)(arg2 - 6) >= 3)
+	if ((uint32_t)(old_state - 6) < 3) {
+		if ((uint32_t)(arg2 - 6) >= 3) {
 			cmos_long_exposure_update(arg1);
-
-		if (arg2 == 2)
-			return cmos_init(arg1);
+			if (arg2 == 2) {
+				cmos_init(arg1);
+				return 0;
+			}
+		}
+	} else if (arg2 == 2) {
+		cmos_init(arg1);
+		return 0;
 	}
+
+	if ((uint32_t)(arg2 - 3) < 3) {
+		if ((uint32_t)(old_state - 3) >= 3)
+			cmos_calc_target_gain(arg1);
+		if (arg2 == 4)
+			cmos_analog_gain_update(arg1);
+		else if (arg2 == 5)
+			cmos_digital_gain_update(arg1);
+	} else if (arg2 == 7) {
+		cmos_inttime_update(arg1);
+	} else if (arg2 == 8) {
+		cmos_antiflicker_update(arg1);
+	}
+	return 0;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000002e390 origin=model_output original=cmos_fsm_process_state */
@@ -39674,7 +39666,8 @@ check6:
 check7:
 	if (arg2 != 7)
 		goto check8;
-	return (int32_t)(uintptr_t)awb_normalise(arg1);
+	awb_normalise(arg1);
+	return 0;
 check8:
 	if (arg2 != 8)
 		goto check9;
@@ -39803,6 +39796,8 @@ int color_matrix_fsm_switch_state(int32_t *arg1, int32_t arg2)
 	} else {
 		return color_matrix_initialize(arg1);
 	}
+	/* OEM 0x2e66c is void: other states only store the state (lift fell off the end) */
+	return 0;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000002efa4 origin=model_output original=color_matrix_fsm_process_state */
@@ -39892,6 +39887,8 @@ int iridix_fsm_switch_state(int32_t *arg1, int32_t arg2)
 
 	if (arg2 == 3)
 		return iridix_update(arg1);
+	/* OEM 0x2e8bc is void: other states only store the state (lift fell off the end) */
+	return 0;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000002f1dc origin=model_output original=iridix_fsm_process_state */
@@ -40258,50 +40255,37 @@ int32_t crop_fsm_process_state(int32_t *arg1)
 /* WHOLE_DRIVER_CANDIDATE fn_000000000002fa4c origin=model_output original=crop_fsm_process_event */
 int32_t crop_fsm_process_event(int32_t *arg1, int32_t arg2)
 {
-	int32_t state;
-	int32_t new_state;
+	/*
+	 * OEM crop_fsm_process_event (SDK ko 0x2f16c).  Event 0x10 (state 3)
+	 * re-initialises and goes straight to process_state with state 2; the
+	 * lift fell through into the common store and wrote an uninitialised
+	 * new_state over it.  Event and state compare unsigned (OEM sltu/sltiu).
+	 */
+	uint32_t ev = (uint32_t)arg2;
+	uint32_t state = (uint32_t)arg1[1];
 
-	if (arg2 == 7) {
-		state = arg1[1];
+	if (ev == 7) {
 		if (state != 2)
 			return 0;
-		new_state = 1;
-		goto common_store_call;
-	}
-
-	if (arg2 < 8) {
-		if (arg2 != 6)
+		arg1[1] = 1;
+	} else if (ev < 8) {
+		if (ev != 6 || state != 1)
 			return 0;
-		state = arg1[1];
-		if (state != 1)
-			return 0;
-		new_state = 2;
-		goto common_store_call;
-	}
-
-	if (arg2 == 0xf) {
-		state = arg1[1];
+		arg1[1] = 2;
+	} else if (ev == 0xf) {
 		if (state >= 3)
 			return 0;
-		new_state = 3;
-		goto common_store_call;
+		arg1[1] = 3;
+	} else if (ev == 0x10) {
+		if (state != 3)
+			return 0;
+		crop_initialize(arg1);
+		crop_resolution_changed(arg1);
+		if (arg1[1] != 2)
+			arg1[1] = 2;
+	} else {
+		return 0;
 	}
-
-	if (arg2 != 0x10)
-		return 0;
-
-	state = arg1[1];
-	if (state != 3)
-		return 0;
-
-	crop_initialize(arg1);
-	crop_resolution_changed(arg1);
-
-	if (arg1[1] != 2)
-		((void **)arg1)[1] = 2;
-
-common_store_call:
-	((void **)arg1)[1] = new_state;
 	crop_fsm_process_state(arg1);
 	return 1;
 }
@@ -40740,61 +40724,35 @@ uint32_t apical_sbus_read_u32(struct apical_sbus_dev *dev, uint32_t offset)
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000030824 origin=model_output original=apical_sbus_write_u8 */
 int32_t apical_sbus_write_u8(int32_t *arg1, int32_t arg2, char arg3)
 {
-	int32_t *result = *arg1;
+	/*
+	 * OEM apical_sbus_write_u8 (SDK ko 0x2ff44): byte-swap the address per the
+	 * bus flags in arg1[0], then tail-call the bus write arg1[5](bus, addr,
+	 * data, 1).  The lift used an uninitialised callback / address when flag
+	 * 0x20 was clear and passed (addr, arg2, data, 1) instead of the bus.
+	 */
+	uint32_t flags = (uint32_t)arg1[0];
+	uint32_t a = (uint32_t)arg2;
+	int32_t (*fn)(int32_t *, uint32_t, uint32_t, uint32_t);
 
-	if (((uintptr_t)result & 1) == 0)
-		return result;
+	if ((flags & 1) == 0)
+		return (int32_t)flags;
 
-	arg3 = (char)(arg3 & 0xff);
+	fn = (int32_t (*)(int32_t *, uint32_t, uint32_t, uint32_t))(uintptr_t)arg1[5];
+	if (flags & 0x20) {
+		if (flags & 0x400) {
+			uint32_t lo = a & 0xffff, hi = a >> 16;
 
-	if (((uintptr_t)result & 0x20) == 0)
-		goto check_0x410;
-
-	{
-		int32_t (*fn)(int32_t, int32_t, int32_t, int32_t) =
-			(int32_t (*)(int32_t, int32_t, int32_t, int32_t))arg1[5];
-		int32_t *v0 = result;
-		int32_t v1;
-		int32_t *a1 = arg2;
-		int32_t *a3;
-
-		if (((uintptr_t)v0 & 0x400) != 0) {
-			v0 = (uintptr_t)v0 & 0x200;
-			a3 = (uintptr_t)a1 & 0xffff;
-			v1 = ((uintptr_t)a3 << 8) | ((uintptr_t)a3 >> 8);
-			a1 = ((uintptr_t)a1 >> 16) & 0xff;
-			a1 = ((uintptr_t)a1 << 8) | ((uintptr_t)a1 >> 8);
-		} else {
-			v1 = 0;
+			lo = ((lo << 8) | (lo >> 8)) & 0xffff;
+			hi = ((hi << 8) | (hi >> 8)) & 0xffff;
+			a = (flags & 0x800) ? (hi | (lo << 16)) : ((hi << 16) | lo);
+		} else if (flags & 0x200) {
+			a = (a >> 16) | (a << 16);
 		}
-
-		v0 = (uintptr_t)v0 & 0x800;
-		v1 = v1 & 0xffff;
-
-		if (v0 != 0) {
-			a1 = (uintptr_t)a1 & 0xffff;
-			v1 = v1 << 16;
-		} else {
-			a1 = (uintptr_t)a1 << 16;
-		}
-
-		a1 = (uintptr_t)a1 | v1;
-
-		if (((uintptr_t)result & 0x800) != 0) {
-			v0 = (uintptr_t)a1 >> 16;
-			a1 = (uintptr_t)a1 << 16;
-			a1 = (uintptr_t)a1 | (uintptr_t)v0;
-		}
-
-	check_0x410:
-		if (((uintptr_t)result & 0x410) == 0x410) {
-			a1 = (uintptr_t)a1 & 0xffff;
-			a1 = ((uintptr_t)a1 << 8) | ((uintptr_t)a1 >> 8);
-			a1 = (uintptr_t)a1 & 0xffff;
-		}
-
-		return ((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))fn)((uintptr_t)(a1), (uintptr_t)(arg2), (uintptr_t)(arg3), (uintptr_t)(1));
+	} else if ((flags & 0x410) == 0x410) {
+		a &= 0xffff;
+		a = ((a << 8) | (a >> 8)) & 0xffff;
 	}
+	return fn(arg1, a, (uint8_t)arg3, 1);
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000308d8 origin=model_output original=apical_sbus_write_u16 */
@@ -41914,21 +41872,18 @@ int32_t ae_exposure_correction(int32_t *arg1, int32_t arg2)
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000032880 origin=model_output original=luts_fetch */
 uint32_t luts_fetch(uint32_t arg1, uint32_t arg2, uint32_t arg3, uint32_t arg4, uint16_t *arg5, uint16_t arg6)
 {
-    uint32_t offset;
-
+    /*
+     * OEM luts_fetch (SDK ko 0x31fa0): step 0 -> x; x < lo -> lut[0];
+     * hi < x -> lut[len - 1]; else lut[(x - lo) / step] (signed div).  The
+     * lift scaled the index twice (byte offset added to a u16 pointer).
+     */
     if (arg4 == 0)
         return arg1;
-
     if (arg1 < arg2)
-        return (uint32_t)*arg5;
-
-    if (arg3 >= arg1) {
-        offset = ((arg1 - arg2) / arg4) << 1;
-    } else {
-        offset = ((uint32_t)arg6 - 1) << 1;
-    }
-
-    return (uint32_t)*(arg5 + offset);
+        return arg5[0];
+    if (arg3 < arg1)
+        return arg5[(uint32_t)arg6 - 1];
+    return arg5[(int32_t)(arg1 - arg2) / (int32_t)arg4];
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000032a10 origin=model_output original=interpl */
@@ -41942,49 +41897,42 @@ int32_t interpl(int32_t x0, int32_t x1, int32_t y0, int32_t x1_end, int32_t y1)
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000032a4c origin=model_output original=init_interp_2d_point */
 int16_t *init_interp_2d_point(int16_t *arg1, int32_t arg2, int32_t arg3, void *arg4, int16_t *arg5, int16_t *arg6)
 {
-	int32_t len = _GET_LEN(226);
-	int32_t x, y;
+	/*
+	 * OEM init_interp_2d_point (SDK ko 0x3216c).  The point is
+	 * { u16 x; u16 y; s32 value } (8 bytes).  Index class per axis:
+	 * len < idx (unsigned, so also idx < 0) -> 2 (last entry + 20),
+	 * else 1 (table entry; idx == len reads one past, as the OEM);
+	 * class 0 (first entry - 20) needs idx < 0 and idx <= len unsigned,
+	 * which never happens, kept for the OEM shape.  The lift wrote three
+	 * 32-bit words into the 6-byte point and indexed with the class.
+	 */
+	uint32_t len = (uint32_t)_GET_LEN(226);
+	uint32_t xi = (uint32_t)arg2, yi = (uint32_t)arg3;
+	uint32_t cx = len < xi ? 2 : (~xi >> 31);
+	uint32_t cy = len < yi ? 2 : (~yi >> 31);
 	int16_t sx, sy;
-	int32_t idx;
 
-	if ((uint32_t)len < (uint32_t)arg2) {
-		x = 0;
+	if (cx == 0) {
+		xi = 0;
+		sx = arg5[0] - 20;
+	} else if (cx == 2) {
+		xi = len - 1;
+		sx = arg5[xi] + 20;
 	} else {
-		x = (int32_t)((~(uint32_t)arg2) >> 31);
+		sx = arg5[xi];
 	}
-	x += 2;
-
-	if ((uint32_t)len < (uint32_t)arg3) {
-		y = 0;
+	if (cy == 0) {
+		yi = 0;
+		sy = arg6[0] - 20;
+	} else if (cy == 2) {
+		yi = len - 1;
+		sy = arg6[yi] + 20;
 	} else {
-		y = (int32_t)((~(uint32_t)arg3) >> 31);
+		sy = arg6[yi];
 	}
-	y += 2;
-
-	if (x == 0) {
-		x = 0;
-		sx = (int16_t)((int32_t)*arg5 - 20);
-	} else if (x != 2) {
-		sx = (int16_t)((int32_t)arg5[x] );
-	} else {
-		x = len - 1;
-		sx = (int16_t)((int32_t)arg5[x] + 20);
-	}
-
-	if (y == 0) {
-		y = 0;
-		sy = (int16_t)((int32_t)*arg6 - 20);
-	} else if (y != 2) {
-		sy = (int16_t)((int32_t)arg6[y]);
-	} else {
-		y = len - 1;
-		sy = (int16_t)((int32_t)arg6[y] + 20);
-	}
-
-	idx = (y * len + x) << 1;
-	((void **)arg1)[2] = (int32_t)*(int16_t *)((char *)arg4 + idx);
-	((void **)arg1)[0] = sx;
-	((void **)arg1)[1] = sy;
+	*(int32_t *)(arg1 + 2) = *(int16_t *)((char *)arg4 + (yi * len + xi) * 2);
+	arg1[0] = sx;
+	arg1[1] = sy;
 	return arg1;
 }
 
@@ -42013,89 +41961,85 @@ int32_t AWB_mesh_isra_1(uint32_t arg1, uint32_t arg2, int16_t *arg3, int16_t *ar
 #endif
 int32_t AWB_mesh_isra_1(uint32_t arg1, uint32_t arg2, int16_t *arg3, int16_t *arg4, void *arg5)
 {
-	int32_t idx_x = get_index((int32_t)arg1, arg3);
-	int32_t idx_y = get_index((int32_t)arg2, arg4);
-	int16_t pt00[3];
-	int16_t pt10[3];
-	int16_t pt01[3];
-	int16_t pt11[3];
-	uint32_t x = arg1;
-	uint32_t y = arg2;
-	int32_t lut_x;
-	int32_t lut_y;
-	int32_t len_x;
-	int32_t len_y;
-	int32_t mid_x;
-	int32_t mid_y;
-	int32_t inner_x;
-	int32_t inner_y;
+	/*
+	 * OEM AWB_mesh.isra.1 (SDK ko 0x3233c): bilinear lookup of the mesh
+	 * arg5 at (x, y) on the axes arg3/arg4.  x/y clamp to the first/last
+	 * entry of calibration tables 226/251; interpolate along x in the rows
+	 * idx_y and idx_y + 1, then along y.  Points are {u16 x; u16 y; s32 v}
+	 * (lhu x/y, lw v).  The lift kept 6-byte points (init writes 8) and
+	 * interpolated a third time along x.
+	 */
+	int32_t ix = get_index((int32_t)arg1, arg3);
+	int32_t iy = get_index((int32_t)arg2, arg4);
+	int16_t p00[4], p10[4], p01[4], p11[4];
+	uint16_t *t;
+	int32_t r0, r1;
+	uint32_t y0, y1;
 
-	init_interp_2d_point(pt00, idx_x, idx_y, arg5, arg3, arg4);
-	init_interp_2d_point(pt10, idx_x + 1, idx_y, arg5, arg3, arg4);
-	init_interp_2d_point(pt01, idx_x, idx_y + 1, arg5, arg3, arg4);
-	init_interp_2d_point(pt11, idx_x + 1, idx_y + 1, arg5, arg3, arg4);
+	init_interp_2d_point(p00, ix, iy, arg5, arg3, arg4);
+	init_interp_2d_point(p10, ix + 1, iy, arg5, arg3, arg4);
+	init_interp_2d_point(p01, ix, iy + 1, arg5, arg3, arg4);
+	init_interp_2d_point(p11, ix + 1, iy + 1, arg5, arg3, arg4);
 
-	lut_x = _GET_USHORT_PTR(226);
-	if (x < (uint32_t)(uint16_t)*(uint16_t *)lut_x)
-		x = (uint32_t)(uint16_t)*(uint16_t *)lut_x;
+	t = (uint16_t *)(uintptr_t)_GET_USHORT_PTR(226);
+	if (arg1 < t[0])
+		arg1 = t[0];
+	t = (uint16_t *)(uintptr_t)_GET_USHORT_PTR(226);
+	if (arg1 >= t[_GET_LEN(226) - 1])
+		arg1 = t[_GET_LEN(226) - 1];
+	t = (uint16_t *)(uintptr_t)_GET_USHORT_PTR(251);
+	if (arg2 < t[0])
+		arg2 = t[0];
+	t = (uint16_t *)(uintptr_t)_GET_USHORT_PTR(251);
+	if (arg2 >= t[_GET_LEN(251) - 1])
+		arg2 = t[_GET_LEN(251) - 1];
 
-	len_x = _GET_LEN(226);
-	lut_x = _GET_USHORT_PTR(226);
-	if (x >= (uint32_t)(uint16_t)*(uint16_t *)(lut_x + (len_x - 1) * 2))
-		x = (uint32_t)(uint16_t)*(uint16_t *)(lut_x + (len_x - 1) * 2);
-
-	lut_y = _GET_USHORT_PTR(251);
-	if (y < (uint32_t)(uint16_t)*(uint16_t *)lut_y)
-		y = (uint32_t)(uint16_t)*(uint16_t *)lut_y;
-
-	len_y = _GET_LEN(251);
-	lut_y = _GET_USHORT_PTR(251);
-	if (y >= (uint32_t)(uint16_t)*(uint16_t *)(lut_y + (len_y - 1) * 2))
-		y = (uint32_t)(uint16_t)*(uint16_t *)(lut_y + (len_y - 1) * 2);
-
-	mid_x = interpl((int32_t)x, (int32_t)(uint16_t)pt00[0], (int32_t)(int32_t)pt00[2], (int32_t)(uint16_t)pt10[0], (int32_t)(int32_t)pt10[2]);
-	mid_y = interpl((int32_t)x, (int32_t)(uint16_t)pt01[0], (int32_t)(int32_t)pt01[2], (int32_t)(uint16_t)pt11[0], (int32_t)(int32_t)pt11[2]);
-	inner_x = interpl((int32_t)y, (int32_t)(uint16_t)pt00[1], mid_x, (int32_t)(uint16_t)pt01[1], mid_y);
-	inner_y = interpl((int32_t)y, (int32_t)(uint16_t)pt10[1], mid_x, (int32_t)(uint16_t)pt11[1], mid_y);
-
-	return interpl((int32_t)x, (int32_t)(uint16_t)pt00[0], inner_x, (int32_t)(uint16_t)pt10[0], inner_y);
+	r0 = interpl((int32_t)arg1, (uint16_t)p00[0], *(int32_t *)(p00 + 2),
+		     (uint16_t)p10[0], *(int32_t *)(p10 + 2));
+	r1 = interpl((int32_t)arg1, (uint16_t)p01[0], *(int32_t *)(p01 + 2),
+		     (uint16_t)p11[0], *(int32_t *)(p11 + 2));
+	y0 = (uint16_t)p00[1];
+	y1 = (uint16_t)p01[1];
+	return interpl((int32_t)arg2, (int32_t)y0, r0, (int32_t)y1, r1);
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000032e9c origin=model_output original=init_interp_2d_point_LUT */
 int16_t *init_interp_2d_point_LUT(int16_t *out, int32_t x, int32_t y, int32_t base,
-                                   int16_t x_min, int16_t x_step,
-                                   int16_t y_min, int16_t y_step,
-                                   int16_t y_base, void *lut)
+                                   int16_t x_max, int16_t x_step,
+                                   int16_t y_base, int16_t y_max,
+                                   int16_t y_step, void *lut)
 {
-    int32_t len;
-    int32_t cx, cy;
+    /*
+     * OEM init_interp_2d_point_LUT (SDK ko 0x325bc).  Point {u16 x; u16 y;
+     * s32 v}: x < 0 -> (0, base - 20); x < len -> (x, x_step * x + base);
+     * else (len - 1, x_max + 20); y the same with y_base / y_step / y_max.
+     * The lift left the in-range indices (cx/cy) uninitialised, swapped the
+     * y step and base, and wrote three 32-bit words into the point.
+     */
+    uint32_t len = (uint32_t)_GET_LEN(226);
     int16_t ox, oy;
-
-    len = _GET_LEN(226);
 
     if (x < 0) {
         ox = (int16_t)base - 20;
-        cx = 0;
-    } else if ((unsigned)x < (unsigned)len) {
-        ox = (int16_t)(x_step * x + base);
+        x = 0;
+    } else if ((uint32_t)x < len) {
+        ox = (int16_t)(x_step * (int16_t)x + base);
     } else {
-        cx = len - 1;
-        ox = x_min + 20;
+        x = len - 1;
+        ox = x_max + 20;
     }
-
     if (y < 0) {
-        oy = y_min - 20;
-        cy = 0;
-    } else if ((unsigned)y < (unsigned)len) {
-        oy = (int16_t)(y_step * y + y_base);
+        oy = y_base - 20;
+        y = 0;
+    } else if ((uint32_t)y < len) {
+        oy = (int16_t)(y_step * (int16_t)y + y_base);
     } else {
-        cy = len - 1;
-        oy = y_base + 20;
+        y = len - 1;
+        oy = y_max + 20;
     }
-
-    ((void **)out)[2] = *(int16_t *)((char *)lut + ((cy * len + cx) << 1));
-    ((void **)out)[0] = ox;
-    ((void **)out)[1] = oy;
+    *(int32_t *)(out + 2) = *(int16_t *)((char *)lut + ((uint32_t)y * len + (uint32_t)x) * 2);
+    out[0] = ox;
+    out[1] = oy;
     return out;
 }
 
@@ -42104,141 +42048,73 @@ int32_t AWB_mesh_LUT(int32_t arg1, int32_t arg2, int32_t arg3, int32_t arg4,
                      int16_t arg5, int16_t arg6, int16_t arg7, int16_t arg8,
                      int16_t arg9, void *arg10)
 {
-    int32_t x_step = (int32_t)arg6;
-    int32_t y_step = (int32_t)arg9;
-    int32_t x_min = (int32_t)arg5;
-    int32_t y_min = (int32_t)arg7;
-    int32_t x_max = (int32_t)arg8;
-    int32_t y_max = (int32_t)arg8;
-    int32_t base_x = (int32_t)(arg4 << 16) >> 16;
-    int32_t len = _GET_LEN(226);
-    int32_t x_idx;
-    int32_t y_idx;
-    int32_t x_base;
-    int32_t y_base;
-    int32_t x_val;
-    int32_t y_val;
-    int32_t r1;
-    int32_t r2;
-    int32_t r3;
-    int32_t *result = 0;
-    int16_t pt0[4];
-    int16_t pt1[4];
-    int16_t pt2[4];
-    int16_t pt3[4];
-    uint16_t *v0;
-    uint16_t v1;
-    uint16_t v2;
-    uint16_t v3;
-    int32_t t0;
-    int32_t t1;
-    int32_t t2;
-    int32_t t3;
-    int32_t t4;
-    int32_t t5;
-    int32_t t6;
-    int32_t t7;
-    int32_t t8;
+    /*
+     * OEM AWB_mesh_LUT (SDK ko 0x326d0): bilinear lookup in a regular grid
+     * (x: base arg4, max arg5, step arg6; y: base arg7, max arg8, step arg9).
+     * A zero step returns x.  The lift returned 0 there, read the 8-byte
+     * points as four u16 and mixed the corner values.
+     */
+    int32_t xb = (int16_t)arg4, xm = arg5, xs = arg6;
+    int32_t yb = arg7, ym = arg8, ys = arg9;
+    uint32_t last = (uint32_t)_GET_LEN(226) - 1;
+    uint32_t xi, yi, q;
+    int16_t p0[4], p1[4], p2[4], p3[4];
+    int32_t r0, r1;
 
-    x_base = arg2;
-    y_base = arg3;
+    if (xs == 0 || ys == 0)
+        return arg2;
 
-    if (x_step == 0 || y_step == 0)
-        goto out;
-
-    t0 = x_base - base_x;
-    t0 = t0 / x_step;
-
-    if (t0 < 0) {
-        x_base = base_x;
-        t0 = 0;
+    xi = (uint32_t)((arg2 - xb) / xs);
+    if ((int32_t)xi < 0) {
+        xi = 0;
+        arg2 = xb;
+    } else if (last < xi) {
+        xi = last;
+        arg2 = xm;
+    }
+    q = (uint32_t)((arg3 - yb) / ys);
+    yi = last;
+    if ((int32_t)q < 0) {
+        yi = 0;
+        arg3 = yb;
+    } else if (last < q) {
+        arg3 = ym;
     } else {
-        t1 = len - 1;
-        if ((unsigned int)t1 < (unsigned int)t0) {
-            t0 = t1;
-            x_base = x_min;
-        }
+        yi = q;
     }
 
-    x_idx = t0;
+    init_interp_2d_point_LUT(p0, xi, yi, xb, xm, xs, yb, ym, ys, arg10);
+    init_interp_2d_point_LUT(p1, xi + 1, yi, xb, xm, xs, yb, ym, ys, arg10);
+    init_interp_2d_point_LUT(p2, xi, yi + 1, xb, xm, xs, yb, ym, ys, arg10);
+    init_interp_2d_point_LUT(p3, xi + 1, yi + 1, xb, xm, xs, yb, ym, ys, arg10);
 
-    t2 = y_base - y_min;
-    t2 = t2 / y_step;
-
-    if (t2 < 0) {
-        y_base = y_min;
-        t2 = 0;
-    } else {
-        t3 = len - 1;
-        if ((unsigned int)t3 < (unsigned int)t2) {
-            t2 = t3;
-            y_base = y_max;
-        }
-    }
-
-    y_idx = t2;
-
-    init_interp_2d_point_LUT(pt0, x_idx, y_idx, base_x, x_min, x_step, y_min, y_step, y_base, arg10);
-    v0 = (uintptr_t *)pt0[0];
-    v1 = (uint16_t)pt0[1];
-    t4 = (int32_t)pt0[2];
-    t5 = (int32_t)pt0[3];
-
-    init_interp_2d_point_LUT(pt1, x_idx + 1, y_idx, base_x, x_min, x_step, y_min, y_step, y_base, arg10);
-    v2 = (uint16_t)pt1[0];
-    v3 = (uint16_t)pt1[1];
-    t6 = (int32_t)pt1[2];
-    t7 = (int32_t)pt1[3];
-
-    init_interp_2d_point_LUT(pt2, x_idx, y_idx + 1, base_x, x_min, x_step, y_min, y_step, y_base, arg10);
-    t8 = (int32_t)pt2[0];
-    t1 = (int32_t)pt2[1];
-    t2 = (int32_t)pt2[2];
-    t3 = (int32_t)pt2[3];
-
-    init_interp_2d_point_LUT(pt3, x_idx + 1, y_idx + 1, base_x, x_min, x_step, y_min, y_step, y_base, arg10);
-    t4 = (int32_t)pt3[0];
-    t5 = (int32_t)pt3[1];
-    t6 = (int32_t)pt3[2];
-    t7 = (int32_t)pt3[3];
-
-    r1 = interpl(x_base, (int32_t)v0, t4, (int32_t)v2, t6);
-    r2 = interpl(x_base, (int32_t)t8, t2, (int32_t)t4, t6);
-    result = interpl(y_base, (int32_t *)v1, r1, (int32_t)t1, r2);
-out:
-    return result;
+    r0 = interpl(arg2, (uint16_t)p0[0], *(int32_t *)(p0 + 2), (uint16_t)p1[0], *(int32_t *)(p1 + 2));
+    r1 = interpl(arg2, (uint16_t)p2[0], *(int32_t *)(p2 + 2), (uint16_t)p3[0], *(int32_t *)(p3 + 2));
+    if ((uint16_t)p2[1] != (uint16_t)p0[1])
+        r0 += (int32_t)((uint32_t)(r1 - r0) * (uint32_t)(arg3 - (uint16_t)p0[1])) /
+              (int32_t)((uint16_t)p2[1] - (uint16_t)p0[1]);
+    return r0;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000033290 origin=model_output original=mesh_AWB_getKnownSourceLight_weight_LUT */
 int32_t mesh_AWB_getKnownSourceLight_weight_LUT(int32_t arg1, int16_t arg2, int16_t arg3, int32_t arg4, int32_t arg5)
 {
-    uint32_t x = (uint32_t)(uint16_t)arg2;
-    uint32_t y = (uint32_t)(uint16_t)arg3;
-    int32_t len = _GET_LEN(226);
-    int32_t x_min = arg4 - 30;
-    int32_t x_max = arg4 + 30;
-    int32_t y_min = arg5 - 30;
-    int32_t y_max = arg5 + 30;
-    int32_t in_range;
-    uint16_t step;
-    int32_t *lut_ptr;
-    int32_t *result;
+    /*
+     * OEM mesh_AWB_getKnownSourceLight_weight_LUT (SDK ko 0x32b20): weight of
+     * a known light source at (arg4, arg5) for the point (x, y): 0 outside the
+     * +-30 window (signed compares; the lift compared x unsigned), else the
+     * 60 / (len - 1) grid of calibration table 217.
+     */
+    int32_t x = (uint16_t)arg2;
+    int32_t y = (uint16_t)arg3;
+    uint32_t step;
 
-    in_range = 0;
-    if (x >= (uint32_t)x_min && (int32_t)x_max >= (int32_t)x && y >= (uint32_t)y_min) {
-        in_range = ((int32_t)y_max < (int32_t)y) ^ 1;
-    }
-
-    if (in_range == 0)
+    if (!(arg4 - 30 <= x && x <= arg4 + 30 && arg5 - 30 <= y && y <= arg5 + 30))
         return 0;
-
-    step = (uint16_t)(60 / (len - 1));
-    lut_ptr = _GET_USHORT_PTR(217);
-    result = AWB_mesh_LUT(arg1, (uintptr_t)x, (int32_t)y, (int32_t)((int32_t)x_min << 16) >> 16,
-                          (int16_t)((int32_t)x_max << 16) >> 16, (int16_t)step,
-                          (int16_t)((int32_t)y_min << 16) >> 16, (int16_t)((int32_t)y_max << 16) >> 16,
-                          (int16_t)step, (void *)lut_ptr);
-    return result;
+    step = 60U / ((uint32_t)_GET_LEN(226) - 1);
+    return AWB_mesh_LUT(arg1, x, y, (int16_t)(arg4 - 30), (int16_t)(arg4 + 30), (int16_t)step,
+                        (int16_t)(arg5 - 30), (int16_t)(arg5 + 30), (int16_t)step,
+                        (void *)(uintptr_t)_GET_USHORT_PTR(217));
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000333c4 origin=model_output original=awb_coeffs_write */
@@ -42750,501 +42626,451 @@ int32_t awb_zones_calculate(void)
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000033804 origin=model_output original=compute_weight */
 int32_t compute_weight(int32_t arg1, int32_t arg2, void *arg3, int32_t *arg4, void *arg5, void *arg6)
 {
-    int32_t *result = 0;
+    /*
+     * OEM compute_weight (SDK ko 0x32f24), void there.  Per zone i < count
+     * (u16 arg6+0x10), record arg6 + 0x58 + 8 * i = {u16 x; u16 y}: with x,
+     * y and arg2 != 0x100, w[i] = 0 if the mask arg3[i] is 0 or y lies above
+     * the line sign * |(x - arg1) * (arg1 - 0x100)| / (0x100 - arg2) + arg2,
+     * else w[i] *= arg5[i].  Divide and compare are unsigned (OEM divu/sltu;
+     * the lift divided signed).
+     */
     uint16_t count = *(uint16_t *)((char *)arg6 + 0x10);
-    int32_t a0_minus_256 = arg1 - 0x100;
-    int32_t two_hundred_fifty_six_minus_arg2 = 0x100 - arg2;
-    int32_t sign_val;
-    int32_t abs_val;
-    int32_t div_result;
-    int32_t threshold;
-    uint8_t mask_byte;
-    uint8_t weight_byte;
-    int32_t current_weight;
+    uint8_t *rec = (uint8_t *)arg6;
+    uint32_t i;
 
-    while (((uintptr_t)result & 0xffff) < count) {
-        uint16_t field_58 = *(uint16_t *)((char *)arg6 + 0x58);
-        uint16_t field_5a;
+    for (i = 0; (i & 0xffff) < count; i++, rec += 8, arg4++) {
+        uint32_t x = *(uint16_t *)(rec + 0x58);
+        uint32_t y = *(uint16_t *)(rec + 0x5a);
+        int32_t prod, sign;
+        uint32_t mag;
 
-        if (field_58 == 0) {
-            result = (void *)(uintptr_t)((uintptr_t)result + (1));
-        } else {
-            field_5a = *(uint16_t *)((char *)arg6 + 0x5a);
-            if (field_5a == 0) {
-                result = (void *)(uintptr_t)((uintptr_t)result + (1));
-            } else {
-                if (arg2 != 0x100) {
-                    int32_t diff = field_58 - arg1;
-                    int32_t prod = diff * a0_minus_256;
-
-                    sign_val = (prod < 0) ? -1 : 1;
-                    mask_byte = *(uint8_t *)((char *)arg3 + (uintptr_t)result);
-
-                    if (mask_byte == 0) {
-                        *arg4 = 0;
-                    } else {
-                        int32_t sign_bit = (int32_t)((uint32_t)prod >> 31);
-                        abs_val = (sign_bit ^ prod) - sign_bit;
-                        div_result = abs_val / two_hundred_fifty_six_minus_arg2;
-                        threshold = sign_val * div_result + arg2;
-
-                        if ((uint16_t)field_5a < (uint32_t)threshold) {
-                            *arg4 = 0;
-                        } else {
-                            weight_byte = *(uint8_t *)((char *)arg5 + (uintptr_t)result);
-                            current_weight = *arg4;
-                            *arg4 = current_weight * weight_byte;
-                        }
-                    }
-                }
-                result = (void *)(uintptr_t)((uintptr_t)result + (1));
-            }
+        if (x == 0 || y == 0 || arg2 == 0x100)
+            continue;
+        prod = (int32_t)((x - (uint32_t)arg1) * (uint32_t)(arg1 - 0x100));
+        sign = prod < 0 ? -1 : 1;
+        if (((uint8_t *)arg3)[i] == 0) {
+            *arg4 = 0;
+            continue;
         }
-        arg6 = (char *)arg6 + 8;
-        arg4 = arg4 + 1;
+        mag = (uint32_t)((prod >> 31 ^ prod) - (prod >> 31));
+        if (y < (uint32_t)(sign * (int32_t)(mag / (uint32_t)(0x100 - arg2)) + arg2))
+            *arg4 = 0;
+        else
+            *arg4 = *arg4 * ((uint8_t *)arg5)[i];
     }
-
-    return result;
+    return 0;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000338e4 origin=model_output original=awb_calc_avg_weighted_gr_gb_mesh */
+/*
+ * OEM fifo_push / get_point (SDK ko 0x31ffc / 0x320ac, .sbss+12/+16): the
+ * running red/blue gain filter of the stock AWB with coefficient
+ * calibration 262 (0: no filtering).  The lift had dropped both.
+ */
+static uint32_t t30_awb_fifo_r, t30_awb_fifo_b;
+
+static void t30_awb_fifo_push(uint32_t r, uint32_t b)
+{
+	uint32_t c = *(uint8_t *)(uintptr_t)_GET_UCHAR_PTR(262);
+
+	r &= 0xffff;
+	b &= 0xffff;
+	if (c == 0) {
+		t30_awb_fifo_r = r;
+		t30_awb_fifo_b = b;
+	} else if (t30_awb_fifo_r == 0 && t30_awb_fifo_b == 0) {
+		t30_awb_fifo_r = c * r;
+		t30_awb_fifo_b = c * b;
+	} else {
+		t30_awb_fifo_r = r + t30_awb_fifo_r - t30_awb_fifo_r / c;
+		t30_awb_fifo_b = b + t30_awb_fifo_b - t30_awb_fifo_b / c;
+	}
+}
+
+static void t30_awb_get_point(uint16_t *pt)
+{
+	uint32_t c = *(uint8_t *)(uintptr_t)_GET_UCHAR_PTR(262);
+
+	if (c) {
+		pt[0] = t30_awb_fifo_r / c;
+		pt[1] = t30_awb_fifo_b / c;
+	} else {
+		pt[0] = t30_awb_fifo_r;
+		pt[1] = t30_awb_fifo_b;
+	}
+	pt[2] = pt[3] = 0;
+}
+
+static inline uint16_t t30_lut16(int32_t id, uint32_t i)
+{
+	return ((uint16_t *)(uintptr_t)_GET_USHORT_PTR(id))[i];
+}
+
 int32_t awb_calc_avg_weighted_gr_gb_mesh(int32_t *arg1)
 {
-	int32_t *s3 = *(int32_t **)arg1;
-	int32_t s0 = (int32_t)arg1;
-	int32_t val_870 = APICAL_READ_32(0x870);
-	int32_t val_870_hi = (val_870 & 0xff00) >> 8;
-	int32_t val_870_lo = val_870 & 0xff;
-	int32_t mesh_size = val_870_hi * val_870_lo;
-	int32_t cols = _GET_COLS(0xef);
-	int16_t *mesh_ptr = (int16_t *)_GET_USHORT_PTR(0xef);
-	int32_t *i = mesh_size;
-	int32_t *result;
+	/*
+	 * OEM awb_calc_avg_weighted_gr_gb_mesh (SDK ko 0x33004, frame 3080
+	 * bytes), void there.  arg1 is the AWB FSM: zone count u16 +0x10 (from
+	 * 0x870 = rows x cols), zone records +0x58 + 8 * i = {u16 rg; u16 bg;
+	 * u32 sum}, results +0x18/+0x1a (manual / chosen gains), +0x1c/+0x1d
+	 * (light source shares), +0x30/+0x34 (filtered point), +0x38/+0x3c
+	 * (weighted rg/bg), +0x778 (colour temperature, 1e6 / mired).
+	 *
+	 * The lift kept the per-zone byte arrays as offsets from the int array
+	 * (scaled by 4: wrote far outside the masks the later steps read), never
+	 * stored the zone count, tested the u16 bg instead of the u32 sum, and
+	 * stopped before the light-source / weighted-average / fifo / colour
+	 * temperature tail, storing an uninitialised value to +0x778.
+	 */
+	uint8_t *fsm = (uint8_t *)arg1;
+	uint8_t *ctx = *(uint8_t **)arg1;
+	int32_t w[225];
+	uint16_t wb_bg[226], wb_rg[226];
+	uint8_t inbox[228], w_a[228], w_b[228], known0[228], valid[228];
+	uint32_t n, i, j, cols, rows, ct, sum, avg_a, avg_b, cnt, r, b;
+	uint32_t min_x, min_y, max_x, max_y;
+	int32_t share_a, share_b, temp;
+	uint16_t *mesh, pt[4];
+	uint32_t *tab;
+	int32_t hdr;
+	bool hot = false;
 
-	if (i >= 0xe2)
+#define ZX(k) (*(uint16_t *)(fsm + 0x58 + 8 * (k)))
+#define ZY(k) (*(uint16_t *)(fsm + 0x5a + 8 * (k)))
+	{
+		uint32_t v870 = APICAL_READ_32(0x870);
+
+		*(uint16_t *)(fsm + 0x10) = ((v870 >> 8) & 0xff) * (v870 & 0xff);
+	}
+	cols = _GET_COLS(0xef);
+	mesh = (uint16_t *)(uintptr_t)_GET_USHORT_PTR(0xef);
+	n = *(uint16_t *)(fsm + 0x10);
+	if (n > 0xe1)
 		return 0;
-
-	int32_t var_bf0[0x326];
-	int8_t var_154[0xe4];
-	int8_t var_238[0xe4];
-	int8_t var_4e4[0xe4];
-	int8_t var_400[0xe4];
-	int8_t var_31c[0xe4];
-	int32_t idx;
-
-	for (idx = 0; idx < i; idx++) {
-		((void **)var_bf0)[idx] = 0;
-		((void **)var_154)[idx] = 0;
-		((void **)var_238)[idx] = 0;
-		((void **)var_4e4)[idx] = 1;
-		((void **)var_400)[idx] = 0;
-		((void **)var_31c)[idx] = 0;
+	for (i = 0; i < n; i++) {
+		w[i] = 0;
+		valid[i] = 0;
+		known0[i] = 0;
+		inbox[i] = 1;
+		w_b[i] = 0;
+		w_a[i] = 0;
 	}
 
-	int32_t s3_1 = *(int32_t *)((char *)s3 + 0x11c);
-	int32_t hdr_idx = _GET_HDR_TABLE_INDEX(0x97, *(uint8_t *)((char *)arg1 + 0x1524));
-	int32_t s4_1 = hdr_idx & 0xff;
-	int32_t *hdr_table = (int32_t *)_GET_UINT_PTR(s4_1);
-	int32_t var_68_1;
-
-	if (s3_1 >= *hdr_table) {
-		int32_t len = _GET_LEN(s4_1);
-		if (s3_1 < hdr_table[len - 1]) {
-			int32_t fp_1 = 1;
-			int32_t s4_2;
-			while (1) {
-				if (fp_1 >= len) {
-					s4_2 = fp_1 - 1;
-					break;
-				}
-				if (s3_1 < hdr_table[fp_1]) {
-					s4_2 = fp_1 - 1;
-					break;
-				}
-				fp_1++;
-			}
-			int32_t *lut_f3 = (int32_t *)_GET_UINT_PTR(0xf3);
-			var_68_1 = interpl(s3_1, hdr_table[s4_2], lut_f3[s4_2], hdr_table[fp_1], lut_f3[fp_1]) & 0xffff;
-		} else {
-			var_68_1 = ((int32_t *)_GET_UINT_PTR(0xf3))[len - 1] & 0xffff;
-		}
-	} else {
-		int32_t *lut_f3 = (int32_t *)_GET_UINT_PTR(0xf3);
-		var_68_1 = lut_f3[0] & 0xffff;
-	}
-
-	uint32_t var_48_1;
-	uint32_t var_4c_1;
-
-	if (var_68_1 >= 0x1389) {
-		var_48_1 = 0x63;
-		var_4c_1 = 1;
-	} else {
-		int16_t *p_fa = (int16_t *)_GET_USHORT_PTR(0xfa);
-		int16_t *p_fc = (int16_t *)_GET_USHORT_PTR(0xfc);
-		int16_t *p_f4 = (int16_t *)_GET_USHORT_PTR(0xf4);
-		int16_t *p_fd = (int16_t *)_GET_USHORT_PTR(0xfd);
-		uint16_t len_fd = _GET_LEN(0xfd);
-		var_48_1 = luts_fetch(var_68_1, *p_fa, *p_fc, *p_f4, p_fd, len_fd);
-
-		int16_t *p_e7 = (int16_t *)_GET_USHORT_PTR(0xe7);
-		int16_t *p_f6 = (int16_t *)_GET_USHORT_PTR(0xf6);
-		int16_t *p_e3 = (int16_t *)_GET_USHORT_PTR(0xe3);
-		int16_t *p_d4 = (int16_t *)_GET_USHORT_PTR(0xd4);
-		uint16_t len_d4 = _GET_LEN(0xd4);
-		var_4c_1 = luts_fetch(var_68_1, *p_e7, *p_f6, *p_e3, p_d4, len_d4);
-	}
-
-	int16_t *p_e2 = (int16_t *)_GET_USHORT_PTR(0xe2);
-	uint32_t e2_min = *p_e2;
-	uint32_t mesh_x0 = (uint32_t)(uint16_t)mesh_ptr[0];
-	uint32_t var_60_1;
-
-	if (e2_min < mesh_x0)
-		var_60_1 = e2_min;
-	else
-		var_60_1 = mesh_x0;
-
-	int16_t *p_fb = (int16_t *)_GET_USHORT_PTR(0xfb);
-	uint32_t fb_min = *p_fb;
-	uint32_t mesh_y0 = (uint32_t)(uint16_t)mesh_ptr[1];
-	uint32_t fp_6;
-
-	if (fb_min < mesh_y0)
-		fp_6 = fb_min;
-	else
-		fp_6 = mesh_y0;
-
-	uint16_t len_e2 = _GET_LEN(0xe2);
-	int16_t *e2_last = (void *)((uintptr_t)p_e2 + (len_e2 - 1) * 2);
-	uint32_t s7_3 = mesh_x0;
-
-	if ((uint32_t)(uint16_t)*e2_last >= s7_3)
-		s7_3 = (uint32_t)(uint16_t)*e2_last;
-
-	uint16_t len_fb = _GET_LEN(0xfb);
-	int16_t *fb_last = (void *)((uintptr_t)p_fb + (len_fb - 1) * 2);
-	uint32_t s4_8 = mesh_y0;
-	uint32_t var_5c_1 = s4_8;
-
-	if ((uint32_t)(uint16_t)*fb_last >= s4_8)
-		var_5c_1 = (uint32_t)(uint16_t)*fb_last;
-
-	uint32_t rows = _GET_ROWS(0xef);
-	uint32_t row_stride = cols << 1;
-	uint32_t row_idx;
-
-	for (row_idx = 1; row_idx < rows; row_idx++) {
-		int16_t *row_ptr = (void *)((uintptr_t)mesh_ptr + row_idx * row_stride);
-		uint32_t rx = (uint32_t)(uint16_t)row_ptr[0];
-		uint32_t ry = (uint32_t)(uint16_t)row_ptr[1];
-
-		if ((int32_t)rx < (int32_t)var_60_1)
-			var_60_1 = rx;
-		if ((int32_t)ry < (int32_t)fp_6)
-			fp_6 = ry;
-		if ((int32_t)s7_3 < (int32_t)rx)
-			s7_3 = rx;
-		if ((int32_t)var_5c_1 < (int32_t)ry)
-			var_5c_1 = ry;
-	}
-
-	uint32_t var_64_1 = 0;
-	int32_t var_50_1 = 0;
-	int32_t var_54_1 = 0;
-	uint32_t col_idx;
-
-	for (col_idx = 0; col_idx < (uint32_t)i; col_idx++) {
-		int16_t *pt = (uintptr_t)&arg1[(col_idx + 0xb) * 2];
-		uint32_t px = (uint32_t)(uint16_t)pt[0];
-		uint32_t py = (uint32_t)(uint16_t)pt[1];
-		int32_t flag_x = 0;
-
-		if ((int32_t)px >= (int32_t)var_60_1)
-			flag_x = ((int32_t)s7_3 < (int32_t)px) ^ 1;
-
-		int32_t flag_y = 0;
-		if ((int32_t)py >= (int32_t)fp_6)
-			flag_y = ((int32_t)var_5c_1 < (int32_t)py) ^ 1;
-
-		int32_t flag_both = 0;
-		if (flag_x != 0 && flag_y != 0)
-			flag_both = ((uint32_t)pt[1] < 0x101) ^ 1;
-
-		uint32_t flag_val = (uint32_t)flag_both & 0xff;
-		*(uint8_t *)((char *)&var_bf0[col_idx] + 0xa9c) = (uint8_t)flag_val;
-
-		if (flag_val != 0) {
-			int32_t s6_4 = AWB_mesh_isra_1(px, py, p_e2, p_fb, (void *)_GET_USHORT_PTR(0xee));
-			uint32_t j;
-
-			for (j = 0; j < rows; j++) {
-				int16_t *jrow = (void *)((uintptr_t)mesh_ptr + j * row_stride);
-				int32_t lut_val = mesh_AWB_getKnownSourceLight_weight_LUT(arg1, (int16_t)px, (int16_t)py, (int32_t)(uint16_t)jrow[0], (int32_t)(uint16_t)jrow[1]);
-
-				if (lut_val < 0x14) {
-					continue;
-				} else if (s6_4 + 0xf >= lut_val) {
-					continue;
-				} else {
-					s6_4 = lut_val;
-					if (j == 0)
-						*(uint8_t *)((char *)&var_bf0[col_idx] + 0x9b8) = 1;
-				}
-			}
-
-			int32_t t1_2 = 0;
-			if (s6_4 >= 0)
-				t1_2 = s6_4;
-
-			if (t1_2 >= 0x3c) {
-				((void **)var_bf0)[col_idx] = t1_2;
-				int16_t *p_d7 = (int16_t *)_GET_USHORT_PTR(0xd7);
-				int16_t *p_e1 = (int16_t *)_GET_USHORT_PTR(0xe1);
-				int16_t *p_fe = (int16_t *)_GET_USHORT_PTR(0xfe);
-				int16_t *p_f5 = (int16_t *)_GET_USHORT_PTR(0xf5);
-				uint16_t len_f5 = _GET_LEN(0xf5);
-				int32_t w1 = luts_fetch(px, *p_d7, *p_e1, *p_fe, (uintptr_t)p_f5, len_f5) * 0x32 * (int32_t)var_48_1;
-
-				int16_t *p_ec = (int16_t *)_GET_USHORT_PTR(0xec);
-				int16_t *p_f0 = (int16_t *)_GET_USHORT_PTR(0xf0);
-				int16_t *p_e5 = (int16_t *)_GET_USHORT_PTR(0xe5);
-				int16_t *p_f8 = (int16_t *)_GET_USHORT_PTR(0xf8);
-				uint16_t len_f8 = _GET_LEN(0xf8);
-				int32_t w2 = luts_fetch(px, *p_ec, *p_f0, *p_e5, (uintptr_t)p_f8, len_f8) * 0x32 * (int32_t)var_4c_1;
-
-				int32_t sum_w = w2 + w1;
-				char *base = (char *)&var_bf0[col_idx];
-
-				if (sum_w == 0) {
-					*(uint8_t *)(base + 0x8d4) = (uint8_t)(w1 & 0xff) * 0x64;
-					*(uint8_t *)(base + 0x7f0) = (uint8_t)(w2 & 0xff) * 0x64;
-				} else {
-					*(uint8_t *)(base + 0x8d4) = (uint8_t)((w1 * 0x64) / sum_w);
-					*(uint8_t *)(base + 0x7f0) = (uint8_t)((w2 * 0x64) / sum_w);
-				}
-
-				var_50_1 += *(uint8_t *)(base + 0x8d4);
-				var_54_1 += *(uint8_t *)(base + 0x7f0);
-				var_64_1++;
-			} else {
-				*(uint8_t *)((char *)&var_bf0[col_idx] + 0xa9c) = 0;
-			}
-		}
-	}
-
-	uint32_t s1_1;
-	uint32_t s2_3;
-
-	if (var_64_1 == 0) {
-		s2_3 = 0x32;
-		s1_1 = 0x32;
-	} else {
-		s1_1 = (uint32_t)((var_50_1 / (int32_t)var_64_1) & 0xff);
-		s2_3 = (uint32_t)((var_54_1 / (int32_t)var_64_1) & 0xff);
-	}
-
-	uint32_t uchar_10b = *(uint8_t *)_GET_UCHAR_PTR(0x10b);
-	uint32_t t0_10 = var_68_1;
-
-	if (uchar_10b == 0) {
-		s2_3 = 0x32;
-		s1_1 = 0x32;
-		t0_10 = 0x1f4;
-	}
-
-	*(uint8_t *)((char *)arg1 + 0x1c) = (uint8_t)s1_1;
-	*(uint8_t *)((char *)arg1 + 0x1d) = (uint8_t)s2_3;
-
-	int32_t s4_12;
-	uint32_t t1_6;
-
-	if (s1_1 >= s2_3) {
-		t1_6 = t0_10;
-		if (s1_1 - s2_3 < 0xf)
-			goto label_34204;
-		goto label_34440;
-	} else if (s2_3 - s1_1 >= 0xf) {
-		if (s1_1 >= s2_3)
-			goto label_34440;
-
-		uint32_t i_5;
-		int32_t *v1_21 = &var_bf0[0];
-		int32_t v0_171;
-
-		for (v0_171 = 0; (v0_171 & 0xffff) < (int32_t)i; v0_171++) {
-			int32_t a0_41 = 0;
-			if (var_154[v0_171] != 0)
-				a0_41 = var_400[v0_171] * *v1_21;
-			*v1_21 = a0_41;
-			v1_21++;
-		}
-
-		s4_12 = 0;
-		i_5 = (uint32_t)i;
-		goto label_34440;
-	} else {
-		t1_6 = t0_10;
-	}
-
-label_34204:
+	/* colour temperature estimate from the exposure (ctx +0x11c) */
 	{
-		uint32_t i_6 = 0;
+		uint32_t e = *(uint32_t *)(ctx + 0x11c);
 
-		if (t1_6 < 0x50) {
-			for (i_6 = 0; i_6 < (uint32_t)i; i_6++) {
-				char *s5_4 = (char *)&var_bf0[i_6];
+		hdr = _GET_HDR_TABLE_INDEX(0x97, *(uint8_t *)(ctx + 0x1524)) & 0xff;
+		tab = (uint32_t *)(uintptr_t)_GET_UINT_PTR(hdr);
+		if (e < tab[0]) {
+			ct = *(uint16_t *)(uintptr_t)_GET_UINT_PTR(0xf3);
+		} else if (e < tab[_GET_LEN(hdr) - 1]) {
+			uint32_t k = 1;
 
-				if (*(uint8_t *)(s5_4 + 0xa9c) == 0) {
-					((void **)var_bf0)[i_6] = 0;
-				} else {
-					int16_t *s6_8 = (uintptr_t)&arg1[(i_6 + 0xb) * 2];
-					int16_t *p_e0 = (int16_t *)_GET_USHORT_PTR(0xe0);
-					int16_t *p_dd = (int16_t *)_GET_USHORT_PTR(0xdd);
-					int16_t *p_e4 = (int16_t *)_GET_USHORT_PTR(0xe4);
-
-					if ((uint32_t)(uint16_t)s6_8[0] < (uint32_t)(uint16_t)p_e0[*p_dd * 2]) {
-						((void **)var_bf0)[i_6] = 0;
-					} else {
-						int32_t v0_146 = i_6 << 2;
-						if ((uint32_t)(uint16_t)p_e4[*p_dd * 2] < (uint32_t)(uint16_t)s6_8[1]) {
-							((void **)var_bf0)[i_6] = 0;
-						} else {
-							int32_t *v0_157 = &var_bf0[i_6];
-							*v0_157 *= *(uint8_t *)(s5_4 + 0x7f0);
-						}
-					}
-				}
-			}
-			s4_12 = 0;
-		} else if (t0_10 >= 0x73b) {
-			int16_t *p_e0_f = (int16_t *)_GET_USHORT_PTR(0xe0);
-			int16_t *p_f1 = (int16_t *)_GET_USHORT_PTR(0xf1);
-			int16_t *p_e4_f = (int16_t *)_GET_USHORT_PTR(0xe4);
-			int32_t cw_a1 = ((int32_t)(uint16_t)p_e0_f[*p_f1 * 2] + 0x100) >> 1;
-			int32_t cw_a2 = ((int32_t)(uint16_t)p_e4_f[*p_f1 * 2] + 0x100) >> 1;
-			compute_weight(cw_a1, cw_a2, &var_154[0], &var_bf0[0], &var_31c[0], arg1);
-			s4_12 = 0;
+			while (k < (uint32_t)_GET_LEN(hdr) && tab[k] <= e)
+				k = (k + 1) & 0xffff;
+			ct = interpl(e, tab[k - 1], ((int32_t *)(uintptr_t)_GET_UINT_PTR(0xf3))[k - 1],
+				     tab[k], ((int32_t *)(uintptr_t)_GET_UINT_PTR(0xf3))[k]) & 0xffff;
 		} else {
-			uint32_t i_7;
-			int32_t *v1_20 = &var_bf0[0];
-			int32_t v0_162;
-
-			for (v0_162 = 0; (v0_162 & 0xffff) < (int32_t)i; v0_162++) {
-				int32_t a0_36 = 0;
-				if (var_154[v0_162] != 0)
-					a0_36 = 0x64 * *v1_20;
-				*v1_20 = a0_36;
-				v1_20++;
-			}
-			s4_12 = 0;
+			ct = *(uint16_t *)((char *)(uintptr_t)_GET_UINT_PTR(0xf3) + (_GET_LEN(hdr) - 1) * 4);
 		}
 	}
+	if (ct < 0x1389) {
+		share_a = luts_fetch(ct, t30_lut16(0xfa, 0), t30_lut16(0xfc, 0), t30_lut16(0xf4, 0),
+				     (uint16_t *)(uintptr_t)_GET_USHORT_PTR(0xfd), _GET_LEN(0xfd));
+		share_b = luts_fetch(ct, t30_lut16(0xe7, 0), t30_lut16(0xf6, 0), t30_lut16(0xe3, 0),
+				     (uint16_t *)(uintptr_t)_GET_USHORT_PTR(0xd4), _GET_LEN(0xd4));
+	} else {
+		share_a = 99;
+		share_b = 1;
+	}
 
-label_34440:
-	{
-		s4_12 = ((uint32_t)(uint16_t)*(int16_t *)_GET_USHORT_PTR(0xf7) < t0_10) ? 1 : 0;
-		int32_t *v1_22 = arg1;
-		uint32_t v0_173 = 0;
-		uint32_t s3_9 = 0;
+	/* bounding box of the light-source mesh (table 0xef, rows of cols u16) */
+	min_x = mesh[0];
+	if (t30_lut16(0xe2, 0) < min_x)
+		min_x = t30_lut16(0xe2, 0);
+	min_y = mesh[1];
+	if (t30_lut16(0xfb, 0) < min_y)
+		min_y = t30_lut16(0xfb, 0);
+	max_x = mesh[0];
+	if (max_x <= t30_lut16(0xe2, _GET_LEN(0xe2) - 1))
+		max_x = t30_lut16(0xe2, _GET_LEN(0xe2) - 1);
+	max_y = mesh[1];
+	if (max_y <= t30_lut16(0xfb, _GET_LEN(0xfb) - 1))
+		max_y = t30_lut16(0xfb, _GET_LEN(0xfb) - 1);
+	for (j = 1; j < _GET_ROWS(0xef); j = (j + 1) & 0xffff) {
+		uint16_t *row = (uint16_t *)((char *)mesh + j * (cols << 1));
 
-		while (1) {
-			v1_22 = &v1_22[2];
-			if (v0_173 == (uint32_t)i)
-				break;
-			s3_9 += *(int32_t *)((uintptr_t)v1_22 + 0x52);
-			v0_173++;
+		if ((int32_t)row[0] < (int32_t)min_x)
+			min_x = row[0];
+		if (row[1] < min_y)
+			min_y = row[1];
+		if (max_x < row[0])
+			max_x = row[0];
+		if ((int32_t)max_y < (int32_t)row[1])
+			max_y = row[1];
+	}
+
+	/* per zone: inside the box and bright enough -> mesh weight + shares */
+	cnt = 0;
+	avg_a = 0;
+	avg_b = 0;
+	for (i = 0; i < *(uint16_t *)(fsm + 0x10); i = (i + 1) & 0xffff) {
+		uint32_t x = ZX(i), y = ZY(i);
+		int32_t m;
+		uint32_t wa, wb, tot;
+
+		valid[i] = min_x <= x && x <= max_x && min_y <= y && y <= max_y &&
+			   *(uint32_t *)(fsm + 0x5c + 8 * i) > 0x100;
+		if (!valid[i])
+			continue;
+		m = AWB_mesh_isra_1(x, y, (int16_t *)(uintptr_t)_GET_USHORT_PTR(0xe2),
+				    (int16_t *)(uintptr_t)_GET_USHORT_PTR(0xfb),
+				    (void *)(uintptr_t)_GET_USHORT_PTR(0xee));
+		for (j = 0; j < _GET_ROWS(0xef); j = (j + 1) & 0xffff) {
+			uint16_t *row = (uint16_t *)((char *)mesh + j * (cols << 1));
+			int32_t k = mesh_AWB_getKnownSourceLight_weight_LUT((int32_t)(uintptr_t)arg1,
+				(int16_t)x, (int16_t)y, row[0], row[1]);
+
+			if (k > 0x13 && m + 0xf < k) {
+				m = k;
+				if (j == 0)
+					known0[i] = 1;
+			}
 		}
+		if (m < 0)
+			m = 0;
+		if (m < 0x3c) {
+			valid[i] = 0;
+			continue;
+		}
+		w[i] = m;
+		wa = luts_fetch(x, t30_lut16(0xd7, 0), t30_lut16(0xe1, 0), t30_lut16(0xfe, 0),
+				(uint16_t *)(uintptr_t)_GET_USHORT_PTR(0xf5), _GET_LEN(0xf5)) * 0x32 * share_a;
+		wb = luts_fetch(x, t30_lut16(0xec, 0), t30_lut16(0xf0, 0), t30_lut16(0xe5, 0),
+				(uint16_t *)(uintptr_t)_GET_USHORT_PTR(0xf8), _GET_LEN(0xf8)) * 0x32 * share_b;
+		tot = wa + wb;
+		if (tot == 0) {
+			w_a[i] = (uint8_t)wa * 100;
+			w_b[i] = (uint8_t)wb * 100;
+		} else {
+			w_a[i] = (wa * 100) / tot;
+			w_b[i] = (wb * 100) / tot;
+		}
+		avg_b += w_b[i];
+		avg_a += w_a[i];
+		cnt = (cnt + 1) & 0xffff;
+	}
+	if (cnt == 0) {
+		r = 0x32;
+		b = 0x32;
+	} else {
+		r = (avg_a / cnt) & 0xff;
+		b = (avg_b / cnt) & 0xff;
+	}
+	if (*(uint8_t *)(uintptr_t)_GET_UCHAR_PTR(0x10b) == 0) {
+		r = 0x32;
+		b = 0x32;
+		ct = 500;
+	}
+	fsm[0x1c] = r;
+	fsm[0x1d] = b;
 
-		if (v0_173 != 0)
-			s3_9 /= v0_173;
-
-		if ((uint32_t)(uint16_t)*(int16_t *)_GET_USHORT_PTR(0xf7) < t0_10 && s3_9 >= 0x101) {
-			int32_t s6_11 = 0x3cf;
-			int16_t *p_e0_s = (int16_t *)_GET_USHORT_PTR(0xe0);
-			int16_t *p_dd_s = (int16_t *)_GET_USHORT_PTR(0xdd);
-			uint32_t s3_13 = (uint32_t)(uint16_t)p_e0_s[*p_dd_s * 2];
-			int32_t *v1_27 = &var_bf0[0];
-			uint32_t i_3;
-
-			while (1) {
-				int16_t *p_e0_l = (int16_t *)_GET_USHORT_PTR(0xe0);
-				int16_t *p_f1_l = (int16_t *)_GET_USHORT_PTR(0xf1);
-				int16_t *p_e4_l = (int16_t *)_GET_USHORT_PTR(0xe4);
-				int32_t lo_6 = (s6_11 * (((int32_t)(uint16_t)p_e0_l[*p_f1_l * 2] + 0x100) >> 1)) / 0x3e8;
-				uint32_t t0_13;
-
-				if (s6_11 - 0x3b6 < 0x33)
-					t0_13 = (uint32_t)((s6_11 * (int32_t)(uint16_t)p_e4_l[*p_dd_s * 2]) / 0x3e8);
+	/* light-source weighting (r = share a, b = share b) */
+	if (r < b && (int32_t)(b - r) >= 0xf) {
+		n = *(uint16_t *)(fsm + 0x10);
+		for (i = 0; (i & 0xffff) < n; i++)
+			w[i] = valid[i] ? w_b[i] * w[i] : 0;
+		n = *(uint16_t *)(fsm + 0x10);
+	} else if (r >= b ? (int32_t)(r - b) < 0xf : 1) {
+		/* shares within 15 */
+		if (ct < 0x50) {
+			for (i = 0; i < *(uint16_t *)(fsm + 0x10); i = (i + 1) & 0xffff) {
+				if (!valid[i] || ZX(i) < t30_lut16(0xe0, t30_lut16(0xdd, 0)) ||
+				    t30_lut16(0xe4, t30_lut16(0xdd, 0)) < ZY(i))
+					w[i] = 0;
 				else
-					t0_13 = (uint32_t)(uint16_t)p_e4_l[*p_dd_s * 2];
-
-				i_3 = (uint32_t)i;
-				int8_t *a0_47 = &var_4e4[0];
-				int32_t *a1_23 = arg1;
-				int32_t v0_203 = 0;
-				int32_t a2_17 = 0;
-
-				while ((v0_203 & 0xffff) < (int32_t)i_3) {
-					uint32_t t1_18 = (uint32_t)(uint16_t)a1_23[0x16];
-
-					if (t1_18 < s3_13)
-						*a0_47 = 0;
-					else if ((uint32_t)lo_6 < t1_18)
-						*a0_47 = 0;
-					else if (t0_13 < (uint32_t)(uint16_t)*(int16_t *)((char *)a1_23 + 0x5a))
-						*a0_47 = 0;
-					else
-						*a0_47 = 1;
-
-					int32_t t2_9 = var_154[v0_203] * var_bf0[v0_203];
-					uint32_t t1_14 = (uint32_t)var_31c[v0_203];
-					v0_203++;
-					a1_23 = &a1_23[2];
-					int32_t v1_26 = t2_9 * (int32_t)t1_14 * *a0_47;
-					a0_47++;
-					a2_17 += v1_26;
-				}
-
-				if (a2_17 != 0)
-					break;
-
-				s6_11 += 0x14;
-				if (s6_11 == 0x40b)
-					break;
+					w[i] = w[i] * w_b[i];
 			}
-
-			int32_t v0_204;
-			for (v0_204 = 0; (v0_204 & 0xffff) < (int32_t)i_3; v0_204++) {
-				int32_t a0_51 = var_154[v0_204] * *v1_27 * var_31c[v0_204];
-				uint32_t a1_28 = (uint32_t)var_4e4[v0_204];
-				v1_27++;
-				*(v1_27 - 1) = a0_51 * (int32_t)a1_28;
-			}
-		} else if (t0_10 >= 0x73b) {
-			int16_t *p_e0_c = (int16_t *)_GET_USHORT_PTR(0xe0);
-			int16_t *p_f1_c = (int16_t *)_GET_USHORT_PTR(0xf1);
-			int16_t *p_e4_c = (int16_t *)_GET_USHORT_PTR(0xe4);
-			int32_t cw1 = ((int32_t)(uint16_t)p_e0_c[*p_f1_c * 2] + 0x100) >> 1;
-			int32_t cw2 = ((int32_t)(uint16_t)p_e4_c[*p_f1_c * 2] + 0x100) >> 1;
-			compute_weight(cw1, cw2, &var_154[0], &var_bf0[0], &var_31c[0], arg1);
+		} else if (ct < 0x73b) {
+			n = *(uint16_t *)(fsm + 0x10);
+			for (i = 0; (i & 0xffff) < n; i++)
+				w[i] = valid[i] ? w[i] * 100 : 0;
 		} else {
-			uint32_t i_4 = (uint32_t)i;
-			int32_t *v1_28 = &var_bf0[0];
-			int32_t v0_205;
+			compute_weight((t30_lut16(0xe0, t30_lut16(0xf1, 0)) + 0x100) >> 1,
+				       (t30_lut16(0xe4, t30_lut16(0xf1, 0)) + 0x100) >> 1,
+				       valid, w, w_a, arg1);
+		}
+		n = *(uint16_t *)(fsm + 0x10);
+	} else {
+		/* share a dominates */
+		uint32_t avg_y = 0;
 
-			for (v0_205 = 0; (v0_205 & 0xffff) < (int32_t)i_4; v0_205++) {
-				int32_t a0_57 = 0;
-				if (var_154[v0_205] != 0)
-					a0_57 = var_31c[v0_205] * *v1_28;
-				*v1_28 = a0_57;
-				v1_28++;
-			}
+		hot = t30_lut16(0xf7, 0) < ct;
+		for (i = 0; i != *(uint16_t *)(fsm + 0x10); i = (i + 1) & 0xffff)
+			avg_y += ZY(i);
+		if (i != 0)
+			avg_y /= i;
+		if (t30_lut16(0xf7, 0) < ct && avg_y > 0x100) {
+			uint32_t lo = t30_lut16(0xe0, t30_lut16(0xdd, 0));
+			int32_t k = 0x3cf, acc;
+			uint16_t cntz;
+
+			do {
+				uint32_t hx = t30_lut16(0xe0, t30_lut16(0xf1, 0));
+				uint32_t lim_x, lim_y;
+
+				if (k - 0x3b6 < 0x33)
+					lim_y = (k * (int32_t)t30_lut16(0xe4, t30_lut16(0xdd, 0))) / 1000 & 0xffff;
+				else
+					lim_y = t30_lut16(0xe4, t30_lut16(0xdd, 0));
+				lim_x = (k * (int32_t)((hx + 0x100) >> 1)) / 1000 & 0xffff;
+				cntz = *(uint16_t *)(fsm + 0x10);
+				acc = 0;
+				for (i = 0; (i & 0xffff) < cntz; i++) {
+					uint32_t x = ZX(i);
+
+					inbox[i] = !(x < lo || lim_x < x || lim_y < ZY(i));
+					acc += valid[i] * w[i] * w_a[i] * inbox[i];
+				}
+			} while (acc == 0 && (k += 0x14) != 0x40b);
+			for (i = 0; (i & 0xffff) < cntz; i++)
+				w[i] = valid[i] * w[i] * w_a[i] * inbox[i];
+			n = *(uint16_t *)(fsm + 0x10);
+		} else if (ct < 0x73b) {
+			n = *(uint16_t *)(fsm + 0x10);
+			for (i = 0; (i & 0xffff) < n; i++)
+				w[i] = valid[i] ? w_a[i] * w[i] : 0;
+			n = *(uint16_t *)(fsm + 0x10);
+		} else {
+			compute_weight((t30_lut16(0xe0, t30_lut16(0xf1, 0)) + 0x100) >> 1,
+				       (t30_lut16(0xe4, t30_lut16(0xf1, 0)) + 0x100) >> 1,
+				       valid, w, w_a, arg1);
+			n = *(uint16_t *)(fsm + 0x10);
 		}
 	}
 
-	*(int32_t *)((char *)arg1 + 0x778) = result;
-	return result;
+	/* zones near the first known light source */
+	sum = 0;
+	for (i = 0; (i & 0xffff) < n; i++)
+		sum += known0[i];
+	if ((n >> 3) < sum && r < b && ct >= 0x65 && ct <= 900) {
+		for (i = 0; (i & 0xffff) < n; i++) {
+			uint16_t f = (uint16_t)(known0[i] * valid[i]);
+
+			wb_rg[i] = f * (int16_t)ZX(i);
+			wb_bg[i] = f * (int16_t)ZY(i);
+			w[i] *= known0[i];
+		}
+	} else if (sum != 0 && ct > 900) {
+		/* OEM 0x34134: (n / 8 < sum implies sum != 0) */
+		for (i = 0; (i & 0xffff) < n; i++) {
+			uint16_t f = (uint16_t)((1 - known0[i]) * inbox[i] * valid[i]);
+
+			wb_rg[i] = f * (int16_t)ZX(i);
+			wb_bg[i] = f * (int16_t)ZY(i);
+			w[i] *= 1 - known0[i];
+		}
+	} else {
+		for (i = 0; (i & 0xffff) < n; i++) {
+			uint16_t f = (uint16_t)(inbox[i] * valid[i]);
+
+			wb_rg[i] = f * (int16_t)ZX(i);
+			wb_bg[i] = f * (int16_t)ZY(i);
+		}
+	}
+
+	/* weighted average point */
+	sum = 0;
+	for (i = 0; (i & 0xffff) < n; i++)
+		sum += w[i];
+	if (sum == 0) {
+		uint32_t avg_x = 0;
+
+		for (i = 0; i != n; i = (i + 1) & 0xffff)
+			avg_x += ZX(i);
+		if (i != 0)
+			avg_x /= i;
+		if (t30_lut16(0xe0, t30_lut16(0xd8, 0)) < avg_x) {
+			r = t30_lut16(0xe0, t30_lut16(0xd8, 0));
+			b = t30_lut16(0xe4, t30_lut16(0xd8, 0));
+		} else {
+			r = 0x100;
+			b = 0x100;
+		}
+	} else {
+		r = 0;
+		b = 0;
+		for (i = 0; (i & 0xffff) < n; i++) {
+			r += (uint32_t)wb_rg[i] * w[i];
+			b += (uint32_t)wb_bg[i] * w[i];
+		}
+		b /= sum;
+		r /= sum;
+		arg1[0xf] = b;
+		arg1[0xe] = r;
+	}
+	if (hot && t30_lut16(0xe6, 2) != 0) {
+		r = (t30_lut16(0xe6, 0) * r) / t30_lut16(0xe6, 2);
+		b = (t30_lut16(0xe6, 1) * b) / t30_lut16(0xe6, 2);
+	}
+	if (r == 0)
+		r = arg1[0xe];
+	if (b == 0)
+		b = arg1[0xf];
+	if (r != 0 && b != 0)
+		t30_awb_fifo_push(0xffff / r, 0xffff / b);
+	else
+		t30_awb_fifo_push(0, 0);
+
+	/* filtered point -> chosen gains and colour temperature */
+	t30_awb_get_point(pt);
+	arg1[0xc] = pt[0];
+	arg1[0xd] = pt[1];
+	temp = 0;
+	if (stab[12] == 0) {
+		if (pt[0] != 0 && pt[1] != 0) {
+			int32_t m = AWB_mesh_isra_1(0xffff / pt[0], 0xffff / pt[1],
+						    (int16_t *)(uintptr_t)_GET_USHORT_PTR(0xe2),
+						    (int16_t *)(uintptr_t)_GET_USHORT_PTR(0xfb),
+						    (void *)(uintptr_t)_GET_USHORT_PTR(0xd6));
+			int32_t lo_t = arg1[0x1e2];
+
+			if (m != 0)
+				temp = 1000000 / m;
+			if (hot && (m == 0 || temp < 5000))
+				temp = 10000 - temp;
+			if (temp < lo_t) {
+				*(uint16_t *)(fsm + 0x18) = (uint16_t)arg1[0x1e4];
+				*(uint16_t *)(fsm + 0x1a) = *(uint16_t *)(fsm + 0x792);
+				temp = lo_t;
+			} else if (temp <= arg1[0x1e1]) {
+				*(uint16_t *)(fsm + 0x18) = (uint16_t)arg1[0xc];
+				*(uint16_t *)(fsm + 0x1a) = (uint16_t)arg1[0xd];
+			} else {
+				*(uint16_t *)(fsm + 0x18) = (uint16_t)arg1[0x1e3];
+				*(uint16_t *)(fsm + 0x1a) = *(uint16_t *)(fsm + 0x78e);
+				temp = arg1[0x1e1];
+			}
+		}
+	} else {
+		uint32_t qr = 0xffff, qb = 0xffff;
+		int32_t m;
+
+		if (*(uint16_t *)(fsm + 0x18))
+			qr = 0xffff / *(uint16_t *)(fsm + 0x18);
+		if (*(uint16_t *)(fsm + 0x1a))
+			qb = 0xffff / *(uint16_t *)(fsm + 0x1a);
+		m = AWB_mesh_isra_1(qr, qb, (int16_t *)(uintptr_t)_GET_USHORT_PTR(0xe2),
+				    (int16_t *)(uintptr_t)_GET_USHORT_PTR(0xfb),
+				    (void *)(uintptr_t)_GET_USHORT_PTR(0xd6));
+		if (m != 0)
+			temp = 1000000 / m;
+	}
+	arg1[0x1de] = temp;
+#undef ZX
+#undef ZY
+	return 0;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000034e08 origin=model_output original=awb_calc_avg_weighted_gr_gb */
@@ -43417,68 +43243,47 @@ int32_t awb_update(void)
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000034fb4 origin=model_output original=awb_normalise */
 int32_t *awb_normalise(int32_t *arg1)
 {
-	int32_t val_770;
-	int32_t val_772;
-	int32_t val_774;
-	int32_t val_776;
-	int32_t r0;
-	int32_t r1;
-	int32_t r2;
-	int32_t r3;
-	int32_t r4;
-	int32_t sum0;
-	int32_t sum1;
-	int32_t min_val;
-	int32_t clamped;
-	int32_t offset;
-	int32_t *i;
-	int32_t *result;
+	/*
+	 * OEM awb_normalise (SDK ko 0x346d4), void there.  gain[4] = log2 of the
+	 * four static WB values (+0x770..+0x776, Q8); channels 0 and 3 add the
+	 * red/blue feedback (+0x18/+0x1a, or stab[49]/stab[50] while AWB is manual,
+	 * stab[12]).  The minimum of the four is moved to unity:
+	 * +0x760 + 4*i = gain[i] + 0xc0000 - min - log2(0x1000 - ctx[0]+0xe6).
+	 * The lift added the offset to four unrelated stack slots starting at a
+	 * local (&sum0) instead of gain[0..3] and returned that stack address.
+	 */
+	int32_t gain[4];
+	int32_t r0, r3, m, offset, i;
 
-	val_770 = *(uint16_t *)((char *)arg1 + 0x770);
-	r0 = log2_fixed_to_fixed(val_770, 8, 0x10);
-	val_772 = *(uint16_t *)((char *)arg1 + 0x772);
-	r1 = log2_fixed_to_fixed(val_772, 8, 0x10);
-	val_774 = *(uint16_t *)((char *)arg1 + 0x774);
-	r2 = log2_fixed_to_fixed(val_774, 8, 0x10);
-	val_776 = *(uint16_t *)((char *)arg1 + 0x776);
-	r3 = log2_fixed_to_fixed(val_776, 8, 0x10);
-	r4 = log2_fixed_to_fixed(*(uint16_t *)((char *)arg1 + 0x778), 8, 0x10);
+	r0 = log2_fixed_to_fixed(*(uint16_t *)((char *)arg1 + 0x770), 8, 0x10);
+	gain[1] = log2_fixed_to_fixed(*(uint16_t *)((char *)arg1 + 0x772), 8, 0x10);
+	gain[2] = log2_fixed_to_fixed(*(uint16_t *)((char *)arg1 + 0x774), 8, 0x10);
+	r3 = log2_fixed_to_fixed(*(uint16_t *)((char *)arg1 + 0x776), 8, 0x10);
 
-	/* #202 symval: the lift declared a local `stab` and took the address of that local (stab = &stab + 0xc), so the flag was read
-	 * from and the 0x31/0x32 bytes written to the kernel stack; OEM ko 0x34770/0x3477c/0x3478c: lbu 12/49/50(stab) */
-
+	/* #202 symval: lbu 12/49/50(stab), OEM ko 0x34770/0x3477c/0x3478c */
 	if (stab[12] == 0) {
-		sum0 = log2_fixed_to_fixed(*(uint16_t *)((char *)arg1 + 0x18), 8, 0x10) + r0;
-		sum1 = log2_fixed_to_fixed(*(uint16_t *)((char *)arg1 + 0x1a), 8, 0x10) + r3;
+		gain[0] = log2_fixed_to_fixed(*(uint16_t *)((char *)arg1 + 0x18), 8, 0x10) + r0;
+		gain[3] = log2_fixed_to_fixed(*(uint16_t *)((char *)arg1 + 0x1a), 8, 0x10) + r3;
 		stab[0x31] = (uint8_t)(*(uint16_t *)((char *)arg1 + 0x18) >> 1);
 		stab[0x32] = (uint8_t)(*(uint16_t *)((char *)arg1 + 0x1a) >> 1);
 	} else {
-		sum0 = log2_fixed_to_fixed(stab[0x31], 7, 0x10) + r0;
-		sum1 = log2_fixed_to_fixed(stab[0x32], 7, 0x10) + r3;
+		gain[0] = log2_fixed_to_fixed(stab[0x31], 7, 0x10) + r0;
+		gain[3] = log2_fixed_to_fixed(stab[0x32], 7, 0x10) + r3;
 		*(uint16_t *)((char *)arg1 + 0x18) = (uint16_t)(stab[0x31] << 1);
 		*(uint16_t *)((char *)arg1 + 0x1a) = (uint16_t)(stab[0x32] << 1);
 	}
 
-	min_val = sum0;
-	if (sum1 < min_val)
-		min_val = sum1;
+	m = gain[3] < gain[0] ? gain[3] : gain[0];
+	if (gain[1] < m)
+		m = gain[1];
+	if (gain[2] < m)
+		m = gain[2];
 
-	clamped = r1;
-	if (clamped >= min_val)
-		clamped = min_val;
+	offset = 0xc0000 - m - log2_fixed_to_fixed(0x1000 - *(uint16_t *)((char *)(*(int32_t *)arg1) + 0xe6), 0, 0x10);
+	for (i = 0; i < 4; i++)
+		*(int32_t *)((char *)arg1 + 0x760 + 4 * i) = gain[i] + offset;
 
-	if (r2 < clamped)
-		clamped = r2;
-
-	offset = 0xc0000 - clamped - log2_fixed_to_fixed(0x1000 - *(uint16_t *)((char *)(*(int32_t *)arg1) + 0xe6), 0, 0x10);
-
-	result = (int32_t *)&sum0;
-	for (i = 0; (uintptr_t)i != 0x10; i = (uintptr_t)i + 4) {
-		*(int32_t *)((char *)arg1 + (uintptr_t)i + 0x760) = *(int32_t *)((char *)&sum0 + (uintptr_t)i) + offset;
-		result = (int32_t *)((char *)&sum0 + (uintptr_t)i);
-	}
-
-	return result;
+	return NULL;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000035190 origin=model_output original=dynamic_dpc_strength_calculate */
