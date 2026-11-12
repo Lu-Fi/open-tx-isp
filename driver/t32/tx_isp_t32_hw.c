@@ -37,6 +37,7 @@
 #include "tx_isp_t33_ccm.h"
 #include "tx_isp_t33_lsc.h"
 #include "tx_isp_t33_gamma.h"
+#include "tx_isp_t33_defog.h"
 #include "tx_isp_t32_lsc.h"
 #include "tx_isp_t32_stats.h"
 #include "tx_isp_t32_iq.h"
@@ -228,6 +229,9 @@ static void __maybe_unused t33_mod_set_tmpl(unsigned int id, const struct t33_tc
 /* LSC mesh table, read by the core by DMA from the address in 0x5078 */
 static unsigned long t33_lsc_pages;
 #define T33_LSC_ORDER	get_order(T33_LSC_LUT_BYTES)
+/* defog statistics area (four 2 KiB parts, 0xa210..0xa21c), written by the core */
+static unsigned long t33_defog_pages;
+#define T33_DEFOG_ORDER	get_order(T33_DEFOG_DMA_BYTES)
 
 static void t33_mod_free(void)
 {
@@ -236,6 +240,9 @@ static void t33_mod_free(void)
 	if (t33_lsc_pages)
 		free_pages(t33_lsc_pages, T33_LSC_ORDER);
 	t33_lsc_pages = 0;
+	if (t33_defog_pages)
+		free_pages(t33_defog_pages, T33_DEFOG_ORDER);
+	t33_defog_pages = 0;
 
 	for (i = 0; i < T33_MODULES; i++) {
 		if (t33_mod_page[i])
@@ -555,6 +562,17 @@ static void t33_tisp_init(const u8 *bin, u32 bytes)
 				     t33_gamma_init(bin + off, bin + off + len,
 						    t32_iq_payload(bin + off, bytes - off, T33_SEC_GAMMA),
 						    T33_CCM_INIT_EV, 0, buf, T33_SLOT_WORDS));
+	}
+	off = t32_iq_section(bin, bytes, T33_SEC_DEFOG, &len);
+	if (off && len == T33_DEFOG_SEC_BYTES && !t32_core_sensor_size(&width, &height)) {
+		u32 *buf = t33_mod_buf(T33_MOD_DEFOG);
+
+		if (!t33_defog_pages)
+			t33_defog_pages = __get_free_pages(GFP_KERNEL | __GFP_ZERO, T33_DEFOG_ORDER);
+		if (buf && t33_defog_pages)
+			t33_mod_done(T33_MOD_DEFOG, t33_defog_init(bin + off, width, height,
+								   (u32)virt_to_phys((void *)t33_defog_pages),
+								   buf, T33_SLOT_WORDS));
 	}
 	off = t32_iq_section(bin, bytes, T33_SEC_LSC, &len);
 	if (off && len == T33_LSC_SEC_BYTES && !t32_core_sensor_size(&width, &height)) {
