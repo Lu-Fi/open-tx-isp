@@ -247,7 +247,15 @@ static void gen(u8 *par, u8 *stt, const u8 *sec, u32 tbl)
 	{
 		p32(par, 296, rnd() % 5 == 0 ? rnd() : rnd() % 3 ? 50 + rnd() % 30000 : rnd() % 100);
 		p32(par, 308, rnd() % 6 == 0 ? rnd() : rnd() % 3 ? rnd() % 20 : rnd() % 2);
-		p32(par, 312, rnd() % 8 == 0 ? 60000 + rnd() % 10000 : rnd() % 8);
+		/* A pass limit near the 16 bit wrap (and the refusal above it) is only tried with a tolerance that
+		 * stops after one pass: a mutant that does not converge would otherwise run 65534 passes per point
+		 * and be caught by the time limit instead of the compare (openimp #364). */
+		if (rnd() % 8 == 0) {
+			p32(par, 312, 60000 + rnd() % 10000);
+			p32(par, 308, 0x40000000u);
+		} else {
+			p32(par, 312, rnd() % 8);
+		}
 	}
 	if (mode >= 12)
 		for (i = 0; i < 4096; i++)
