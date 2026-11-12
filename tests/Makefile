@@ -511,6 +511,11 @@ t21_sepia_host_test: t21_sepia_host_test.c ../driver/t21/tx_isp_t21_tuning_ctl.h
 
 TESTS += t30_stab_host_test
 
+TESTS += t30_gctrl_host_test
+
+t30_gctrl_host_test: t30_gctrl_host_test.c ../driver/t30/tx_isp_t30_gctrl.h
+	$(CC) $(CFLAGS) -o $@ $<
+
 t30_stab_host_test: t30_stab_host_test.c ../driver/t30/tx_isp_t30_stab.h
 	$(CC) $(CFLAGS) -o $@ $<
 
@@ -912,7 +917,7 @@ clean:
 	$(RM) tx_isp_t41_awb_runtime_test
 	$(RM) tx_isp_t41_awb_detect_test
 	$(RM) tx_isp_t41_awb_long_test
-	$(RM) t30_tuning_ctl_host_test t30_ae_manual_host_test t30_fps_cnt_host_test t30_ae_gain_host_test t30_system_item_host_test t31_awb_simd_host_test t31_awb_defs.inc t31_awb_region.inc tx_isp_t41_tuning_ctl_test t21_sepia_host_test t21_it_block_host_test t30_stab_host_test t20_expr_time_host_test t31_sharpness_host_test t31_ae_step_host_test sinfo_vendor_host_test
+	$(RM) t30_tuning_ctl_host_test t30_ae_manual_host_test t30_fps_cnt_host_test t30_ae_gain_host_test t30_system_item_host_test t31_awb_simd_host_test t31_awb_defs.inc t31_awb_region.inc tx_isp_t41_tuning_ctl_test t21_sepia_host_test t21_it_block_host_test t30_stab_host_test t30_gctrl_host_test t20_expr_time_host_test t31_sharpness_host_test t31_ae_step_host_test sinfo_vendor_host_test
 	$(RM) tx_isp_t41_awb_stats_test
 	$(RM) tx_isp_math_test tx_isp_modulation_test \
 		tx_isp_awb_mesh_test \

@@ -567,7 +567,7 @@ def c_dis(m, r, k):                     # dis_update_stats: rows mask 0x1f00, ev
     rr = m.e.call("dis_update_stats", f)
     return rr.stop, m.e.read(f, 0x1000), [x for x in m.log if x[0] != "copy"]
 
-GCTRL_IDS = ([0x8000000, 0x8000002, 0x8000003, 0x8000009, 0x800001f, 0x8000021, 0x8000030, 0x8000040, 0x8000041],
+GCTRL_IDS = ([0x8000000, 0x8000002, 0x8000003, 0x8000009, 0x800001f, 0x8000020, 0x8000021, 0x800002c, 0x8000030, 0x8000040, 0x8000041],
              [0x980916, 0x980917, 0x980919, 0x98091a, 0x98091c, 0x98091d, 0x98091e],
              [0x8000160, 0x8000163, 0x8000165, 0x8000167, 0x8000168],
              [0x8000083, 0x80000a1])
@@ -575,10 +575,13 @@ def c_gctrl(m, r, k):                   # apical_isp_core_ops_g_ctrl: jump-table
     t375_world(m, r, {0x40: r.getrandbits(32)})
     tun = m.e.alloc(0x4400, bytes(r.getrandbits(8) for _ in range(0x4400)))
     ub = m.e.alloc(0x100, b"\x55" * 0x100)
+    m.hook("apical_command", m.rec("apical_command", 4))      # #379: 0x8000020 calls it three times, result unused
+    m.e.write(m.stab(), bytes(r.getrandbits(8) for _ in range(0x3c)))        # #379: 0x800002c copies the system table
     ids = GCTRL_IDS[k % len(GCTRL_IDS)]; cid = ids[r.randrange(len(ids))]
     ctl = m.e.alloc(8, struct.pack("<II", cid, ub))
     rr = m.e.call("apical_isp_core_ops_g_ctrl", tun, ctl)
-    return rr.stop, s32(rr.v0), m.e.read(ctl, 8), m.e.read(ub, 0x100), cid
+    return (rr.stop, s32(rr.v0), m.e.read(ctl, 8), m.e.read(ub, 0x100), cid, list(m.log),
+            m.e.read(tun + 0x828, 0xf0) if cid == 0x8000020 else b"")
 
 C375 = (("roi", c_roi), ("vflip", c_vflip), ("gain_log2", c_gain), ("api_buffer", c_apibuf), ("release_all", c_release),
         ("ae_weight", c_weight), ("dis_stats", c_dis), ("g_ctrl", c_gctrl))
