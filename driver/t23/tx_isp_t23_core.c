@@ -10343,6 +10343,13 @@ static bool regtrace_t23_ae_hlil_resume;
 static char regtrace_t23_ae_hlil_resume_sensor[32];
 static bool regtrace_t23_source_ae_hlil = true;
 static bool regtrace_t23_source_ae_oem = true; /* tx_isp_t23_ae_oem_glue.inc */
+/* custom AE / AWB library (IMP_ISP_SetAeAlgoFunc / SetAwbAlgoFunc), t23_algo_* below the
+ * tx-isp ioctl wrapper: stock ta_custom_en / tawb_custom_en and the completions stock
+ * tisp_ae0_process / JZ_Isp_Awb signal while they are set */
+static bool t23_algo_ae_on;
+static bool t23_algo_awb_on;
+static DECLARE_COMPLETION(t23_algo_ae_comp);
+static DECLARE_COMPLETION(t23_algo_awb_comp);
 static uint32_t t23_aelift_stream_packed(void);  /* ditto */
 static bool regtrace_t23_source_adr_oem = true; /* tx_isp_t23_adr_oem_glue.inc */
 static void t23_adrlift_halt(void);
@@ -16180,6 +16187,8 @@ static int regtrace_tx_isp_open(struct inode *inode, struct file *file)
 
 static void regtrace_t23_fcrop_unlock(const char *why);
 
+static void t23_algo_release(void);
+
 static int regtrace_tx_isp_release(struct inode *inode, struct file *file)
 {
     (void)inode;
@@ -16187,6 +16196,8 @@ static int regtrace_tx_isp_release(struct inode *inode, struct file *file)
         file->private_data = NULL;
     if (atomic_dec_and_test(&regtrace_tx_isp_open_count)) {
         regtrace_t23_txisp_last_close();
+        /* stock IMP_ISP_DisableSensor closes them; a killed library user does not */
+        t23_algo_release();
         /* The front crop belongs to the ISP session.  timps (start-only on
          * T23) never sends "crop off" when the next session runs without a
          * crop, so a window locked in the channel records would outlive the
@@ -16258,6 +16269,278 @@ static long regtrace_t23_sensor_register_ioctl(unsigned int cmd, unsigned long a
     return 0;
 }
 
+/*
+ * Custom AE / AWB library interface (IMP_ISP_SetAeAlgoFunc / SetAwbAlgoFunc), stock
+ * tx_isp_unlocked_ioctl of tx-isp-t23.ko (ISVP 1.3.0):
+ *   0x800456dd AE open:   0x80 bytes {0x336ac, num, IMPISPAeInitAttr}; a wrong cookie
+ *                         answers -1; tisp_ae_algo_init(1) (ta_custom_en = 1, the init
+ *                         attribute from tisp_ae_ctrls + the AE histogram config), then
+ *                         the live sensor values (integration time, analog gain, ISP
+ *                         digital gain 0x1030, fps) and the record goes back.
+ *   0x800456dc AE set:    0x38 bytes {cookie, num, IMPISPAeAttr}; change == 1 ->
+ *                         tisp_ae_algo_handle: integration time and analog gain through
+ *                         the sensor allocators (a shorter time raises the gain), the
+ *                         rest of the requested gain in the ISP digital gain
+ *                         (0x1030/0x1034), events 6 (EV) and 4 (total gain) to the
+ *                         EV / gain driven blocks.
+ *   0x800456de AE close:  tisp_ae_algo_deinit + tisp_ae_algo_init(0): the own AE again.
+ *   0xc00456e3 AWB open:  tisp_awb_algo_init(1) (no argument).
+ *   0xc00456e2 AWB set:   0x18 bytes {cookie, num, change, r, b, ct}; change == 1 ->
+ *                         tisp_s_wb_attr(manual, r, b).
+ *   0xc00456e4 AWB close: tawb_custom_en = 0 (the last manual gains stay, as stock).
+ *   0x800456db / 0xc00456e1 (get the statistics): the stock module has no handler, the
+ *                         ioctl answers 0 at once and fills nothing (stock completes
+ *                         ae_algo_comp / awb_algo_comp, nobody waits).  algo_get_wait=1
+ *                         (default) waits up to 2 s for the next AE / AWB run instead,
+ *                         so the library thread follows the frame rate instead of
+ *                         spinning (deviation; 0 = stock).
+ * Sensor 0 without WDR (the T23 boards); the custom AE needs the stock AE chain
+ * (source_ae_oem=1, default), whose run skips its own exposure update while
+ * ta_custom_en is set.
+ */
+static bool t23_algo_get_wait = true;
+module_param_named(algo_get_wait, t23_algo_get_wait, bool, 0644);
+MODULE_PARM_DESC(algo_get_wait,
+		 "custom AE/AWB get-handle ioctls wait for the next AE/AWB run (default 1); 0 = stock: answer at once");
+
+#define T23_ALGO_COOKIE 0x336acU
+static int32_t system_reg_write_ae(int32_t arg1, int32_t arg2, int32_t arg3);
+int32_t tisp_s_wb_mode(uint32_t a0, uint32_t a1, uint32_t a2);
+uint32_t tisp_math_exp2(uint32_t a0, uint32_t a1, uint32_t a2);
+
+static void t23_algo_reinit(struct completion *c)
+{
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 13, 0)
+	reinit_completion(c);
+#else
+	INIT_COMPLETION(*c);
+#endif
+}
+static uint32_t t23_algo_ae_ev, t23_algo_ae_tgain;
+
+static uint32_t t23_algo_q10_mul(uint32_t a, uint32_t b)
+{
+	return (uint32_t)(((uint64_t)a * b) >> 10);
+}
+
+static uint32_t t23_algo_q10_div(uint32_t a, uint32_t b)
+{
+	return b ? (uint32_t)(((uint64_t)a << 10) / b) : 0;
+}
+
+static long t23_algo_ae_open(unsigned long arg)
+{
+	/* stock tisp_ae_algo_init(1, buf): IMPISPAeInitAttr word k = buf[k + 2],
+	 * filled from tisp_ae_ctrls (same table as the core tisp_ae_algo_init) */
+	static const uint8_t out_off[] = {
+		0x0c, 0x10, 0x18, 0x3c, 0x40, 0x48, 0x30, 0x2c,
+		0x38, 0x60, 0x5c, 0x68, 0x20, 0x1c, 0x28, 0x50,
+		0x4c, 0x58
+	};
+	static const uint8_t ctrl_off[] = {
+		0x0c, 0x04, 0x10, 0x54, 0x50, 0x74, 0x14, 0x1c,
+		0x20, 0x58, 0x5c, 0x64, 0x78, 0x80, 0x84, 0x88,
+		0x8c, 0x94
+	};
+	const uint8_t *ctrl = regtrace_t23_source_ae_oem ? oem_tisp_ae_ctrls : tisp_ae_ctrls;
+	const uint8_t *hist = oem_tisp_ae_hist;	/* stock tisp_ae_hist (the lifted AE chain's copy) */
+	unsigned char *attr = regtrace_t23_sensor_owned_attr();
+	uint32_t buf[32];
+	unsigned int i;
+
+	if (copy_from_user(buf, (void __user *)arg, sizeof(buf))) {
+		printk(KERN_ERR "[ %s:%d ] copy from user error\n", "tx_isp_set_ae_algo_open", __LINE__);
+		return -EFAULT;
+	}
+	if (buf[0] != T23_ALGO_COOKIE) {
+		printk(KERN_ERR "[ %s:%d ] Ae Algo Function register version error\n",
+		       "tx_isp_set_ae_algo_open", __LINE__);
+		return -1;
+	}
+	buf[2] = 0;				/* ISP_CORE_EXPR_UNIT_LINE */
+	for (i = 0; i < ARRAY_SIZE(out_off); i++)
+		memcpy((uint8_t *)buf + out_off[i], ctrl + ctrl_off[i], 4);
+	buf[5] = buf[9] = buf[13] = buf[17] = buf[21] = buf[25] = 0x400;
+	memcpy((uint8_t *)buf + 0x70, hist + 0x414, 4);
+	for (i = 0; i < 5; i++) {
+		uint16_t v = (uint16_t)regtrace_t23_get_le32((unsigned char *)hist + 0x400 + i * 4);
+
+		memcpy((uint8_t *)buf + 0x74 + i * 2, &v, 2);
+	}
+	((uint8_t *)buf)[0x7e] = hist[0x418];
+	((uint8_t *)buf)[0x7f] = hist[0x419];
+	/* stock tx_isp_set_ae_algo_open: the live sensor values */
+	buf[0x1b] = regtrace_t23_sensor_held_fps();
+	if (attr) {
+		buf[3] = regtrace_t23_get_le32(attr + REGTRACE_T23_ATTR_INTEGRATION_TIME);
+		buf[4] = tisp_math_exp2(regtrace_t23_get_le32(attr + REGTRACE_T23_ATTR_AGAIN), 16, 10);
+	}
+	buf[5] = 0x400;
+	buf[6] = system_reg_read(0x1030U) & 0xffffU;
+	buf[0x11] = 0x400;
+	t23_algo_ae_ev = 0;
+	t23_algo_ae_tgain = 0;
+	t23_algo_reinit(&t23_algo_ae_comp);
+	ACCESS_ONCE(t23_algo_ae_on) = true;
+	ta_custom_en = 1;
+	memset(oem_ta_custom_en, 0, sizeof(oem_ta_custom_en));
+	oem_ta_custom_en[0] = 1;		/* the lifted stock tisp_ae0_process reads it */
+	if (copy_to_user((void __user *)arg, buf, sizeof(buf))) {
+		printk(KERN_ERR "[ %s:%d ] copy to user error\n", "tx_isp_set_ae_algo_open", __LINE__);
+		return -EFAULT;
+	}
+	printk(KERN_INFO "t23: custom AE open it=%u again=%u ispdg=%u fps=0x%x\n",
+	       buf[3], buf[4], buf[6], buf[0x1b]);
+	return 0;
+}
+
+static void t23_algo_ae_close(void)
+{
+	if (!t23_algo_ae_on)
+		return;
+	ACCESS_ONCE(t23_algo_ae_on) = false;
+	ta_custom_en = 0;
+	memset(oem_ta_custom_en, 0, sizeof(oem_ta_custom_en));
+	complete_all(&t23_algo_ae_comp);	/* a waiting get-handle returns */
+	printk(KERN_INFO "t23: custom AE closed\n");
+}
+
+static void t23_algo_release(void)
+{
+	t23_algo_ae_close();
+	if (t23_algo_awb_on) {
+		ACCESS_ONCE(t23_algo_awb_on) = false;
+		tawb_custom_en = 0;
+		complete_all(&t23_algo_awb_comp);
+	}
+}
+
+/* stock tisp_ae_algo_handle, sensor 0 without WDR */
+static void t23_algo_ae_apply(const uint32_t *in)
+{
+	uint32_t it = in[4], again = in[5], dgain = in[6], ispdg = in[7];
+	uint32_t packed, actual_it, gain_log2, gain_q16, isp_gain, ev, tgain;
+
+	if (!it)
+		return;
+	if (!again)
+		again = 0x400;
+	if (regtrace_t23_sensor_allocate_exposure(it, tisp_log2_fixed_to_fixed(again << 6, 16, 16),
+						  &packed, &actual_it, &gain_log2, &gain_q16))
+		return;
+	if (actual_it && actual_it != it) {
+		/* stock: a quantised time carries the difference into the gain */
+		again = t23_algo_q10_div(t23_algo_q10_mul(again, it << 10), actual_it << 10);
+		if (regtrace_t23_sensor_allocate_exposure(actual_it,
+							  tisp_log2_fixed_to_fixed(again << 6, 16, 16),
+							  &packed, &actual_it, &gain_log2, &gain_q16))
+			return;
+	}
+	gain_q16 >>= 6;				/* allocated analog gain, Q10 */
+	if (!gain_q16)
+		gain_q16 = 0x400;
+	isp_gain = t23_algo_q10_mul(ispdg, t23_algo_q10_div(t23_algo_q10_mul(in[5] ? in[5] : 0x400, dgain ? dgain : 0x400),
+							     t23_algo_q10_mul(gain_q16, 0x400)));
+	if (!isp_gain)
+		isp_gain = 0x400;
+	isp_gain &= 0xffffU;
+	system_reg_write_ae(3, 0x1030, (isp_gain << 16) | isp_gain);
+	system_reg_write_ae(3, 0x1034, (isp_gain << 16) | isp_gain);
+	regtrace_t23_call_sensor_exposure(packed, "custom-ae");
+	ev = t23_algo_q10_mul(t23_algo_q10_mul(actual_it << 10, gain_q16), isp_gain);
+	tgain = t23_algo_q10_mul(gain_q16, isp_gain);
+	if (ev != t23_algo_ae_ev) {
+		t23_algo_ae_ev = ev;
+		t23_aelift_ev_event(ev, 0);	/* stock event 6 */
+	}
+	if (tgain != t23_algo_ae_tgain) {
+		t23_algo_ae_tgain = tgain;
+		regtrace_t23_source_apply_total_gain_value(tgain << 6, 0, false, false);	/* event 4 */
+	}
+}
+
+static long t23_algo_get(struct completion *comp, bool on, const char *what)
+{
+	long ret;
+
+	/* stock: no handler, answers 0 at once */
+	if (!t23_algo_get_wait || !on)
+		return 0;
+	ret = wait_for_completion_interruptible_timeout(comp, 2 * HZ);
+	if (ret < 0)
+		return -ERESTARTSYS;
+	if (ret == 0) {
+		printk_ratelimited(KERN_WARNING "t23: custom %s get-handle: no run within 2 s\n", what);
+		return -ETIMEDOUT;
+	}
+	return 0;
+}
+
+/* 1 = handled here, *ret set */
+static int t23_algo_ioctl(unsigned int cmd, unsigned long arg, long *ret)
+{
+	uint32_t buf[14];
+
+	switch (cmd) {
+	case 0x800456dd:
+		*ret = t23_algo_ae_open(arg);
+		return 1;
+	case 0x800456dc:
+		*ret = 0;
+		if (copy_from_user(buf, (void __user *)arg, 0x38)) {
+			printk(KERN_ERR "[ %s:%d ] copy from user error\n", "tx_isp_set_ae_algo_handle", __LINE__);
+			*ret = -EFAULT;
+		} else if (buf[2] == 1 && t23_algo_ae_on) {
+			t23_algo_ae_apply(buf);
+		}
+		return 1;
+	case 0x800456de:
+		*ret = 0;
+		if (copy_from_user(buf, (void __user *)arg, 8)) {
+			printk(KERN_ERR "[ %s:%d ] copy from user error\n", "tx_isp_set_ae_algo_close", __LINE__);
+			*ret = -EFAULT;
+		} else {
+			t23_algo_ae_close();
+		}
+		return 1;
+	case 0x800456db:
+		*ret = t23_algo_get(&t23_algo_ae_comp, ACCESS_ONCE(t23_algo_ae_on), "AE");
+		return 1;
+	case 0xc00456e3:
+		t23_algo_reinit(&t23_algo_awb_comp);
+		ACCESS_ONCE(t23_algo_awb_on) = true;
+		tawb_custom_en = 1;
+		printk(KERN_INFO "t23: custom AWB open\n");
+		*ret = 0;
+		return 1;
+	case 0xc00456e2:
+		*ret = 0;
+		if (copy_from_user(buf, (void __user *)arg, 0x18)) {
+			printk(KERN_ERR "[ %s:%d ] copy from user error\n", "tx_isp_set_awb_algo_handle", __LINE__);
+			*ret = -EFAULT;
+		} else if (buf[2] == 1 && t23_algo_awb_on) {
+			tisp_s_wb_mode(1, buf[3], buf[4]);
+		}
+		return 1;
+	case 0xc00456e4:
+		*ret = 0;
+		if (copy_from_user(buf, (void __user *)arg, 8)) {
+			printk(KERN_ERR "[ %s:%d ] copy from user error\n", "tx_isp_set_awb_algo_close", __LINE__);
+			*ret = -EFAULT;
+		} else if (t23_algo_awb_on) {
+			ACCESS_ONCE(t23_algo_awb_on) = false;
+			tawb_custom_en = 0;
+			complete_all(&t23_algo_awb_comp);
+			printk(KERN_INFO "t23: custom AWB closed\n");
+		}
+		return 1;
+	case 0xc00456e1:
+		*ret = t23_algo_get(&t23_algo_awb_comp, ACCESS_ONCE(t23_algo_awb_on), "AWB");
+		return 1;
+	}
+	return 0;
+}
+
 static long regtrace_tx_isp_ioctl_body(struct file *file, unsigned int cmd,
                                         unsigned long arg);
 
@@ -16278,6 +16561,10 @@ static long regtrace_tx_isp_ioctl_body(struct file *file, unsigned int cmd,
 
     if (file && !file->private_data)
         file->private_data = regtrace_tx_isp_private;
+
+    /* custom AE / AWB library ioctls (no log line: the get-handles run per frame) */
+    if (t23_algo_ioctl(cmd, arg, &ret))
+        return ret;
 
     if (cmd == REGTRACE_VIDIOC_ENUMINPUT) {
         ret = regtrace_tx_isp_enuminput(arg);

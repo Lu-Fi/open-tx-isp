@@ -14298,6 +14298,12 @@ static uint32_t _awb_ct_last_offset;
 /* Additional AWB globals observed in binary */
 /* awb_frz moved to top of file */
 static int      tawb_custom_en;        /* AWB custom enable flag */
+/* Custom AWB library (ioctls 0xc00456e1..e4, vendor tx_isp_unlocked_ioctl
+ * 0xf108..0xf2e8): JZ_Isp_Awb completes awb_algo_comp each AWB run while
+ * tawb_custom_en == 1, the get-handle ioctl waits for it. */
+static DECLARE_COMPLETION(awb_algo_comp);
+static uint8_t *awb_info_mine;
+static DEFINE_MUTEX(awb_algo_mutex);	/* awb_info_mine lifetime */
 static int      awb_moa;               /* modified-on-apply flag */
 static uint32_t awb_ct_trend[6] = {
 	0x400, 0x400, 0x400, 0x400, 0x400, 0x400,
@@ -20785,6 +20791,9 @@ static int JZ_Isp_Awb(void)
 	}
 
 	Tiziano_awb_fpga(awb_array_r, awb_array_g, awb_array_b, awb_array_p);
+	/* vendor 0x18b6c: wake a custom AWB library waiting in get-handle */
+	if (tawb_custom_en == 1)
+		complete(&awb_algo_comp);
 	memcpy(&wb_attr_mode, tisp_wb_attr, sizeof(wb_attr_mode));
 
 	if (wb_attr_mode == 1) {
@@ -36893,6 +36902,117 @@ bool tx_isp_ae_algo_is_open(void)
     open = ae_info_mine != NULL;
     mutex_unlock(&ae_algo_mutex);
     return open;
+}
+
+/* Custom AWB library interface, vendor tx_isp_unlocked_ioctl (T31 1.1.6 ko):
+ *  0xc00456e3 open:   tisp_awb_algo_init(1), awb_info_mine allocated, completion reset
+ *  0xc00456e1 get:    wait awb_algo_comp, info = {cookie,num, cur r/b gain, 4 x
+ *                     global statis (tisp_g_wb_attr words 1..6), zones (tisp_g_wb_zone)},
+ *                     0x2c3 bytes to the user
+ *  0xc00456e2 set:    0x18 bytes {cookie,num, change, r, b, ct}; change == 1 ->
+ *                     tisp_awb_algo_handle (manual white balance with r/b)
+ *  0xc00456e4 close:  tisp_awb_algo_deinit + tisp_awb_algo_init(0), buffer freed.
+ * Differences: the wait is bounded to 2 s (-ETIMEDOUT, stock sleeps forever without
+ * frames), a get without open answers -ENODEV, a repeated open reuses the buffer. */
+#define TX_ISP_AWB_INFO_SIZE 0x2c3
+
+int tx_isp_get_awb_algo_handle(void __user *arg)
+{
+	uint32_t attr[7] = { 0 };
+	uint8_t *info;
+	long wret;
+	int ret = 0;
+
+	if (!awb_info_mine)
+		return -ENODEV;
+	wret = wait_for_completion_interruptible_timeout(&awb_algo_comp, 2 * HZ);
+	if (wret < 0)
+		return -ERESTARTSYS;
+	if (wret == 0) {
+		pr_warn_ratelimited("tx_isp_get_awb_algo_handle: no AWB run within 2 s\n");
+		INIT_COMPLETION(awb_algo_comp);
+		return -ETIMEDOUT;
+	}
+	mutex_lock(&awb_algo_mutex);
+	info = awb_info_mine;
+	if (!info) {
+		mutex_unlock(&awb_algo_mutex);
+		return -ENODEV;
+	}
+	memset(info + 8, 0, TX_ISP_AWB_INFO_SIZE - 8);
+	tisp_g_wb_zone(info + 0x20);
+	tisp_g_wb_attr(attr);
+	memcpy(info + 0x08, &attr[1], 4);	/* cur_r_gain */
+	memcpy(info + 0x0c, &attr[2], 4);	/* cur_b_gain */
+	memcpy(info + 0x10, &attr[3], 16);	/* r/b gain statis, r/b weighted statis */
+	if (copy_to_user(arg, info, TX_ISP_AWB_INFO_SIZE)) {
+		pr_err("[ %s:%d ] copy to user error\n", __func__, __LINE__);
+		ret = -EFAULT;
+	}
+	mutex_unlock(&awb_algo_mutex);
+	return ret;
+}
+
+int tx_isp_set_awb_algo_open(void)
+{
+	tisp_awb_algo_init(1);
+	mutex_lock(&awb_algo_mutex);
+	if (!awb_info_mine) {
+		awb_info_mine = kzalloc(0x300, GFP_KERNEL);
+		if (!awb_info_mine) {
+			mutex_unlock(&awb_algo_mutex);
+			tisp_awb_algo_init(0);
+			return -ENOMEM;
+		}
+		init_completion(&awb_algo_comp);
+	}
+	mutex_unlock(&awb_algo_mutex);
+	return 0;
+}
+
+int tx_isp_set_awb_algo_handle(void __user *arg)
+{
+	uint32_t buf[6];
+
+	if (copy_from_user(buf, arg, sizeof(buf))) {
+		pr_err("[ %s:%d ] copy from user error\n", "tx_isp_set_awb_algo_handle", __LINE__);
+		return -EFAULT;
+	}
+	if (buf[2] == 1)
+		tisp_awb_algo_handle(buf);
+	return 0;
+}
+
+void tx_isp_awb_algo_close_internal(void)
+{
+	tisp_awb_algo_deinit();
+	tisp_awb_algo_init(0);
+	mutex_lock(&awb_algo_mutex);
+	kfree(awb_info_mine);
+	awb_info_mine = NULL;
+	mutex_unlock(&awb_algo_mutex);
+}
+
+int tx_isp_set_awb_algo_close(void __user *arg)
+{
+	uint32_t close_buf[2];
+
+	if (copy_from_user(close_buf, arg, sizeof(close_buf))) {
+		pr_err("[ %s:%d ] copy from user error\n", "tx_isp_set_awb_algo_close", __LINE__);
+		return -EFAULT;
+	}
+	tx_isp_awb_algo_close_internal();
+	return 0;
+}
+
+bool tx_isp_awb_algo_is_open(void)
+{
+	bool open;
+
+	mutex_lock(&awb_algo_mutex);
+	open = awb_info_mine != NULL;
+	mutex_unlock(&awb_algo_mutex);
+	return open;
 }
 
 /* Sensor control functions - Safe structure-based implementations */
