@@ -23,6 +23,7 @@
 #include "../driver/t32/tx_isp_t33_gamma.h"
 #include "../driver/t32/tx_isp_t33_defog.h"
 #include "../driver/t32/tx_isp_t33_lce.h"
+#include "../driver/t32/tx_isp_t33_af.h"
 
 static int bad;
 #define CHECK(c) do { if (!(c)) { bad++; printf("FAIL line %d: %s\n", __LINE__, #c); } } while (0)
@@ -275,6 +276,22 @@ int main(void)
 				/* another size: grid 2 * (360 / 12) x 2 * (640 / 24) with remainders */
 				CHECK(t33_lce_init(lsec, 1280, 720, 0, 0, cv, st, lb, T33_SLOT_WORDS) > 0);
 				CHECK(lsec[6] == 60 && lsec[7] == 52 && lsec[8] == 0 && lsec[9] == 16);
+			}
+			{
+				/* AF: the statistics address (0x18108) as the vendor's */
+				static u8 asec[T33_AF_SEC_BYTES];
+				u32 dma = 0;
+
+				for (id = 0; id < ref_n[T33_MOD_AF]; id++)
+					if (ref_reg[T33_MOD_AF][id] == 0x18108)
+						dma = ref_val[T33_MOD_AF][id];
+				off = t32_iq_section(bin, bytes, T33_SEC_AF, &len);
+				CHECK(off && len == T33_AF_SEC_BYTES);
+				CHECK(t33_tp_offset(bin, T33_SEC_AF) == 0x9fec);
+				memcpy(asec, bin + off, sizeof(asec));
+				/* 0x1812c: no store in the vendor code, its list word is stale memory */
+				vs_list_skip("af", T33_MOD_AF, lb, t33_af_init(asec, 1920, 1080, dma, lb, T33_SLOT_WORDS),
+					     0x1812c);
 			}
 			{
 				/* LSC: the DMA table address (slot 16) as the vendor's; 0x507c is slab slack there */
