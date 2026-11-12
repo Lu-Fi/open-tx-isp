@@ -3867,6 +3867,8 @@ static uint32_t data_b0e00 = 0;  /* AE0 interrupt flag */
 static uint32_t data_b0e10 = 0;  /* AE histogram flag */
 static uint32_t data_b0dfc = 0;  /* AE1 interrupt flag */
 static uint32_t ta_custom_en = 0; /* Custom AE enable flag */
+/* custom AE library: last EV / total gain / analog gain pushed (OEM ta_custom_*) */
+static uint32_t ta_custom_ev, ta_custom_tgain, ta_custom_again;
 
 /* OEM: ae_ev_init_en / ae_ev_init_strict — set by tisp_s_ev_start (ctrl 0x80000e6).
  * When ae_ev_init_en == 1, the AE algorithm's per-frame function uses
@@ -36601,33 +36603,115 @@ int tisp_wdr_rx_ae1_dms(uint32_t *r, uint32_t *g, uint32_t *b, uint32_t *params)
     return 0;
 }
 
-/* OEM EXACT: tisp_ae_algo_init (0x55bbc) — custom AE algorithm init */
+/* tisp_ae_algo_init (OEM 0x55bbc): custom AE library on/off; on: the
+ * IMPISPAeInitAttr after the {cookie, num} header from the AE state.  OEM
+ * words without a counterpart in this driver: the sensor limits instead
+ * (max integration time, min/max analog gain), short-frame words 0. */
 int tisp_ae_algo_init(int enable, void *attr)
 {
     ta_custom_en = enable;
     if (enable == 1 && attr) {
         uint32_t *a = (uint32_t *)attr;
-        a[2] = 0;
-        a[3] = data_c46a8;
-        a[4] = data_c46a0;
-        a[5] = 0x400;
-        a[6] = data_c46ac;
+        struct tx_isp_sensor *sen = ourISPdev ? ourISPdev->sensor : NULL;
+
+        memset(a + 2, 0, 0x6c);
+        a[2] = 0;                       /* unit: lines */
+        a[3] = data_c46a8;              /* integration time */
+        a[4] = data_c46a0;              /* analog gain, Q10 */
+        a[5] = 0x400;                   /* sensor digital gain */
+        a[6] = data_c46ac;              /* ISP digital gain */
+        a[7] = data_c4714;              /* min integration time */
+        a[8] = data_c470c ? data_c470c : 0x400;   /* min analog gain */
+        a[9] = 0x400;
+        a[10] = 0x400;                  /* min ISP digital gain */
+        a[11] = sen ? sen->attr.max_integration_time : 0;          /* max integration time */
+        a[12] = sen && sen->attr.max_again ?
+                tisp_math_exp2(sen->attr.max_again, 0x10, 0x10) >> 6 : data_c46b0;
+        a[13] = 0x400;
+        a[14] = data_c46bc;             /* max ISP digital gain */
+        a[15] = a[19] = a[23] = 0;      /* short frame (WDR) */
+        a[17] = a[21] = a[25] = 0x400;
+        if (sen && !a[3])
+            a[3] = sen->attr.integration_time;
+        if (sen)
+            a[27] = sen->video.fps;     /* OEM: core fps word, (num << 16) | den */
+        ta_custom_ev = ta_custom_tgain = ta_custom_again = 0;
     }
     return 0;
 }
 
-/* OEM EXACT: tisp_ae_algo_handle (0x55d48) — custom AE per-frame processing.
- * Complex function that applies custom AE decisions. For standard operation
- * (ta_custom_en == 0), this is never called — AE0 handles everything. */
+/* tisp_ae_algo_handle (OEM 0x55d48): apply the library's IMPISPAeAttr
+ * (attr = {cookie, num, change, unit, it, again, dgain, ispdgain, ...}).
+ * Integration time through the sensor allocator (a quantised time carries
+ * the difference into the analog gain), analog gain through alloc_again,
+ * the rest of the requested gain in the ISP digital gain (0x1030/0x1034),
+ * the sensor write as the driver's own AE does it (data_b2ef4 / data_b2f04,
+ * sensor_expo_work), events 7 (EV), 4 (total gain), 5 (analog gain) when
+ * they change.  Sensor 0 without WDR (the short frame of the OEM is not
+ * ported: no WDR on the T31 boards). */
 int tisp_ae_algo_handle(void *attr)
 {
-    /* Only relevant when custom AE is enabled (ta_custom_en == 1).
-     * Standard AE path uses tisp_ae0_process_impl directly. */
-    if (ta_custom_en != 1)
+    const uint32_t *in = attr;
+    uint32_t it, ag, alloc_it, ag_act, isp_dg, ev, tg, log2v;
+    unsigned int sensor_ag = 0;
+    void *it_tok = NULL;
+
+    if (ta_custom_en != 1 || !in)
         return 0;
-    /* Full custom AE handling would go here — decompiled but extremely
-     * complex with sensor I2C writes, event pushes, and WDR paths.
-     * For standard operation this is never reached. */
+    it = in[4];
+    ag = in[5] ? in[5] : 0x400;
+    if (!it)
+        return 0;
+    alloc_it = data_b2eec(it, &it_tok);
+    if (alloc_it && alloc_it != it)
+        ag = fix_point_div_32(10, fix_point_mult2_32(10, ag, it << 10), alloc_it << 10);
+    data_b2ef4(alloc_it, 0);
+    data_c46a8 = alloc_it;
+    _ae_reg.data[0] = alloc_it;
+    log2v = data_b2ee0(tisp_log2_fixed_to_fixed(ag << 6, 0x10, 0x10), &sensor_ag);
+    ag_act = tisp_math_exp2(log2v, 0x10, 0x10) >> 6;
+    if (!ag_act)
+        ag_act = 0x400;
+    data_b2f04((uint32_t)(uint16_t)sensor_ag, 0);
+    data_c46a4 = 0x400;
+    isp_dg = fix_point_mult2_32(10, in[7] ? in[7] : 0x400,
+                                fix_point_div_32(10, fix_point_mult2_32(10, in[5] ? in[5] : 0x400,
+                                                                        in[6] ? in[6] : 0x400),
+                                                 fix_point_mult2_32(10, ag_act, 0x400)));
+    isp_dg &= 0xffff;
+    system_reg_write_ae(3, 0x1030, (isp_dg << 16) | isp_dg);
+    system_reg_write_ae(3, 0x1034, (isp_dg << 16) | isp_dg);
+    data_c46ac = isp_dg;
+    ev = fix_point_mult2_32(10, fix_point_mult3_32(10, alloc_it << 10, ag_act, 0x400), isp_dg);
+    tg = fix_point_mult3_32(10, ag_act, 0x400, isp_dg);
+    if (ev != ta_custom_ev) {
+        struct tisp_event_record e = {0};
+
+        e.event_id = 7;
+        e.args[0] = ev;
+        tisp_event_push(&e);
+        ta_custom_ev = ev;
+        data_c46c0 = ev;
+    }
+    if (tg != ta_custom_tgain) {
+        struct tisp_event_record e = {0};
+
+        e.event_id = 4;
+        e.args[0] = tisp_log2_fixed_to_fixed(tg << 6, 0x10, 0x10);
+        tisp_event_push(&e);
+        data_c46c4 = e.args[0];
+        ta_custom_tgain = tg;
+    }
+    if (ag_act != ta_custom_again) {
+        struct tisp_event_record e = {0};
+
+        e.event_id = 5;
+        e.args[0] = tisp_log2_fixed_to_fixed(ag_act << 6, 0x10, 0x10);
+        tisp_event_push(&e);
+        data_c46a0 = ag_act;
+        data_c46c8 = e.args[0];
+        ta_custom_again = ag_act;
+    }
     return 0;
 }
 
