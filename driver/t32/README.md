@@ -93,10 +93,9 @@ generation-shared come from the shared code instead:
   8 phases x 6 taps normalised to 2048, 13 words per direction at
   `0xf0820 + ch * 0xa0` (vertical +0x50), the tail field 0x5a at `0xf09e0`,
   the pair count to `0xf8100`. Unused channels get the flat 6-tap box.
-  The kernel table is computed (`tools/t32_msca_sinc_tab.py`), not the
-  vendor's: against the vendor's QEMU writes (3840x2160 to 1080p, 720p,
-  640x360) 6 of 75 coefficients differ by 1 of 2048, the 1:6 curve is
-  identical. The vendor leaves a not yet used channel 2 out of the first
+  The kernel table is the vendor's (data transcribed from the vendor
+  module's .rodata; `tools/t32_msca_sinc_tab.py` computes its shape, which
+  missed 6 of 75 traced coefficients by 1 of 2048). The vendor leaves a not yet used channel 2 out of the first
   blocks; the driver always loads all three.
 - `+0x28` filter-select pulse per channel (cv8001/PRJ007 values 0x41, 0x01,
   0x00 until the IQ bin parser provides them), as the vendor.

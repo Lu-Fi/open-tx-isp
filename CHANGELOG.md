@@ -4,6 +4,11 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD[-rcN]` are set on the `aperto` branch, the same tag in open-tx-isp and OpenIMP: RC1 `v2026.10.11-rc1`, RC2 `v2026.10.25-rc2`, RC3 `v2026.11.07-rc3` (2026-11-07). Gate SoCs of RC3 and Release 1: T10, T20, T21, T23, T30, T31, T40, T41 (T32/T33 planned, QEMU only); release notes: [docs/releases/ in OpenIMP](https://github.com/Lu-Fi/openimp/blob/next/docs/releases/README.md). Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-11-12: MSCA kernel tables from the vendor modules (T33 and T32; openimp #389; planned, QEMU only)
+
+- The MSCA polyphase scaler curves interpolate the vendor's kernel tables now: the T33 16 / 24 interval tables and the T32 table are data transcribed from the vendor modules' .rodata (the T32 table equals the T33 24 interval one). The computed tables (`tools/t33_msca_sin_tab.py`, `tools/t32_msca_sinc_tab.py`) missed them by 1 in 41 / 58 entries. The T33 8 / 12 interval tables were already equal.
+- Evidence: QEMU `-M ingenic-t33`, vendor libimp 2.0.2.1, ch0 1920x1080 + ch1 640x360: all 4 list-23 runs equal the vendor's word for word (before 8 words, 4 ch1 coefficients +-1), 20/20 frames per channel. T32: `tx_isp_t32_msca_curve_test` 75/75 vendor coefficients equal (before 69), code of tx-isp-t32.ko unchanged (data only). Not tested on a camera.
+
 ## 2026-11-12: T33 BLC, YDNS, SDNS register lists, module list layouts, rmmod without ISP writes (openimp #388; planned, QEMU only)
 
 - T33 module list layouts (`driver/t32/tx_isp_t33_blk.h`): each T33 block list has a fixed command layout (first register, count, table port); the block code returns its writes and `t33_rcfg_build_tmpl` fills them into the layout (k-th write of a register = its k-th slot). Needed for the lists with table ports and non-ascending order (CCM, DPC, DMSC, ...); used for the new blocks.
