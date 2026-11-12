@@ -159,18 +159,70 @@ static void tune_init(struct t40_aet_tune *st)
 	st->refresh_t = 1;
 }
 
+static double ev_of(u32 it, u32 ag, u32 dg)
+{
+	return it * t_exp2(t_log2_gain(ag) / 65536.0) * dg / 1024.0;
+}
+
+/* OEM allocation order: IT rung (<= EV / min gain), analog index, ISP dgain remainder; manual stages stay */
+static void test_alloc(void)
+{
+	struct t40_ae_alloc_lim l = lim;
+	u32 it = 2241, ag = 5, dg = 2000, r;
+
+	/* below the ceiling: IT = rung floor of the EV, the rest in the ISP dgain (< one analog step) */
+	r = t40_ae_oem_alloc(1000U * 1024U, &it, &ag, &dg, &l, t_log2_gain);
+	assert(r == 3U && it == 900U && ag == 0U && dg > 1024U && dg < 1200U);
+	assert(fabs(ev_of(it, ag, dg) / 1000.0 - 1.0) < 0.002);
+	/* below one rung (NORMAL): IT stays on the first rung at gain 1x */
+	r = t40_ae_oem_alloc(300U * 1024U, &it, &ag, &dg, &l, t_log2_gain);
+	assert(it == 450U && ag == 0U && dg == 1024U);
+	/* above the ceiling: IT 2241, analog index 2 (1.39x), dgain 1.5 / 1.39 */
+	r = t40_ae_oem_alloc((u32)(2241.0 * 1.5 * 1024.0), &it, &ag, &dg, &l, t_log2_gain);
+	assert(it == 2241U && ag == 2U && fabs(ev_of(it, ag, dg) / (2241.0 * 1.5) - 1.0) < 0.002);
+	/* nothing changes on the same EV */
+	assert(t40_ae_oem_alloc((u32)(ev_of(it, ag, dg) * 1024.0), &it, &ag, &dg, &l, t_log2_gain) == 0U ||
+	       fabs(ev_of(it, ag, dg) / (2241.0 * 1.5) - 1.0) < 0.002);
+	/* beyond everything: analog maximum, ISP dgain at its cap */
+	(void)t40_ae_oem_alloc(0xffffffffU, &it, &ag, &dg, &l, t_log2_gain);
+	assert(it == 2241U && ag == 20U && dg == 4096U);
+	/* no antiflicker (AUTO / off): continuous IT down to the floor */
+	l.af_step = 0;
+	l.it_floor = 8;
+	(void)t40_ae_oem_alloc(1000U * 1024U, &it, &ag, &dg, &l, t_log2_gain);
+	assert(it == 1000U && ag == 0U && dg == 1024U);
+	(void)t40_ae_oem_alloc(4U * 1024U, &it, &ag, &dg, &l, t_log2_gain);
+	assert(it == 8U && dg == 1024U);
+	/* manual IT: the gains take the EV */
+	l = lim;
+	l.it_fixed = true;
+	it = 1350;
+	(void)t40_ae_oem_alloc(2700U * 1024U, &it, &ag, &dg, &l, t_log2_gain);
+	assert(it == 1350U && ag == 4U && fabs(ev_of(it, ag, dg) / 2700.0 - 1.0) < 0.002);
+	/* manual analog gain: IT + ISP dgain */
+	l = lim;
+	l.ag_fixed = true;
+	l.lo = l.hi = 8;
+	ag = 8;
+	(void)t40_ae_oem_alloc(2241U * 5U * 1024U, &it, &ag, &dg, &l, t_log2_gain);
+	assert(ag == 8U && it == 2241U && dg >= 1270U && dg <= 1290U);	/* 5 / 3.97 = 1.26 */
+	(void)t40_ae_oem_alloc(2000U * 4U * 1024U, &it, &ag, &dg, &l, t_log2_gain);
+	assert(ag == 8U && it == 1800U && dg >= 1024U);
+	puts("alloc ok");
+}
+
 /* #410: same scene, bright and dark history -> same end exposure */
-static void test_path(void)
+static void test_path(double ev_eq)
 {
 	static const double hist[2] = { 2.5, 0.4 };
-	double k = 60.0 / 4700.0, ev_end[2];
+	double k = 60.0 / ev_eq, ev_end[2];
 	int h;
 
 	for (h = 0; h < 2; h++) {
 		struct cam c;
 		struct t40_aet_tune st;
 		u32 it = 2241, ag = 0, dg = 1024, l = 0, t = 0;
-		double want = 4700.0 * hist[h];
+		double want = ev_eq * hist[h];
 		int f;
 
 		/* start allocation for the history exposure */
@@ -270,7 +322,9 @@ int main(void)
 {
 	setvbuf(stdout, NULL, _IONBF, 0);
 	bank_init();
-	test_path();
+	test_alloc();
+	test_path(4700.0);	/* IT at the ceiling, analog gain + ISP dgain (Eufy comp 128) */
+	test_path(1500.0);	/* below the ceiling: IT rungs (Eufy comp 40: vendor IT 1500) */
 	/* lamps on: dark state 2241 lines x 32x x 1.2 -> scene needs ~1/20 of it (frames clipped at the start) */
 	for (dg_delay = 2; dg_delay >= 1; dg_delay--) {
 		printf("ISP dgain latency %d frame(s), sensor 2:\n", dg_delay);

@@ -747,7 +747,7 @@ static inline u32 t40_ae_oem_alloc(u32 ev_q10, u32 *it, u32 *again, u32 *dgain,
 	/* the smallest gain the free stages allow (log2 16.16): analog lo or the fixed index, dgain 1x or fixed */
 	gmin = log2_gain(l->ag_fixed ? a : lo) + (l->dg_fixed ? t40_ae_log2_ratio(d, 1024U) : 0U);
 	if (!l->it_fixed) {
-		u64 want = t40_ae_div64((u64)ev_q10 << 10, t40_ae_exp2_q10(gmin));	/* lines at the minimum gain */
+		u64 want = t40_ae_div64((u64)ev_q10, t40_ae_exp2_q10(gmin));	/* lines at the minimum gain */
 		u32 w = want > 0xffffffULL ? 0xffffffU : (u32)want;
 
 		if (l->af_step && w >= l->af_step)
