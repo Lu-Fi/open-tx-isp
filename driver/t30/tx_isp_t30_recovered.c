@@ -6580,7 +6580,7 @@ uint32_t apical_event_queue_push(int32_t *arg1, char arg2);
 uint32_t apical_event_queue_pop(int32_t *arg1);
 int32_t apical_loop_buffer_init(int32_t *arg1, int32_t arg2, int32_t arg3);
 uint32_t apical_loop_buffer_read_u8(void *arg1, int32_t arg2);
-int32_t apical_loop_buffer_write_u8(int32_t *buf, int32_t offset, char val);
+int32_t apical_loop_buffer_write_u8(int32_t *buf, int32_t offset, uint8_t val);
 int32_t apical_sbus_isp_init(void *arg1);
 int32_t apical_sbus_i2c_init(void *arg1);
 int32_t spi_io_write_sample(uintptr_t a0, uint32_t a1, uint32_t a2, uint32_t a3);
@@ -30256,7 +30256,7 @@ uint32_t apical_event_queue_push(int32_t *arg1, char arg2)
     int32_t ret;
 
     _qlock1++;
-    ret = apical_loop_buffer_write_u8(arg1, 0, arg2);
+    ret = apical_loop_buffer_write_u8(arg1, 0, (uint8_t)arg2);   /* OEM andi a2,0xff */
     if (ret != arg1[1])
         arg1[0] = ret;
     _qlock1--;
@@ -30321,7 +30321,7 @@ uint32_t apical_loop_buffer_read_u8(void *arg1, int32_t arg2)
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000001e1ac origin=model_output original=apical_loop_buffer_write_u8 */
-int32_t apical_loop_buffer_write_u8(int32_t *buf, int32_t offset, char val)
+int32_t apical_loop_buffer_write_u8(int32_t *buf, int32_t offset, uint8_t val)
 {
     int32_t pos = offset + buf[0];
     int32_t size = buf[3];
@@ -41894,20 +41894,20 @@ int16_t *init_interp_2d_point(int16_t *arg1, int32_t arg2, int32_t arg3, void *a
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000032bac origin=model_output original=get_index */
 int32_t get_index(int32_t arg1, void *arg2)
 {
-	int32_t len = _GET_LEN(226);
-	int32_t *i = 1;
+	/*
+	 * OEM get_index (SDK ko 0x32bac): first i >= 1 with arg1 < axis[i]
+	 * (signed lh), minus one; len - 2 when none (unsigned loop over
+	 * _GET_LEN(226)).  The lift counted with an int32_t pointer, so i
+	 * stepped 1, 5, 9, ... and skipped three of four axis entries.
+	 */
+	uint32_t len = (uint32_t)_GET_LEN(226);
 	int16_t *p = (int16_t *)arg2;
+	uint32_t i;
 
-	while (i < len) {
-		if (arg1 < p[(uintptr_t)i])
-			break;
-		i++;
-	}
-
-	if (i >= len)
-		return len - 2;
-
-	return i - 1;
+	for (i = 1; i < len; i++)
+		if (arg1 < p[i])
+			return i - 1;
+	return len - 2;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000032c1c origin=model_output original=AWB_mesh.isra.1 */
