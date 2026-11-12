@@ -25143,8 +25143,9 @@ static int tx_isp_t30_frame_dqbuf(struct tx_isp_t30_frame_channel *chan,
 			break;
 		ret = wait_event_interruptible(queue->done_wq,
 			!list_empty(&queue->done_list) || !queue->streaming);
-		if (ret == -ERESTARTSYS)
-			continue;
+		/* Beyond vendor (user OK 2026-11-12, #365): a pending signal ends
+		 * the wait (-ERESTARTSYS, user space sees EINTR or restarts).
+		 * The vendor loops on it and spins with the signal pending. */
 		if (ret)
 			return ret;
 	}
@@ -41130,15 +41131,44 @@ static void tx_isp_t30_simple_ae_update(void)
 	 * already limited by item 29 in t30_ae_manual_again_log2().  The part
 	 * above the cap moves to the ISP digital gain below.
 	 */
-	requested_gain = sensor_alloc_analog_gain(
-		min_t(s32, state->analog_gain_request_log2,
-		      t30_ae_auto_again_cap(stab, attr->max_again)),
-		&sensor_code);
-	/* Preserve requested exposure when the sensor quantizes analog gain. */
-	state->isp_digital_gain_log2 = clamp_t(s32,
-		state->isp_digital_gain_log2 +
-		state->analog_gain_request_log2 - requested_gain,
-		0, max_isp_digital_gain_log2);
+	if (manual.again) {
+		requested_gain = sensor_alloc_analog_gain(
+			min_t(s32, state->analog_gain_request_log2,
+			      t30_ae_auto_again_cap(stab, attr->max_again)),
+			&sensor_code);
+		/* Preserve requested exposure when the sensor quantizes analog gain. */
+		state->isp_digital_gain_log2 = clamp_t(s32,
+			state->isp_digital_gain_log2 +
+			state->analog_gain_request_log2 - requested_gain,
+			0, max_isp_digital_gain_log2);
+	} else {
+		/*
+		 * OEM cmos_calc_target_gain (SDK-built ko 0x25e50) +
+		 * cmos_analog_gain_update (0x25b24) + cmos_digital_gain_update
+		 * (0x25bcc): the target gain is the exposure above the applied
+		 * integration time; the automatic analog request stays 1/16 stop
+		 * below it and keeps the previous analog gain while the request is
+		 * within +-4095 of it; the ISP digital gain takes the rest (#202).
+		 */
+		s32 target_gain = t30_ae_target_gain(
+			state->total_exposure_request_log2,
+			log2_fixed_to_fixed(state->integration_time, 0, 16));
+		s32 again_cap = t30_ae_auto_again_cap(stab, attr->max_again);
+		s32 request = t30_ae_auto_again_request(target_gain);
+
+		requested_gain = sensor_alloc_analog_gain(
+			min_t(s32, request, again_cap), &sensor_code);
+		if (t30_ae_again_hold(request, state->analog_gain_log2,
+				      requested_gain))
+			requested_gain = sensor_alloc_analog_gain(
+				min_t(s32, state->analog_gain_log2, again_cap),
+				&sensor_code);
+		state->analog_gain_request_log2 = request;
+		state->isp_digital_gain_log2 = manual.isp_dgain ?
+			t30_ae_manual_isp_log2(&manual, max_isp_digital_gain_log2) :
+			clamp_t(s32, target_gain - requested_gain, 0,
+				max_isp_digital_gain_log2);
+	}
 	state->analog_gain_log2 = requested_gain;
 	state->analog_gain_code = (u16)sensor_code;
 	sensor_set_integration_time(0, state->integration_time);

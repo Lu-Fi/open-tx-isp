@@ -90,6 +90,10 @@ tx_isp_t40_ae_step_test: tx_isp_t40_ae_step_test.c ../driver/t40/tx_isp_t40_ae_a
 tx_isp_t31_framedrop_test: tx_isp_t31_framedrop_test.c ../driver/t31/tx_isp_t31_framedrop.h
 	$(CC) $(CFLAGS) -o $@ $<
 TESTS += tx_isp_t31_fcrop_test
+TESTS += tx_isp_t31_gpio_test
+
+tx_isp_t31_gpio_test: tx_isp_t31_gpio_test.c ../driver/t31/tx_isp_t31_gpio.h
+	$(CC) $(CFLAGS) -o $@ $<
 
 tx_isp_t31_fcrop_test: tx_isp_t31_fcrop_test.c ../driver/t31/tx_isp_t31_fcrop.h
 	$(CC) $(CFLAGS) -o $@ $<

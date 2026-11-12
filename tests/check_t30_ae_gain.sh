@@ -6,7 +6,8 @@
 #  2. the anti-flicker tuning control sets item 13 and the compact AE reads the frequency
 #     only through t30_ae_antiflicker_hz (item 13 gate);
 #  3. the automatic analog gain request is capped by item 29, the integration time by item 26;
-#  4. the automatic AE publishes its exposure into item 16 (GetEVAttr ev) as ae_calculate_exposure.
+#  4. the automatic AE publishes its exposure into item 16 (GetEVAttr ev) as ae_calculate_exposure;
+#  5. the automatic analog gain request is the target gain - 1/16 stop with +-4095 hold (cmos_analog_gain_update).
 d=${1:-$(dirname "$0")/../driver/t30}
 f=$d/tx_isp_t30_recovered.c
 [ -f "$f" ] || { echo "usage: $0 [driver/t30]" >&2; exit 2; }
@@ -21,5 +22,7 @@ chk 'u32 frequency = t30_ae_antiflicker_hz(stab);' 'item 13 gate in the compact 
 chk 't30_ae_auto_again_cap(stab, attr->max_again)' 'item 29 analog gain cap'
 chk 'max_integration = t30_ae_max_integration(stab, max_integration);' 'item 26 integration cap'
 chk 'T30_STAB32(16) = t30_ae_exposure_time_item(' 'item 16 exposure published by the automatic AE'
+chk 's32 request = t30_ae_auto_again_request(target_gain);' 'analog request 1/16 stop below the target gain'
+chk 'if (t30_ae_again_hold(request, state->analog_gain_log2,' 'analog gain hysteresis'
 [ $fail = 0 ] && echo "check_t30_ae_gain: ok"
 exit $fail

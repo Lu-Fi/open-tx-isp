@@ -18,6 +18,7 @@ Runs functions of the SDK-built vendor tx-isp-t30.ko (4ea12e1f) and of our drive
   ldc_pad_event_handle / ldc_frame_channel_streamoff / tx_isp_ldc_show   same, LDC fifos (#365)
   tx_isp_unlocked_ioctl                         user vs kernel argument: return, copies to user (addr_limit, #371)
   frame_channel_unlocked_ioctl(_raw)            __vb2_queue_free(queue, count) arguments (#369)
+  VIDIOC_DQBUF + pending signal                 EXPECTED difference (beyond vendor, #365): vendor spins, ours returns -ERESTARTSYS
   tx_isp_sync_ldc / tx_isp_sync_ncu             frame-end watchdog: reg_set calls, counters, registers (#377)
 
 Callees outside the function under test are hooked at their entry in both modules and logged; the
@@ -657,6 +658,42 @@ def t_fci_args(V, O, rnd, n):
     if "-v" in sys.argv: print("  fci hits", hits)
     return bad
 
+# VIDIOC_DQBUF with a signal pending and an empty done list: EXPECTED DIFFERENCE (user-approved beyond vendor
+# 2026-11-12, #365, docs/BEYOND_VENDOR.md).  The vendor loop (frame_channel_unlocked_ioctl 0x894..0x91c) leaves the
+# wait with the signal pending, finish_wait()s and starts the wait again: it spins (the emulator stops at the
+# instruction limit).  Our tx_isp_t30_frame_dqbuf returns -ERESTARTSYS after one finish_wait().  Queue layout
+# (type +36, done list +540, wait queue +552, streaming byte +560) is the same in both, so one world serves both.
+def t_dqbuf_signal(V, O, rnd, n):
+    V, O = Mod(V.path, {}), Mod(O.path, {})
+    bad = 0
+    for k in range(n):
+        sig = k % 2 == 0; res = []
+        for m, fn in ((V, "frame_channel_unlocked_ioctl"), (O, "tx_isp_t30_frame_dqbuf")):
+            m.e.heap_reset(); m.e.max_insns = 20000
+            ti = m.e.alloc(0x40); task = m.e.alloc(0x40); m.e.gp = ti
+            m.e.write(ti, struct.pack("<8I", task, 0, 2 if sig else 0, 0, 0, 0, USER_DS, 0)); m.e.write(task + 4, struct.pack("<I", ti))
+            ch = m.e.alloc(0x400); m.e.write(ch + 36, struct.pack("<I", 1)); m.e.write(ch + 540, struct.pack("<II", ch + 540, ch + 540))
+            m.e.write(ch + 560, bytes([1]))
+            ub = m.e.alloc(0x100); m.e.write(ub + 4, struct.pack("<I", 1))
+            filp = m.e.alloc(0x100); m.e.write(filp + 112, struct.pack("<I", ch))
+            lg = m.log; del lg[:]
+            m.hook("__copy_user", lambda e: (e.write(e.get_reg(UC_MIPS_REG_A0), e.read(e.get_reg(UC_MIPS_REG_A1), e.get_reg(UC_MIPS_REG_A2))), e.set_reg(UC_MIPS_REG_A2, 0), 0)[2])
+            for f in ("printk", "isp_printf", "__might_sleep", "prepare_to_wait"): m.hook(f, lambda e: 0)
+            m.hook("finish_wait", m.rec("finish_wait", 0)); m.hook("schedule", m.rec("schedule", 0))
+            r = (m.e.call("frame_channel_unlocked_ioctl_raw" if "frame_channel_unlocked_ioctl_raw" in m.e.symaddr else fn, filp, 0xc0445611, ub)
+                 if m is V else m.e.call(fn, ch, ub))
+            spin = r.insns >= m.e.max_insns      # the emulator ends a run at the instruction limit
+            res.append(("spin" if spin else r.stop, s32(r.v0) if not (spin or r.stop) else None, [x[0] for x in lg][:2]))
+        v, o = res
+        if sig:      # expected: vendor spins, ours returns -ERESTARTSYS after one finish_wait, no schedule()
+            ok = v[0] == "spin" and o == (None, -512, ["finish_wait"])
+        else:        # no signal: both sleep in schedule() once (the emulated schedule returns, next pass hits the instruction limit)
+            ok = v[0] == o[0] == "spin" and v[2][:1] == o[2][:1] == ["schedule"]
+        if not ok:
+            bad += 1
+            if bad < 4: print("DIFF dqbuf signal=%s: vendor %s open %s" % (sig, v, o))
+    return bad
+
 # ---------------------------------------------------------------- LDC/NCU frame-end watchdog (#377)
 # OEM tx_isp_sync_ldc (0x153fc, tail call to tx_isp_sync_ncu 0x13850), run by the core ISR at each frame end.
 # Vendor state in .bss (15776 g_ncu, 15780/15784 ncu stall/last start, 15796 ldc stall, 15800/15804 last
@@ -757,7 +794,8 @@ TESTS = [("nr_selectors", t_nr), ("general_frame_start", t_general), ("fsm_switc
          ("sbus_write_u8", t_sbus), ("awb_normalise", t_normalise), ("event_queue_push", t_queue),
          ("awb_mesh_chain", t_mesh), ("compute_weight", t_weight), ("awb_calc_mesh", t_calc),
          ("gp_lock_paths", t_gp_lock), ("ioctl_uaccess", t_uaccess),
-         ("ptr_scale", t_ptr_scale), ("fci_args", t_fci_args), ("sync_watchdog", t_sync), ("ldc_ncu_counts", t_counts)]
+         ("ptr_scale", t_ptr_scale), ("fci_args", t_fci_args), ("sync_watchdog", t_sync), ("ldc_ncu_counts", t_counts),
+         ("dqbuf_signal(expected diff)", t_dqbuf_signal)]
 
 def main():
     vko, oo = sys.argv[1], sys.argv[2]
