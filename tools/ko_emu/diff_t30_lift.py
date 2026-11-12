@@ -422,13 +422,24 @@ def gp_case(m, r, kind):
         B(b[0], 5, 1); W(b[0], 0, b[4]); W(b[0], 32, b[1]); W(b[4], 208, b[5]); W(b[5], 20, r.choice([0, 0x20]))
         W(b[1], 412, r.choice([0, b[6]])); W(b[1], 372, r.choice([4, 3]))
         return "ncu_pad_event_handle", (b[0], 0x3000005, b[2]), True
+    if kind in ("ncu_dq", "ncu_qb2"):              # ncu list head +404 (#375: the lift used s0 + 404 on a typed s0)
+        W(b[1], 372, r.choice([4, 4, 3])); W(b[1], 184, b[3]); W(b[3], 4, r.choice([0x10000, 0x10000, 0]))
+        W(b[1], 416, r.choice([0, 0, 1])); h = b[1] + 404
+        if r.random() < 0.5: W(b[1], 404, h); W(b[1], 408, h)
+        else: W(b[1], 404, b[7]); W(b[1], 408, b[7]); W(b[7], 0, h); W(b[7], 4, h)
+        B(b[0], 5, 1); W(b[0], 32, b[1])
+        if kind == "ncu_dq":
+            W(b[0], 20, r.choice([0, 0, 0x20]))
+            return "ncu_pad_event_handle", (b[0], 0x3000006, r.choice([b[2], 0])), True
+        W(b[0], 0, b[4]); W(b[4], 208, b[5]); W(b[5], 20, r.choice([0, 0x20])); W(b[1], 412, r.choice([0, b[6]]))
+        return "ncu_pad_event_handle", (b[0], 0x3000005, b[2]), True
     # mscaler_frame_channel_streamoff (OEM 1677c, void): lock, poll, list drain, memset tail call
     B(b[0], 7, r.choice([4, 4, 3])); W(b[0], 32, b[1]); W(b[1], 100, b[2]); W(b[1], 80, r.choice([4, 3]))
     W(b[1], 76, r.randrange(0, 3)); W(b[2], 184, b[3]); W(b[1], 124, b[1] + 124)
     W(b[1], 12, r.choice([0x34524742, 0x50424752, 0]))
     return "mscaler_frame_channel_streamoff.isra.0", (b[0],), False
 
-GP_KINDS = ("isp_qbuf", "isp_free", "isp_fmt", "ncu_qbuf", "msc_off")
+GP_KINDS = ("isp_qbuf", "isp_free", "isp_fmt", "ncu_qbuf", "msc_off", "ncu_dq", "ncu_qb2")
 def t_gp_lock(V, O, rnd, n):
     V, O = Mod(V.path, {}), Mod(O.path, {})          # fresh modules: no hooks/state of the other groups
     bad = 0
@@ -474,10 +485,120 @@ def t_uaccess(V, O, rnd, n):
             if bad < 4: print("DIFF tx_isp_unlocked_ioctl cmd=%#x %s: vendor %s open %s" % (cmd, kind, res[0][:3], res[1][:3]))
     return bad
 
+# ---------------------------------------------------------------- typed-pointer byte arithmetic (#375)
+def fname(m, n): return n if n in m.e.symaddr else n.replace(".", "_")
+
+def t375_world(m, rnd, regs):
+    m.e.heap_reset(); ti = m.e.alloc(0x40, struct.pack("<8I", 0x5a5a0000, 0, 0, 0, 0, 0, USER_DS, 0)); m.e.gp = ti
+    wl = []; regfile(m, regs, wl); del m.log[:]
+    for f in ("printk", "isp_printf", "__might_sleep"): m.hook(f, lambda e: 0)
+    def cu(e):
+        to, frm, cnt = (e.get_reg(r) for r in (UC_MIPS_REG_A0, UC_MIPS_REG_A1, UC_MIPS_REG_A2))
+        try: e.write(to, e.read(frm, cnt)); e.set_reg(UC_MIPS_REG_A2, 0)
+        except Exception: e.set_reg(UC_MIPS_REG_A2, cnt)
+        m.log.append(("copy", to, cnt)); return 0
+    m.hook("__copy_user", cu)
+    return wl
+
+def c_roi(m, r, k):                     # ae_roi.part.1 / awb_roi.part.2: zone weight window
+    fn, sreg, zb = (("ae_roi.part.1", 0x830, 0x1e00), ("awb_roi.part.2", 0x870, 0x1f00))[k & 1]
+    rows, cols = r.randrange(1, 16), r.randrange(1, 16)
+    regs = {sreg: (rows << 8) | cols | (r.getrandbits(16) << 16)}
+    for a in range(zb, zb + 0x100, 4): regs[a] = r.getrandbits(32)
+    wl = t375_world(m, r, regs)
+    ctx = m.e.alloc(0x40, bytes(r.choice([0, 0, 1]) if i in (0x12, 0x14) else 0 for i in range(0x40)))
+    api = m.e.alloc(0x1000, bytes(0x1000)); m.e.write(api + 4, struct.pack("<I", ctx)); st = m.e.alloc(4, b"\0" * 4)
+    x0, x1, y0, y1 = (r.randrange(0, 256) for _ in range(4))
+    if r.random() < 0.8: x0, x1, y0, y1 = min(x0, x1), max(x0, x1) + 1, min(y0, y1), max(y0, y1) + 1
+    arg = ((x0 & 0xff) << 24 | (y0 & 0xff) << 16 | (x1 & 0xff) << 8 | (y1 & 0xff))
+    rr = m.e.call(fname(m, fn), api, arg, st)
+    return rr.stop, rr.v0, wl, m.e.read(api, 0x1000), m.e.read(st, 4)
+
+def c_vflip(m, r, k):                   # orientation_vflip: line offsets 0xb08..0xb20
+    regs = {0xb04: r.getrandbits(32), 0xb1c: r.getrandbits(32), 0xb20: r.choice([r.getrandbits(32), r.randrange(0, 64), -r.randrange(1, 64) & M32])}
+    wl = t375_world(m, r, regs)
+    ctx = m.e.alloc(0x40, bytes(r.choice([0, 1]) if i == 0x14 else 0 for i in range(0x40)))
+    api = m.e.alloc(0x40, bytes(0x40)); m.e.write(api + 4, struct.pack("<I", ctx)); out = m.e.alloc(4, b"\xaa" * 4)
+    rr = m.e.call("orientation_vflip", api, r.choice([0xc, 0xd, 0xc, 0xd, 7]), r.choice([0, 0, 0, 1, 2]), out)
+    return rr.stop, rr.v0, wl, m.e.read(ctx, 0x40), m.e.read(out, 4)
+
+def c_gain(m, r, k):                    # gain_log2: (g0 + g1 + g2 + 0x7fff) >> 16
+    t375_world(m, r, {})
+    api = m.e.alloc(0x300, bytes(r.getrandbits(8) for _ in range(0x300))); out = m.e.alloc(4, b"\xaa" * 4)
+    rr = m.e.call("gain_log2", api, 0, r.choice([0, 1, 1, 2, 0x101]), out)
+    return rr.stop, rr.v0, m.e.read(out, 4)
+
+def c_apibuf(m, r, k):                  # get_apical_api_buffer: &apical_api_buffer
+    t375_world(m, r, {})
+    rr = m.e.call("get_apical_api_buffer")
+    return rr.stop, rr.v0 == m.e.symaddr["apical_api_buffer"]
+
+def c_release(m, r, k):                 # ispcore_sensor_ops_release_all_sensor: child callbacks
+    t375_world(m, r, {}); core = m.e.alloc(0x80, bytes(0x80))
+    for i in range(16):
+        if r.random() < 0.5: continue
+        sd = m.e.alloc(0x100, bytes(0x100)); ops = m.e.alloc(0x10, bytes(0x10)); so = m.e.alloc(0x10, bytes(0x10))
+        m.e.write(sd + 0xc4, struct.pack("<I", ops)); m.e.write(core + 0x38 + 4 * i, struct.pack("<I", sd))
+        if r.random() < 0.8: m.e.write(ops + 0xc, struct.pack("<I", so))
+        if r.random() < 0.8:
+            cb = CB + 0x100 + 0x10 * i; ret = r.choice([0, 0, -515, -515, -22, 5])
+            m.e.stubname[cb] = "rel%d" % i; m.e.hle["rel%d" % i] = m.rec("rel%d" % i, 1, ret)
+            m.e.write(so, struct.pack("<I", cb))
+    rr = m.e.call("ispcore_sensor_ops_release_all_sensor", core)
+    return rr.stop, None if rr.stop else s32(rr.v0), list(m.log)
+
+def c_weight(m, r, k):                  # apical_isp_ae_weight_s_attr: 15 x 15 zone bytes from user memory
+    regs = {a: r.getrandbits(32) for a in range(0x1e00, 0x1f00, 4)}
+    wl = t375_world(m, r, regs)
+    ub = m.e.alloc(0x100, bytes(r.getrandbits(8) for _ in range(0x100)))
+    rr = m.e.call(fname(m, "apical_isp_ae_weight_s_attr.isra.0"), ub)
+    return rr.stop, wl
+
+def c_dis(m, r, k):                     # dis_update_stats: rows mask 0x1f00, event to the FSM owner
+    regs = {0x908: r.getrandbits(32)}
+    for a in range(0x8000 + 0x570 * 4, 0x8000 + 0x570 * 4 + 0x800, 4): regs[a] = r.getrandbits(32)
+    t375_world(m, r, regs)
+    for f in ("apical_event_queue_push", "up", "system_hw_interrupts_disable", "system_hw_interrupts_enable"):
+        m.hook(f, m.rec(f, 2))
+    sb = bytearray(m.e.read(m.stab(), 4)); sb[0] = 0; m.e.write(m.stab(), bytes(sb))
+    ctx = m.e.alloc(0x3000, bytes(0x3000)); pr = m.e.alloc(0x20, struct.pack("<8I", 0, r.choice([0, 1]), 0, 0x1234, 0, 0, 0, 0))
+    m.e.write(ctx + 4, struct.pack("<I", pr))
+    f = m.e.alloc(0x1000, bytes(0x1000)); m.e.write(f, struct.pack("<11I", ctx, 0, 0, 0, 0, 0, 0, 0, r.choice([0, 0, 1]), 7, r.choice([0, 4, 50, 1000])))
+    rr = m.e.call("dis_update_stats", f)
+    return rr.stop, m.e.read(f, 0x1000), [x for x in m.log if x[0] != "copy"]
+
+GCTRL_IDS = ([0x8000000, 0x8000002, 0x8000003, 0x8000009, 0x800001f, 0x8000021, 0x8000030, 0x8000040, 0x8000041],
+             [0x980916, 0x980917, 0x980919, 0x98091a, 0x98091c, 0x98091d, 0x98091e],
+             [0x8000160, 0x8000163, 0x8000165, 0x8000167, 0x8000168],
+             [0x8000083, 0x80000a1])
+def c_gctrl(m, r, k):                   # apical_isp_core_ops_g_ctrl: jump-table arms + typed offsets (copy to user)
+    t375_world(m, r, {0x40: r.getrandbits(32)})
+    tun = m.e.alloc(0x4400, bytes(r.getrandbits(8) for _ in range(0x4400)))
+    ub = m.e.alloc(0x100, b"\x55" * 0x100)
+    ids = GCTRL_IDS[k % len(GCTRL_IDS)]; cid = ids[r.randrange(len(ids))]
+    ctl = m.e.alloc(8, struct.pack("<II", cid, ub))
+    rr = m.e.call("apical_isp_core_ops_g_ctrl", tun, ctl)
+    return rr.stop, s32(rr.v0), m.e.read(ctl, 8), m.e.read(ub, 0x100), cid
+
+C375 = (("roi", c_roi), ("vflip", c_vflip), ("gain_log2", c_gain), ("api_buffer", c_apibuf), ("release_all", c_release),
+        ("ae_weight", c_weight), ("dis_stats", c_dis), ("g_ctrl", c_gctrl))
+def t_ptr_scale(V, O, rnd, n):
+    V, O = Mod(V.path, {}), Mod(O.path, {})          # fresh modules: no hooks/state of the other groups
+    bad = 0
+    for k in range(n):
+        for nm, c in C375:
+            seed = rnd.getrandbits(32)
+            res = [c(m, random.Random(seed), k) for m in (V, O)]
+            if res[0] != res[1]:
+                bad += 1
+                if bad < 8: print("DIFF %s k=%d: vendor %s open %s" % (nm, k, str(res[0])[:300], str(res[1])[:300]))
+    return bad
+
 TESTS = [("nr_selectors", t_nr), ("general_frame_start", t_general), ("fsm_switch_state", t_fsm), ("crop_event", t_crop),
          ("sbus_write_u8", t_sbus), ("awb_normalise", t_normalise), ("event_queue_push", t_queue),
          ("awb_mesh_chain", t_mesh), ("compute_weight", t_weight), ("awb_calc_mesh", t_calc),
-         ("gp_lock_paths", t_gp_lock), ("ioctl_uaccess", t_uaccess)]
+         ("gp_lock_paths", t_gp_lock), ("ioctl_uaccess", t_uaccess),
+         ("ptr_scale", t_ptr_scale)]
 
 def main():
     vko, oo = sys.argv[1], sys.argv[2]
