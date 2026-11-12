@@ -751,13 +751,50 @@ static u32 vic_mdma_ch0_sub_get_num;
 static u32 vic_mdma_ch1_set_buff_index;
 static u32 vic_mdma_ch1_sub_get_num;
 
-/* GPIO info and state for vic_framedone_irq_function - matching reference driver */
-static volatile int gpio_switch_state = 0;
-static struct {
-    uint8_t pin;
-    uint8_t pad[19];  /* Padding to reach offset 0x14 */
-    uint8_t state;    /* GPIO state at offset 0x14 */
-} gpio_info[10];
+/* GPIO info and state for vic_framedone_irq_function (tx_isp_t31_gpio.h,
+ * Lu-Fi/openimp#408).  Written by the 0x2000018 event, read in frame done. */
+#include "tx_isp_t31_gpio.h"
+
+static struct t31_gpio_state vic_gpio = {
+    .info = { .pin = { 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff } },
+};
+static DEFINE_SPINLOCK(vic_gpio_lock);
+
+static int vic_gpio_request(unsigned int pin, const char *label)
+{
+    return private_gpio_request(pin, label);
+}
+
+static void vic_gpio_release(unsigned int pin)
+{
+    private_gpio_free(pin);
+}
+
+static int vic_gpio_direction_output(unsigned int pin, int value)
+{
+    return private_gpio_direction_output(pin, value);
+}
+
+static const struct t31_gpio_ops vic_gpio_ops = {
+    .request = vic_gpio_request,
+    .release = vic_gpio_release,
+    .direction_output = vic_gpio_direction_output,
+};
+
+/* VIC sensor-ioctl events 0x2000017 (GPIO init/free) and 0x2000018 (GPIO state). */
+int tx_isp_vic_gpio_event(unsigned int cmd, void *arg)
+{
+    unsigned long flags;
+    int ret;
+
+    if (cmd == TX_ISP_EVENT_GPIO_STATE && arg) {
+        spin_lock_irqsave(&vic_gpio_lock, flags);
+        ret = t31_gpio_vic_event(&vic_gpio, cmd, arg, &vic_gpio_ops);
+        spin_unlock_irqrestore(&vic_gpio_lock, flags);
+        return ret;
+    }
+    return t31_gpio_vic_event(&vic_gpio, cmd, arg, &vic_gpio_ops);
+}
 
 /* OEM EXACT: vic_framedone_irq_function
  * Only updates bank count in 0x300. NO frame delivery. NO buffer recycling.
@@ -804,23 +841,16 @@ int vic_framedone_irq_function(struct tx_isp_vic_device *vic_dev)
     }
 
 gpio_handling:
-    /* OEM: GPIO switch handling */
-    if (gpio_switch_state != 0) {
-        struct {
-            uint8_t pin;
-            uint8_t pad[19];
-            uint8_t state;
-        } *gpio_ptr = &gpio_info[0];
+    /* OEM: GPIO switch handling (0x242c: flag, then direction_output per pin) */
+    if (vic_gpio.switch_state != 0) {
+        unsigned long flags;
+        int bad;
 
-        gpio_switch_state = 0;
-
-        for (int i = 0; i < 0xa; i++) {
-            uint32_t gpio_pin = (uint32_t)gpio_ptr->pin;
-            if (gpio_pin == 0xff)
-                break;
-            /* Placeholder for private_gpio_direction_output */
-            gpio_ptr++;
-        }
+        spin_lock_irqsave(&vic_gpio_lock, flags);
+        bad = t31_gpio_frame_done(&vic_gpio, &vic_gpio_ops);
+        spin_unlock_irqrestore(&vic_gpio_lock, flags);
+        if (bad >= 0)
+            pr_err("vic_framedone_irq_function: SET ERR GPIO(%d)\n", bad);
     }
 
     return 0;
@@ -2125,26 +2155,9 @@ int vic_sensor_ops_ioctl(struct tx_isp_subdev *sd, unsigned int cmd, void *arg)
                     }
                     return 0;
 
-		        case 0x2000017:
-		            pr_info("vic_sensor_ops_ioctl: GPIO configuration (cmd=0x%x)\n", cmd);
-		            /* Binary Ninja GPIO configuration - simplified for now */
-		            if (arg) {
-		                gpio_switch_state = 0;  /* Reset GPIO state */
-		                /* memcpy(&gpio_info, arg, 0x2a) would go here */
-		                pr_info("vic_sensor_ops_ioctl: GPIO config processed\n");
-		            }
-		            return 0;
-
-		        case 0x2000018:
-		            pr_info("vic_sensor_ops_ioctl: GPIO switch state (cmd=0x%x)\n", cmd);
-		            /* Binary Ninja: gpio_switch_state = 1, memcpy(&gpio_info, arg, 0x2a) */
-		            gpio_switch_state = 1;
-		            if (arg) {
-		                /* Copy GPIO info structure */
-		                memcpy(&gpio_info, arg, 0x2a);
-		                pr_info("vic_sensor_ops_ioctl: GPIO switch state enabled, info copied\n");
-		            }
-		            return 0;
+                case 0x2000017: /* stock 0x121c: GPIO init/free */
+                case 0x2000018: /* stock 0x12e4: GPIO state */
+                    return tx_isp_vic_gpio_event(cmd, arg);
             }
         }
     }
