@@ -24,6 +24,12 @@ one() {	# $1 = index, $2 = sed expression; writes $M/$1.msg on failure
 	T32_IQ_DIR="${T32_IQ_DIR:-}" T40_ORACLE_STRICT=0 timeout "$T" "$d/$NAME.mut" >/dev/null 2>&1 && mrc=0 || mrc=$?
 	if [ "$mrc" -eq 0 ]; then
 		echo "$NAME: mutation NOT detected: $2" > "$M/$1.msg"
+	elif [ "$mrc" -eq 132 ] || [ "$mrc" -eq 134 ] || [ "$mrc" -eq 135 ] || [ "$mrc" -eq 136 ] || [ "$mrc" -eq 139 ]; then
+		# SIGILL / SIGABRT / SIGBUS / SIGFPE / SIGSEGV: the original oracle ran the same inputs without a fault, so
+		# the mutated driver code read or wrote outside its tables on an input the reference handled: a detection
+		# by a behaviour difference of the driver code itself, not a crash of the harness (#364); only a time limit
+		# (rc 124: the mutant no longer ends) and other signals (kill, ...) stay listed as crash-only
+		:
 	elif [ "$mrc" -eq 124 ] || [ "$mrc" -ge 128 ]; then
 		echo "$NAME: mutant $1 detected only by a crash/timeout (rc $mrc): $2" > "$M/$1.crash"
 	fi

@@ -548,12 +548,61 @@ static int bin_cases(const char *dir)
 	return n;
 }
 
+/*
+ * Synthetic IQ bins (no T32_IQ_DIR needed, openimp #364): the section table is built here, the expected
+ * position of section 24 comes from the layout we wrote, not from t32_iq_section.  Section 23 gets a
+ * body of its own, so a wrong section index (23 / 25) lands elsewhere.  Sections 0..22 are enabled at
+ * random with short zero bodies (7, 12, 13, 19, 20 stay disabled: their payload size reads bytes of the stream).  Variants: section 24
+ * present, disabled, one byte short, or cut off by the end of the bin.
+ */
+static int synth_bins(void)
+{
+	static u8 b[0x4000];
+	unsigned int c, i, n = 0;
+
+	for (c = 0; c < 24; c++) {
+		u32 off = 0xa0, off24 = 0, len24 = c % 4 == 2 ? PB - 1 : PB, bytes;
+		int present = c % 4 != 1;
+
+		memset(b, 0, sizeof(b));
+		for (i = 0; i < 28; i++) {
+			u32 l = i == 23 || i == 24 ? len24 : 4 * (rnd() % 8), en = i == 24 ? (u32)present : (i == 23 || (rnd() % 4 && i != 7 && i != 12 && i != 13 && i != 19 && i != 20));
+
+			put16(b, 0x14 + 4 * i, en);
+			put16(b, 0x16 + 4 * i, l);
+			if (!en)
+				continue;
+			if (i == 24)
+				off24 = off;
+			if (i == 23 || i == 24) {
+				u32 k;
+
+				for (k = 0; k < l; k++)
+					b[off + k] = (u8)(i * 16 + k);
+				if (i == 24 && l >= PB)
+					gen_sec(b + off, c % 3 == 2);	/* a valid AF section for one_case */
+			}
+			off += l;
+		}
+		bytes = c % 4 == 3 ? off24 + PB - 4 : off;	/* variant 3: the bin ends inside section 24 */
+		if (t32_afg_af_section(b, bytes) != (present && len24 >= PB && c % 4 != 3 ? b + off24 : NULL))
+			DIE("section", "synthetic bin %u: AF section is not the one laid out at section 24", c);
+		if (!present || len24 < PB || c % 4 == 3)
+			continue;
+		n++;
+		for (i = 0; i < 2; i++)
+			one_case(t32_afg_af_section(b, bytes), bin_sizes[i][0], bin_sizes[i][1], 8);
+	}
+	return (int)n;
+}
+
 int main(void)
 {
 	const char *dir = getenv("T32_IQ_DIR");
 	int strict = getenv("T40_ORACLE_STRICT") && atoi(getenv("T40_ORACLE_STRICT"));
 	unsigned int i, nr = getenv("T32O_NRAND") ? (unsigned)atoi(getenv("T32O_NRAND")) : 400;
 	u8 sec[PB];
+	unsigned int sbins;
 
 	for (i = 0; i < nr; i++) {
 		u32 w = (i & 1) ? bin_sizes[rnd() % 4][0] : 64 + rnd() % 4000;
@@ -562,9 +611,10 @@ int main(void)
 		gen_sec(sec, (i % 3) == 2);
 		one_case(sec, w, h, 12);
 	}
+	sbins = (unsigned int)synth_bins();
 	bins = (unsigned int)bin_cases(dir);
-	printf("t32_afgsm_oracle: %u cases (%u IQ bins x 4 sizes), %u frames, %u compared, 0 mismatches\n",
-	       cases, bins, frames, compared);
+	printf("t32_afgsm_oracle: %u cases (%u synthetic bins, %u IQ bins x 4 sizes), %u frames, %u compared, 0 mismatches\n",
+	       cases, sbins, bins, frames, compared);
 	if (!bins) {
 		printf("t32_afgsm_oracle: IQ-bin part: SKIP (set T32_IQ_DIR to a directory of T32 *.bin)\n");
 		return strict ? 2 : 0;
