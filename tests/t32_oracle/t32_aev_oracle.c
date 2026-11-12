@@ -157,6 +157,17 @@ static void gen(struct par *p)
 		put32(img + OFF_ST + 624, (lo >> (sh & 31)) + rnd() % 50);
 }
 
+static const struct par *gp;
+static u8 *gA;
+static u32 *gout;
+static void aev_ours_g(void *sp)
+{
+	struct snap *s = sp;
+
+	s->ret = t32_aev_api_ev_alloc_calc(gA + OFF_TUNE, gA + OFF_BUF, gA + OFF_ST, gp->a2, gp->a3, gout,
+					   gout + 1, gout + 2, &OPS);
+}
+
 static void run_side(int side, const struct par *p, struct snap *s)
 {
 	u8 *A;
@@ -183,8 +194,11 @@ static void run_side(int side, const struct par *p, struct snap *s)
 		s->ret = CALLF(tisp_ae_api_ev_alloc_calc, ch, 0, p->a2, p->a3, T32O_PTR(out));
 		t32o_arg5 = t32o_arg6 = 0;
 	} else {
-		s->ret = t32_aev_api_ev_alloc_calc(A + OFF_TUNE, A + OFF_BUF, A + OFF_ST, p->a2, p->a3, out,
-						   out + 1, out + 2, &OPS);
+		gp = p; gout = out; gA = A;
+		if (t32o_guard(aev_ours_g, s)) {
+			printf("t32_aev_oracle: MISMATCH, api_ev_alloc_calc does not return (runaway loop)\n");
+			exit(1);
+		}
 		s->ret |= (u64)T32O_PTR(out + 2) << 32;
 	}
 	memcpy(s->mem, A, ARENA);
