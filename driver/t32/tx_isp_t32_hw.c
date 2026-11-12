@@ -45,6 +45,7 @@
 #include "tx_isp_t33_tmo.h"
 #include "tx_isp_t33_clm.h"
 #include "tx_isp_t33_msca.h"
+#include "tx_isp_t33_msca_curve.h"
 #include "tx_isp_t33_mdns.h"
 #include "tx_isp_t33_ae.h"
 #include "tx_isp_t33_awb.h"
@@ -1837,24 +1838,43 @@ static void t33_rcfg_run(unsigned int id)
 
 /*
  * tisp_msca_t33_chx_cfg_load + tisp_msca_t33_chx_en on the single-sensor
- * path for an unscaled channel whose list 23 geometry (from the init) is
- * the asked one: the scaling enables 0 (tisp_msca_t33_scaling_algorithm),
- * 0xf0128 and the strides direct, the slot stores (CfgMode slot numbers,
- * ch * 0x1e + ...), the enable bit, then list 23 alone.  Other channels
- * go the direct way (scaled curves not yet from the list).
+ * path: the scaling enables 0 (tisp_msca_t33_scaling_algorithm, PRJ008
+ * flags), the curves (tisp_msca_t33_curve_calc / ch_curve_write: ratios
+ * out << 14 / in, channel 0 against the section 25 crop size when its
+ * flag is set), sizes and steps (in << 14 / out), 0xf0128 and the strides
+ * direct, the slot stores (CfgMode slot numbers, ch * 0x1e + ...), the
+ * enable bit, then list 23 alone.  A cropped channel 1 / 2 (section 25
+ * flags) or an upscale goes the direct way.
  */
 static bool t33_msca_list_start(int ch, u32 w, u32 h, u32 stride, u32 in_w, u32 in_h)
 {
 	u32 *l = (t33_mod_built & (1ULL << T33_MOD_MSCA)) ? t33_mod_buf(T33_MOD_MSCA) : NULL;
-	u32 b = 0x1e * (u32)ch;
+	u32 b = 0x1e * (u32)ch, wh = (w & 0xffff) << 16 | (h & 0xffff), cw = w, chh = h, bytes, len, off;
+	const u8 *bin, *s25 = NULL;
 
-	if (!l || t33_msca_direct || w != in_w || h != in_h || l[0] < b + 0x33 ||
-	    l[b + 0x1b + 1] != t32_msca_size_word(w, h)) {
+	if (!t32_core_iq_bin(&bin, &bytes) && (off = t32_iq_section(bin, bytes, T33_SEC_MSCA, &len)) && len >= 0xc8)
+		s25 = bin + off;
+	if (!l || !s25 || t33_msca_direct || l[0] < 0x12d || !w || !h || w > in_w || h > in_h) {
 		t33_msca_direct |= 1U << ch;
 		return false;
 	}
+	if (t32_tp_le16(s25 + 0xb8 + 2 * ch)) {	/* crop: tisp_msca_t33_curve_calc's ratio base */
+		if (ch) {
+			t33_msca_direct |= 1U << ch;
+			return false;
+		}
+		cw = t32_tp_le16(s25 + 0xbe);
+		chh = t32_tp_le16(s25 + 0xc0);
+	}
 	T33_SW(l, 6, 0);
 	T33_SW(l, 1, 1);
+	t33_msca_curves(l, ch, t33_msca_ratio(cw, in_w), t33_msca_ratio(chh, in_h));
+	T33_SW(l, b + 0x1a, 0);
+	T33_SW(l, b + 0x1b, wh);
+	T33_SW(l, b + 0x1c, 0);
+	T33_SW(l, b + 0x1d, wh);
+	T33_SW(l, b + 0x1e, (in_h << 14) / h);
+	T33_SW(l, b + 0x1f, (in_w << 14) / w);
 	isp_wr(0xf0128 + 0x100 * ch, 0);
 	T33_SW(l, b + 0x22, 0xffffffff);
 	ch_wr(ch, T32_MSCA_Y_STRIDE, stride);

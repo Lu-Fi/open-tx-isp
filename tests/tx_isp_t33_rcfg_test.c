@@ -28,6 +28,7 @@
 #include "../driver/t32/tx_isp_t33_tmo.h"
 #include "../driver/t32/tx_isp_t33_clm.h"
 #include "../driver/t32/tx_isp_t33_msca.h"
+#include "../driver/t32/tx_isp_t33_msca_curve.h"
 #include "../driver/t32/tx_isp_t33_mdns.h"
 #include "../driver/t32/tx_isp_t33_ae.h"
 #include "../driver/t32/tx_isp_t33_awb.h"
@@ -209,6 +210,42 @@ int main(void)
 	const char *bp = getenv("T33_IQ_BIN"), *rp = getenv("T33_LIST_REF");
 
 	test_stats();
+	/* MSCA curves: every phase of every set sums to 2048 (1:1, 1:3, 2:3 on all channels) */
+	{
+		static const unsigned int r[3] = { 0x4000, 5461, 10922 }, taps[2][4] = { { 4, 4, 2, 2 }, { 4, 6, 2, 3 } };
+		static u32 ml[0x140];
+		unsigned int i, ch, k, p, t, s;
+
+		for (i = 0; i < 3; i++)
+			for (ch = 0; ch < 3; ch++) {
+				t33_msca_curves(ml, (int)ch, r[i], r[i]);
+				s = ch == 0 ? 0xcc : ch == 1 ? 0xe9 : 0x10c;
+				for (k = 0; k < 4; k++) {
+					unsigned int nt = taps[!!ch][k], n = nt * 4;
+					int c[26];
+
+					for (t = 0; t <= n; t++) {
+						u32 wd = ml[1 + s + t / 2] >> (t & 1 ? 16 : 0) & 0x1fff;
+
+						c[t] = wd & 0x1000 ? (int)wd - 0x2000 : (int)wd;
+					}
+					for (p = 0; p < 8; p++) {
+						int sum = 0;
+
+						for (t = 0; t < nt; t++) {
+							int pos = (nt == 3 ? -4 : -(int)(nt / 2 - 1) * 8) + 8 * (int)t - (int)p;
+
+							sum += c[pos < 0 ? -pos : pos];
+						}
+						/* the vendor's own check: phase 0 shares taps, 2048 +- 1 */
+						if (sum != 2048 && (p || (sum != 2047 && sum != 2049)))
+							printf("msca r %#x ch %u set %u phase %u sum %d\n", r[i], ch, k, p, sum);
+						CHECK(sum == 2048 || (!p && (sum == 2047 || sum == 2049)));
+					}
+					s += n / 2 + 1;
+				}
+			}
+	}
 	/* builder: ascending, block id dropped, runs merged */
 	{
 		struct t32_front_write in[] = { { 0xb048, 3 }, { 0xb010, 1 }, { 0xb000, 0x1234 }, { 0xb040, 2 },

@@ -8,7 +8,7 @@
  * 0xf0570 / 0xf0580 coefficient defaults, 0xf0170 + 0x100 * ch = width;
  * channels 1 and 2 take the u32 at +0x2c of IQ bin section 25.  The
  * vendor's direct 0xf0128 + 0x100 * ch = 0 is the caller's.
- * The channel set-up at FS time stays with the driver's own MSCA code.
+ * The channel set-up at FS time: tx_isp_t33_msca_curve.h and t33_msca_list_start.
  * QEMU trace of the vendor module (openimp #388): list 23 word-equal.
  */
 #ifndef TX_ISP_T33_MSCA_H
