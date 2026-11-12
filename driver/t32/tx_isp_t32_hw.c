@@ -39,6 +39,7 @@
 #include "tx_isp_t33_lsc.h"
 #include "tx_isp_t33_gamma.h"
 #include "tx_isp_t33_defog.h"
+#include "tx_isp_t33_lce.h"
 #include "tx_isp_t32_lsc.h"
 #include "tx_isp_t32_stats.h"
 #include "tx_isp_t32_iq.h"
@@ -234,6 +235,11 @@ static unsigned long t33_lsc_pages;
 static unsigned long t33_defog_pages;
 static u8 t33_defog_sec[T33_DEFOG_SEC_BYTES];
 #define T33_DEFOG_ORDER	get_order(T33_DEFOG_DMA_BYTES)
+/* LCE curve buffer (0xc0a4, written by us) and statistics buffer (0xc090.., by the core) */
+static unsigned long t33_lce_curve_pages, t33_lce_stat_pages;
+static u8 t33_lce_sec[T33_LCE_SEC_BYTES];
+#define T33_LCE_CURVE_ORDER	get_order(T33_LCE_CURVE_BYTES)
+#define T33_LCE_STAT_ORDER	get_order(T33_LCE_STAT_BYTES)
 
 static void t33_mod_free(void)
 {
@@ -245,6 +251,12 @@ static void t33_mod_free(void)
 	if (t33_defog_pages)
 		free_pages(t33_defog_pages, T33_DEFOG_ORDER);
 	t33_defog_pages = 0;
+	if (t33_lce_curve_pages)
+		free_pages(t33_lce_curve_pages, T33_LCE_CURVE_ORDER);
+	t33_lce_curve_pages = 0;
+	if (t33_lce_stat_pages)
+		free_pages(t33_lce_stat_pages, T33_LCE_STAT_ORDER);
+	t33_lce_stat_pages = 0;
 
 	for (i = 0; i < T33_MODULES; i++) {
 		if (t33_mod_page[i])
@@ -584,6 +596,24 @@ static void t33_tisp_init(const u8 *bin, u32 bytes)
 			t33_mod_done(T33_MOD_DEFOG, t33_defog_init(t33_defog_sec, width, height,
 								   (u32)virt_to_phys((void *)t33_defog_pages),
 								   buf, T33_SLOT_WORDS));
+	}
+	off = t32_iq_section(bin, bytes, T33_SEC_LCE, &len);
+	if (off && len == T33_LCE_SEC_BYTES && !t32_core_sensor_size(&width, &height)) {
+		u32 *buf = t33_mod_buf(T33_MOD_LCE);
+
+		if (!t33_lce_curve_pages)
+			t33_lce_curve_pages = __get_free_pages(GFP_KERNEL | __GFP_ZERO, T33_LCE_CURVE_ORDER);
+		if (!t33_lce_stat_pages)
+			t33_lce_stat_pages = __get_free_pages(GFP_KERNEL | __GFP_ZERO, T33_LCE_STAT_ORDER);
+		/* EV / BV 0 as the vendor's init; the curve written uncached */
+		memcpy(t33_lce_sec, bin + off, sizeof(t33_lce_sec));
+		if (buf && t33_lce_curve_pages && t33_lce_stat_pages) {
+			t33_lce_curve_default((u8 *)CKSEG1ADDR(virt_to_phys((void *)t33_lce_curve_pages)));
+			t33_mod_done(T33_MOD_LCE,
+				     t33_lce_init(t33_lce_sec, width, height, 0, 0,
+						  (u32)virt_to_phys((void *)t33_lce_curve_pages),
+						  (u32)virt_to_phys((void *)t33_lce_stat_pages), buf, T33_SLOT_WORDS));
+		}
 	}
 	off = t32_iq_section(bin, bytes, T33_SEC_LSC, &len);
 	if (off && len == T33_LSC_SEC_BYTES && !t32_core_sensor_size(&width, &height)) {

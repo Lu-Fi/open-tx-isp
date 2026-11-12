@@ -22,6 +22,7 @@
 #include "../driver/t32/tx_isp_t33_lsc.h"
 #include "../driver/t32/tx_isp_t33_gamma.h"
 #include "../driver/t32/tx_isp_t33_defog.h"
+#include "../driver/t32/tx_isp_t33_lce.h"
 
 static int bad;
 #define CHECK(c) do { if (!(c)) { bad++; printf("FAIL line %d: %s\n", __LINE__, #c); } } while (0)
@@ -249,6 +250,31 @@ int main(void)
 				}
 				vs_list("defog", T33_MOD_DEFOG, lb, t33_defog_init(dsec, 1920, 1080, phys, lb,
 										   T33_SLOT_WORDS));
+			}
+			{
+				/* LCE: the statistics (0xc090) and curve (0xc0a4) addresses as the vendor's */
+				static u8 lsec[T33_LCE_SEC_BYTES], cbuf[T33_LCE_CURVE_BYTES];
+				u32 st = 0, cv = 0;
+
+				for (id = 0; id < ref_n[T33_MOD_LCE]; id++) {
+					if (ref_reg[T33_MOD_LCE][id] == 0xc090)
+						st = ref_val[T33_MOD_LCE][id];
+					if (ref_reg[T33_MOD_LCE][id] == 0xc0a4)
+						cv = ref_val[T33_MOD_LCE][id];
+				}
+				off = t32_iq_section(bin, bytes, T33_SEC_LCE, &len);
+				CHECK(off && len == T33_LCE_SEC_BYTES);
+				CHECK(t33_tp_offset(bin, T33_SEC_LCE) == 0x5e5c);
+				memcpy(lsec, bin + off, sizeof(lsec));
+				vs_list("lce", T33_MOD_LCE, lb, t33_lce_init(lsec, 1920, 1080, 0, 0, cv, st, lb, T33_SLOT_WORDS));
+				/* the size calculation gives the vendor's 1080p defaults */
+				CHECK(!memcmp(lsec + 6, bin + off + 6, 0x1c + 1 - 6));
+				CHECK(t32_tp_le16(lsec + 0x2ea) == 7200 && t32_tp_le16(lsec + 0x2f8) == 4660);
+				t33_lce_curve_default(cbuf);
+				CHECK(cbuf[0] == 0 && cbuf[19] == 0xf0 && cbuf[0x1680] == 0 && cbuf[0x2cff] == 0xf0);
+				/* another size: grid 2 * (360 / 12) x 2 * (640 / 24) with remainders */
+				CHECK(t33_lce_init(lsec, 1280, 720, 0, 0, cv, st, lb, T33_SLOT_WORDS) > 0);
+				CHECK(lsec[6] == 60 && lsec[7] == 52 && lsec[8] == 0 && lsec[9] == 16);
 			}
 			{
 				/* LSC: the DMA table address (slot 16) as the vendor's; 0x507c is slab slack there */
