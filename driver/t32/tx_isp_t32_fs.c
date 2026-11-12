@@ -302,8 +302,19 @@ static int t32_fs_release(struct inode *inode, struct file *file)
 	return 0;
 }
 
+/*
+ * misc_open() sets file->private_data to the miscdevice before calling
+ * .open; 3.10.14 does that only when the fops have an .open (4.4.94
+ * always), so without one ioctl and release see a NULL private_data there.
+ */
+static int t32_fs_open(struct inode *inode, struct file *file)
+{
+	return 0;
+}
+
 static const struct file_operations t32_fs_fops = {
 	.owner = THIS_MODULE,
+	.open = t32_fs_open,
 	.unlocked_ioctl = t32_fs_ioctl,
 	.release = t32_fs_release,
 };

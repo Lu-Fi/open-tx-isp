@@ -4,9 +4,17 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD[-rcN]` are set on the `aperto` branch, the same tag in open-tx-isp and OpenIMP: RC1 `v2026.10.11-rc1`, RC2 `v2026.10.25-rc2`, RC3 `v2026.11.07-rc3` (2026-11-07). Gate SoCs of RC3 and Release 1: T10, T20, T21, T23, T30, T31, T40, T41 (T32/T33 planned, QEMU only); release notes: [docs/releases/ in OpenIMP](https://github.com/Lu-Fi/openimp/blob/next/docs/releases/README.md). Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-11-12: T33 runs the vendor libimp 2.0.2.1 in QEMU: 3.10.14 sensor ABI, DEFAULT_BIN layout, clock table (openimp #384; planned, QEMU only)
+
+- Sensor ABI on 3.10.14: `struct tx_isp_subdev` embeds a `struct miscdevice`, which has no `groups` member on 3.10.14 (36 bytes, 4.4.94: 40), so every subdev / sensor offset from the module parent on is 4 bytes lower (notify 0x94, dev_priv 0x114, sensor attribute 0x1a8). `driver/t32/tx_isp_t32_abi.h` now derives them from `sizeof(struct miscdevice)`; before, the prebuilt T33 sensor module jumped into driver data at REGISTER_SENSOR.
+- `/dev/framechanN` has an `.open`: 3.10.14 `misc_open()` sets `file->private_data` only for fops with `.open` (NULL pointer oops at the first FS ioctl before).
+- T33 DEFAULT_BIN uses the T32 layout (880 B, version / SoC at 863 / 871): the camera libimp 2.0.2.1 compares there and the vendor module writes `1.00` / `PRJ008` there; the 856 B of the 2.0.2.1 header are not what libimp uses. DRIVER_VERSION `PRJ008` / `20251107a` confirmed.
+- T33 clock table: no `div_isps`, no `mux_*` clocks; parents set on the dividers (isp / ldc on mpll, vpu / ispa on sclka), `gate_ldc` and `gate_vpu` opened too. Streaming clocks equal to the vendor module's (ISP 325, LDC 325, VPU 316.7, ISPA 475 MHz in QEMU).
+- Evidence: QEMU `-M ingenic-t33` (t33l, cv2005) with the vendor T33 kernel: vendor libimp 2.0.2.1 + this module runs ISP open .. close and 5 / 400 FrameSource frames (colour bars); ioctl sequence equal to the vendor module's except the frame count. The T32 module still builds. Open: per-block RCFG programming (#388), interrupt enables, IVDC direct mode. Not tested on a camera.
+
 ## 2026-11-12: T33 driver build skeleton, tx-isp-t33.ko from driver/t32 (openimp #383; planned, build only)
 
-- `driver/t33` builds `tx-isp-t33.ko` from the `driver/t32` sources with `-DTX_ISP_T33`; per-SoC constants in `driver/t32/tx_isp_t32_soc.h`: SoC string PRJ008, DEFAULT_BIN 856 B with version / SoC at 839 / 847 (T32 880 / 863 / 871), ISP / LDC / VPU clocks 340 / 357 / 340 MHz
+- `driver/t33` builds `tx-isp-t33.ko` from the `driver/t32` sources with `-DTX_ISP_T33`; per-SoC constants in `driver/t32/tx_isp_t32_soc.h`: SoC string PRJ008, DEFAULT_BIN 856 B with version / SoC at 839 / 847 (T32 880 / 863 / 871; corrected to the T32 layout by #384), ISP / LDC / VPU clocks 340 / 357 / 340 MHz
 - Evidence: every ioctl number and payload size the T32 driver serves is issued unchanged by the T33 2.0.2.1 libimp; the T32 module built from the changed sources has identical `.text` and strings. Not run in QEMU or on a camera yet (next: #384, #386)
 ## 2026-11-12: T30 g_ctrl ids 0x8000020 and 0x800002c served (openimp #379; host test, oracle)
 

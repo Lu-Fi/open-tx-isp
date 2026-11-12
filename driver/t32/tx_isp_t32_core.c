@@ -58,7 +58,7 @@ MODULE_PARM_DESC(driver_version, "ISP driver version answered to DRIVER_VERSION 
  * (bin bytes 152.., "PRJ007").  The rest of the buffer is left zero, as far
  * as libimp 2.2.0 is concerned (S1).
  */
-/* T32_DEFAULT_BIN_SIZE / _VER / _SOC: tx_isp_t32_soc.h (T33: 856 / 839 / 847) */
+/* T32_DEFAULT_BIN_SIZE / _VER / _SOC: tx_isp_t32_soc.h (T33: same 880 / 863 / 871) */
 static char *bin_version = "1.00";
 module_param(bin_version, charp, 0444);
 MODULE_PARM_DESC(bin_version, "IQ bin format version the driver accepts");
@@ -588,6 +588,31 @@ struct t32_clk {
 	struct clk *clk;
 };
 
+#ifdef TX_ISP_T33
+/*
+ * T33 3.10.14 clock tree (vendor module strings and /proc/jz/clock/clocks
+ * in QEMU): no div_isps and no mux_* clocks; the parents are set on the
+ * dividers themselves.  Vendor defaults measured: div_isp 325 MHz (mpll,
+ * 340 asked), div_ldc 325 (mpll, 357 asked), div_vpu 316.7 (sclka, 340
+ * asked), div_ispa 475 (sclka); gate_ldc and gate_vpu are opened too.
+ */
+static struct t32_clk t32_clks[] = {
+	{ "div_isp", T32_CLK_ISP_PROBE, T32_CLK_ISP },
+	{ "div_ldc", T32_CLK_LDC_PROBE, T32_CLK_LDC },
+	{ "gate_isp" },
+	{ "div_ispa", 500000000, 500000000 },
+	{ "div_vpu", T32_CLK_VPU_PROBE, T32_CLK_VPU },
+	{ "gate_ivdc" },
+	{ "gate_csi" },
+	{ "gate_ldc" },
+	{ "gate_vpu" },
+};
+
+static const char *const t32_clk_parents[][2] = {
+	{ "div_isp", "mpll" }, { "div_ldc", "mpll" },
+	{ "div_ispa", "sclka" }, { "div_vpu", "sclka" },
+};
+#else
 static struct t32_clk t32_clks[] = {
 	{ "div_isp", T32_CLK_ISP_PROBE, T32_CLK_ISP },
 	{ "div_isps", 476000000, 476000000 },
@@ -603,6 +628,7 @@ static const char *const t32_clk_parents[][2] = {
 	{ "mux_isp", "mpll" }, { "mux_isps", "mpll" }, { "mux_ldc", "mpll" },
 	{ "mux_ispa", "sclka" }, { "mux_vpu", "sclka" },
 };
+#endif
 
 static unsigned int t32_clk_users;
 

@@ -6,14 +6,17 @@
  * interrupt layout with the T32 (T33 plan, step 1).
  *
  * DEFAULT_BIN: size of the IMPISPBinInfo libimp passes, and the offsets of
- * its version[8] and soc[8] members.  The T33 2.0.2.1 header has no
- * paddr[6] in tisp_bin_attr_t (828 bytes, T32 852), so the struct is 24
- * bytes shorter: 856 / 839 / 847 against 880 / 863 / 871 on the T32.
+ * its version[8] and soc[8] members.  The T33 2.0.2.1 header suggests a
+ * 856-byte struct (no paddr[6] in tisp_bin_attr_t), but the camera libimp
+ * 2.0.2.1 compares version / soc at 863 / 871 of an 880-byte buffer and the
+ * vendor T33 module writes "1.00" / "PRJ008" there (QEMU trace, T33 plan
+ * step 2): the T33 uses the T32 layout.
  *
- * Clocks: working rates of the vendor glue (isp_clk, isp_clkl, isp_clkv);
- * the scaler and AXI rates and the parents (sclka, mpll) are the same on
- * both SoCs.  The T33 probe rates are taken equal to the working rates until
- * the T33 QEMU trace (step 2) shows the platform table.
+ * Clocks: rates the vendor module asks for (isp_clk, isp_clkl, isp_clkv
+ * defaults).  On the T33 the probe and working rates are the same; the
+ * vendor module without parameters ends at ISP 325 / LDC 325 / VPU 316.7 /
+ * ISPA 475 MHz in QEMU (mpll 1300, sclka 950).  The T33 clock names and
+ * parents are in tx_isp_t32_core.c (t32_clks).
  */
 #ifndef TX_ISP_T32_SOC_H
 #define TX_ISP_T32_SOC_H
@@ -22,9 +25,9 @@
 #define T32_SOC_NAME		"PRJ008"
 #define T32_SOC_DRV		"tx-isp-t33"
 #define T32_SOC_DESC		"Open Ingenic T33 ISP driver (T32 family, skeleton)"
-#define T32_DEFAULT_BIN_SIZE	856
-#define T32_DEFAULT_BIN_VER	839
-#define T32_DEFAULT_BIN_SOC	847
+#define T32_DEFAULT_BIN_SIZE	880
+#define T32_DEFAULT_BIN_VER	863
+#define T32_DEFAULT_BIN_SOC	871
 #define T32_CLK_ISP_PROBE	340000000UL
 #define T32_CLK_ISP		340000000UL
 #define T32_CLK_LDC_PROBE	357000000UL
