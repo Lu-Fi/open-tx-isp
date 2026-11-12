@@ -14,6 +14,11 @@ the per-SoC constants are in `../t32/tx_isp_t32_soc.h`:
 | Clocks | div_isp, div_isps, div_ldc, div_ispa, div_vpu + mux_* parents | no div_isps, no mux_*; parents on the dividers, gate_ldc / gate_vpu |
 | Sensor subdev offsets (kernel) | 4.4.94: notify 0x98 | 3.10.14: notify 0x94 (miscdevice 4 bytes shorter) |
 | ISP / LDC / VPU clock | 219 / 588 / 500 MHz | 340 / 357 / 340 MHz |
+| Block programming | direct writes, one stream-on list (LSC) | one register list per block, started at stream-on |
+| Interrupts | masked at probe | no ISP access before the first open; list-done word 0x300c0 used |
+
+Both modules accept the vendor glue parameters (`clk_name`, `isp_clk`, ...,
+`direct_mode`, `ivdc_*`); `direct_mode` is not implemented yet.
 
 Evidence: the ioctl numbers and payload sizes the T32 driver serves are all
 issued by the T33 2.0.2.1 libimp with the same values; 279 public typedefs of
@@ -23,9 +28,14 @@ the T32 2.2.0 and T33 2.0.2.1 headers have the same size except
 QEMU (`-M ingenic-t33`, t33l, cv2005, vendor T33 kernel; openimp #384): the
 vendor libimp 2.0.2.1 runs ISP open, sensor, FrameSource frames and the full
 teardown on this module; DRIVER_VERSION `PRJ008` / `20251107a` and the clocks
-match the vendor module. Not done yet: the IQ bin section sizes and the
-register-list (RCFG) programming of the T33 ISP blocks (the vendor module
-runs ~30 lists, this one only the stream-on list). Not tested on a camera.
+match the vendor module. Register lists (openimp #388): the T33 programs its
+blocks through one register list per block (`../t32/tx_isp_t32_rcfg33.h`);
+done so far: top (list 33), CSC (13), CDNS (21), CSCCR (22), each equal to
+the vendor module's list word for word in QEMU. The PRJ008 IQ bin walk uses
+the T33 payload rules; T32 block code runs only on sections of the T32 size.
+Not done yet: the other ~20 block lists, AE/AWB statistics (#389), the MSCA
+list, per-frame list refresh and IVDC direct mode (`direct_mode` is accepted
+but the buffered path is used). Not tested on a camera.
 
 Build (3.10.14 kernel tree):
 

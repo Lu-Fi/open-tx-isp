@@ -46,4 +46,45 @@ static inline int t32_cdns_init(const u8 *sec, struct t32_front_write *w)
 	return (int)n;
 }
 
+/*
+ * T33 (PRJ008) CDNS: section 18 is 588 bytes; the T33 module interpolates
+ * 54 values at the gain 1.0 (0x10000) at init: 38 tables of 11 bytes from
+ * +4, the flag at +0x1a6, 15 more tables from +0x1a7, and writes the T32's
+ * registers plus 0x12088..0x12094 (tisp_cdns_par_refresh +
+ * func_cdns_para_update of the T33 module).  Module list 21.
+ */
+#define T33_CDNS_SEC_BYTES	588U
+#define T33_CDNS_WRITES		21
+
+static inline int t33_cdns_init(const u8 *sec, struct t32_front_write *w)
+{
+	u8 o[0x36];
+	unsigned int n = 0, k;
+
+	for (k = 0; k < 0x26; k++)
+		o[k] = t32_tp_intp_u8(1, 0, sec + 4 + 11 * k);
+	o[0x26] = sec[0x1a6];
+	for (k = 0x27; k < 0x36; k++)
+		o[k] = t32_tp_intp_u8(1, 0, sec + 0x1a7 + 11 * (k - 0x27));
+	T32_FWR(w, n, 0x12040, o[0] & 7U);
+	for (k = 0; k < 8; k++)
+		T32_FWR(w, n, 0x12050 + 4 * k, (u32)o[2 + 3 * k] << 8 | (u32)o[3 + 3 * k] << 16 | o[1 + 3 * k]);
+	T32_FWR(w, n, 0x12070, o[0x19] | (u32)o[0x1c] << 24 | (u32)(o[0x1a] & 0x3f) << 8 |
+		(u32)(o[0x1b] & 0x3f) << 16);
+	T32_FWR(w, n, 0x12074, (u32)(o[0x1e] & 0x3f) << 8 | (u32)(o[0x1f] & 0x3f) << 16 | (o[0x1d] & 7U));
+	T32_FWR(w, n, 0x12078, o[0x20] & 3U);
+	T32_FWR(w, n, 0x1207c, (u32)(o[0x22] & 0xf) << 16 | o[0x21]);
+	T32_FWR(w, n, 0x12080, (u32)(o[0x24] & 0x3f) << 8 | (u32)(o[0x25] & 0x3f) << 16 | (o[0x23] & 7U));
+	T32_FWR(w, n, 0x12084, (u32)o[0x27] << 4 | (o[0x26] & 1U));
+	T32_FWR(w, n, 0x12088, (u32)(o[0x2f] & 0x1f) << 8 | (u32)(o[0x30] & 0x3f) << 16 |
+		(o[0x2e] & 0x3fU) | (u32)(o[0x31] & 0x3f) << 24);
+	T32_FWR(w, n, 0x1208c, (u32)o[0x33] << 8 | (u32)o[0x35] << 16 | (o[0x32] & 0x1fU) |
+		(u32)(o[0x34] & 1) << 24);
+	T32_FWR(w, n, 0x12090, (u32)(o[0x2b] & 0x3f) << 8 | (u32)(o[0x2c] & 0x3f) << 16 |
+		(o[0x2a] & 0x3fU) | (u32)(o[0x2d] & 0x3f) << 24);
+	T32_FWR(w, n, 0x12094, (u32)(o[0x29] & 0x3f) << 8 | (o[0x28] & 0x3fU));
+	T32_FWR(w, n, 0x12010, 1);
+	return (int)n;
+}
+
 #endif /* TX_ISP_T32_CDNS_H */

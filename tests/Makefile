@@ -119,6 +119,10 @@ tx_isp_t32_msca_curve_test: tx_isp_t32_msca_curve_test.c ../driver/t32/tx_isp_t3
 	$(CC) $(CFLAGS) -o $@ $<
 
 TESTS += tx_isp_t32_vic_test
+TESTS += tx_isp_t33_rcfg_test
+
+tx_isp_t33_rcfg_test: tx_isp_t33_rcfg_test.c $(wildcard ../driver/t32/tx_isp_t32_*.h)
+	$(CC) $(CFLAGS) -o $@ $<
 
 tx_isp_t32_mem_rcfg_test: tx_isp_t32_mem_rcfg_test.c ../driver/t32/tx_isp_t32_mem.h ../driver/t32/tx_isp_t32_rcfg.h
 	$(CC) $(CFLAGS) -o $@ $<

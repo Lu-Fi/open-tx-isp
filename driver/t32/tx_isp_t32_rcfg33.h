@@ -85,14 +85,15 @@ static inline int t33_rcfg_build(struct t32_rcfg_list *l, u32 *buf, u32 cap,
  * tisp_top_init + tisp_top_reg_cfg + tisp_top_restart_cfg of the T33
  * module, pipeline 0: sec = IQ section 0 (108 bytes; the T32's fields 8
  * bytes later).  lw: the top list (module 33), dw: direct writes before
- * the lists.  bayer from t32_mbus_to_bayer.
+ * the lists.  bayer from t32_mbus_to_bayer; direct: IVDC direct mode
+ * (0x100 = 5, buffered 4: vendor traces with and without direct_mode).
  */
 #define T33_FW(w, n, r, v) do { (w)[(n)].reg = (r); (w)[(n)].val = (v); (n)++; } while (0)
 #define T33_TOP_BYTES		108U
 #define T33_TOP_LIST_WRITES	7
 #define T33_TOP_DIRECT_WRITES	4
 
-static inline void t33_top_init(const u8 *sec, u32 width, u32 height, u32 bayer,
+static inline void t33_top_init(const u8 *sec, u32 width, u32 height, u32 bayer, int direct,
 				struct t32_front_write *lw, struct t32_front_write *dw)
 {
 	u32 size = width << 16 | height, en = 0, ctl = 0, sta = 0, fmt;
@@ -111,7 +112,7 @@ static inline void t33_top_init(const u8 *sec, u32 width, u32 height, u32 bayer,
 	T33_FW(lw, n, 0x6c, ctl);
 	T33_FW(lw, n, 0x70, size);
 	T33_FW(lw, n, 0x78, fmt);
-	T33_FW(lw, n, 0x100, 5);	/* 4 only for sensor attribute byte 0x2b = 0 */
+	T33_FW(lw, n, 0x100, direct ? 5 : 4);
 	T33_FW(lw, n, 0x2f4, 5);
 	n = 0;
 	T33_FW(dw, n, 0x80, size);

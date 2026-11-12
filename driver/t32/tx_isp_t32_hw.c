@@ -285,6 +285,11 @@ static void t32_stats_init(void)
 
 	if (t32_core_iq_bin(&bin, &bytes) || t32_core_sensor_size(&width, &height))
 		return;
+	if (T32_SOC_LIST_IRQ) {
+		/* T33: other AE/AWB register layout (lists 29/30), open (#389) */
+		isp_printf(1, "tx-isp-t33: AE/AWB statistics not built for the T33 yet\n");
+		return;
+	}
 	/* the AE/AWB blocks where this bin's section table puts them */
 	if (t32_iq_section(bin, bytes, T32_IQ_SEC_AE, NULL) != T32_AE_PARAM ||
 	    t32_iq_section(bin, bytes, T32_IQ_SEC_AWB, NULL) != T32_AWB_PARAM) {
@@ -353,7 +358,7 @@ static void t32_front_init(void)
 	if (off && len == T33_TOP_BYTES) {
 		struct t32_front_write dw[T33_TOP_DIRECT_WRITES];
 
-		t33_top_init(bin + off, width, height, (u32)bayer, w, dw);
+		t33_top_init(bin + off, width, height, (u32)bayer, 0, w, dw);	/* buffered path only */
 		for (i = 0; i < T33_TOP_DIRECT_WRITES; i++)
 			isp_wr(dw[i].reg, dw[i].val);
 		t33_mod_set(T33_MOD_TOP, w, T33_TOP_LIST_WRITES);
@@ -458,8 +463,13 @@ static void t32_tisp_init(void)
 	if (off && T32_IQ_SEC_OK(len, T32_GAMMA_SEC_BYTES))
 		t32_tisp_flush("gamma", t32_gamma_init(bin + off, bin + off + len, bytes - off - len, tisp_w));
 	off = t32_iq_section(bin, bytes, T32_SEC_CDNS, &len);
+#ifdef TX_ISP_T33
+	if (off && len == T33_CDNS_SEC_BYTES)
+		t33_mod_set(T33_MOD_CDNS, tisp_w, t33_cdns_init(bin + off, tisp_w));
+#else
 	if (off && T32_IQ_SEC_OK(len, T32_CDNS_SEC_BYTES))
 		t32_tisp_flush("cdns", t32_cdns_init(bin + off, tisp_w));
+#endif
 	off = t32_iq_section(bin, bytes, T32_SEC_GIB, &len);
 	if (off && T32_IQ_SEC_OK(len, T32_GIB_SEC_BYTES) && !t32_core_sensor_mbus(&code) && t32_mbus_to_bayer(code) >= 0) {
 		u8 *cp = kmemdup(bin + off, len, GFP_KERNEL);	/* the block stores into its section */
