@@ -185,6 +185,36 @@ int main(void)
 		   t30_ae_exposure_time_item(1113268) / 64 < 131000);
 	}
 
+	/* Part 6 (#202): automatic analog/ISP gain split as the vendor
+	 * cmos_calc_target_gain 0x25e50 / cmos_analog_gain_update 0x25b24 /
+	 * cmos_digital_gain_update 0x25bcc (SDK-built ko).  SC4236 quantiser:
+	 * largest LUT step <= request (0x1e = 59433, 0x1f = 62534, 0x110 = 65536).
+	 * T30X b61 day: vendor 0x3e08/09 = 03/1e, GetEVAttr again 29 dgain 2-3;
+	 * open (no offset) 07/10, again 32 dgain 0, same total gain. */
+	{
+		static const s32 lut[] = { 0, 56228, 59433, 62534, 65536, 71267 };
+		s32 tg = t30_ae_target_gain(627000 + 65536,
+					    627000);	/* log2(762 lines) ~ 9.57 */
+		s32 req = t30_ae_auto_again_request(tg), a = 0;
+		unsigned int k;
+
+		for (k = 0; k < sizeof(lut) / sizeof(lut[0]); k++)
+			if (lut[k] <= req)
+				a = lut[k];
+		CK(tg == 65536);
+		CK(req == 61440);
+		CK(a == 59433 && (a >> 11) == 29);			/* vendor again 29 */
+		CK(((tg - a) >> 11) == 2);				/* vendor dgain 2 */
+		CK(t30_ae_auto_again_request(100) == 0);
+		CK(t30_ae_target_gain(5, 9) == 0);
+		/* hysteresis: keep the previous gain inside +-4095 of the request */
+		CK(t30_ae_again_hold(61440 + 4095, 61440, 65536));
+		CK(!t30_ae_again_hold(61440 + 4096, 61440, 65536));
+		CK(t30_ae_again_hold(61440 - 4095, 61440, 56228));
+		CK(!t30_ae_again_hold(61440 - 4096, 61440, 56228));
+		CK(!t30_ae_again_hold(61440, 59433, 59433));		/* same gain: no hold needed */
+	}
+
 	if (bad) { printf("t30_ae_gain_host_test: %d FAILED\n", bad); return 1; }
 	printf("t30_ae_gain_host_test: PASS\n");
 	return 0;
