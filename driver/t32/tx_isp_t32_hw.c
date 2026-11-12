@@ -47,6 +47,7 @@
 #include "tx_isp_t33_msca.h"
 #include "tx_isp_t33_mdns.h"
 #include "tx_isp_t33_ae.h"
+#include "tx_isp_t33_awb.h"
 #include "tx_isp_t32_lsc.h"
 #include "tx_isp_t32_stats.h"
 #include "tx_isp_t32_iq.h"
@@ -268,6 +269,7 @@ static u8 t33_af_sec[T33_AF_SEC_BYTES];
 /* TMO V table (0x70e0, read by the core; also written through 0x32260 / 0x32264) */
 static unsigned long t33_tmo_pages;
 static unsigned long t33_ae_stat_pages, t33_ae_hist_pages;	/* AE statistics / histograms (DMA) */
+static unsigned long t33_awb_stat_pages;	/* AWB zone statistics (DMA, 4 x 0x7400) */
 #define T33_TMO_ORDER	get_order(T33_TMO_V_BYTES)
 
 static void t33_mod_free(void)
@@ -298,6 +300,9 @@ static void t33_mod_free(void)
 	if (t33_ae_hist_pages)
 		free_pages(t33_ae_hist_pages, get_order(T33_AE_HIST_BYTES));
 	t33_ae_hist_pages = 0;
+	if (t33_awb_stat_pages)
+		free_pages(t33_awb_stat_pages, get_order(T33_AWB_STAT_BYTES));
+	t33_awb_stat_pages = 0;
 
 	for (i = 0; i < T33_MODULES; i++) {
 		if (t33_mod_page[i])
@@ -684,11 +689,37 @@ static noinline_for_stack void t33_tisp_init_ae(const u8 *bin, u32 bytes)
 						     (u32)virt_to_phys((void *)t33_ae_hist_pages), buf, T33_SLOT_WORDS));
 }
 
+/*
+ * tisp_awb_init's lists: AWB statistics set-up (list 29) on our statistics
+ * buffers at the init interpolation point, AWBG (list 7) at the section's
+ * start gains.
+ */
+static noinline_for_stack void t33_tisp_init_awb(const u8 *bin, u32 bytes)
+{
+	u32 off, len, width, height, r, b, *buf;
+
+	off = t32_iq_section(bin, bytes, T33_SEC_AWB, &len);
+	if (!off || len < T33_AWB_SEC_MIN || t32_core_sensor_size(&width, &height))
+		return;
+	if (!t33_awb_stat_pages)
+		t33_awb_stat_pages = __get_free_pages(GFP_KERNEL | __GFP_ZERO, get_order(T33_AWB_STAT_BYTES));
+	buf = t33_mod_buf(T33_MOD_AWB);
+	if (buf && t33_awb_stat_pages)
+		t33_mod_done(T33_MOD_AWB, t33_awb_init(bin + off, width, height, T33_AWB_INIT_TGAIN,
+						       (u32)virt_to_phys((void *)t33_awb_stat_pages), buf,
+						       T33_SLOT_WORDS));
+	t33_awb_start_gain(bin + off, 0, &r, &b);
+	buf = t33_mod_buf(T33_MOD_AWBG);
+	if (buf)
+		t33_mod_done(T33_MOD_AWBG, t33_awbg_init(r, b, buf, T33_SLOT_WORDS));
+}
+
 static void t33_tisp_init(const u8 *bin, u32 bytes)
 {
 	u32 off, len, code, width, height;
 
 	t33_tisp_init_ae(bin, bytes);
+	t33_tisp_init_awb(bin, bytes);
 	off = t32_iq_section(bin, bytes, T33_SEC_BLC, &len);
 	if (off && len == T33_BLC_SEC_BYTES && !t32_core_sensor_mbus(&code) && t32_mbus_to_bayer(code) >= 0)
 		t33_mod_set_tmpl(T33_MOD_BLC, T33_TMPL(t33_blc_tmpl), tisp_w,

@@ -30,6 +30,7 @@
 #include "../driver/t32/tx_isp_t33_msca.h"
 #include "../driver/t32/tx_isp_t33_mdns.h"
 #include "../driver/t32/tx_isp_t33_ae.h"
+#include "../driver/t32/tx_isp_t33_awb.h"
 
 static int bad;
 #define CHECK(c) do { if (!(c)) { bad++; printf("FAIL line %d: %s\n", __LINE__, #c); } } while (0)
@@ -106,15 +107,22 @@ static void vs_tmpl(const char *what, unsigned int id, const struct t33_tcmd *t,
 
 /* a list filled the vendor's way (layout + slot stores) against the vendor's list;
  * skip: a register whose vendor value is not defined (0: none) */
-static void vs_list_skip(const char *what, unsigned int id, const u32 *buf, int len, u32 skip)
+static void vs_list_ex(const char *what, unsigned int id, const u32 *buf, int len, u32 skip, u32 drop)
 {
 	static u32 reg[1024], val[1024];
-	unsigned int m, i;
+	unsigned int m, i, j;
 
 	CHECK(len > 0);
 	if (len <= 0)
 		return;
 	m = decode(buf, reg, val, 1024);
+	/* drop: a register the QEMU trace does not show (status word, 0: none) */
+	for (i = j = 0; i < m; i++)
+		if (!drop || reg[i] != drop) {
+			reg[j] = reg[i];
+			val[j++] = val[i];
+		}
+	m = j;
 	CHECK(m == ref_n[id]);
 	for (i = 0; i < m && i < ref_n[id]; i++)
 		if (reg[i] != ref_reg[id][i] || (val[i] != ref_val[id][i] && (!skip || reg[i] != skip))) {
@@ -123,6 +131,11 @@ static void vs_list_skip(const char *what, unsigned int id, const u32 *buf, int 
 			       ref_reg[id][i], ref_val[id][i]);
 		}
 	printf("  %s: list %u, %d words, %u writes vs vendor %u\n", what, id, len, m, ref_n[id]);
+}
+
+static void vs_list_skip(const char *what, unsigned int id, const u32 *buf, int len, u32 skip)
+{
+	vs_list_ex(what, id, buf, len, skip, 0);
 }
 
 static void vs_list(const char *what, unsigned int id, const u32 *buf, int len)
@@ -355,6 +368,23 @@ int main(void)
 						       ref_reg[T33_MOD_AE][i], ref_val[T33_MOD_AE][i]);
 					}
 				vs_list("dg", T33_MOD_DG, al, t33_dg_init(T33_AE_DG_INIT, al, T33_SLOT_WORDS));
+			}
+			{
+				/* AWB (list 29): statistics address as the vendor's; 0x160fc: no store in
+				 * the vendor code (stale list memory); 0x1608c (statistics state) is not in the QEMU trace.  AWBG (list 7): start gains. */
+				static u32 wl[T33_SLOT_WORDS];
+				u32 st = 0, r, b;
+
+				for (id = 0; id < ref_n[T33_MOD_AWB]; id++)
+					if (ref_reg[T33_MOD_AWB][id] == 0x16078)
+						st = ref_val[T33_MOD_AWB][id];
+				off = t32_iq_section(bin, bytes, T33_SEC_AWB, &len);
+				CHECK(off && len >= T33_AWB_SEC_MIN && t33_tp_offset(bin, T33_SEC_AWB) == 0xd48);
+				vs_list_ex("awb", T33_MOD_AWB, wl,
+					   t33_awb_init(bin + off, 1920, 1080, T33_AWB_INIT_TGAIN, st, wl, T33_SLOT_WORDS),
+					   0x160fc, 0x1608c);
+				t33_awb_start_gain(bin + off, 0, &r, &b);
+				vs_list("awbg", T33_MOD_AWBG, wl, t33_awbg_init(r, b, wl, T33_SLOT_WORDS));
 			}
 			{
 				/* CLM: CT 5000 K, the csc section */
