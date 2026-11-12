@@ -286,10 +286,17 @@ static int t32_sensor_stream(struct t32_vi *vi, int on)
 			ret = init(vi->sd, &arg);
 		if (!ret && stream)
 			ret = stream(vi->sd, &arg);
-		if (!ret)
+		if (!ret) {
+#ifdef TX_ISP_IVDC_DIRECT
+			t32_ivdc_stream(1);
+#endif
 			t32_hw_stream_on();
+		}
 	} else {
 		t32_hw_stream_off();
+#ifdef TX_ISP_IVDC_DIRECT
+		t32_ivdc_stream(0);
+#endif
 		if (stream)
 			ret = stream(vi->sd, &arg);
 		if (init)
@@ -621,10 +628,12 @@ MODULE_PARM_DESC(isp_clkl, "ldc clock freq");
 
 /*
  * Further vendor glue parameters.  direct_mode / ivdc_*: IVDC direct mode
- * (ISP channel 0 straight into the encoder); not implemented yet, the
+ * (ISP channel 0 straight into the encoder); with TX_ISP_IVDC_DIRECT (so
+ * far the T33 module) they live in tx_isp_t32_ivdcdrv.c (#349), else the
  * driver keeps the buffered path and answers IVDC GET_DIRECT with 0.
  * The others are accepted for insmod compatibility and only stored.
  */
+#ifndef TX_ISP_IVDC_DIRECT
 static int direct_mode;
 module_param(direct_mode, int, 0444);
 MODULE_PARM_DESC(direct_mode, "isp direct mode (not implemented: buffered path)");
@@ -635,6 +644,7 @@ module_param(ivdc_mem_stride, int, 0444);
 MODULE_PARM_DESC(ivdc_mem_stride, "ivdc mem stride");
 module_param(ivdc_threshold_line, int, 0444);
 MODULE_PARM_DESC(ivdc_threshold_line, "ivdc threshold line");
+#endif
 static int isp_ch0_pre_dequeue_time, isp_cache_line, atlas_open, zeratul_open;
 module_param(isp_ch0_pre_dequeue_time, int, 0444);
 MODULE_PARM_DESC(isp_ch0_pre_dequeue_time, "isp pre dequeue time, unit ms (accepted, unused)");
@@ -947,12 +957,16 @@ static struct miscdevice t32_m0_misc = {
 
 static long t32_ivdc_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 {
+#ifdef TX_ISP_IVDC_DIRECT
+	return t32_ivdc_misc_ioctl(cmd, arg);	/* tx_isp_t32_ivdcdrv.c (#349) */
+#else
 	u32 v = 0;
 
 	if (cmd == T32_IOC_IVDC_GET_DIRECT)
 		return copy_to_user((void __user *)arg, &v, sizeof(v)) ? -EFAULT : 0;
 	isp_printf(1, "tx-isp-t32: misc-ivdc ioctl %#x not handled\n", cmd);
 	return -ENOTTY;
+#endif
 }
 
 static const struct file_operations t32_ivdc_fops = {
@@ -996,6 +1010,9 @@ static int t32_proc_show(struct seq_file *m, void *v)
 	t33_stats_show(m);
 #endif
 	t32_fs_show(m);
+#ifdef TX_ISP_IVDC_DIRECT
+	t32_ivdc_show(m);
+#endif
 	return 0;
 }
 
@@ -1105,14 +1122,23 @@ int tx_isp_t32_core_init(void)
 	ret = t32_hw_init();
 	if (ret)
 		goto err_hw;
+#ifdef TX_ISP_IVDC_DIRECT
+	ret = t32_ivdc_init();
+	if (ret) {
+		t32_hw_exit();
+		goto err_hw;
+	}
+#endif
 	core.proc = jz_proc_mkdir("isp");
 	if (core.proc) {
 		proc_create("isp-m0", 0444, core.proc, &t32_proc_fops);
 		proc_create("isp-w02", 0444, core.proc, &t32_proc_fops);
 	}
 	pr_info(T32_SOC_DRV ": open driver loaded (S3: 3 channels, sensor fps, no tisp) (memopt %u)\n", isp_memopt);
+#ifndef TX_ISP_IVDC_DIRECT
 	if (direct_mode)
 		pr_warn(T32_SOC_DRV ": direct_mode=%d not implemented, buffered path\n", direct_mode);
+#endif
 	return 0;
 
 err_hw:
@@ -1145,6 +1171,9 @@ void tx_isp_t32_core_exit(void)
 		remove_proc_entry("isp-w02", core.proc);
 		proc_remove(core.proc);
 	}
+#ifdef TX_ISP_IVDC_DIRECT
+	t32_ivdc_exit();
+#endif
 	t32_hw_exit();
 	t32_fs_exit();
 	misc_deregister(&t32_ivdc_misc);

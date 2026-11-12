@@ -1045,6 +1045,8 @@ void t33_tgain_refresh(u32 gain)
 	if (!t33_gr_tmp)
 		goto out;
 #define T33_GR_SEC(BLK)	((off = t32_iq_section(bin, bytes, T33_SEC_##BLK, &len)) && len == T33_##BLK##_SEC_BYTES)
+	/* tisp_blc_tgain_update: write_reg sets tispBlcRefresh at every update (PRJ008: same words) */
+	t33_gr_rerun(T33_MOD_BLC);
 	/* tisp_dpc_l_gain_update: every change */
 	if (T33_GR_SEC(DPC)) {
 		t33_gr_gate(T33_MOD_DPC, gain);
@@ -1113,8 +1115,9 @@ out:
  * (tisp_bcsh_ev_update) and CCM (tisp_ccm_ev_update: the CT matrix of the
  * last CT update reaches the list words here, list 10 reruns every time).
  * The vendor's gamma / RDNS / defog / LCE / TMO EV updates leave their
- * words unchanged on PRJ008 (flat EV tables, QEMU trace); their list reruns
- * are not mirrored yet.
+ * words unchanged on PRJ008 (flat EV tables, QEMU trace); RDNS, defog and
+ * TMO set their refresh flag every time (tisp_rdns_ev_update,
+ * tisp_defog_ev_update, tisp_tmo_ev_update): lists 3, 12 and 8 rerun.
  */
 void t33_ev_refresh(u32 lo, u32 hi)
 {
@@ -1143,6 +1146,9 @@ void t33_ev_refresh(u32 lo, u32 hi)
 				t33_gr_rerun(T33_MOD_CCM);
 		}
 	}
+	t33_gr_rerun(T33_MOD_RDNS);
+	t33_gr_rerun(T33_MOD_DEFOG);
+	t33_gr_rerun(T33_MOD_TMO);
 	mutex_unlock(&t33_gr_lock);
 }
 
@@ -1869,10 +1875,21 @@ static bool t33_msca_list_start(int ch, u32 w, u32 h, u32 stride, u32 in_w, u32 
 	T33_SW(l, 6, 0);
 	T33_SW(l, 1, 1);
 	t33_msca_curves(l, ch, t33_msca_ratio(cw, in_w), t33_msca_ratio(chh, in_h));
-	T33_SW(l, b + 0x1a, 0);
-	T33_SW(l, b + 0x1b, wh);
-	T33_SW(l, b + 0x1c, 0);
-	T33_SW(l, b + 0x1d, wh);
+	{
+		u32 cpos = 0, csize = wh;
+
+#ifdef TX_ISP_IVDC_DIRECT
+		/* FrameSource input crop (vendor format): position / size slots; ratios and steps stay on the sensor size */
+		if (!t32_fs_crop(ch, &cpos, &csize)) {
+			cpos = 0;
+			csize = wh;
+		}
+#endif
+		T33_SW(l, b + 0x1a, 0);
+		T33_SW(l, b + 0x1b, wh);
+		T33_SW(l, b + 0x1c, cpos);
+		T33_SW(l, b + 0x1d, csize);
+	}
 	T33_SW(l, b + 0x1e, (in_h << 14) / h);
 	T33_SW(l, b + 0x1f, (in_w << 14) / w);
 	isp_wr(0xf0128 + 0x100 * ch, 0);

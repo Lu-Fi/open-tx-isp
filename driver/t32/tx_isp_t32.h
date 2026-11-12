@@ -55,6 +55,21 @@ void t32_fs_exit(void);
 void t32_fs_stop_all(void);
 void t32_fs_done_irq(u32 done);
 void t32_fs_show(struct seq_file *m);
+#ifdef TX_ISP_IVDC_DIRECT
+int t32_fs_ivdc_frame(u32 ch);
+int t32_fs_crop(int ch, u32 *pos, u32 *size);
+
+/* tx_isp_t32_ivdcdrv.c: IVDC direct mode (#349; built with TX_ISP_IVDC_DIRECT) */
+int t32_ivdc_init(void);
+void t32_ivdc_exit(void);
+int t32_ivdc_direct(int ch);
+long t32_ivdc_misc_ioctl(unsigned int cmd, unsigned long arg);
+void t32_ivdc_stream(int on);
+int t32_ivdc_set_fmt(u8 *fmt);
+int t32_ivdc_reqbufs(u32 count);
+int t32_ivdc_fs_stream(int on);
+void t32_ivdc_show(struct seq_file *m);
+#endif
 #ifdef TX_ISP_T33
 void t33_stats_show(struct seq_file *m);	/* tx_isp_t32_hw.c */
 /* ../t33/tx_isp_t33_awbc.c: per-frame AWB */
