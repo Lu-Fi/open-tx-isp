@@ -39,7 +39,15 @@ static struct {
 	u32 frames, drops, still, refused, gain_r, gain_b, ct, path, tg_updates, ev_updates;
 } awbc_st;
 /* the vendor's tgain_old / ev_last (tisp_long_tgain_update / tisp_long_ev_update), not reset per stream */
-static u32 tgain_old, ev_last[2];
+static u32 tgain_old, ev_last[2], ct_last, ct_new;
+
+/* AWB event 11 (tisp_ct_update) after this frame's AE events, as the vendor's FIFO has it */
+static void awbc_ct_fn(struct work_struct *w)
+{
+	(void)w;
+	t33_ct_refresh(ACCESS_ONCE(ct_new));
+}
+static DECLARE_WORK(awbc_ct_work, awbc_ct_fn);
 
 static void *drv_alloc(void *p, u32 size)
 {
@@ -115,6 +123,11 @@ static void awbc_work_fn(struct work_struct *w)
 	awbc_st.gain_r = o->gain_r;
 	awbc_st.gain_b = o->gain_b;
 	awbc_st.ct = o->ct;
+	if (o->ct != ct_last) {
+		ct_last = o->ct;
+		ACCESS_ONCE(ct_new) = o->ct;
+		t33_evq_queue(&awbc_ct_work);
+	}
 out:
 	mutex_unlock(&awbc_lock);
 	kfree(o);
@@ -169,6 +182,7 @@ void t33_awbc_detach(void)
 {
 	ACCESS_ONCE(ready) = false;
 	cancel_work_sync(&awbc_work);
+	cancel_work_sync(&awbc_ct_work);
 	mutex_lock(&awbc_lock);
 	awbc_free();
 	mutex_unlock(&awbc_lock);

@@ -911,6 +911,7 @@ static noinline_for_stack void t33_tisp_init_awb(const u8 *bin, u32 bytes)
  */
 #define T33_GAIN_THR	0x100U
 static u32 t33_gr_last[T33_MODULES], t33_gr_ev = T33_INIT_EV;
+static int t33_clm_ct_last = T33_CCM_INIT_CT, t33_clm_seg_last = -1;	/* tisp_clm_ct_interp state */
 static DEFINE_MUTEX(t33_gr_lock);
 static u32 *t33_gr_tmp;
 u32 t33_gr_runs[T33_MODULES];
@@ -922,6 +923,8 @@ static void t33_gref_reset(void)
 	for (i = 0; i < T33_MODULES; i++)
 		t33_gr_last[i] = T33_INIT_GAIN;
 	t33_gr_ev = T33_INIT_EV;
+	t33_clm_ct_last = T33_CCM_INIT_CT;
+	t33_clm_seg_last = -1;
 }
 
 /* the vendor's gate: true (and the gain kept) when the block refreshes */
@@ -1059,6 +1062,91 @@ void t33_ev_refresh(u32 lo, u32 hi)
 		if (t33_bcsh_ev_update(t33_bcsh_st, t33_bcsh_sec, lo, hi, t33_gr_tmp))
 			t33_gr_commit(T33_MOD_BCSH, 1);
 	}
+	mutex_unlock(&t33_gr_lock);
+}
+
+/*
+ * tisp_ct_update's block part (AWB event 11, on a CT change): CCM
+ * (tisp_ccm_ct_update: interp_by_ct unless the CT stays in an even
+ * segment or within the hysteresis sec+0x738 of the last one, write_reg)
+ * and CLM (tisp_clm_ct_interp: the same gate with the per-knot hysteresis
+ * sec+0x1a and the state's 1, then write_reg).  BCSH / LSC CT updates
+ * leave their words unchanged on PRJ008 (QEMU trace).
+ */
+static u32 t33_ccm_save[T33_CCM_WORDS];
+
+/* the knot segment of tisp_clm_ct_interp: 2k on knot k, 2k + 1 between k and k + 1 */
+static int t33_clm_seg(const u8 *sec, const u8 *lut, int ct)
+{
+	int n = sec[0x3b], i;
+
+#define KCT(k)	((int)(s16)t32_tp_le16(lut + (k) * T33_CLM_KNOT16))
+#define HY(k)	((int)t32_tp_le16(sec + 0x1a + 2 * (k)))
+	if (n < 1 || !(KCT(0) + HY(0) < ct) || !(ct < KCT(n - 1) - HY(n - 1)))
+		return KCT(0) + HY(0) < ct ? n : 0;
+	for (i = 1; i < n; i++) {
+		if (ct < KCT(i) - HY(i)) {
+			if (KCT(i - 1) + HY(i - 1) < ct)
+				return (2 * (i - 1) + 1) & 0xff;
+		} else if (ct <= KCT(i) + HY(i)) {
+			return (2 * i) & 0xff;
+		}
+	}
+	return n;
+#undef KCT
+#undef HY
+}
+
+void t33_ct_refresh(u32 ct)
+{
+	const u8 *bin;
+	u32 bytes, off, len, coff, clen, *buf;
+	int seg, d;
+
+	if (t32_core_iq_bin(&bin, &bytes))
+		return;
+	mutex_lock(&t33_gr_lock);
+	if (!t33_gr_tmp)
+		t33_gr_tmp = kmalloc(T33_SLOT_WORDS * 4, GFP_KERNEL);
+	if (!t33_gr_tmp)
+		goto out;
+	off = t32_iq_section(bin, bytes, T33_SEC_CCM, &len);
+	if (off && len == T33_CCM_SEC_BYTES && (t33_mod_built & (1ULL << T33_MOD_CCM)) &&
+	    (buf = t33_mod_buf(T33_MOD_CCM))) {
+		const u8 *sec = bin + off, *lut = bin + off + len;
+
+		memcpy(t33_ccm_save, t33_ccm_v, sizeof(t33_ccm_save));
+		t33_ccm_ct(t33_ccm_v, sec, lut, ct);
+		d = (int)(ct - t33_ccm_save[4]);
+		if ((t33_ccm_v[5] == t33_ccm_save[5] && !(t33_ccm_v[5] & 1)) ||
+		    (d < 0 ? -d : d) <= (int)t32_tp_le16(sec + 0x738)) {
+			memcpy(t33_ccm_v, t33_ccm_save, sizeof(t33_ccm_save));
+		} else {
+			t33_ccm_para(t33_ccm_v, sec);
+			memcpy(t33_gr_tmp, buf, T33_SLOT_WORDS * 4);
+			t33_ccm_store(t33_ccm_v, t33_gr_tmp);
+			t33_gr_commit(T33_MOD_CCM, 1);
+		}
+	}
+	off = t32_iq_section(bin, bytes, T33_SEC_CLM, &len);
+	coff = t32_iq_section(bin, bytes, T32_IQ_SEC_CSC, &clen);
+	if (off && len == T33_CLM_SEC_BYTES && coff && clen == T32_CSC_BYTES) {
+		const u8 *sec = bin + off, *lut = bin + off + len;
+		u32 lb = t32_iq_payload(sec, bytes - off, T33_SEC_CLM);
+
+		seg = t33_clm_seg(sec, lut, (int)ct);
+		d = (int)ct - t33_clm_ct_last;
+		if (t33_clm_seg_last < 0)
+			t33_clm_seg_last = t33_clm_seg(sec, lut, t33_clm_ct_last);
+		if (!((seg == t33_clm_seg_last && !(seg & 1)) || (d < 0 ? -d : d) <= 1)) {
+			t33_clm_ct_last = (int)ct;
+			t33_clm_seg_last = seg;
+			memset(t33_gr_tmp, 0, T33_SLOT_WORDS * 4);
+			t33_gr_commit(T33_MOD_CLM, t33_clm_init(sec, lut, lb, bin + coff, (int)ct, t33_gr_tmp,
+								T33_SLOT_WORDS));
+		}
+	}
+out:
 	mutex_unlock(&t33_gr_lock);
 }
 
