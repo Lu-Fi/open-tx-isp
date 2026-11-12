@@ -3,7 +3,7 @@ CC ?= cc
 CFLAGS ?= -O2
 CFLAGS += -std=c99 -Wall -Wextra -Werror
 
-.PHONY: all check check-oracles clean t30_ae_fsm_check t30_ae_balanced_check t30_ae_init_check t40_vic_layout_check t40_lost_tail_host lifted_ptr_scale_check t40_hardcoded_anchor_check t30_storage_audit t30_fw_irq_gate t30_fmt5c_check t30_awb_preset_check t30_temper_check t30_core_slake_oracle t30_tuning_ctl_check t30_system_items_check t30_sdk_oracle t30_symval_check t30_callarg_check t40_af_stats_host t40_bcsh_dn_host t40_tstp_host t40_ccm_conv_host t40_ccm_chain_host t40_ct_chain_host t40_dmsc_chain_host t40_mdns_chain_host t40_ysp_chain_host t40_ydns_host t40_gib_host t40_lsc_host t40_blc_host t40_vawb_oracle t40_clm_host t40_ae_leaf_host t40_bitexact_host t40_callarg_check t41_sensor_barrier_check t40_hardcoded_anchor_check t40_clk_teardown_check t40_tstp_init_check t40_custom_algo_wake_check t41_custom_ae_check t41_custom_awb_check t41_awb_algo_host t41_af_gate_check t41_raw_teardown_check lifted_ptr_scale_check t40_algo_handle_host t40_wdr_log2_host t40_gamma_ev_host t40_ae_target_host t40_ko_libgcc_check t23_bypass_host t31_defog_bank_host t23_awb_lum_oracle
+.PHONY: all check check-oracles clean t30_ae_fsm_check t30_ae_balanced_check t30_ae_init_check t40_vic_layout_check t40_lost_tail_host lifted_ptr_scale_check t40_hardcoded_anchor_check t30_storage_audit t30_fw_irq_gate t30_fmt5c_check t30_awb_preset_check t30_temper_check t30_core_slake_oracle t30_tuning_ctl_check t30_system_items_check t30_sdk_oracle t30_symval_check t30_callarg_check t40_af_stats_host t40_bcsh_dn_host t40_tstp_host t40_ccm_conv_host t40_ccm_chain_host t40_ct_chain_host t40_dmsc_chain_host t40_mdns_chain_host t40_ysp_chain_host t40_ydns_host t40_gib_host t40_lsc_host t40_blc_host t40_vawb_oracle t40_clm_host t40_ae_leaf_host t40_bitexact_host t40_callarg_check t41_sensor_barrier_check t40_hardcoded_anchor_check t40_clk_teardown_check t40_tstp_init_check t40_custom_algo_wake_check t41_custom_ae_check t41_custom_awb_check t41_awb_algo_host t41_af_gate_check t41_raw_teardown_check lifted_ptr_scale_check t40_algo_handle_host t40_wdr_log2_host t40_gamma_ev_host t40_ae_target_host t40_ko_libgcc_check t23_bypass_host t31_defog_bank_host t23_awb_lum_oracle t20_fw_check t30_lift_oracle
 
 # Every host test binary.  A new test is registered with "TESTS += name"
 # (plus its build rule); `check` builds and runs all of them, keeps going
@@ -12,7 +12,7 @@ CFLAGS += -std=c99 -Wall -Wextra -Werror
 # so a test cannot be added and then silently never run.
 TESTS :=
 # Further check steps, run as "$(MAKE) <target>" after the binaries.
-CHECK_TARGETS := t40_vic_layout_check t30_ae_fsm_check t30_ae_balanced_check t30_ae_init_check t30_storage_audit t30_fw_irq_gate t30_fmt5c_check t30_awb_preset_check t30_temper_check t30_core_slake_oracle t30_tuning_ctl_check t30_system_items_check t30_sdk_oracle t30_symval_check t30_callarg_check t41_dfg_host t40_af_stats_host t40_bcsh_dn_host t40_tstp_host t40_ccm_conv_host t40_ccm_chain_host t40_ct_chain_host t40_dmsc_chain_host t40_mdns_chain_host t40_ysp_chain_host t40_ydns_host t40_gib_host t40_lsc_host t40_blc_host t40_vawb_oracle t40_clm_host t40_ae_leaf_host t40_bitexact_host t40_callarg_check t41_sensor_barrier_check t40_hardcoded_anchor_check t40_clk_teardown_check t40_tstp_init_check t40_custom_algo_wake_check t41_custom_ae_check t41_custom_awb_check t41_awb_algo_host t41_af_gate_check t41_raw_teardown_check lifted_ptr_scale_check t40_lost_tail_host t40_algo_handle_host t40_wdr_log2_host t40_gamma_ev_host t40_ae_target_host t40_ko_libgcc_check t23_bypass_host t31_defog_bank_host t23_awb_lum_oracle
+CHECK_TARGETS := t40_vic_layout_check t30_ae_fsm_check t30_ae_balanced_check t30_ae_init_check t30_storage_audit t30_fw_irq_gate t30_fmt5c_check t30_awb_preset_check t30_temper_check t30_core_slake_oracle t30_lift_oracle t30_tuning_ctl_check t30_system_items_check t30_sdk_oracle t30_symval_check t30_callarg_check t41_dfg_host t40_af_stats_host t40_bcsh_dn_host t40_tstp_host t40_ccm_conv_host t40_ccm_chain_host t40_ct_chain_host t40_dmsc_chain_host t40_mdns_chain_host t40_ysp_chain_host t40_ydns_host t40_gib_host t40_lsc_host t40_blc_host t40_vawb_oracle t40_clm_host t40_ae_leaf_host t40_bitexact_host t40_callarg_check t41_sensor_barrier_check t40_hardcoded_anchor_check t40_clk_teardown_check t40_tstp_init_check t40_custom_algo_wake_check t41_custom_ae_check t41_custom_awb_check t41_awb_algo_host t41_af_gate_check t41_raw_teardown_check lifted_ptr_scale_check t40_lost_tail_host t40_algo_handle_host t40_wdr_log2_host t40_gamma_ev_host t40_ae_target_host t40_ko_libgcc_check t23_bypass_host t31_defog_bank_host t23_awb_lum_oracle
 # Sources that only run on the camera (not built on the host).
 TARGET_TESTS := $(basename $(wildcard t41_v4l2_*_test.c)) t41_antiflicker_ioctl_test
 TEST_TIMEOUT ?= 600
@@ -534,6 +534,11 @@ TESTS += t30_ae_gain_host_test
 t30_ae_gain_host_test: t30_ae_gain_host_test.c t30_ae_item16_oracle.h ../driver/t30/tx_isp_t30_ae_manual.h
 	$(CC) $(CFLAGS) -o $@ $<
 
+TESTS += t30_fps_cnt_host_test
+
+t30_fps_cnt_host_test: t30_fps_cnt_host_test.c ../driver/t30/tx_isp_t30_fps_cnt.h
+	$(CC) $(CFLAGS) -o $@ $<
+
 TESTS += t30_temper_host_test
 
 t30_temper_host_test: t30_temper_host_test.c ../driver/t30/tx_isp_t30_temper.h
@@ -645,7 +650,7 @@ check:
 # The Unicorn / vendor-data oracles.  They SKIP (exit 0) in a plain `make check` when the vendor inputs are not
 # configured; here a SKIP is a failure, so a green `check-oracles` means every oracle really ran.
 # Inputs (see README.oracles.md): T40_OEM_KO, T40_CC, T40_TUNING_BIN, T40_OEM_DATA.
-ORACLES := t40_clm_host t40_bcsh_dn_host t40_ccm_conv_host t40_ccm_chain_host t40_ct_chain_host t40_dmsc_chain_host t40_mdns_chain_host t40_ysp_chain_host t40_ydns_host t40_gib_host t40_lsc_host t40_blc_host t40_vawb_oracle t40_ae_leaf_host t40_wdr_log2_host t40_gamma_ev_host t40_ae_target_host t31_defog_bank_host t23_awb_lum_oracle t30_core_slake_oracle
+ORACLES := t30_lift_oracle t40_clm_host t40_bcsh_dn_host t40_ccm_conv_host t40_ccm_chain_host t40_ct_chain_host t40_dmsc_chain_host t40_mdns_chain_host t40_ysp_chain_host t40_ydns_host t40_gib_host t40_lsc_host t40_blc_host t40_vawb_oracle t40_ae_leaf_host t40_wdr_log2_host t40_gamma_ev_host t40_ae_target_host t31_defog_bank_host t23_awb_lum_oracle t30_core_slake_oracle
 check-oracles:
 	@fail=; for c in $(ORACLES); do \
 		echo "=== $$c"; \
@@ -680,6 +685,10 @@ t30_ae_gain_check:
 # T30 ispcore_slake_module (fd close releases core/vin/sensor, #2) vs the vendor ko (Unicorn; needs T30_OEM_KO + built module, else SKIP)
 t30_core_slake_oracle:
 	sh ./t30_core_slake_oracle.sh
+
+# T30 -Os lift defects (#274) vs the vendor ko instructions (Unicorn, needs T30_OEM_KO, else SKIP)
+t30_lift_oracle:
+	sh ./t30_lift_oracle.sh
 
 # T30 Temper attribute system-table items (SDK s/g_attr), with mutation check (Lu-Fi/openimp#202)
 t30_temper_check:
@@ -879,6 +888,13 @@ t41_awb_algo_host:
 t41_ae_algo_host:
 	sh ./t41_ae_algo_host.sh
 
+# T20/T10 firmware -O0 vs -Os harness (builds driver/t20/tx_isp_t20_firmware.c as a host unit, so a
+# missing include/type there breaks the build; openimp #373).  Needs the ingenic-sdk submodule and -m32.
+t20_fw_check:
+	@if [ ! -f ../external/ingenic-sdk/3.10.14/isp/t20/apical-isp/apical_static_calibrations.c ]; then \
+		echo "t20_fw_check: SKIP (ingenic-sdk submodule not checked out)"; \
+	else $(MAKE) --no-print-directory -C t20_fw check; fi
+
 # T41 AF block stays off unless t41_af=1 (#179)
 t41_af_gate_check:
 	sh ./check_t41_af_gate.sh
@@ -896,7 +912,7 @@ clean:
 	$(RM) tx_isp_t41_awb_runtime_test
 	$(RM) tx_isp_t41_awb_detect_test
 	$(RM) tx_isp_t41_awb_long_test
-	$(RM) t30_tuning_ctl_host_test t30_ae_manual_host_test t30_ae_gain_host_test t30_system_item_host_test t31_awb_simd_host_test t31_awb_defs.inc t31_awb_region.inc tx_isp_t41_tuning_ctl_test t21_sepia_host_test t21_it_block_host_test t30_stab_host_test t20_expr_time_host_test t31_sharpness_host_test t31_ae_step_host_test sinfo_vendor_host_test
+	$(RM) t30_tuning_ctl_host_test t30_ae_manual_host_test t30_fps_cnt_host_test t30_ae_gain_host_test t30_system_item_host_test t31_awb_simd_host_test t31_awb_defs.inc t31_awb_region.inc tx_isp_t41_tuning_ctl_test t21_sepia_host_test t21_it_block_host_test t30_stab_host_test t20_expr_time_host_test t31_sharpness_host_test t31_ae_step_host_test sinfo_vendor_host_test
 	$(RM) tx_isp_t41_awb_stats_test
 	$(RM) tx_isp_math_test tx_isp_modulation_test \
 		tx_isp_awb_mesh_test \
