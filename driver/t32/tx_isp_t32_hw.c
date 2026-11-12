@@ -34,6 +34,7 @@
 #include "tx_isp_t33_dpc.h"
 #include "tx_isp_t33_ysp.h"
 #include "tx_isp_t33_rdns.h"
+#include "tx_isp_t33_ccm.h"
 #include "tx_isp_t32_lsc.h"
 #include "tx_isp_t32_stats.h"
 #include "tx_isp_t32_iq.h"
@@ -480,7 +481,7 @@ static int t32_mdns_build(u8 *sec, u32 width, u32 height)
 
 /* block state of the blocks filled the vendor's way (layout + slot stores) */
 static u32 t33_dmsc_v[T33_DMSC_WORDS], t33_dpc_v[T33_DPC_WORDS], t33_ysp_v[T33_YSP_WORDS];
-static u32 t33_rdns_v[T33_RDNS_WORDS];
+static u32 t33_rdns_v[T33_RDNS_WORDS], t33_ccm_v[T33_CCM_WORDS];
 #define T33_INIT_EV	0xffffffffU	/* the vendor's EV before the first AE run */
 #define T33_DG_UNITY	0x04000400U	/* DG list 0x4060 at init (DG 1.0), until #389 builds list 5 */
 
@@ -522,6 +523,17 @@ static void t33_tisp_init(const u8 *bin, u32 bytes)
 		if (off && len == T33_RDNS_SEC_BYTES && (buf = t33_mod_buf(T33_MOD_RDNS)))
 			t33_mod_done(T33_MOD_RDNS, t33_rdns_init(bin + off, T33_INIT_GAIN, T33_INIT_EV, blc,
 								 T33_DG_UNITY, t33_rdns_v, buf, T33_SLOT_WORDS));
+	}
+	{
+		u32 *buf;
+
+		/* CCM: section 12 and its knots behind it, CT 5000 K, EV 0 (the vendor's init values) */
+		off = t32_iq_section(bin, bytes, T33_SEC_CCM, &len);
+		if (off && len == T33_CCM_SEC_BYTES && (buf = t33_mod_buf(T33_MOD_CCM)))
+			t33_mod_done(T33_MOD_CCM, t33_ccm_init(bin + off, bin + off + len,
+							       t32_iq_payload(bin + off, bytes - off, T33_SEC_CCM),
+							       T33_CCM_INIT_CT, T33_CCM_INIT_EV, 0, t33_ccm_v, buf,
+							       T33_SLOT_WORDS));
 	}
 }
 #endif

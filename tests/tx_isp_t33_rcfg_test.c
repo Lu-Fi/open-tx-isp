@@ -18,6 +18,7 @@
 #include "../driver/t32/tx_isp_t33_dpc.h"
 #include "../driver/t32/tx_isp_t33_ysp.h"
 #include "../driver/t32/tx_isp_t33_rdns.h"
+#include "../driver/t32/tx_isp_t33_ccm.h"
 
 static int bad;
 #define CHECK(c) do { if (!(c)) { bad++; printf("FAIL line %d: %s\n", __LINE__, #c); } } while (0)
@@ -205,6 +206,11 @@ int main(void)
 			CHECK(off && len == T33_RDNS_SEC_BYTES);
 			vs_list("rdns", T33_MOD_RDNS, lb, t33_rdns_init(bin + off, 0x10000, 0xffffffffU, ref_val[4][1],
 								  ref_val[5][1], v, lb, T33_SLOT_WORDS));
+			off = t32_iq_section(bin, bytes, T33_SEC_CCM, &len);
+			CHECK(off && len == T33_CCM_SEC_BYTES);
+			vs_list("ccm", T33_MOD_CCM, lb, t33_ccm_init(bin + off, bin + off + len,
+								 t32_iq_payload(bin + off, bytes - off, T33_SEC_CCM),
+								 T33_CCM_INIT_CT, 0, 0, v, lb, T33_SLOT_WORDS));
 		}
 	}
 	printf("tx_isp_t33_rcfg_test: %s\n", bad ? "FAIL" : "PASS");
