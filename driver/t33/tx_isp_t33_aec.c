@@ -35,10 +35,6 @@ static unsigned int aec_trace;
 module_param(aec_trace, uint, 0644);
 MODULE_PARM_DESC(aec_trace, "T33 AE: log the first N AE frames (debug), default 0");
 
-static unsigned int aec_fst_ev = T33_AE_START_EV;
-module_param(aec_fst_ev, uint, 0444);
-MODULE_PARM_DESC(aec_fst_ev, "T33 AE: first-frame EV (Q10 lines, vendor fstframe_defaultp word 0 is 0x4000), default 0x400");
-
 static struct t32_aec aec;
 static struct t33_ae_front front;
 static u8 sblk[T32_SENSOR_ATTR_COPY];
@@ -253,7 +249,7 @@ int t33_aec_attach(const u8 *sec, u32 len, u32 width, u32 height, const u8 *zb, 
 	aec.dcw = 1;
 	aec.ops = &drv_ops;
 	t32_aec_bind(&aec);
-	t33_ae_set_start_param(&aec, T33_AE_FST_IT, T33_AE_FST_AG, T33_AE_FST_DG, aec_fst_ev);
+	t33_ae_set_start_param(&aec, T33_AE_FST_IT, T33_AE_FST_AG, T33_AE_FST_DG, T33_AE_FST_EV);
 	t33_ae_zone_sizes(&aec);
 	zbufs = zb;
 	hbufs = hb;

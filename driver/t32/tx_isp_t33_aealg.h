@@ -37,7 +37,7 @@
  *    T32 template words up to +1540, no face words 1500..1512) and then
  *    tisp_ae_set_start_param from the first-frame defaults
  *    (fstframe_defaultp without RISC-V: EV 0x4000, again 0x400, dgain
- *    0x400, integration time 0x10; the EV the driver uses: T33_AE_START_EV): IT / AG / DG into R + 576 / 580 / 588
+ *    0x400, integration time 0x10): IT / AG / DG into R + 576 / 580 / 588
  *    and the ten-entry history tables (R + 208 / 248 / 288, products at
  *    R + 0 (u64) / 328), the start EV >> 10 into T + 368 / 372
  *    (t33_ae_set_start_param).  Zone sizes (normal_ae_reg_calc): all 15
@@ -62,17 +62,13 @@
 #define T33_AE_FST_IT		0x10U		/* word 5 (info + 0x3ac) */
 #define T33_AE_DG_REG		0x3058U		/* the T32 port's DG word */
 /*
- * The first-frame EV the driver starts from.  The module's
- * fstframe_defaultp reads EV 0x4000 (16 lines at 1x); the vendor's first
- * AE steps in QEMU (cv2005, qemu/vendor-n150e) are those of a first EV of
- * one line: with 0x400 here the integration time / again pairs (1/1278,
- * 1/1588, 1/1985, 2/1242, 3/1036, ...) and the DG list words (0x405,
- * 0x403, 0x400, ...) equal the vendor's step for step (qemu/ours-ae7b),
- * with 0x4000 the ramp starts at 15 lines.  Where the vendor's one line
- * comes from (the init parameter block it copies the defaults into) is
- * open; module parameter aec_fst_ev.
+ * The first AE step starts from that EV (16 lines at 1x): in QEMU with a
+ * deterministic guest clock (-icount shift=0) the vendor's first steps are
+ * 15/1083, 15/1078, 19/1065, ... from frame 3, as ours.  The earlier
+ * "1 line, 3 frames later" vendor runs were host-speed artefacts: the
+ * vendor event thread (AE calc, AWB, the gain / EV block refreshes in one
+ * FIFO) lagged the frames under plain TCG (qemu/ae-compare-ic.txt).
  */
-#define T33_AE_START_EV		0x400U
 
 struct t33_ae_front {
 	u32 zidx, hidx;		/* stat_num[ch]: zone / histogram buffer of the last interrupts */

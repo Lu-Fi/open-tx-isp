@@ -152,7 +152,7 @@ static void loop(const char *bp)
 	CHECK(t32_ae_ctx_init(0, &a.b, S, info, 1, &iops, w) >= 0);
 	a.S = S; a.dcw = 1; a.ops = &hops;
 	t32_aec_bind(&a);
-	t33_ae_set_start_param(&a, T33_AE_FST_IT, T33_AE_FST_AG, T33_AE_FST_DG, T33_AE_START_EV);
+	t33_ae_set_start_param(&a, T33_AE_FST_IT, T33_AE_FST_AG, T33_AE_FST_DG, T33_AE_FST_EV);
 	t33_ae_zone_sizes(&a);
 	for (k = 0; k < frames; k++) {
 		/* model: zone mean over its 64 x 36 area = 0.1 * exposure, clipped at 4000 (12 bit) */
