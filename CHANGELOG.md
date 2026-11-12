@@ -4,6 +4,11 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD[-rcN]` are set on the `aperto` branch, the same tag in open-tx-isp and OpenIMP: RC1 `v2026.10.11-rc1`, RC2 `v2026.10.25-rc2`, RC3 `v2026.11.07-rc3` (2026-11-07). Gate SoCs of RC3 and Release 1: T10, T20, T21, T23, T30, T31, T40, T41 (T32/T33 planned, QEMU only); release notes: [docs/releases/ in OpenIMP](https://github.com/Lu-Fi/openimp/blob/next/docs/releases/README.md). Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-11-12: T30 GetEVAttr expr_us follows the exposure (openimp #273; QEMU T30 sc4236, host test)
+
+- The lifted `_process_fps_cnt` (frame-rate filter of the CMOS state) stored the timestamp only on the "flag set" path, the vendor (SDK ko 0x248bc) on every path. The last timestamp stayed 0, the filtered period grew with the absolute time and `cmos_get_fps` read about 1 fps (QEMU: p 1066656 -> 3.9e9, fps 3840 -> 1). `cmos_get_lines_per_second` clamps at 7 fps, so `ae_exposure` (GetEVAttr expr_us = integration time x 1e6 / lines per second) returned a constant (b53 T30X: 55877 us for 751 lines in every sample; vendor settles at 15960 us).
+- Fix: `_process_fps_cnt` rewritten from the vendor disassembly (`tx_isp_t30_fps_cnt.h`, host test `t30_fps_cnt_host_test`). QEMU T30: expr_us 25983 -> 16272..18278 us at constant exposure (the guest frame clock is jittery), no oops.
+
 ## 2026-11-11 (night): T20 AWB with more than two calibrated light sources (openimp #353; QEMU T20X jxf22, Wyze T20X jxf23 unchanged)
 
 - The T20 AWB (`tx_isp_t20_simple_awb_update`) asked for `CALIBRATION_LIGHT_SRC` as exactly 2x2 and returned without it. The table has one (R/G, B/G) row per known light source; the jxf23 bin has 2 rows, the jxf22 bin 4, so on jxf22 the AWB never ran and the WB stayed at the static gains (388/491, 5000 K) whatever the scene. Now as OEM `awb_calc_avg_weighted_gr_gb_mesh`: any number of 2-column rows, every source weighed per zone, and the accepted box spans the mesh axes and all sources. jxf23 (both sources inside the axes) is unchanged.

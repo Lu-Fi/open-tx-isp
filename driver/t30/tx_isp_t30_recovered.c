@@ -894,6 +894,7 @@ static unsigned char stab[60] __aligned(4);
 #define T30_STAB32(off) (*(u32 *)(stab + (off)))
 #include "tx_isp_t30_system_item.h"
 #include "tx_isp_t30_ae_manual.h"
+#include "tx_isp_t30_fps_cnt.h"
 static const uint8_t CSWTCH_192[10];
 #include "tx_isp_t30_tuning_math.h"
 static const uint16_t resize_height_write_table[5] = {
@@ -34862,61 +34863,15 @@ int32_t cmos_store_frame_exposure_set(int32_t *arg1, int32_t *arg2)
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000002519c origin=fragment_seed original=_process_fps_cnt */
+/* OEM _process_fps_cnt (SDK ko 0x248bc): see tx_isp_t30_fps_cnt.h.  The lifted body skipped the timestamp
+ * store on every path but one, so the frame-rate filter never converged (#273). */
 uint32_t _process_fps_cnt(uintptr_t a0, uint32_t a1)
 {
-    uint32_t local_14 = 0;
-    uint32_t *local_18 = 0;
-    uint32_t local_1c = 0;
-    uint32_t ra = 0;
-    uintptr_t *s0 = 0;
-    uint32_t *s1 = 0;
-    uint32_t *v0 = 0;
-    uint32_t v1 = 0;
+	u32 *c = (u32 *)a0;
+	u32 now = system_timer_timestamp();
 
-    /* fragment 0: Prologue */
-    /* function prologue: stack frame and callee-saved register setup */
-
-    /* fragment 1: CallSetup */
-    s0 = a0;
-    s1 = a1;
-    v0 = (uintptr_t *)((uintptr_t (*)(int32_t *))(uintptr_t)system_timer_timestamp)(a0); /* jalr target resolved by relocation */
-
-    /* fragment 2: Branch */
-    a0 = *(uint32_t *)((char *)(s0) + 0);
-    if (s1 == 0) { goto _process_fps_cnt0x50; }
-
-    /* fragment 3: MemoryAccess */
-    v1 = *(uint8_t *)((char *)s0 + 8);
-
-    /* fragment 4: Branch */
-    if (v1 != 0) { goto _process_fps_cnt0x54; }
-
-    /* fragment 5: MemoryAccess */
-    v1 = *(uint32_t *)((char *)s0 + 4);
-    a0 = v1 - a0;
-    v1 = v1 >> 4;
-    v1 = a0 - v1;
-    v1 = v1 + (uintptr_t)v0;
-    *(uint32_t *)((char *)s0 + 4) = v1;
-
-_process_fps_cnt0x50:
-    /* fragment 6: Epilogue */
-    /* function epilogue: restore registers and return */
-    return (uint32_t)v0;
-
-_process_fps_cnt0x54:
-    /* fragment 7: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    /* fragment 8: MemoryAccess */
-    *(uint32_t *)((char *)s0 + 0) = v0;
-    *(uint8_t *)((char *)s0 + 8) = 0;
-    s0 = local_14;
-
-    /* fragment 9: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    return (uint32_t)v0;
+	t30_fps_cnt_process(c, (u8 *)&c[2], now, a1);
+	return now;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000025208 origin=model_output original=_init_fps_cnt */
