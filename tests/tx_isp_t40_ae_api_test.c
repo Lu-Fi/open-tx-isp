@@ -982,8 +982,21 @@ static void test_fine_trim(void)
 	puts("fine_trim ok");
 }
 
+/* #424: OEM AE floor = sensor attr min_integration_time (sc830ai 3), a cap 42 sits above it */
+static void test_min_it_floor(void)
+{
+	assert(t40_ae_min_it_floor(3, 2241, 64) == 3);
+	assert(t40_ae_min_it_floor(3, 2241, 64) < 42);
+	assert(t40_ae_min_it_floor(4, 0, 64) == 4);
+	assert(t40_ae_min_it_floor(0, 2241, 64) == 64);
+	assert(t40_ae_min_it_floor(2241, 2241, 64) == 64);
+	assert(t40_ae_min_it_floor(0xffff, 0, 64) == 64);
+	puts("min_it_floor ok");
+}
+
 int main(void)
 {
+	test_min_it_floor();
 	test_comp();
 	test_scence();
 	test_stats();

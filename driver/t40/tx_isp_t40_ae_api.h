@@ -897,6 +897,20 @@ static inline void t40_ae_expr_pack(u8 *out, const struct t40_ae_expr *e,
 	t40_ae_st32(out, 216, l->ev_log2);
 }
 
+/* #424: AE integration-time floor.  The OEM takes it from the sensor attribute
+ * min_integration_time (attr+0xa8): tiziano_sync_sensor_attr @0x30a74 copies
+ * sinfo+0x38 to tisp_par_info+0x38 / tisp_ae_main_ctrls[0x1e] / 0xc6bf4, and
+ * tisp_ae_sensor_inform @0x31e94 loads it as pstMainAeOri[4] (min it) next to
+ * pstMainAeOri[0] (max it = attr max_integration_time).  A user max-IT cap is
+ * then honoured down to that floor.  sensor_min 0 (unknown) or >= max_it keeps
+ * the fallback (module parameter ae_soft_min_it). */
+static inline u32 t40_ae_min_it_floor(u32 sensor_min, u32 max_it, u32 fallback)
+{
+	if (sensor_min && sensor_min < 0xffffU && (!max_it || sensor_min < max_it))
+		return sensor_min;
+	return fallback;
+}
+
 /* ---------------- IMPISPAeSpeedAttr ---------------- */
 
 /* Step limit scaled by a speed value (128 = default AE speed, 1/8x..8x). */

@@ -667,7 +667,7 @@ night picture 69 % darker than the vendor. Findings and fixes, all device-tested
   behind `t40_oem_ae` (default 0). (2026-10-26: the lifted OEM AE and `t40_oem_ae` are removed, see below.) The ISR delivers frames itself (leg A, hard IRQ), so the frame-3A sampler that only
   lived in the FIFO frame-done work item never ran; the tick moved to `regtrace_irq_frame_done_send` with its own work
   item (`frame_3a_work_runs`).
-- AE: integration ceiling from the sensor attribute (`ae_soft_max_it_from_sensor`, sc830ai boot 4 = 2241), target
+- AE: integration ceiling from the sensor attribute (`ae_soft_max_it_from_sensor`, sc830ai boot 4 = 2241) and floor from the sensor min_integration_time like the vendor (`ae_soft_min_it_from_sensor`, sc830ai 3; #424), target
   110 -> 118 (vendor day luma 122 at the same EV; ours now 127), two gain steps per sample far from target, and gain
   bands (`9 %` analog / `5 %` ISP dgain of the target) so a 1.17x gain step cannot limit-cycle inside the 4-level
   deadband (it did: frames alternating 113/124). Settle after a light step < 1 s (vendor 1.5 s).

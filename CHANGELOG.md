@@ -4,6 +4,13 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD[-rcN]` are set on the `aperto` branch, the same tag in open-tx-isp and OpenIMP: RC1 `v2026.10.11-rc1`, RC2 `v2026.10.25-rc2`, RC3 `v2026.11.07-rc3` (2026-11-07). Gate SoCs of RC3 and Release 1: T10, T20, T21, T23, T30, T31, T40, T41 (T32/T33 planned, QEMU only); release notes: [docs/releases/ in OpenIMP](https://github.com/Lu-Fi/openimp/blob/next/docs/releases/README.md). Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-11-12: T40 AE integration floor from the sensor like the vendor (openimp #424; Eufy .184)
+
+- Cause: a user `AeMaxIntegrationTime` cap below the open AE floor `ae_soft_min_it` (fixed 64 lines) was ignored (cap 42 -> IT stayed 337); the vendor honours it.
+- Vendor (tx-isp-t40.ko, Ghidra): `tiziano_sync_sensor_attr` 0x30a74 copies the sensor attribute min_integration_time (attr+0xa8, sinfo+0x38) to `tisp_par_info`+0x38 / `tisp_ae_main_ctrls`[0x1e]; `tisp_ae_sensor_inform` 0x31e94 loads it as `pstMainAeOri`[4] (min IT) next to [0] (max IT).
+- Port: `tx_isp_t40_ae_api.h` `t40_ae_min_it_floor`; `regtrace_t40_ae_max_it` mirrors the sensor value into `ae_soft_min_it` (new parameter `ae_soft_min_it_from_sensor`, default 1; 0 keeps the old fixed floor). sc830ai: 3 lines.
+- Host test `tests/tx_isp_t40_ae_api_test.c` (min_it_floor). Device .184 (runtime insmod of next + fix, apitest t40dev 4000): W6_AeMaxIntegrationTime PASS cap 42: IT 337 -> 42 (agg68a FAIL), all other W cells unchanged vs agg68a.
+
 ## 2026-11-12: T40 AE sensor / ISP dgain latency like the vendor (openimp #412; Eufy .184 light box 5000 K)
 
 - Cause of the single bright frames at analog-gain steps during the fall: the open AE wrote the sensor IT / analog gain from the AE work right after the step, so the I2C landed before or after the sensor's frame latch (2 or 3 frames to the statistics), while the ISP dgain of a split step was written one AE frame later (fixed) and without the GIB update trigger.

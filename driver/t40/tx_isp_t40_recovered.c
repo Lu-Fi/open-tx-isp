@@ -9197,6 +9197,10 @@ static uint regtrace_ae_isp_dgain_updates;
  * sensor's attribute (max_integration_time, attr+0xb8: sc830ai boot 4 = 2241
  * lines at 20 fps) instead of the GC4653-era 1919.  =0 keeps ae_soft_max_it. */
 static bool regtrace_ae_soft_max_it_from_sensor = true;
+/* #424: AE integration floor from the sensor attribute min_integration_time
+ * (attr+0xa8, sc830ai 3 lines) like the OEM (tx_isp_t40_ae_api.h
+ * t40_ae_min_it_floor), mirrored into ae_soft_min_it.  =0 keeps ae_soft_min_it. */
+static bool regtrace_ae_soft_min_it_from_sensor = true;
 
 /* 16.16 log2 of the ISP digital gain (0 at 1x). */
 static uint32_t regtrace_t40_ae_isp_dgain_log2(void)
@@ -10072,6 +10076,7 @@ module_param_named(ae_isp_dgain_max, regtrace_ae_isp_dgain_max, uint, 0644);
 t40_bringup_param_named(ae_isp_dgain_cur, regtrace_ae_isp_dgain_cur, uint, 0444);
 t40_bringup_param_named(ae_isp_dgain_updates, regtrace_ae_isp_dgain_updates, uint, 0444);
 module_param_named(ae_soft_max_it_from_sensor, regtrace_ae_soft_max_it_from_sensor, bool, 0644);
+module_param_named(ae_soft_min_it_from_sensor, regtrace_ae_soft_min_it_from_sensor, bool, 0644);
 module_param_named(awb_manual_rgain, regtrace_awb_manual_rgain, uint, 0644);
 module_param_named(awb_manual_bgain, regtrace_awb_manual_bgain, uint, 0644);
 t40_bringup_param_named(awb_control_mode, regtrace_awb_control_mode, uint, 0444);
@@ -77057,11 +77062,23 @@ static uint32_t regtrace_t40_ae_max_it(void)
 {
     uint32_t it = READ_ONCE(regtrace_ae_soft_max_it);
 
-    if (regtrace_ae_soft_max_it_from_sensor &&
+    if ((regtrace_ae_soft_max_it_from_sensor || regtrace_ae_soft_min_it_from_sensor) &&
         regtrace_is_kernel_ptr(regtrace_sensor_subdev)) {
         uintptr_t attr = regtrace_get_u32((uintptr_t)regtrace_sensor_subdev, 0x304);
         uint32_t s = regtrace_is_kernel_ptr((void *)attr) ?
                      regtrace_get_u16(attr, 0xb8) : 0;
+
+        /* #424: OEM floor = attr min_integration_time (tiziano_sync_sensor_attr @0x30a74,
+         * tisp_ae_sensor_inform @0x31e94 pstMainAeOri[4]) */
+        if (regtrace_ae_soft_min_it_from_sensor && regtrace_is_kernel_ptr((void *)attr)) {
+            uint32_t mn = t40_ae_min_it_floor(regtrace_get_u16(attr, 0xa8), s,
+                                              READ_ONCE(regtrace_ae_soft_min_it));
+
+            if (READ_ONCE(regtrace_ae_soft_min_it) != mn)
+                WRITE_ONCE(regtrace_ae_soft_min_it, mn);
+        }
+        if (!regtrace_ae_soft_max_it_from_sensor)
+            s = 0;
 
         if (s > regtrace_ae_soft_min_it && s < 0xffffU) {
             it = s;
