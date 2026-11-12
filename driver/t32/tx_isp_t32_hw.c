@@ -113,7 +113,14 @@ static int t32_wait_clear(u32 off, u32 mask, int us)
 
 #ifdef TX_ISP_T33
 static u32 t33_mod_dirty;	/* lists 0..31 to run again at the next frame end (tisp*Refresh) */
-static bool t33_awb_refresh;	/* tispAwbRefresh == 1: run list 29 at the next AWB interrupt */
+static bool t33_awb_refresh;
+static bool t33_first_fe;	/* the TMO / MDNS start words are still 1 */
+static void t33_first_frame_words(void);
+static u32 t33_list_word(const u32 *l, u32 reg);
+/* lists 2..4, 6..9, 12..15, 17..22 */
+#define T33_INIT_REFRESH	0x007ef3dcU
+#define T33_TMO_START_REG	0x70f0U
+#define T33_MDNS_START_REG	0xd018U	/* tispAwbRefresh == 1: run list 29 at the next AWB interrupt */
 extern u32 t33_rcfg_runs;
 #endif
 
@@ -142,6 +149,15 @@ static irqreturn_t t32_isp_irq(int irq, void *dev)
 	if (sta & 1) {
 		t32_hw_stats.frame_ends++;
 #ifdef TX_ISP_T33
+		/*
+		 * First frame end after stream-on: tisp_tmo_t33_frame_done_interrupt
+		 * (TMO start word 0x70f0 = 0, tispTmoRefresh) and
+		 * tisp_mdns_t33_frame_done_interrupt (mdnsInit: 0xd018 = 0).
+		 */
+		if (t33_first_fe && !isp_rd(T33_RCFG_TRIG)) {
+			t33_first_fe = false;
+			t33_first_frame_words();
+		}
 		/* the vendor's frame-done list refresh: modules marked since, when no list runs */
 		if (t33_mod_dirty && !isp_rd(T33_RCFG_TRIG)) {
 			isp_wr(T33_RCFG_TRIG, t33_mod_dirty);
@@ -404,7 +420,32 @@ static void t33_rcfg_write_all(void)
 			   isp_rd(T33_RCFG_TRIG), isp_rd(T33_RCFG_TRIG_HI));
 	}
 	t33_rcfg_runs++;
+#ifdef TX_ISP_T33
+	/*
+	 * The init's tisp*Refresh flags: the vendor runs these lists once more
+	 * at the first frame end, list 29 at the first AWB interrupt (QEMU trace).
+	 */
+	t33_mod_dirty |= lo & T33_INIT_REFRESH;
+	t33_awb_refresh = !!(lo & (1U << T33_MOD_AWB));
+	t33_first_fe = true;
+#endif
 }
+
+#ifdef TX_ISP_T33
+static void t33_first_frame_words(void)
+{
+	u32 *l, w;
+
+	if ((t33_mod_built & (1ULL << T33_MOD_TMO)) && (l = t33_mod_buf(T33_MOD_TMO)) &&
+	    (w = t33_list_word(l, T33_TMO_START_REG))) {
+		l[w] = 0;
+		t33_mod_dirty |= 1U << T33_MOD_TMO;
+	}
+	if ((t33_mod_built & (1ULL << T33_MOD_MDNS)) && (l = t33_mod_buf(T33_MOD_MDNS)) &&
+	    (w = t33_list_word(l, T33_MDNS_START_REG)))
+		l[w] = 0;
+}
+#endif
 
 static unsigned int lsc_ct = 5000;
 module_param(lsc_ct, uint, 0644);
@@ -969,6 +1010,22 @@ static void t33_gr_rerun(unsigned int id)
 	t33_gr_runs[id]++;
 }
 
+/* the word of list l that holds reg's value (register commands only), 0 when absent */
+static u32 t33_list_word(const u32 *l, u32 reg)
+{
+	u32 i = 1, n = l[0], c, cnt, off;
+
+	while (i <= n && i < T33_SLOT_WORDS) {
+		c = l[i];
+		cnt = t32_rcfg_cmd_count(c);
+		off = t32_rcfg_cmd_offset(c);
+		if ((c & T32_RCFG_CMD) && reg >= off && reg < off + 4 * cnt)
+			return i + 1 + (reg - off) / 4;
+		i += 1 + cnt;
+	}
+	return 0;
+}
+
 static int t33_gr_tmpl(const struct t33_tcmd *t, unsigned int nt, int n)
 {
 	return n > 0 ? t33_rcfg_build_tmpl(t33_gr_tmp, T33_SLOT_WORDS, t, nt, tisp_w, (unsigned int)n) : n;
@@ -1025,6 +1082,13 @@ void t33_tgain_refresh(u32 gain)
 						 t33_gr_tmp, T33_SLOT_WORDS, d);
 			if ((int)len > 0 && (t33_mod_built & (1ULL << T33_MOD_YSP)))
 				t33_mdns_decode(t33_ysp_v, t33_gr_tmp);
+			if ((int)len > 0) {	/* the start word 0xd018 is not part of tisp_mdns_par_refresh */
+				u32 *cur = t33_mod_buf(T33_MOD_MDNS), a = t33_list_word(t33_gr_tmp, T33_MDNS_START_REG),
+				    b = cur ? t33_list_word(cur, T33_MDNS_START_REG) : 0;
+
+				if (a && b)
+					t33_gr_tmp[a] = cur[b];
+			}
 			t33_gr_commit(T33_MOD_MDNS, (int)len);
 		} else {
 			t33_gr_rerun(T33_MOD_MDNS);	/* tispMdnsRefresh = 1 below the gate */
@@ -1045,13 +1109,16 @@ out:
 
 /*
  * tisp_long_ev_update's block part (AE event 6, on an EV change): BCSH
- * (tisp_bcsh_ev_update).  The vendor's CCM / gamma / RDNS / defog / LCE /
- * TMO EV updates leave their words unchanged on PRJ008 (flat EV tables,
- * QEMU trace); they only rerun the lists.
+ * (tisp_bcsh_ev_update) and CCM (tisp_ccm_ev_update: the CT matrix of the
+ * last CT update reaches the list words here, list 10 reruns every time).
+ * The vendor's gamma / RDNS / defog / LCE / TMO EV updates leave their
+ * words unchanged on PRJ008 (flat EV tables, QEMU trace); their list reruns
+ * are not mirrored yet.
  */
 void t33_ev_refresh(u32 lo, u32 hi)
 {
-	u32 *buf;
+	const u8 *bin;
+	u32 *buf, bytes;
 
 	mutex_lock(&t33_gr_lock);
 	t33_gr_ev = hi << 22 | lo >> 10;
@@ -1062,13 +1129,27 @@ void t33_ev_refresh(u32 lo, u32 hi)
 		if (t33_bcsh_ev_update(t33_bcsh_st, t33_bcsh_sec, lo, hi, t33_gr_tmp))
 			t33_gr_commit(T33_MOD_BCSH, 1);
 	}
+	/* tisp_ccm_ev_update: the matrix words follow the CT here, list 10 reruns either way */
+	if (t33_gr_tmp && (t33_mod_built & (1ULL << T33_MOD_CCM)) && (buf = t33_mod_buf(T33_MOD_CCM)) &&
+	    !t32_core_iq_bin(&bin, &bytes)) {
+		u32 len, off = t32_iq_section(bin, bytes, T33_SEC_CCM, &len);
+
+		if (off && len == T33_CCM_SEC_BYTES) {
+			memcpy(t33_gr_tmp, buf, T33_SLOT_WORDS * 4);
+			if (t33_ccm_ev_update(t33_ccm_v, bin + off, lo, hi, t33_gr_tmp))
+				t33_gr_commit(T33_MOD_CCM, 1);
+			else
+				t33_gr_rerun(T33_MOD_CCM);
+		}
+	}
 	mutex_unlock(&t33_gr_lock);
 }
 
 /*
  * tisp_ct_update's block part (AWB event 11, on a CT change): CCM
  * (tisp_ccm_ct_update: interp_by_ct unless the CT stays in an even
- * segment or within the hysteresis sec+0x738 of the last one, write_reg)
+ * segment or within the hysteresis sec+0x738 of the last one; write_reg
+ * stores the old matrix words: no calc_para_refresh here, list 10 reruns)
  * and CLM (tisp_clm_ct_interp: the same gate with the per-knot hysteresis
  * sec+0x1a and the state's 1, then write_reg).  BCSH / LSC CT updates
  * leave their words unchanged on PRJ008 (QEMU trace).
@@ -1119,14 +1200,10 @@ void t33_ct_refresh(u32 ct)
 		t33_ccm_ct(t33_ccm_v, sec, lut, ct);
 		d = (int)(ct - t33_ccm_save[4]);
 		if ((t33_ccm_v[5] == t33_ccm_save[5] && !(t33_ccm_v[5] & 1)) ||
-		    (d < 0 ? -d : d) <= (int)t32_tp_le16(sec + 0x738)) {
+		    (d < 0 ? -d : d) <= (int)t32_tp_le16(sec + 0x738))
 			memcpy(t33_ccm_v, t33_ccm_save, sizeof(t33_ccm_save));
-		} else {
-			t33_ccm_para(t33_ccm_v, sec);
-			memcpy(t33_gr_tmp, buf, T33_SLOT_WORDS * 4);
-			t33_ccm_store(t33_ccm_v, t33_gr_tmp);
-			t33_gr_commit(T33_MOD_CCM, 1);
-		}
+		/* no calc_para_refresh here: write_reg stores the unchanged matrix words; tispCcmRefresh */
+		t33_gr_rerun(T33_MOD_CCM);
 	}
 	off = t32_iq_section(bin, bytes, T33_SEC_CLM, &len);
 	coff = t32_iq_section(bin, bytes, T32_IQ_SEC_CSC, &clen);
@@ -1809,8 +1886,7 @@ static bool t33_msca_list_stop(int ch)
 	T33_SW(l, b + 0x2a, 0);
 	T33_SW(l, b + 0x32, 0);
 	T33_SW(l, 3, l[3 + 1] & ~(1U << ch));
-	if (!t33_msca_direct)
-		t33_rcfg_run(T33_MOD_MSCA);
+	t33_mod_dirty |= 1U << T33_MOD_MSCA;	/* tispMscaRefresh: at the next frame end (none after stream-off) */
 	return true;
 }
 #endif

@@ -9,9 +9,10 @@
  * words each).
  *
  * The CT interpolation keeps the vendor's upper threshold, which reads the
- * knot temperature at a u16 stride of 0x41a instead of 0x41b (only used
- * between two knots; at the init CT 5000 K the PRJ008 bins take the last
- * knot).  QEMU trace of the vendor module (openimp #388): list 19 word-equal.
+ * knot temperature at a u16 stride of 0x41a instead of 0x41b and compares
+ * it unsigned (only used between two knots; on PRJ008 it reads 0, so 0 - hyst
+ * wraps and every CT between the knot bands interpolates; at the init CT
+ * 5000 K the bins take the last knot).  QEMU trace of the vendor module (openimp #388): list 19 word-equal.
  */
 #ifndef TX_ISP_T33_CLM_H
 #define TX_ISP_T33_CLM_H
@@ -76,7 +77,7 @@ static inline int t33_clm_ct(const u8 *sec, const u8 *lut, u32 lutbytes, int ct,
 		lo = i - 1;
 		if (ct <= KCT(lo) + HY(lo)) {
 			src = lo;
-		} else if (ct < (int)(s16)t32_tp_le16(a16 + i * 0x834) - HY(i)) {
+		} else if ((u32)ct < (u32)((int)(s16)t32_tp_le16(a16 + i * 0x834) - HY(i))) {	/* unsigned, as the vendor */
 			int up = KCT(i) - HY(i), base = KCT(lo) + HY(lo);
 			u32 f;
 

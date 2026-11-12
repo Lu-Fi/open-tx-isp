@@ -107,8 +107,8 @@ static inline void t33_ccm_ct(u32 *v, const u8 *sec, const u8 *lut, u32 ct)
 	}
 }
 
-/* tisp_ccm_interp_by_ev (init: force): the 36 EV tables into v[0x72..0x98] */
-static inline void t33_ccm_ev(u32 *v, const u8 *sec, u32 ev_lo, u32 ev_hi)
+/* tisp_ccm_interp_by_ev (forced): the 36 EV tables into v[0x72..0x98]; 2 on equal EV points */
+static inline int t33_ccm_ev(u32 *v, const u8 *sec, u32 ev_lo, u32 ev_hi)
 {
 	static const u16 base[4] = { 0x6c, 0x2b0, 0x434, 0x5b8 };
 	static const u8 cnt[4] = { 12, 8, 8, 8 }, word[4] = { 0x72, 0x7f, 0x88, 0x91 };
@@ -126,7 +126,7 @@ static inline void t33_ccm_ev(u32 *v, const u8 *sec, u32 ev_lo, u32 ev_hi)
 		t0 = t33_le32(sec + 0xc + 4 * idx - 4);
 		t1 = t33_le32(sec + 0xc + 4 * idx);
 		if (t1 == t0)
-			return;		/* the vendor returns 2 */
+			return 2;
 		f = (u32)t32_tp_div64((unsigned long long)(e - t0) * 0x1000 + ((int)(t1 - t0) >> 1),
 				      (unsigned long long)(t1 - t0));
 	}
@@ -141,6 +141,7 @@ static inline void t33_ccm_ev(u32 *v, const u8 *sec, u32 ev_lo, u32 ev_hi)
 			else
 				v[word[g] + k] = (u32)t33_sub_interp(f, t33_s32(p + 4 * idx - 4), t33_s32(p + 4 * idx));
 		}
+	return 0;
 }
 
 /* func_ccm_calc_single_ks: the largest shift 10..0 with ((a << s) + b / 2) / b < 0x100 */
@@ -237,6 +238,34 @@ static inline void t33_ccm_store(const u32 *v, u32 *l)
 	T33_SW(l, 0x24, T33_CCM_S3(0x43, 0x44, 0x42));
 	T33_SW(l, 8, (v[6] & 1) << 16 | (v[7] & 1) << 20 | (v[0x1a] & 1) << 24);
 	T33_SW(l, 1, 1);
+}
+
+/*
+ * tisp_ccm_ev_update (long EV event): EV clamped to 0x100 << 32, the
+ * interp_by_ev gate (|EV - last| below sec+0x3c: nothing), then
+ * calc_para_refresh and write_reg into list l.  True when the words were
+ * rebuilt; the vendor reruns list 10 either way (tispCcmRefresh).  The CT
+ * update (tisp_ccm_ct_update) only interpolates v[0x5f..0x70]: the matrix
+ * words follow at the next EV refresh.
+ */
+static inline int t33_ccm_ev_update(u32 *v, const u8 *sec, u32 lo, u32 hi, u32 *l)
+{
+	unsigned long long a, b, d;
+
+	if (hi > 0x100 || (hi == 0x100 && lo)) {
+		lo = 0;
+		hi = 0x100;
+	}
+	a = (unsigned long long)hi << 32 | lo;
+	b = (unsigned long long)v[3] << 32 | v[2];
+	d = a > b ? a - b : b - a;
+	if ((d >> 32 ? 0xffffffffU : (u32)d) < t33_le32(sec + 0x3c))
+		return 0;
+	if (t33_ccm_ev(v, sec, lo, hi))
+		return 0;
+	t33_ccm_para(v, sec);
+	t33_ccm_store(v, l);
+	return 1;
 }
 
 #undef T33_CCM_P10

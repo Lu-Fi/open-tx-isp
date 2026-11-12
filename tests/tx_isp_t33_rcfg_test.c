@@ -454,6 +454,20 @@ int main(void)
 				vs_list("clm", T33_MOD_CLM, lb,
 					t33_clm_init(bin + off, bin + off + len, t32_iq_payload(bin + off, bytes - off, T33_SEC_CLM),
 						     bin + coff, 5000, lb, T33_SLOT_WORDS));
+				{
+					/* between two knots the vendor's upper threshold compares unsigned
+					 * (knot CT read at stride 0x41a, 0 on PRJ008): 4174 K interpolates */
+					static u32 la[T33_SLOT_WORDS], lz[T33_SLOT_WORDS];
+					u32 lbytes = t32_iq_payload(bin + off, bytes - off, T33_SEC_CLM);
+
+					if (bin[off + 0x3b] == 3 && t32_tp_le16(bin + off + len + 2 * T33_CLM_KNOT16) == 4900) {
+						CHECK(t33_clm_init(bin + off, bin + off + len, lbytes, bin + coff, 4174, la,
+								   T33_SLOT_WORDS) > 0);
+						CHECK(t33_clm_init(bin + off, bin + off + len, lbytes, bin + coff, 4900, lz,
+								   T33_SLOT_WORDS) > 0);
+						CHECK(memcmp(la, lz, sizeof(la)) != 0);
+					}
+				}
 			}
 			{
 				/* TMO: EV 0, the V table DMA address (0x70e0) as the vendor's */
