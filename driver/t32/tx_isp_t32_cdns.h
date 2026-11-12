@@ -56,16 +56,18 @@ static inline int t32_cdns_init(const u8 *sec, struct t32_front_write *w)
 #define T33_CDNS_SEC_BYTES	588U
 #define T33_CDNS_WRITES		21
 
-static inline int t33_cdns_init(const u8 *sec, struct t32_front_write *w)
+/* at the gain (log2 Q16) of tisp_cdns_par_refresh; init: 0x10000 */
+static inline int t33_cdns_gain(const u8 *sec, u32 gain, struct t32_front_write *w)
 {
+	u32 gi = gain >> 16, gf = gain & 0xffff;
 	u8 o[0x36];
 	unsigned int n = 0, k;
 
 	for (k = 0; k < 0x26; k++)
-		o[k] = t32_tp_intp_u8(1, 0, sec + 4 + 11 * k);
+		o[k] = t32_tp_intp_u8(gi, gf, sec + 4 + 11 * k);
 	o[0x26] = sec[0x1a6];
 	for (k = 0x27; k < 0x36; k++)
-		o[k] = t32_tp_intp_u8(1, 0, sec + 0x1a7 + 11 * (k - 0x27));
+		o[k] = t32_tp_intp_u8(gi, gf, sec + 0x1a7 + 11 * (k - 0x27));
 	T32_FWR(w, n, 0x12040, o[0] & 7U);
 	for (k = 0; k < 8; k++)
 		T32_FWR(w, n, 0x12050 + 4 * k, (u32)o[2 + 3 * k] << 8 | (u32)o[3 + 3 * k] << 16 | o[1 + 3 * k]);
@@ -85,6 +87,11 @@ static inline int t33_cdns_init(const u8 *sec, struct t32_front_write *w)
 	T32_FWR(w, n, 0x12094, (u32)(o[0x29] & 0x3f) << 8 | (o[0x28] & 0x3fU));
 	T32_FWR(w, n, 0x12010, 1);
 	return (int)n;
+}
+
+static inline int t33_cdns_init(const u8 *sec, struct t32_front_write *w)
+{
+	return t33_cdns_gain(sec, 0x10000, w);
 }
 
 #endif /* TX_ISP_T32_CDNS_H */

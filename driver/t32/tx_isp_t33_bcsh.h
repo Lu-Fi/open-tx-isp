@@ -546,4 +546,38 @@ T33_BCSH_FN t33_bcsh_init(u8 *sec, const u8 *lut, u32 lutbytes, const u8 *csc, i
 	return len;
 }
 
+/*
+ * tisp_bcsh_ev_update (AE event 6, EV low / high word), EV mode
+ * (sec[0x4c0] = 0; the BV mode is not ported): the EV clipped to
+ * 0x100_00000000, tisp_bcsh_interp_by_ev unless the EV moved by at most
+ * the hysteresis sec+0x64 since the last one (st+8 / +0xc), the frame
+ * counter st+0x28, then tisp_bcsh_calc_para_refresh, params_transform and
+ * the slot stores into l.  calc_para_refresh runs in mode 0 here (the
+ * vendor's mode 1 skips the hue / saturation parts, which the EV does not
+ * change).  Returns 1 when the words were rebuilt.
+ */
+static inline int t33_bcsh_ev_update(u8 *st, const u8 *sec, u32 lo, u32 hi, u32 *l)
+{
+	unsigned long long n, o, d;
+
+	if (hi > 0x100 || (hi == 0x100 && lo)) {
+		lo = 0;
+		hi = 0x100;
+	}
+	if (sec[0x4c0])
+		return 0;
+	n = (unsigned long long)hi << 32 | lo;
+	o = (unsigned long long)t33_le32(st + 0xc) << 32 | t33_le32(st + 8);
+	d = n > o ? n - o : o - n;
+	st[0x28] = st[0x28] == 0xff ? 0 : st[0x28] + 1;
+	if (!(d >> 32) && (u32)d <= t33_le32(sec + 0x64))
+		return 0;
+	t33_bcsh_ev(st, sec, n);
+	t32_bcsh_p32(st, 8, lo);
+	t32_bcsh_p32(st, 0xc, hi);
+	t33_bcsh_calc(st, sec);
+	t33_bcsh_store(st, sec, l);
+	return 1;
+}
+
 #endif /* TX_ISP_T33_BCSH_H */

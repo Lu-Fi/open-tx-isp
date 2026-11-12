@@ -899,7 +899,8 @@ static noinline_for_stack void t33_tisp_init_awb(const u8 *bin, u32 bytes)
 
 /*
  * tisp_long_tgain_update's block refreshes (AE event 4, the long total
- * gain, log2 Q16; process context, the AE work).  Each vendor
+ * gain, log2 Q16; process context, the AE work): DPC, DMSC, YSP, YDNS,
+ * SDNS, RDNS, MDNS, CDNS.  Each vendor
  * tisp_*_par_refresh keeps the last gain and leaves when the new one is
  * closer than the init parameter word +1000 (fstframe_defaultp word 20,
  * 0x100); DPC has no such gate, MDNS reruns its list unchanged below it.
@@ -1026,8 +1027,38 @@ void t33_tgain_refresh(u32 gain)
 			t33_gr_rerun(T33_MOD_MDNS);	/* tispMdnsRefresh = 1 below the gate */
 		}
 	}
+	off = t32_iq_section(bin, bytes, T32_SEC_CDNS, &len);
+	if (off && len == T33_CDNS_SEC_BYTES && t33_gr_gate(T33_MOD_CDNS, gain)) {
+		struct t32_rcfg_list l;
+		int n = t33_cdns_gain(bin + off, gain, tisp_w);
+
+		memset(t33_gr_tmp, 0, T33_SLOT_WORDS * 4);
+		t33_gr_commit(T33_MOD_CDNS, n > 0 ? t33_rcfg_build(&l, t33_gr_tmp, T33_SLOT_WORDS, tisp_w, (unsigned int)n) : n);
+	}
 #undef T33_GR_SEC
 out:
+	mutex_unlock(&t33_gr_lock);
+}
+
+/*
+ * tisp_long_ev_update's block part (AE event 6, on an EV change): BCSH
+ * (tisp_bcsh_ev_update).  The vendor's CCM / gamma / RDNS / defog / LCE /
+ * TMO EV updates leave their words unchanged on PRJ008 (flat EV tables,
+ * QEMU trace); they only rerun the lists.
+ */
+void t33_ev_refresh(u32 lo, u32 hi)
+{
+	u32 *buf;
+
+	mutex_lock(&t33_gr_lock);
+	t33_gr_ev = hi << 22 | lo >> 10;
+	if (!t33_gr_tmp)
+		t33_gr_tmp = kmalloc(T33_SLOT_WORDS * 4, GFP_KERNEL);
+	if (t33_gr_tmp && (t33_mod_built & (1ULL << T33_MOD_BCSH)) && (buf = t33_mod_buf(T33_MOD_BCSH))) {
+		memcpy(t33_gr_tmp, buf, T33_SLOT_WORDS * 4);
+		if (t33_bcsh_ev_update(t33_bcsh_st, t33_bcsh_sec, lo, hi, t33_gr_tmp))
+			t33_gr_commit(T33_MOD_BCSH, 1);
+	}
 	mutex_unlock(&t33_gr_lock);
 }
 

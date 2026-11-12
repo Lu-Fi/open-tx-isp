@@ -72,6 +72,7 @@ void t33_aec_show(struct seq_file *m);
 bool t33_evq_queue(struct work_struct *w);	/* the vendor's tisp event thread: one ordered queue */
 void t33_evq_get(void);
 void t33_tgain_refresh(u32 gain);	/* tx_isp_t32_hw.c: event 4 block refreshes */
+void t33_ev_refresh(u32 lo, u32 hi);
 void t33_evq_free(void);
 int t32_core_sensor_ae_src(const u8 **video_in, const u8 **attr);
 u32 t32_core_sensor_alloc_again(u32 log2_q16, u32 *reg);
