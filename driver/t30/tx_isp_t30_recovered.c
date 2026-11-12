@@ -80,6 +80,7 @@
 #endif
 #include "tx_isp_t30_v4l2.h"
 #include "tx_isp_t30_stab.h"
+#include "tx_isp_t30_gctrl.h"
 #include "tx_isp_t30_fmt5c.h"
 
 #ifndef __regtrace_stringify
@@ -10059,19 +10060,29 @@ int32_t apical_isp_core_ops_s_ctrl(void **arg1, int32_t *arg2, int32_t arg3)
  * #375: OEM apical_isp_core_ops_g_ctrl jump tables (vendor 4ea12e1f .rodata+556 / +824 / +872).  Arm
  * 0x8a98 = "s0 = -1" (unsupported), 0x8da0 = "return 0", 0x9da4 = value = tuning +3776.  Every other arm is
  * served before the lifted function by tx_isp_t30_tuning_ctl_get() or the VIDIOC_G_CTRL wrapper, except
- * 0x8000020 (OEM 0x8bec) and 0x800002c (OEM 0x8ec8), which keep the lifted -1 (gap, see #375).
+ * 0x8000020 (OEM 0x8bec, AE attribute block) and 0x800002c (OEM 0x8ec8, apical_isp_stab_g_attr), which
+ * #379 serves here (the lift left them -1; no libimp 1.0.5 call uses 0x8000020, 0x800002c is MoveState and
+ * integration time).
  */
-enum { T30_GCTRL_JT_ERR, T30_GCTRL_JT_ZERO, T30_GCTRL_JT_TUNING_3776 };
-static int t30_g_ctrl_jt(int tbl, uint32_t idx)
+/*
+ * #379: OEM g_ctrl arm 0x8bec (id 0x8000020).  Three apical_command(3, 0x58/0x5b/0x5a, -1, 1, &tmp) calls whose
+ * result is discarded, the tuning words at +0x828 (u16), +0x82a (u16) and +0x830 (u32) set to all ones, then
+ * a 0xf0 byte copy of tuning+0x828 to the user pointer (access_ok failure and copy result are ignored: the
+ * OEM returns 0 either way).
+ */
+static int t30_g_ctrl_ae_attr(void *tuning, uint32_t *ctl)
 {
-	if (tbl == 1)	/* 0x8000000 + idx */
-		return (idx == 0 || idx == 3 || idx == 0x21 || idx == 0x40 || idx == 0x41) ? T30_GCTRL_JT_ZERO :
-			T30_GCTRL_JT_ERR;
-	if (tbl == 3)	/* 0x8000160 + idx */
-		return idx == 0 ? T30_GCTRL_JT_ZERO : idx == 7 ? T30_GCTRL_JT_TUNING_3776 : T30_GCTRL_JT_ERR;
-	return T30_GCTRL_JT_ERR;	/* 0x980914 + idx: unsupported or served by the wrapper */
-}
+	uint32_t tmp = 0;
+	uint8_t *t = tuning;
 
+	apical_command(3, 0x58, 0xffffffffu, 1, &tmp);
+	apical_command(3, 0x5b, 0xffffffffu, 1, &tmp);
+	apical_command(3, 0x5a, 0xffffffffu, 1, &tmp);
+	t30_gctrl_ae_attr_mark(t);
+	if (copy_to_user((void __user *)(uintptr_t)ctl[1], t + 0x828, 0xf0))
+		return 0;
+	return 0;
+}
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000008a14 origin=fragment_seed original=apical_isp_core_ops_g_ctrl */
 int64_t apical_isp_core_ops_g_ctrl(uintptr_t a0, uintptr_t a1)
 {
@@ -10213,6 +10224,8 @@ apical_isp_core_ops_g_ctrl0x90:
     /* #375: vendor 4ea12e1f 0x8ab0..0x8ac4 (.rodata+556, id - 0x8000000 < 67): jr through the g_ctrl jump table 1.  The lift read the table at
      * NULL + offset (typed v0) and then switched on the control pointer; dispatch on the index instead. */
     switch (t30_g_ctrl_jt(1, (uint32_t)v1)) {
+    case T30_GCTRL_JT_AE_ATTR: s0 = t30_g_ctrl_ae_attr((void *)s2, (uint32_t *)s1); goto apical_isp_core_ops_g_ctrl0x14c;
+    case T30_GCTRL_JT_STAB: apical_isp_stab_g_attr((void *)s1); s0 = 0; goto apical_isp_core_ops_g_ctrl0x14c;
     case T30_GCTRL_JT_ZERO: goto apical_isp_core_ops_g_ctrl0x38c;
     case T30_GCTRL_JT_TUNING_3776: v0 = *(uint32_t *)((char *)s2 + 3776); goto apical_isp_core_ops_g_ctrl0x3cc;
     default: goto apical_isp_core_ops_g_ctrl0x84;
