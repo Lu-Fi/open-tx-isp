@@ -33,6 +33,7 @@
 #include "tx_isp_t32_regs.h"
 #include "tx_isp_t32_mem.h"
 #include "tx_isp_t32_msca.h"
+#include "tx_isp_t32_soc.h"
 
 static unsigned int isp_memopt = T32_MEMOPT_DEFAULT;
 module_param(isp_memopt, uint, 0444);
@@ -43,7 +44,7 @@ MODULE_PARM_DESC(isp_memopt, "MDNS memory ratio in 1/1000 (<=1000 uncompressed, 
  * 32) despite the int-sized ioctl and refuses IMP_ISP_Open unless both match
  * its own strings (libimp 2.2.0: "PRJ007" / "20251107a").
  */
-static char *driver_soc = "PRJ007";
+static char *driver_soc = T32_SOC_NAME;
 module_param(driver_soc, charp, 0444);
 MODULE_PARM_DESC(driver_soc, "SoC name answered to DRIVER_VERSION");
 static char *driver_version = "20251107a";
@@ -57,9 +58,7 @@ MODULE_PARM_DESC(driver_version, "ISP driver version answered to DRIVER_VERSION 
  * (bin bytes 152.., "PRJ007").  The rest of the buffer is left zero, as far
  * as libimp 2.2.0 is concerned (S1).
  */
-#define T32_DEFAULT_BIN_SIZE	880
-#define T32_DEFAULT_BIN_VER	863
-#define T32_DEFAULT_BIN_SOC	871
+/* T32_DEFAULT_BIN_SIZE / _VER / _SOC: tx_isp_t32_soc.h (T33: 856 / 839 / 847) */
 static char *bin_version = "1.00";
 module_param(bin_version, charp, 0444);
 MODULE_PARM_DESC(bin_version, "IQ bin format version the driver accepts");
@@ -590,12 +589,12 @@ struct t32_clk {
 };
 
 static struct t32_clk t32_clks[] = {
-	{ "div_isp", 200000000, 219000000 },
+	{ "div_isp", T32_CLK_ISP_PROBE, T32_CLK_ISP },
 	{ "div_isps", 476000000, 476000000 },
-	{ "div_ldc", 588000000, 588000000 },
+	{ "div_ldc", T32_CLK_LDC_PROBE, T32_CLK_LDC },
 	{ "gate_isp" },
 	{ "div_ispa", 500000000, 500000000 },
-	{ "div_vpu", 500000000, 500000000 },
+	{ "div_vpu", T32_CLK_VPU_PROBE, T32_CLK_VPU },
 	{ "gate_ivdc" },
 	{ "gate_csi" },
 };
@@ -838,7 +837,7 @@ static int t32_proc_show(struct seq_file *m, void *v)
 {
 	struct t32_vi *vi = &core.vi[0];
 
-	seq_printf(m, "tx-isp-t32 (open, S3: frames on 3 channels, sensor fps, no tisp)\n");
+	seq_printf(m, T32_SOC_DRV " (open, S3: frames on 3 channels, sensor fps, no tisp)\n");
 	seq_printf(m, "sensor: %s registered %d input %d streaming %d %ux%u\n",
 		   vi->registered ? vi->info.name : "-", vi->registered,
 		   vi->input_on, vi->streaming, vi->width, vi->height);
@@ -959,7 +958,7 @@ int tx_isp_t32_core_init(void)
 		proc_create("isp-m0", 0444, core.proc, &t32_proc_fops);
 		proc_create("isp-w02", 0444, core.proc, &t32_proc_fops);
 	}
-	pr_info("tx-isp-t32: open driver loaded (S3: 3 channels, sensor fps, no tisp) (memopt %u)\n", isp_memopt);
+	pr_info(T32_SOC_DRV ": open driver loaded (S3: 3 channels, sensor fps, no tisp) (memopt %u)\n", isp_memopt);
 	return 0;
 
 err_hw:

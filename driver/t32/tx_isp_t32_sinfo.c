@@ -40,6 +40,7 @@ static const struct tx_isp_sinfo_config tx_isp_sinfo_config = {
 #include "../common/tx_isp_sinfo.c"
 
 #include "tx_isp_t32.h"
+#include "tx_isp_t32_soc.h"
 
 static int __init tx_isp_t32_init(void)
 {
@@ -62,5 +63,5 @@ static void __exit tx_isp_t32_exit(void)
 
 module_init(tx_isp_t32_init);
 module_exit(tx_isp_t32_exit);
-MODULE_DESCRIPTION("Open Ingenic T32 ISP driver (S1 skeleton)");
+MODULE_DESCRIPTION(T32_SOC_DESC);
 MODULE_LICENSE("GPL");
