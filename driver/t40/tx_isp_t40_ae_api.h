@@ -912,4 +912,38 @@ static inline u32 t40_ae_speed_scale(u32 step, u32 speed)
 	return s ? (u32)s : 1U;
 }
 
+/* ---------------- #412: ISP dgain latency ring (OEM) ---------------- */
+
+/*
+ * OEM tisp_ae_main_long_ev_alloc (vendor tx-isp-t40.ko, Ghidra 0x38374): every AE statistics frame the sensor IT / analog
+ * gain of the new exposure go to the pending sensor slots (written by the frame-done worker,
+ * ispcore_irq_main_fd_work 0x867c8), while the ISP digital gain is pushed into a ring (stMainAeInter + 0x4404,
+ * pstMainAeOri[0x37], 10 words) and the entry `depth` AE frames old is written (tisp_ae_IspDg 0x37cd8 ->
+ * tisp_gib_ae_write_dgain, then system_reg_set_ae_trig(3) = 0x8040).  depth = tuning bank AE word
+ * stMainAeOuter + 0x29c (bank +0x288 u16[10], tisp_ae_params_transmit 0x313a0 pstMainAeOri[0x48] + 0x14): 2 on the
+ * sc830ai day and night banks, the sensor driver's integration_time / again_apply_delay.  The shift runs from
+ * index depth down to 0 (ring[i + 1] = ring[i]); a refresh (byte pstMainAeOri[0x2c]: day / night switch, WDR,
+ * EV start) or a manual AE (ctrls word 0) copies ring[0] into 1..depth + 1, i.e. writes at once.
+ */
+#define T40_AE_DG_RING_N	10U
+
+struct t40_ae_dg_ring {
+	u32 v[T40_AE_DG_RING_N];
+};
+
+static inline u32 t40_ae_dg_ring_step(struct t40_ae_dg_ring *r, u32 dg, u32 depth, bool fill)
+{
+	int i;
+
+	if (depth > T40_AE_DG_RING_N - 2U)
+		depth = T40_AE_DG_RING_N - 2U;
+	for (i = (int)depth; i >= 0; i--)
+		r->v[i + 1] = r->v[i];
+	r->v[0] = dg;
+	if (fill)
+		for (i = (int)depth; i >= 0; i--)
+			r->v[i + 1] = r->v[0];
+	return r->v[depth];
+}
+
 #endif

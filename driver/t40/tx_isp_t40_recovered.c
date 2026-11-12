@@ -9484,14 +9484,113 @@ static uintptr_t t40_ae_tune_bank T40C2;        /* tuning bank of the last step 
 static uint32_t t40_ae_tune_comp T40C2;
 static bool t40_ae_tune_on T40C2;
 /*
- * #412: the ISP digital gain acts on the next frame, the sensor IT / analog gain one frame later (light box .184
- * run-t40-1112-ae5000: a single +12..14 % frame at every analog index step of the per-frame AE).  An OEM step that
- * moves the sensor part writes its ISP dgain one AE frame later, so both land on the same frame.  0 = at once.
+ * #412: OEM latency model (tisp_ae_main_long_ev_alloc, Ghidra 0x38374; t40_ae_dg_ring_step in ae_api.h).  The OEM
+ * step leaves the sensor IT / analog gain to the next frame-done worker (ispcore_irq_main_fd_work 0x867c8, sensor
+ * attr +0x124 = 0; here: the frame-3A work at the next frame-done, before its step) and writes the ISP dgain of `depth` AE frames ago every AE frame, then the GIB trigger 0x8040
+ * (system_reg_set_ae_trig(3)).  t40_ae_dg_delay: -1 = depth from the bank (+0x288 u16[10], 2 on sc830ai),
+ * 0 = at once, n = n AE frames.  t40_ae_sensor_fd 0 = write the sensor from the AE work at once (before #412b:
+ * the write landed before or after the sensor's frame latch, single +12..14 % frames on .184).
  */
-static uint t40_ae_dg_delay T40C2 = 1;
-module_param_named(t40_ae_dg_delay, t40_ae_dg_delay, uint, 0644);
-static uint32_t t40_ae_dg_queue T40C2;
-static bool t40_ae_dg_queued T40C2;
+static int t40_ae_dg_delay T40C2 = -1;
+module_param_named(t40_ae_dg_delay, t40_ae_dg_delay, int, 0644);
+static uint t40_ae_sensor_fd T40C2 = 1;
+module_param_named(t40_ae_sensor_fd, t40_ae_sensor_fd, uint, 0644);
+static struct t40_ae_dg_ring t40_ae_dg_ring T40C2;
+static bool t40_ae_dg_ring_on T40C2;
+static uint32_t t40_ae_dg_written T40C2;
+/*
+ * #412b per-frame trace (diagnostic, off by default): t40_ae_ftrace=1 clears and starts a 1024-entry ring against the
+ * AE frame clock (t40_ae_fseq, one per sampled frame-done); each read of t40_ae_ftrace_dump drains up to ~3.9 KB of
+ * lines "seq type a b c d e":  F = frame (a = output Y mean x16: sparse 32 x 18 grid, full grid on 3A samples),
+ * A = AE step (a = IT, b = analog index, c = ISP dgain decided, d = ISP dgain written, e = linear statistics luma),
+ * S = sensor write (a = packed again << 16 | IT, b = 1 at the next frame-done before the step, 0 else).
+ */
+#define T40_AE_FT_N 1024U
+struct t40_ae_ft {
+    uint32_t seq, a, b, c, d, e;
+    char type;
+};
+static struct t40_ae_ft *t40_ae_ft_ring T40C2;
+static uint32_t t40_ae_ft_w T40C2, t40_ae_ft_r T40C2, t40_ae_fseq T40C2;
+static uint t40_ae_ftrace T40C2;
+static DEFINE_SPINLOCK(t40_ae_ft_lock);
+
+static void t40_ae_ft_add(char type, uint32_t a, uint32_t b, uint32_t c, uint32_t d, uint32_t e)
+{
+    unsigned long flags;
+    struct t40_ae_ft *f;
+
+    if (!READ_ONCE(t40_ae_ftrace) || !t40_ae_ft_ring)
+        return;
+    spin_lock_irqsave(&t40_ae_ft_lock, flags);
+    if (t40_ae_ft_w - t40_ae_ft_r < T40_AE_FT_N) {
+        f = &t40_ae_ft_ring[t40_ae_ft_w % T40_AE_FT_N];
+        f->seq = READ_ONCE(t40_ae_fseq);
+        f->type = type;
+        f->a = a;
+        f->b = b;
+        f->c = c;
+        f->d = d;
+        f->e = e;
+        t40_ae_ft_w++;
+    }
+    spin_unlock_irqrestore(&t40_ae_ft_lock, flags);
+}
+
+static int t40_ae_ftrace_set(const char *val, const struct kernel_param *kp)
+{
+    unsigned long flags;
+    uint v = 0;
+    int ret = kstrtouint(val, 0, &v);
+
+    if (ret)
+        return ret;
+    if (v && !t40_ae_ft_ring) {
+        t40_ae_ft_ring = vzalloc(T40_AE_FT_N * sizeof(*t40_ae_ft_ring));
+        if (!t40_ae_ft_ring)
+            return -ENOMEM;
+    }
+    spin_lock_irqsave(&t40_ae_ft_lock, flags);
+    t40_ae_ft_w = t40_ae_ft_r = 0;
+    t40_ae_ftrace = v;
+    spin_unlock_irqrestore(&t40_ae_ft_lock, flags);
+    return 0;
+}
+
+static int t40_ae_ftrace_get(char *buf, const struct kernel_param *kp)
+{
+    return scnprintf(buf, PAGE_SIZE, "%u %u\n", t40_ae_ftrace, t40_ae_ft_w - t40_ae_ft_r);
+}
+
+static const struct kernel_param_ops t40_ae_ftrace_ops = {
+    .set = t40_ae_ftrace_set,
+    .get = t40_ae_ftrace_get,
+};
+module_param_cb(t40_ae_ftrace, &t40_ae_ftrace_ops, NULL, 0644);
+
+static int t40_ae_ftrace_dump_get(char *buf, const struct kernel_param *kp)
+{
+    unsigned long flags;
+    int n = 0;
+
+    if (!t40_ae_ft_ring)
+        return scnprintf(buf, PAGE_SIZE, "off\n");
+    spin_lock_irqsave(&t40_ae_ft_lock, flags);
+    while (t40_ae_ft_r != t40_ae_ft_w && n < (int)PAGE_SIZE - 96) {
+        const struct t40_ae_ft *f = &t40_ae_ft_ring[t40_ae_ft_r % T40_AE_FT_N];
+
+        n += scnprintf(buf + n, PAGE_SIZE - n, "%u %c %u %u %u %u %u\n", f->seq, f->type, f->a, f->b, f->c,
+                       f->d, f->e);
+        t40_ae_ft_r++;
+    }
+    spin_unlock_irqrestore(&t40_ae_ft_lock, flags);
+    return n;
+}
+
+static const struct kernel_param_ops t40_ae_ftrace_dump_ops = {
+    .get = t40_ae_ftrace_dump_get,
+};
+module_param_cb(t40_ae_ftrace_dump, &t40_ae_ftrace_dump_ops, NULL, 0444);
 
 static uint32_t regtrace_t40_frame_3a_target_eff(void)
 {
@@ -21811,6 +21910,7 @@ static int regtrace_ae_sensor_apply_maybe(int channel, const char *reason)
     payload[1] = packed;
     ret = regtrace_sensor_call_sensor_ioctl(REGTRACE_TX_ISP_EVENT_SENSOR_EXPO,
                                             payload);
+    t40_ae_ft_add('S', packed, reason && !strcmp(reason, "fd-work"), (uint32_t)channel, (uint32_t)ret, 0);
     regtrace_ae_sensor_apply_count[channel]++;
     regtrace_ae_sensor_apply_last_ret[channel] = ret;
 
@@ -47328,21 +47428,32 @@ static void regtrace_frame_3a_workfn_run(struct work_struct *work)
     uint32_t y = READ_ONCE(regtrace_frame_3a_work_y);
     uint32_t uv = READ_ONCE(regtrace_frame_3a_work_uv);
     int chn = READ_ONCE(regtrace_frame_3a_work_chn);
+    bool fd_write;
 
     (void)work;
     atomic_set(&regtrace_frame_3a_work_pending, 0);
     regtrace_frame_3a_work_runs++;
     if (!regtrace_enable_frame_3a || !y || !uv)
         return;
+    /*
+     * #412b: with the OEM step the sensor part of the last AE step is written at the next frame-done (this work runs
+     * right after it), before the new step, like the OEM ispcore_irq_main_fd_work; not right after the step, where
+     * the I2C landed before or after the sensor's frame latch.
+     */
+    fd_write = READ_ONCE(t40_ae_sensor_fd) && READ_ONCE(t40_ae_dg_ring_on);
+    if (fd_write)
+        regtrace_ae_sensor_apply_maybe(0, "fd-work");
     if (READ_ONCE(regtrace_frame_3a_work_ae_only)) {
         regtrace_frame_3a_sample(chn, y, uv, true);
-        regtrace_ae_sensor_apply_maybe(0, "frame-ae-work");
+        if (!fd_write)
+            regtrace_ae_sensor_apply_maybe(0, "frame-ae-work");
         return;
     }
     if (chn)
         regtrace_frame_3a_ch1_samples++;
     regtrace_frame_3a_sample(chn, y, uv, false);
-    regtrace_ae_sensor_apply_maybe(0, "frame-3a-work");
+    if (!fd_write)
+        regtrace_ae_sensor_apply_maybe(0, "frame-3a-work");
     regtrace_frame_done_tuning_follow();
 }
 TX_LS_TIMED_WORK(regtrace_frame_3a_work_timed, regtrace_frame_3a_workfn_run, T40_LS_WORK_FRAME3A)
@@ -47356,6 +47467,7 @@ static void regtrace_frame_3a_tick(int channel, uint32_t y, uint32_t uv)
 
     if (!regtrace_enable_frame_3a || !y || !uv)
         return;
+    WRITE_ONCE(t40_ae_fseq, t40_ae_fseq + 1U);
     if (++f3a_tick < iv) {
         /*
          * #412: the OEM AE steps on every AE statistics frame (tisp_ae_main_process); between the samples an
@@ -77112,6 +77224,19 @@ static void regtrace_frame_3a_sample(int channel, uint32_t y_phys, uint32_t uv_p
         vmean = regtrace_frame_3a_last_v;
         highlight_permille = regtrace_frame_3a_last_highlight_permille;
         t40_ae_only_runs++;
+        /* #412b trace: output Y of this frame on a sparse grid (the full grid only runs on the 3A samples) */
+        if (READ_ONCE(t40_ae_ftrace) && win && y_phys >= win_base &&
+            (uint64_t)(y_phys - win_base) + y_size <= 0x02000000ULL && width >= 64U && height >= 36U) {
+            const uint8_t *yq = (const uint8_t *)win + (y_phys - win_base);
+            uint32_t ys = 0, n = 0;
+
+            for (row = height / 36U; row < height; row += height / 18U)
+                for (col = width / 64U; col < width; col += width / 32U) {
+                    ys += yq[row * width + col];
+                    n++;
+                }
+            t40_ae_ft_add('F', n ? ys * 16U / n : 0U, 0, 0, 0, 0);
+        }
         goto ae_meter;
     }
 
@@ -77252,6 +77377,7 @@ static void regtrace_frame_3a_sample(int channel, uint32_t y_phys, uint32_t uv_p
     regtrace_frame_3a_last_v = vmean;
     regtrace_frame_3a_last_highlight_permille = highlight_permille;
     regtrace_frame_3a_samples++;
+    t40_ae_ft_add('F', (uint32_t)div64_u64(ysum * 16U, yn), 1, 0, 0, 0);
 
 ae_meter:
 
@@ -77454,7 +77580,7 @@ ae_meter:
         struct t40_ae_expr ex;
         uint32_t man_it, man_ag, min_again, it_cap, it_floor, af_step, speed;
         bool af_normal = false, it_fixed, ag_fixed, dg_fixed, up, it_down = false;
-        bool oem_split = !READ_ONCE(t40_ae_split_legacy), oem_step;
+        bool oem_split = !READ_ONCE(t40_ae_split_legacy), oem_step, oem_dg_write = false;
         /* #219 C1: rung trades in the gain the sensor applies */
         uint32_t (*trade_gain)(uint32_t) = READ_ONCE(t40_ae_trade_sensor_gain) ?
                                           t40_ae_trade_log2_gain : regtrace_gc4653_again_log2_gain;
@@ -77576,6 +77702,8 @@ ae_meter:
                    READ_ONCE(t40_ae_oem_hw);
         if (oem_step) {
             uint32_t irqs = READ_ONCE(t40_ae_hw_zone_irqs), comp = READ_ONCE(t40_ae_sc.comp);
+            /* #412b: OEM refresh byte pstMainAeOri[0x2c] (day / night bank switch, start): ISP dgain at once */
+            bool dg_fill = !t40_ae_dg_ring_on || t40_ae_tune_bank != (uintptr_t)tparamsN[0] || dg_fixed;
 
             moves = 0;
             if (!t40_ae_tune_on || ex.freeze || comp != t40_ae_tune_comp ||
@@ -77617,10 +77745,25 @@ ae_meter:
                         WRITE_ONCE(t40_ae_oem_allocs, t40_ae_oem_allocs + 1U);
                 }
                 WRITE_ONCE(t40_ae_oem_steps, t40_ae_oem_steps + 1U);
+                /*
+                 * #412b OEM latency model (tisp_ae_main_long_ev_alloc 0x38374): every AE frame the ISP dgain of
+                 * `depth` AE frames ago goes to the GIB, then the GIB trigger (system_reg_set_ae_trig(3) = 0x8040);
+                 * the sensor part waits for the next frame-done worker (regtrace_frame_3a_workfn_run).
+                 */
+                {
+                    int dly = READ_ONCE(t40_ae_dg_delay);
+                    uint32_t depth = dly < 0 ? f3a_bank.mp48[10] : (uint32_t)dly;
+
+                    t40_ae_dg_written = t40_ae_dg_ring_step(&t40_ae_dg_ring, dgain, depth, dg_fill);
+                    t40_ae_dg_ring_on = true;
+                    oem_dg_write = true;
+                    t40_ae_ft_add('A', it, again, dgain, t40_ae_dg_written, t40_ae_oem_diag[1]);
+                }
             }
             WRITE_ONCE(t40_ae_stable, t40_ae_tune_st.stable == 1U);
         } else {
             t40_ae_tune_on = false;
+            t40_ae_dg_ring_on = false;
         }
 
         for (n = 0; n < moves; n++) {
@@ -77774,26 +77917,15 @@ ae_meter:
             dgain_changed = true;
             WRITE_ONCE(t40_ae_split_moves, t40_ae_split_moves + 1U);
         }
-        {
-            /* #412: with a sensor change in this OEM step the ISP dgain is written one AE frame later */
-            bool dg_defer = dgain_changed && oem_step && changed && READ_ONCE(t40_ae_dg_delay);
-
-            if (t40_ae_dg_queued) {
-                t40_ae_dg_queued = false;
-                if (!dgain_changed || dg_defer)   /* else this step's own write supersedes it */
-                    (void)regtrace_t40_ae_isp_dgain_write(t40_ae_dg_queue);
-            }
-            if (dgain_changed) {
-                WRITE_ONCE(regtrace_ae_isp_dgain_cur, dgain);
-                regtrace_ae_isp_dgain_updates++;
-                if (dg_defer) {
-                    t40_ae_dg_queue = dgain;
-                    t40_ae_dg_queued = true;
-                } else {
-                    (void)regtrace_t40_ae_isp_dgain_apply();
-                }
-            }
+        if (dgain_changed) {
+            /* regtrace_ae_isp_dgain_cur = the decided value (the OEM step's EV); the register may lag (#412b) */
+            WRITE_ONCE(regtrace_ae_isp_dgain_cur, dgain);
+            regtrace_ae_isp_dgain_updates++;
+            if (!oem_dg_write)
+                (void)regtrace_t40_ae_isp_dgain_apply();
         }
+        if (oem_dg_write && regtrace_t40_ae_isp_dgain_write(t40_ae_dg_written) == 0)
+            system_reg_set_ae_trig(3, 0);
         if (changed) {
             regtrace_ae_soft_cur_it = it;
             regtrace_ae_soft_cur_again = again;

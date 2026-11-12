@@ -929,8 +929,13 @@ AE statistics frame: between the 3-frame frame-3A samples an AE-only pass meters
 scan, no AWB). Oracle: `tests/t40_ae_target_host.sh` case S (Unicorn, whole `tisp_ae_long_tune2` up to the
 allocation call, 0 differences, 21 more mutations); plant test `tests/tx_isp_t40_ae_step_test.c`. Not ported: the
 AE-cache manual target with its EV average, the custom EV override, the stable-at-limit counter of the ladder
-allocation. An OEM step that moves the sensor part writes its ISP dgain one AE frame later (the ISP dgain acts one
-frame before the sensor IT / gain; `t40_ae_dg_delay=0` = at once). `t40_ae_oem_step=0` = the old ladder + fine trim +
+allocation. Latency model like the OEM (`tisp_ae_main_long_ev_alloc` 0x38374, #412b): the sensor IT / analog gain
+of a step are written at the next frame-done (OEM `ispcore_irq_main_fd_work` 0x867c8; here the frame-3A work of the
+next frame writes them before its own step, `t40_ae_sensor_fd=0` = right after the step as before), and every AE frame the ISP dgain of `depth` AE frames ago is written, followed by the
+GIB trigger 0x8040 (`system_reg_set_ae_trig(3)`); `depth` = bank +0x288 u16[10] (2 on sc830ai day and night), ring
+`t40_ae_dg_ring_step` in `tx_isp_t40_ae_api.h`, filled at once on a bank switch / start / manual ISP dgain
+(`t40_ae_dg_delay` -1 = bank, 0 = at once, n = n frames). Per-frame trace: `t40_ae_ftrace=1`, drain
+`t40_ae_ftrace_dump` (frame Y, AE step, sensor writes against the AE frame clock). `t40_ae_oem_step=0` = the old ladder + fine trim +
 re-split (A/B), `t40_ae_every_frame=0` = the step on the 3-frame samples only; diagnostics `t40_ae_oem_steps`, `t40_ae_oem_allocs`, `t40_ae_only_runs`. HLC / BLC / face AE
 and the frame-grid fallback keep the ladder.
 
