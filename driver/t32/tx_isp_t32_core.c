@@ -866,6 +866,44 @@ u32 t32_core_sensor_vts(void)
 	return attr ? T32_AT(attr, T32_ATTR_TOTAL_HEIGHT, u16) : 0;
 }
 
+#ifdef TX_ISP_T33
+/*
+ * For the T33 per-frame AE (../t33/tx_isp_t33_aec.c), from claude/t32-ds-batch:
+ * the sensor's struct tx_isp_video_in and attribute block (the inputs of
+ * ispcore_sync_sensor_attr), its alloc_again callback (attribute +0x11c,
+ * as the vendor sensor_alloc_analog_gain calls it: log2 gain Q16 in, the
+ * rounded log2 gain back, the register value in *reg; 1x without one) and
+ * the fps entry of tisp_set_ae_sensor_fps.
+ */
+int t32_core_sensor_ae_src(const u8 **video_in, const u8 **attr)
+{
+	struct t32_vi *vi = &core.vi[0];
+
+	if (!vi->registered || !vi->sd)
+		return -ENODEV;
+	*video_in = (const u8 *)vi->sd + T32_SENSOR_VIDEO;
+	*attr = T32_AT(vi->sd, T32_SENSOR_VIDEO + T32_VIDEO_ATTR, const u8 *);
+	return *attr ? 0 : -ENODEV;
+}
+
+u32 t32_core_sensor_alloc_again(u32 log2_q16, u32 *reg)
+{
+	u32 (*cb)(u32 v, u32 shift, u32 *out);
+	const u8 *vin, *attr;
+
+	*reg = 0;
+	if (t32_core_sensor_ae_src(&vin, &attr))
+		return 0;
+	cb = T32_AT(attr, 0x11c, void *);
+	return cb ? cb(log2_q16, 16, reg) : 0;
+}
+
+int t32_core_sensor_set_fps(u32 fps)
+{
+	return (int)t32_sensor_fps_set(&core.vi[0], fps);
+}
+#endif
+
 static long t32_m0_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 {
 	struct t32_vi *vi = &core.vi[0];

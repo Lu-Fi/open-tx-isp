@@ -155,10 +155,17 @@ static irqreturn_t t32_isp_irq(int irq, void *dev)
 		t33_awbc_kick();
 #endif
 	}
-	if (sta & T32_INT_AE)
+	if (sta & T32_INT_AE) {
 		t32_hw_stats.ae_irqs++;
+#ifdef TX_ISP_T33
+		t33_aec_irq4(isp_rd(T33_AE_IDX_REG));	/* tisp_ae_interrupt_static: AE frame */
+#endif
+	}
 	if (sta & T32_INT_AE_HIST) {
 		t32_hw_stats.ae_hist_irqs++;
+#ifdef TX_ISP_T33
+		t33_aec_irq5(isp_rd(T33_AE_IDX_REG));	/* tisp_ae_interrupt_hist: zone buffer index */
+#endif
 		t32_bringup_ae_kick();
 	}
 #ifdef TX_ISP_T33
@@ -298,6 +305,7 @@ static void t33_mod_free(void)
 
 #ifdef TX_ISP_T33
 	t33_awbc_detach();
+	t33_aec_detach();
 #endif
 
 	if (t33_lsc_pages)
@@ -692,6 +700,8 @@ static noinline_for_stack void t33_tisp_init_mdns(const u8 *bin, u32 bytes)
  * tisp_ae_init's lists: AE statistics set-up (list 30) on our statistics
  * and histogram buffers, DG (list 5) at 1.0.
  */
+static const u8 *t33_stat_va(unsigned long pages, u32 off);
+
 static noinline_for_stack void t33_tisp_init_ae(const u8 *bin, u32 bytes)
 {
 	u32 off, len, width, height, *buf;
@@ -714,6 +724,11 @@ static noinline_for_stack void t33_tisp_init_ae(const u8 *bin, u32 bytes)
 		t33_mod_done(T33_MOD_AE, t33_ae_init(bin + off, width, height,
 						     (u32)virt_to_phys((void *)t33_ae_stat_pages),
 						     (u32)virt_to_phys((void *)t33_ae_hist_pages), buf, T33_SLOT_WORDS));
+	/* tisp_ae_init's state, then the AE frames per statistics interrupt */
+	if (t33_ae_stat_pages && t33_ae_hist_pages &&
+	    t33_aec_attach(bin + off, len, width, height, t33_stat_va(t33_ae_stat_pages, 0),
+			   t33_stat_va(t33_ae_hist_pages, 0)))
+		isp_printf(1, "tx-isp-t33: per-frame AE not started\n");
 }
 
 /* a statistics buffer, uncached: the engines write by DMA */
@@ -779,6 +794,7 @@ void t33_stats_show(struct seq_file *m)
 		   t33_st.ae_frames, t33_st.ae_bad, t33_ae_cols, t33_ae_rows, t33_st.ae.luma, t33_st.ae.lo,
 		   t33_st.ae.hi, t33_st.ae.tag, t33_st.hist_frames, t33_st.hist_bad, t33_st.mean16);
 	t33_awbc_show(m);
+	t33_aec_show(m);
 }
 
 /* for ../t33/tx_isp_t33_awbc.c: register read, and the per-frame AWB results into lists 7 / 29 */
@@ -797,6 +813,29 @@ void t33_awb_list_gain(u32 r, u32 b)
 	T33_SW(l, 3, r);
 	T33_SW(l, 4, b);
 	t33_mod_dirty |= 1U << T33_MOD_AWBG;
+}
+
+/*
+ * tisp_ae_long_ev_alloc's DG: list 5 slots 3 / 4 (0x4060 / 0x4064) and 1
+ * (0x4010 = 1), run at once when no list runs (tisp_rcfg_get_dma_state),
+ * else at the next frame end.
+ */
+void t33_dg_list_set(u32 v)
+{
+	unsigned long flags;
+	u32 *l;
+
+	if (!(t33_mod_built & (1ULL << T33_MOD_DG)) || !(l = t33_mod_buf(T33_MOD_DG)))
+		return;
+	T33_SW(l, 3, v);
+	T33_SW(l, 4, v);
+	T33_SW(l, 1, 1);
+	local_irq_save(flags);
+	if (!isp_rd(T33_RCFG_TRIG))
+		isp_wr(T33_RCFG_TRIG, 1U << T33_MOD_DG);
+	else
+		t33_mod_dirty |= 1U << T33_MOD_DG;
+	local_irq_restore(flags);
 }
 
 /* tisp_reg_write_t33(29, slot, v) of spec_calculate: list memory only (runs with tispAwbRefresh) */
@@ -1327,6 +1366,7 @@ void t32_hw_stream_off(void)
 {
 #ifdef TX_ISP_T33
 	t33_awbc_detach();
+	t33_aec_detach();
 #endif
 	t32_vic_wr(0, T32_VIC_CTRL, 4);		/* stop + reset */
 	t32_vic_wr(1, T32_VIC_CTRL, 4);
