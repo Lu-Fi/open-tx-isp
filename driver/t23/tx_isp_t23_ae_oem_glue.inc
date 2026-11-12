@@ -726,6 +726,41 @@ static noinline bool t23_aelift_mean_update(uint32_t *mean, uint32_t *scale)
 	return true;
 }
 
+/*
+ * stock tisp_long_ev_update: arg0/arg1 = scene EV, Q10, low/high word;
+ * nothing happens unless it changed.  Then, in stock order: AWB takes it as
+ * is (tisp_awb_ev_update); the CCM is recomputed when its EV-dependent
+ * saturation moves (stock jz_isp_ccm on an EV step; the HLIL substitute does
+ * the same on a rung change); ADR and defog when not bypassed
+ * (regtrace_t23_ae_ev_adr_defog); BCSH gets tisp_bcsh_ev_update(ev, hi),
+ * gated like the HLIL substitute's call.  Also the event 6 of the custom AE
+ * library path (t23_algo_ae_apply, stock tisp_ae_algo_handle).
+ */
+static void t23_aelift_ev_event(uint32_t q10, uint32_t hi)
+{
+	bool changed = !t23_aelift_ev_seen || q10 != t23_aelift_ev_q10 ||
+		       hi != t23_aelift_ev_hi;
+
+	t23_aelift_ev_q10 = q10;
+	t23_aelift_ev_hi = hi;
+	t23_aelift_ev_seen = true;
+	if (changed && regtrace_t23_source_ccm_events &&
+	    regtrace_t23_source_ccm_tuning_init &&
+	    regtrace_t23_ccm_saturation(t23_aelift_ev_q10) !=
+	    regtrace_t23_source_ccm_last_saturation)
+		regtrace_t23_source_ccm_commit(
+			regtrace_t23_source_ccm_runtime_ct,
+			t23_aelift_ev_q10);
+	if (changed)
+		regtrace_t23_ae_ev_adr_defog(t23_aelift_ev_q10,
+					     t23_aelift_ev_hi);
+	if (changed && regtrace_t23_source_bcsh_events) {
+		tisp_bcsh_ev_update(t23_aelift_ev_q10,
+				    t23_aelift_ev_hi);
+		regtrace_t23_source_bcsh_ev_events++;
+	}
+}
+
 static void t23_aelift_work_fn(struct work_struct *work)
 {
 	struct t23_aelift_event ev[T23_AELIFT_EVENTS];
@@ -739,6 +774,9 @@ static void t23_aelift_work_fn(struct work_struct *work)
 	}
 	T23_AELIFT_CALL(LA_tisp_ae0_process, 0, 0, 0, 0);
 	mutex_unlock(&t23_aelift_mutex);
+	/* stock tisp_ae0_process: complete(&ae_algo_comp) while ta_custom_en == 1 */
+	if (ACCESS_ONCE(t23_algo_ae_on))
+		complete(&t23_algo_ae_comp);
 	if (t23_aelift_expo_dirty) {
 		t23_aelift_expo_dirty = false;
 		if (t23_aelift_debug)
@@ -754,41 +792,9 @@ static void t23_aelift_work_fn(struct work_struct *work)
 	t23_aelift_ev_count = 0;
 	spin_unlock_irqrestore(&t23_aelift_ev_lock, flags);
 	for (i = 0; i < n; i++) {
-		/*
-		 * stock tisp_long_ev_update: arg0/arg1 = scene EV, Q10, low/high
-		 * word; nothing happens unless it changed.  Then, in stock
-		 * order: AWB takes it as is (tisp_awb_ev_update); the CCM is
-		 * recomputed when its EV-dependent saturation moves (stock
-		 * jz_isp_ccm on an EV step; the HLIL substitute does the same
-		 * on a rung change); ADR and defog when not bypassed
-		 * (regtrace_t23_ae_ev_adr_defog); BCSH gets
-		 * tisp_bcsh_ev_update(ev, hi), gated like the HLIL
-		 * substitute's call.
-		 */
-		if (ev[i].id == 6U) {
-			bool changed = !t23_aelift_ev_seen ||
-				       ev[i].args[0] != t23_aelift_ev_q10 ||
-				       ev[i].args[1] != t23_aelift_ev_hi;
-
-			t23_aelift_ev_q10 = ev[i].args[0];
-			t23_aelift_ev_hi = ev[i].args[1];
-			t23_aelift_ev_seen = true;
-			if (changed && regtrace_t23_source_ccm_events &&
-			    regtrace_t23_source_ccm_tuning_init &&
-			    regtrace_t23_ccm_saturation(t23_aelift_ev_q10) !=
-			    regtrace_t23_source_ccm_last_saturation)
-				regtrace_t23_source_ccm_commit(
-					regtrace_t23_source_ccm_runtime_ct,
-					t23_aelift_ev_q10);
-			if (changed)
-				regtrace_t23_ae_ev_adr_defog(t23_aelift_ev_q10,
-							     t23_aelift_ev_hi);
-			if (changed && regtrace_t23_source_bcsh_events) {
-				tisp_bcsh_ev_update(t23_aelift_ev_q10,
-						    t23_aelift_ev_hi);
-				regtrace_t23_source_bcsh_ev_events++;
-			}
-		}
+		/* stock tisp_long_ev_update (t23_aelift_ev_event) */
+		if (ev[i].id == 6U)
+			t23_aelift_ev_event(ev[i].args[0], ev[i].args[1]);
 		/* stock tisp_long_tgain_update: arg0 = log2 total gain, Q16 */
 		if (ev[i].id == 4U) {
 			t23_aelift_tgain = tisp_math_exp2(ev[i].args[0], 16, 16);

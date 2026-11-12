@@ -129,6 +129,46 @@ static inline s32 t30_ae_auto_again_cap(const u8 *stab, s32 sensor_max)
 }
 
 /*
+ * cmos_calc_target_gain (SDK-built tx-isp-t30.ko 0x25e50): the target gain
+ * (cmos+472) is the exposure minus the log2 of the applied integration time,
+ * never negative.
+ */
+static inline s32 t30_ae_target_gain(s32 exposure_log2, s32 integration_log2)
+{
+	s32 g = exposure_log2 - integration_log2;
+
+	return g < 0 ? 0 : g;
+}
+
+/*
+ * cmos_analog_gain_update (0x25b24, addiu s1,s2,-4096): the automatic analog
+ * gain request is the target gain minus 0x1000 (1/16 stop), never negative,
+ * so the sensor quantises below the target and the ISP digital gain
+ * (cmos_digital_gain_update 0x25bcc: target - analog - sensor digital) makes
+ * up the rest.  T30X b61 day: target 2.0x -> request 61440 -> SC4236 0x31e
+ * (59433, item 28 = 29), ISP digital 6103 (item 32 = 2); the open AE without
+ * the offset ran 0x710 (2.0x) and ISP digital 0.
+ */
+static inline s32 t30_ae_auto_again_request(s32 target_gain)
+{
+	s32 r = target_gain - 4096;
+
+	return r < 0 ? 0 : r;
+}
+
+/*
+ * cmos_analog_gain_update 0x25b84..0x25bac: a new automatic analog gain is
+ * taken only when it differs from the previous one (cmos+460) and the request
+ * lies outside previous +-4095; otherwise the previous gain is allocated again
+ * (hysteresis against sensor gain toggling).
+ */
+static inline bool t30_ae_again_hold(s32 request, s32 previous, s32 allocated)
+{
+	return allocated != previous && request >= previous - 4095 &&
+	       request <= previous + 4095;
+}
+
+/*
  * cmos_fsm_process_interrupt (0x10a0c, frame event 7) and cmos_inttime_update
  * (0x10fc4): the anti-flicker frequency (item 52) is only used while item 13
  * (global_antiflicker_enable) is set.  init_stab() leaves item 52 at 50 and

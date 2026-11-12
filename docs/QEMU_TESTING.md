@@ -35,3 +35,5 @@ The `ingenic-txx` branch of [gtxaspec/qemu](https://github.com/gtxaspec/qemu) mo
 - T31, T23, T21: the ISP interrupt status was still pending when the handler was registered again on reload (`irq 38: nobody cared`, interrupts dead until reboot; T21 livelocked). The status is now masked and acknowledged before `request_irq` and on remove.
 
 Crash tests (oops and panic capture, `panic=2` reboot loops, load/unload soaks) are cheap and scriptable in this setup; use it to catch regressions before a camera is flashed.
+
+T32 note (vendor reference, openimp #305): the vendor `tx-isp-t32.ko` oopses when `/proc/jz/isp/isp-m0` is read after sensor enable (`isp_info_show` dereferences `isp_info_base`, which is still NULL). `driver/t32` does not port `isp_info_show`; its `/proc/jz/isp/isp-m0` is our own status text and only reads driver state that is always set up, so it cannot inherit the oops. If `isp_info_show` is ever ported vendor-equal it needs a NULL guard (beyond vendor, listed in `BEYOND_VENDOR.md`) and a QEMU read test. Runs against the vendor module need `T32_NO_PROC=1` (OpenIMP `tools/t32/qemu-ioctl-trace.sh`).

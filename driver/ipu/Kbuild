@@ -1,2 +1,6 @@
 # T31 IPU (OSD blend) driver providing /dev/ipu, see t31_ipu.c.
+# Mainline-based kernels only (kernel 7). The vendor 3.10 kernel keeps its
+# built-in jz_ipu driver, so building this module there must not happen.
+ifeq ($(shell test "$(VERSION)" -ge 5 2>/dev/null && echo y),y)
 obj-m := t31_ipu.o
+endif
