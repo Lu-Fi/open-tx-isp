@@ -88,7 +88,7 @@ already at OEM parity.
 The August 5, 2026 Wyze Cam v3 cycle added a second T31 sensor oracle:
 
 - the corrected 0x24-byte pad ABI consumed its one-shot marker, registered one
-  GC2053 at address `0x37`, kept Raptor and ISP/W02/AVPU interrupts advancing,
+  GC2053 at address `0x37`, kept the application and ISP/W02/AVPU interrupts advancing,
   and decoded 358 1920x1080 frames in 12 seconds without a driver fault
 - the recovered CLM bank assignment is H/H at `0x60000/0x68000` and S/S at
   `0x70000/0x78000`; this matches both the T31 OEM HLIL and the T23 recovered
@@ -109,7 +109,7 @@ The August 5, 2026 Wyze Cam v3 cycle added a second T31 sensor oracle:
 ## Current SC2336 Runtime
 
 The July 30-31, 2026 device cycles validated the open module on the real T31
-SC2336 camera through the stock Ingenic userspace and Raptor:
+SC2336 camera through the stock Ingenic userspace and the application:
 
 - main/sub RTSP streams initialize and remain responsive
 - forced night and day transitions produce top masks `0xB574224D` and
@@ -150,7 +150,7 @@ SC2336 camera through the stock Ingenic userspace and Raptor:
   `e07d82117a4e37f8d23a97fac6d09acddcce7d551e85ada478e89a6363e25ac1`;
   forced day mode, ISP interrupts, `dmesg`, `logread`, and `logcat` all passed
 - the deterministic sequential build uses the shared frame-channel events and
-  ioctl envelopes; Raptor reports both streams at 25 fps and saved a fresh
+  ioctl envelopes; the application reports both streams at 25 fps and saved a fresh
   302,532-byte 1920x1080 JPEG while external monitoring occupied the RTSP
   server's four client slots
 - the frame-channel dispatcher now uses the compiler-independent common
@@ -247,7 +247,7 @@ A window is accepted when every running channel's scaler output is at most 2.0x 
 - T23/T41 still need their own device-backed ownership tests before the full
   T31 queue lifecycle can move behind a common implementation rather than only
   sharing slot-state names.
-- Raptor's exposure summary still reports zero WB statistic gains even though
+- The application's exposure summary still reports zero WB statistic gains even though
   the main WB ioctl returns live nonzero red/blue gains.
 - Motion-region denoise parity still needs a synchronized stock/open capture;
   static same-light register and flat-region measurements are not sufficient

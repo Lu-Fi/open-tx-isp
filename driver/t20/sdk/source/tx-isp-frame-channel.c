@@ -131,6 +131,8 @@ static int frame_channel_vb2_buffer_prepare(struct vb2_buffer *vb)
 	struct v4l2_buffer *v4l2_buf = &vb->v4l2_buf;
 	struct frame_channel_attribute *attr = &vdev->attr;
 	struct v4l2_format *output = &attr->output;
+	/* vbm is the vb2_dc_conf; its dev is the ISP platform device. */
+	struct device *dev = ((struct vb2_dc_conf *)vdev->vbm)->dev;
 	unsigned long size = output->fmt.pix.sizeimage;
 	void * addr = NULL;
 	int ret = ISP_SUCCESS;
@@ -166,10 +168,10 @@ static int frame_channel_vb2_buffer_prepare(struct vb2_buffer *vb)
 //	if(v4l2_buf->flags & TX_ISP_VIDEO_BUFFER_CACHE)
 	{
 		if(v4l2_buf->memory == V4L2_MEMORY_USERPTR){
-			dma_sync_single_for_device(NULL, (dma_addr_t)addr, size, DMA_FROM_DEVICE);
+			dma_sync_single_for_device(dev, (dma_addr_t)addr, size, DMA_FROM_DEVICE);
 //			dma_cache_sync(NULL, (void *)addr, size, DMA_FROM_DEVICE);
 		}else if(v4l2_buf->memory == V4L2_MEMORY_MMAP){
-			dma_sync_single_for_device(NULL, (dma_addr_t)addr, size, DMA_FROM_DEVICE);
+			dma_sync_single_for_device(dev, (dma_addr_t)addr, size, DMA_FROM_DEVICE);
 		}else{
 			ISP_PRINT(ISP_ERROR_LEVEL,"%s[%d] memory is invalid!\n", __func__, __LINE__);
 			ret = -EINVAL;
@@ -189,6 +191,13 @@ static int frame_channel_vb2_buffer_finish(struct vb2_buffer *vb)
 	struct v4l2_format *output = &attr->output;
 	unsigned long size = output->fmt.pix.sizeimage;
 
+	/*
+	 * buf_prepare checked plane size >= sizeimage at QBUF time, but the
+	 * format can change after the buffer was queued; the payload must
+	 * never exceed the plane (vb2 warns on later kernels).
+	 */
+	if (size > vb2_plane_size(&buf->vb, 0))
+		size = vb2_plane_size(&buf->vb, 0);
 	vb2_set_plane_payload(&buf->vb, 0, size);
 
 	return 0;
@@ -244,7 +253,10 @@ static int frame_channel_vb2_stop_streaming(struct vb2_queue *vq)
 {
 	frame_chan_vdev_t *vdev = vb2_get_drv_priv(vq);
 	struct v4l2_subdev *parent = vdev->parent;
+	struct frame_channel_video_buffer *buf;
+	struct frame_channel_video_buffer *tmp;
 	struct isp_private_ioctl ioctl;
+	LIST_HEAD(done);
 	int ret = ISP_SUCCESS;
 	unsigned long flags;
 
@@ -263,6 +275,20 @@ static int frame_channel_vb2_stop_streaming(struct vb2_queue *vq)
 		ret = ISP_SUCCESS;
 	}else{
 		ret = -EINVAL;
+	}
+
+	/*
+	 * vb2 expects every buffer handed to the driver back before
+	 * stop_streaming() returns; frames the ISP never completed are still
+	 * on the active list.  Return them with an error state.
+	 */
+	spin_lock_irqsave(&vdev->slock, flags);
+	list_splice_init(&vdev->active_list, &done);
+	spin_unlock_irqrestore(&vdev->slock, flags);
+	list_for_each_entry_safe(buf, tmp, &done, entry){
+		list_del(&buf->entry);
+		if (buf->vb.state == VB2_BUF_STATE_ACTIVE)
+			vb2_buffer_done(&buf->vb, VB2_BUF_STATE_ERROR);
 	}
 	return ret;
 }

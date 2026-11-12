@@ -2216,7 +2216,7 @@ static inline int32_t muls_dp_d(int32_t a, int32_t b) {
     int64_t result = (int64_t)a * (int64_t)b;
     return (int32_t)(result >> 32);
 }
-static uint32_t adr_gauss_local;
+static uint32_t adr_gauss_local[24]; /* OEM adr_gauss_local table (24 words, t40_adr_gauss_w) */
 static unsigned char __attribute__((aligned(4))) adr_kneepoint_x[32] = {
     0x00, 0x00, 0x08, 0x00, 0x10, 0x00, 0x20, 0x00, 0x40, 0x00, 0x80, 0x00, 0xc0, 0x00, 0x00, 0x01, 
     0x80, 0x01, 0x00, 0x02, 0x00, 0x03, 0x00, 0x04, 0x00, 0x06, 0x00, 0x08, 0x00, 0x0c, 0x00, 0x10, 
@@ -9429,6 +9429,13 @@ static uint t40_ae_split_legacy T40C2;
 module_param_named(t40_ae_split_legacy, t40_ae_split_legacy, uint, 0644);
 static uint t40_ae_split_moves T40C2;          /* exposure-neutral OEM re-splits done (diagnostic) */
 module_param_named(t40_ae_split_moves, t40_ae_split_moves, uint, 0444);
+/* #239: OEM fine convergence on the linear luma (t40_ae_oem_fine_trim); 0 = off (A/B), trims = moves done */
+static uint t40_ae_fine_trim = 1;
+module_param_named(t40_ae_fine_trim, t40_ae_fine_trim, uint, 0644);
+static uint t40_ae_fine_trims T40C2;
+module_param_named(t40_ae_fine_trims, t40_ae_fine_trims, uint, 0444);
+static bool t40_ae_oem_stable T40C2;
+static uint32_t t40_ae_oem_stable_comp T40C2;
 
 static uint32_t regtrace_t40_ae_max_it(void);
 static uint32_t regtrace_t40_lines_to_us(uint32_t lines);
@@ -9449,7 +9456,8 @@ static uint t40_ae_hi_thr T40C2;
 module_param_named(t40_ae_hi_thr, t40_ae_hi_thr, uint, 0644);
 static bool t40_ae_oem_live T40C2;              /* the last sample used the OEM target / metering */
 static uint32_t t40_ae_oem_tout T40C2;          /* its target (output Y) */
-static uint32_t t40_ae_oem_diag[6] T40C2;       /* luma (stats), luma after the highlight term, EV, target (stats), aim EV, luma out */
+static uint32_t t40_ae_oem_diag[6] T40C2;
+static bool t40_ae_oem_hw T40C2;                /* #232: the last OEM metering used the hardware AE statistics */       /* luma (stats), luma after the highlight term, EV, target (stats), aim EV, luma out */
 
 static uint32_t regtrace_t40_frame_3a_target_eff(void)
 {
@@ -9458,7 +9466,26 @@ static uint32_t regtrace_t40_frame_3a_target_eff(void)
     if (READ_ONCE(t40_ae_oem_live))
         return READ_ONCE(t40_ae_oem_tout);   /* AeTargetComp is in the OEM lists (t40_aet_comp_word) */
 
-    /* OEM tisp_ae_s_comp factor (128 = 1.0, 255 = 3.34x) */
+    /*
+     * #232: the OEM applies AeTargetComp to the target in the statistics domain (tisp_ae_s_comp word, 128 = 1.0,
+     * 255 = 3.34x, scaled into the target list by tisp_ae_long_tune2), so on this output-Y target it goes through the
+     * bank gamma (t40_aet_comp_out).  t40_ae_target_oem=0 keeps the pre-#84 output-domain scaling.
+     */
+    if (READ_ONCE(t40_ae_target_oem) && tparamsN[0]) {
+        const uint8_t *gs = (const uint8_t *)(uintptr_t)tparamsN[0] + 0x106ecU;
+        uint16_t g[129];
+        unsigned int i;
+        bool ok = true;
+
+        for (i = 0; i < 129U; i++) {
+            g[i] = (uint16_t)(gs[2U * i] | gs[2U * i + 1U] << 8);
+            if (i && g[i] < g[i - 1U])
+                ok = false;
+        }
+        if (ok && g[128] > g[0])
+            return clamp_t(uint32_t, t40_aet_comp_out(g, t, t40_aet_comp_word(128U, READ_ONCE(t40_ae_sc.comp))), 8U, 250U);
+    }
+    /* OEM tisp_ae_s_comp factor (128 = 1.0, 255 = 3.34x) on the output target (legacy) */
     return t40_ae_comp_target(t, READ_ONCE(t40_ae_sc.comp), 8U, 250U);
 }
 static uint32_t regtrace_t40_ae_isp_dgain_max_eff(void)
@@ -13138,7 +13165,6 @@ static unsigned char regtrace_framechan_file_shadow[4][0x100] __attribute__((ali
 static int regtrace_framechan_context_ready[4];
 static void *regtrace_vic_subdev;
 static void *regtrace_core_subdev;
-static void *regtrace_fs_subdev;
 /* /proc/jz/isp + isp-m0 created by the core subdev init; removed again in the core remove
  * (a stale entry kept the unloaded module's fops and blocked the mkdir on the next load) */
 static struct proc_dir_entry *t40_isp_proc_dir_rm T40C2;   /* own section: keeps the lifted .bss layout */
@@ -14255,10 +14281,21 @@ static int regtrace_framechan_index(struct file *file)
 /* #154: slot0 = ispcore subdev (OEM), sensor in the spare slot.  The first T40 workspace put the sensor in slot0,
  * so every lifted ioctl that reads slot0 as the core (WDR switch 0x5413/0x5414: *(slot0+232)+0x40000 error mask,
  * AE/AWB algo open, ...) ran on the sensor subdev: no register window -> NULL+0x40060 oops on the Eufy T40XP. */
+/* #322: OEM tx_isp_create_graph_and_nodes also puts the frame source (isp-fs, pdata 01 02 00 14 -> slot 4) into the
+ * graph; tx_isp_unlocked_ioctl 0xc0045430 SET_PREDQTIME (OEM 0x14ed0: lw v0,64(priv); lw s0,268(v0); sw 288(s0))
+ * reads it.  The controlled registration left slot 4 NULL -> oops at BadVA 0x10c.
+ * #346 (review 2026-11-11): the slot walkers (tx_isp_notify, open/release, sensor ioctls) now also see isp-fs.
+ * Checked with printk in fs_core_ops_ioctl / fs_activate_module / fs_slake_module / tx_isp_frame_chan_misc_register
+ * on the Eufy T40XP (load, sensor register, timps stream, apitest t40dev incl. SetPreDqtime, DisableSensor) and in
+ * QEMU ingenic-t40 (the same plus rmmod): none of them is called, 0 oops.  Slot 4 stays as in the OEM graph. */
+#define REGTRACE_TX_ISP_SUBDEV_SLOT_FS (REGTRACE_TX_ISP_SUBDEV_SLOT0 + 4 * 4)
+static void *regtrace_fs_subdev;
 static void regtrace_sync_tx_isp_slots(void)
 {
     *(uint32_t *)(regtrace_tx_isp_context + REGTRACE_TX_ISP_SUBDEV_SLOT0) =
         (uint32_t)(uintptr_t)regtrace_core_subdev;
+    *(uint32_t *)(regtrace_tx_isp_context + REGTRACE_TX_ISP_SUBDEV_SLOT_FS) =
+        (uint32_t)(uintptr_t)regtrace_fs_subdev;
     *(uint32_t *)(regtrace_tx_isp_context + REGTRACE_TX_ISP_SUBDEV_SLOT_SENSOR) =
         (uint32_t)(uintptr_t)regtrace_sensor_subdev;
 }
@@ -14391,8 +14428,10 @@ static void regtrace_subdev_cleanup_internal(unsigned char *sd)
         regtrace_core_subdev = NULL;
         regtrace_sync_tx_isp_slots();
     }
-    if (regtrace_fs_subdev == (void *)sd)
+    if (regtrace_fs_subdev == (void *)sd) {
         regtrace_fs_subdev = NULL;
+        regtrace_sync_tx_isp_slots();
+    }
     if (ispcore_sd == (uint32_t)(uintptr_t)sd)
         ispcore_sd = 0;
 }
@@ -14599,6 +14638,7 @@ static int regtrace_subdev_init_internal(uintptr_t pdev_addr, uintptr_t sd_addr,
         regtrace_t40_core_activate_direct(1);
     } else if (!strcmp(pdev->name, "isp-fs")) {
         regtrace_fs_subdev = sd;
+        regtrace_sync_tx_isp_slots();
     }
     regtrace_ensure_oem_links();
     return 0;
@@ -57553,7 +57593,7 @@ tx_isp_unlocked_ioctl0x2df8:
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_copy_from_user)(__p_20, s1, 8); /* jalr target resolved by relocation */
 
     /* fragment 762: Branch */
-    v1 = (*__p_20);
+    v1 = (uintptr_t *)(uintptr_t)*(uint8_t *)__p_20;   /* #324: OEM 0x151ac lbu v1,32(sp) (sensor number byte) */
     if (v0 == 0) { goto tx_isp_unlocked_ioctl0x2e54; }
 
     /* fragment 763: CallSetup */
@@ -57585,13 +57625,15 @@ tx_isp_unlocked_ioctl0x2e54:
     goto tx_isp_unlocked_ioctl0x834;
 
 tx_isp_unlocked_ioctl0x2e98:
-    /* fragment 769: MemoryAccess */
+    /* fragment 769: MemoryAccess - #324 IMP_ISP_WDR_OPEN LINEAR (0xc0045432): OEM 0x15230..0x15244
+     * core_priv[1564 + sensor] = (u8)imode, then b 0x834 with s0 = 0.  The lift ended the function here and
+     * returned the address as the result (userspace saw -1); ispcore_core_ops_init reads the byte. */
     v0 = *(uint32_t *)((char *)s2 + 48);
     s0 = 0;
     v0 = *(uint32_t *)((char *)v0 + 268);
     v0 = (uintptr_t)v0 + (uintptr_t)v1;
-
-    return ((int64_t)(uint32_t)v1 << 32) | (uint32_t)v0;
+    *(uint8_t *)((char *)v0 + 1564) = (uint8_t)(uintptr_t)a0;   /* OEM 0x15244 sb a0,1564(v0) (delay slot) */
+    goto tx_isp_unlocked_ioctl0x834;
 
 }
 
@@ -76888,7 +76930,7 @@ static int t40_ae_api_get(char *buf, const struct kernel_param *kp)
         "expr freeze=%u it_man=%u(%u lines) ag_man=%u(idx %u) ispdg_man=%u min_ag_idx=%u caps it=%u ag=%u ispdg=%u af_step=%u\n"
         "cur it=%u again=%u ispdg=%u frame zone77=%u hist_n=%u %ux%u\n"
         "hw hist irqs=%u age=%ums sum=%u zone irqs=%u age=%ums tbl rows=%u cols=%u colw0=%u rowh0=%u src=%u\n"
-        "oem on=%u live=%u luma=%u hl=%u ev=%u tlin=%u aim=%u lout=%u tout=%u hi_thr=%u af_night_bin=%u req_n=%u/%u/%u\n",
+        "oem on=%u live=%u hw=%u luma=%u hl=%u ev=%u tlin=%u aim=%u lout=%u tout=%u hi_thr=%u af_night_bin=%u req_n=%u/%u/%u\n",
         sc.comp, regtrace_t40_frame_3a_target_eff(), READ_ONCE(regtrace_frame_3a_last_luma),
         READ_ONCE(t40_ae_metered), READ_ONCE(t40_ae_stable), sc.hlc_en, sc.hlc_str, sc.blc_en, sc.blc_str,
         t40_ae_weight_on ? 1U : 0U, t40_ae_ld32(t40_ae_face, 0), t40_ae_speed[0], t40_ae_speed[1],
@@ -76903,7 +76945,7 @@ static int t40_ae_api_get(char *buf, const struct kernel_param *kp)
         regtrace_is_kernel_ptr((void *)tbl) ? tbl[1] : 0U, regtrace_is_kernel_ptr((void *)tbl) ? tbl[3] : 0U,
         regtrace_is_kernel_ptr((void *)tbl) ? tbl[4] : 0U, regtrace_is_kernel_ptr((void *)tbl) ? tbl[19] : 0U,
         t40_ae_stats_src,
-        t40_ae_target_oem, READ_ONCE(t40_ae_oem_live) ? 1U : 0U, t40_ae_oem_diag[0], t40_ae_oem_diag[1],
+        t40_ae_target_oem, READ_ONCE(t40_ae_oem_live) ? 1U : 0U, READ_ONCE(t40_ae_oem_hw) ? 1U : 0U, t40_ae_oem_diag[0], t40_ae_oem_diag[1],
         t40_ae_oem_diag[2], t40_ae_oem_diag[3], t40_ae_oem_diag[4], t40_ae_oem_diag[5], READ_ONCE(t40_ae_oem_tout),
         t40_ae_hi_thr, t40_ae_af_night_bin ? 1U : 0U, t40_ae_af_req_set_n ? 1U : 0U, t40_ae_af_req_mode_n,
         t40_ae_af_req_freq_n);
@@ -77206,6 +77248,57 @@ static void regtrace_frame_3a_sample(int channel, uint32_t y_phys, uint32_t uv_p
             uint32_t evl[T40_AET_N], tgl[T40_AET_N], ev, aim, tl, ag;
             const uint16_t *g = (const uint16_t *)((const uint8_t *)(uintptr_t)tparamsN[0] + T40_GAMMA_BIN_OFF);
 
+            /*
+             * #232: the OEM meters the hardware AE statistics (RAW domain, linear in EV): tisp_ae_long_weight_mean2 reads
+             * the zone band sums / counts pstMainAeOri +80/+84/+88 / +96/+100 with the geometry table +284, and
+             * tisp_ae_long_alogrithm the histogram +104.  The NV12 Y through the inverse gamma kept the rest of the open
+             * tone path (luma ~ EV^0.66 instead of ~EV^1, Eufy comp sweep run-1107-1040), so it is only the fallback
+             * when the hardware statistics do not run (same rule as GetAeStatistics; t40_ae_stats_src 2 = frame grid).
+             */
+            const uint8_t *ori = pstMainAeOri_storage;
+            const uint16_t *tbl = (const uint16_t *)(uintptr_t)*(const uint32_t *)(ori + 284);
+            uint32_t now = (uint32_t)jiffies, rows = T40_AE_ZONE_N, cols = T40_AE_ZONE_N;
+            bool hw = READ_ONCE(t40_ae_stats_src) != 2U &&
+                      READ_ONCE(t40_ae_hw_zone_irqs) && now - READ_ONCE(t40_ae_hw_zone_jif) < (uint32_t)HZ &&
+                      READ_ONCE(t40_ae_hw_hist_irqs) && now - READ_ONCE(t40_ae_hw_hist_jif) < (uint32_t)HZ &&
+                      regtrace_is_kernel_ptr((void *)tbl) &&
+                      regtrace_is_kernel_ptr((void *)(uintptr_t)*(const uint32_t *)(ori + 80)) &&
+                      regtrace_is_kernel_ptr((void *)(uintptr_t)*(const uint32_t *)(ori + 84)) &&
+                      regtrace_is_kernel_ptr((void *)(uintptr_t)*(const uint32_t *)(ori + 88)) &&
+                      regtrace_is_kernel_ptr((void *)(uintptr_t)*(const uint32_t *)(ori + 96)) &&
+                      regtrace_is_kernel_ptr((void *)(uintptr_t)*(const uint32_t *)(ori + 100)) &&
+                      regtrace_is_kernel_ptr((void *)(uintptr_t)*(const uint32_t *)(ori + 104));
+
+            if (hw && (!tbl[1] || tbl[1] > T40_AE_ZONE_N || !tbl[3] || tbl[3] > T40_AE_ZONE_N))
+                hw = false;
+            if (hw) {
+                static const uint32_t off[5] = { 80, 84, 88, 96, 100 };
+                unsigned long iflags;
+                uint32_t j;
+
+                rows = tbl[1];
+                cols = tbl[3];
+                for (k = 0; k < T40_AE_ZONE_N; k++) {
+                    colw[k] = tbl[4 + k];
+                    rowh[k] = tbl[19 + k];
+                }
+                npix = (uint32_t)colw[0] * rowh[0] * cols * rows;   /* OEM tisp_ae_long_alogrithm */
+                local_irq_save(iflags);   /* the AE statistics ISR rewrites them (GetAeStatistics does the same) */
+                for (j = 0; j < 5U; j++) {
+                    const uint32_t *src = (const uint32_t *)(uintptr_t)*(const uint32_t *)(ori + off[j]);
+
+                    memcpy(j < 3U ? s[j] : c[j - 3U], src, sizeof(s[0]));
+                }
+                {
+                    const uint32_t *hb = (const uint32_t *)(uintptr_t)*(const uint32_t *)(ori + 104);
+
+                    for (k = 0; k < T40_AE_BINS; k++)
+                        hs[k] = hb[k] & 0x1fffffU;
+                }
+                local_irq_restore(iflags);
+                for (z = 0; z < T40_AE_ZONES; z++)
+                    wz[z] = t40_ae_weight_on ? f3a_weight[z] : b->w[z];
+            } else {
             for (k = 0; k < T40_AE_ZONE_N; k++) {
                 rowh[k] = (uint16_t)rh;
                 colw[k] = (uint16_t)cw;
@@ -77221,8 +77314,10 @@ static void regtrace_frame_3a_sample(int channel, uint32_t y_phys, uint32_t uv_p
             }
             for (k = 0; k < T40_AE_BINS; k++)
                 hs[k] = hn ? (uint32_t)div64_u64((uint64_t)f3a_lhist[k] * npix, hn) : 0U;
+            }
+            WRITE_ONCE(t40_ae_oem_hw, hw);
             t40_aet_band_params(b, 0, &p3, &p4, &p10);
-            lum = t40_aet_wmean(s[0], s[1], s[2], c[0], c[1], rowh, colw, T40_AE_ZONE_N, T40_AE_ZONE_N, wz, p3, p4, p10);
+            lum = t40_aet_wmean(s[0], s[1], s[2], c[0], c[1], rowh, colw, rows, cols, wz, p3, p4, p10);
             lumb = b->hl[0] == 1U ? t40_aet_hl_boost(lum, hs, b->zone[35], p4, p10, npix) : lum;
             ag = tx_isp_exp2_u32(regtrace_gc4653_again_log2_gain(READ_ONCE(regtrace_ae_soft_cur_again)), 16, 10);
             ev = t40_aet_ev_q10(READ_ONCE(regtrace_ae_soft_cur_it), ag ? ag : 1024U,
@@ -77505,6 +77600,26 @@ static void regtrace_frame_3a_sample(int channel, uint32_t y_phys, uint32_t uv_p
                 break;
             }
         }
+        }
+        /*
+         * #239: the coarse stages left the exposure where it is: converge on the linear luma like the OEM
+         * (tisp_ae_long_tune2 tolerance pstMainAeOri[0x4a]) with the ISP dgain, where IT cannot take the rest
+         * (at its ceiling, manual, or quantised to flicker rungs).  The split below moves it into the analog
+         * gain once it covers an index.
+         */
+        if (!READ_ONCE(t40_ae_oem_live) || ex.freeze || dg_fixed ||
+            t40_ae_oem_stable_comp != READ_ONCE(t40_ae_sc.comp)) {
+            /* OEM: a new target (SetAeComp etc. set the refresh flag pstMainAeOri[0x29]) recomputes once */
+            t40_ae_oem_stable = false;
+            t40_ae_oem_stable_comp = READ_ONCE(t40_ae_sc.comp);
+        }
+        if (READ_ONCE(t40_ae_oem_live) && !ex.freeze && !dg_fixed &&
+            READ_ONCE(t40_ae_fine_trim) && !changed && !dgain_changed && !protect_highlights &&
+            (it >= it_cap || it_fixed || af_step) &&
+            t40_ae_oem_fine_trim(t40_ae_oem_diag[1], t40_ae_oem_diag[3], f3a_bank.stab,
+                                 &t40_ae_oem_stable, &dgain, dgain_max)) {
+            dgain_changed = true;
+            WRITE_ONCE(t40_ae_fine_trims, t40_ae_fine_trims + 1U);
         }
         /*
          * #84: OEM split of the exposure the step above produced (tisp_ae_long_tune2: IT = highest rung, analog
@@ -80534,6 +80649,18 @@ int64_t tisp_gib_ae_write_dgain(uint32_t s, uint32_t g0, uint32_t g1, uint32_t g
  */
 struct t40_writer_context;
 static struct t40_writer_context *t40_writer_lsc_get(unsigned int sensor);
+static uint8_t *t40_writer_lsc_real_of(struct t40_writer_context *p);
+/* OEM tisp_lsc_real_write_lut loads its table base from the pointer statics
+   lsc_{seco,main}_real_para (.bss), which tisp_lsc_init fills with the 27656 B
+   "real" buffer (count u16 at +13828, words from +13832).  This module keeps that
+   buffer in the writer context (t40_writer_lsc_para[sensor], part[REAL]); the
+   lifted statics are never written, so reading them gave a NULL base (#337).
+   Sensor 1 -> lsc_seco_real_para, sensor 0 -> lsc_main_real_para. */
+static uintptr_t t40_lsc_real_base(unsigned int sensor)
+{
+    struct t40_writer_context *p = t40_writer_lsc_get(sensor);
+    return p ? (uintptr_t)t40_writer_lsc_real_of(p) : 0;
+}
 static int t40_writer_lsc_tool_to_awdr(struct t40_writer_context *p,
                                        unsigned int sensor);
 static int t40_writer_lsc_write_reg(struct t40_writer_context *p,
@@ -80621,7 +80748,8 @@ tisp_lsc_real_write_lut0x44:
 
     /* fragment 7: CallSetup */
     v0 = (uintptr_t *)&isp_memopt;
-    s0 = *(uint32_t *)((char *)((char *)&lsc_seco_real_para));
+    s0 = t40_lsc_real_base(1U); /* OEM lw s0,.bss+lsc_seco_real_para; see t40_lsc_real_base() */
+    if (!s0) { return -EAGAIN; }
 
 tisp_lsc_real_write_lut0x58:
     /* fragment 8: CallSetup */
@@ -80686,7 +80814,8 @@ tisp_lsc_real_write_lut0x120:
     v0 = (uintptr_t *)&isp_memopt;
 
     /* fragment 20: Branch */
-    s0 = *(uint32_t *)((char *)((char *)&lsc_main_real_para));
+    s0 = t40_lsc_real_base(0U); /* OEM lw s0,.bss+lsc_main_real_para; see t40_lsc_real_base() */
+    if (!s0) { return -EAGAIN; }
     goto tisp_lsc_real_write_lut0x58;
 
 tisp_lsc_real_write_lut0x12c:
@@ -110741,7 +110870,7 @@ int32_t tisp_adr_linear_switch(uint32_t a0, uint32_t a1)
         }
     }
 
-    func_gauss_local(&adr_gauss_local, a0);
+    func_gauss_local(adr_gauss_local, a0);
     func_adr_reg_write_every(a0);
     func_adr_reg_write_sometimes(a0);
     return 0;
@@ -110854,7 +110983,7 @@ tisp_adr_linear_switch0x1b0:
 
 tisp_adr_linear_switch0x1b8:
     /* fragment 25: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)func_gauss_local)(&adr_gauss_local, s2); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)func_gauss_local)(adr_gauss_local, s2); /* jalr target resolved by relocation */
 
     /* fragment 26: CallSetup */
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)func_adr_reg_write_every)(s2); /* jalr target resolved by relocation */
@@ -111125,7 +111254,7 @@ static int regtrace_tisp_adr_main_init_direct(uint32_t width, uint32_t height)
     if (regtrace_adr_main_init_stage_limit == 3)
         goto out;
 
-    ret = func_gauss_local((int32_t *)&adr_gauss_local, 0);
+    ret = func_gauss_local((int32_t *)adr_gauss_local, 0);
     if (ret)
         goto out;
 
@@ -111546,7 +111675,7 @@ tisp_adr_main_init0x588:
     v0 = (uintptr_t *)memcpy((void *)(uintptr_t)(*(uint32_t *)((char *)((char *)&adr_w_5x5_dis_main))), (void *)(uintptr_t)(*(uint32_t *)((char *)(*(uint32_t *)((char *)((char *)&adr_main_hard_base))) + 28)), 62); /* jalr target resolved by relocation */
 
     /* fragment 79: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)func_gauss_local)(&adr_gauss_local, 0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)func_gauss_local)(adr_gauss_local, 0); /* jalr target resolved by relocation */
 
     /* fragment 80: CallSetup */
     if (regtrace_enable_adr_reg_writes) {
@@ -111739,7 +111868,7 @@ int32_t tisp_adr_sec_init(uint32_t arg1, uint32_t arg2)
     memcpy(data_a88bc, *(void **)((char *)data_a8914 + 4), 0xe);
     memcpy(data_a88c8, *(void **)((char *)data_a8914 + 0x1c), 0x3e);
     
-    func_gauss_local(&adr_gauss_local, 1);
+    func_gauss_local(adr_gauss_local, 1);
     func_adr_reg_write_one(1);
     func_adr_reg_write_5x5(1);
     func_adr_reg_write_sometimes(1);
@@ -111874,7 +112003,7 @@ tisp_adr_dn_params_refresh0x184:
 
 tisp_adr_dn_params_refresh0x18c:
     /* fragment 25: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)func_gauss_local)(&adr_gauss_local, s2); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)func_gauss_local)(adr_gauss_local, s2); /* jalr target resolved by relocation */
 
     /* fragment 26: CallSetup */
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)func_adr_reg_write_one)(s2); /* jalr target resolved by relocation */
@@ -114191,13 +114320,13 @@ int64_t Tiziano_adr_fpga(uintptr_t a0, uint32_t a1)
     uint32_t local_1c = 0;
     uint32_t *local_20 = 0;
     uint32_t local_28 = 0;
-    uint32_t local_88 = 0;
-    uint32_t local_c0 = 0;
-    uint32_t local_f8 = 0;
-    uint32_t local_130 = 0;
-    uint32_t local_168 = 0;
-    uint32_t local_1a0 = 0;
-    uint32_t local_1d8 = 0;
+    uint32_t local_88[14] = {0}; /* vendor: 56-byte slot, stride-4 loops */
+    uint32_t local_c0[14] = {0}; /* vendor: 56-byte slot, stride-4 loops */
+    uint32_t local_f8[14] = {0}; /* vendor: 56-byte slot, stride-4 loops */
+    uint32_t local_130[14] = {0}; /* vendor: 56-byte slot, stride-4 loops */
+    uint32_t local_168[14] = {0}; /* vendor sp+360: 56-byte slot, 14 words written by the loop at 0x904 */
+    uint32_t local_1a0[14] = {0}; /* vendor: 56-byte slot, stride-4 loops */
+    uint32_t local_1d8[14] = {0}; /* vendor: 56-byte slot, stride-4 loops */
     char local_1da[32];
     char local_1fc[32];
     uint32_t local_21c = 0;
@@ -114273,30 +114402,30 @@ int64_t Tiziano_adr_fpga(uintptr_t a0, uint32_t a1)
     uint32_t local_3dc = 0;
     uint32_t local_3e0 = 0;
     uint32_t local_3e4 = 0;
-    uintptr_t *a2 = 0;
-    uintptr_t *a3 = 0;
+    uintptr_t a2 = 0; /* byte arithmetic like the vendor asm (was a typed pointer: += n scaled by sizeof) */
+    uintptr_t a3 = 0; /* byte arithmetic like the vendor asm (was a typed pointer: += n scaled by sizeof) */
     uint32_t ra = 0;
-    uint32_t *s0 = 0;
-    uintptr_t *s1 = 0;
-    uint32_t *s2 = 0;
-    uintptr_t *s3 = 0;
-    uintptr_t *s4 = 0;
+    uintptr_t s0 = 0; /* byte arithmetic like the vendor asm (was a typed pointer: += n scaled by sizeof) */
+    uintptr_t s1 = 0; /* byte arithmetic like the vendor asm (was a typed pointer: += n scaled by sizeof) */
+    uintptr_t s2 = 0; /* byte arithmetic like the vendor asm (was a typed pointer: += n scaled by sizeof) */
+    uintptr_t s3 = 0; /* byte arithmetic like the vendor asm (was a typed pointer: += n scaled by sizeof) */
+    uintptr_t s4 = 0; /* byte arithmetic like the vendor asm (was a typed pointer: += n scaled by sizeof) */
     uint32_t s5 = 0;
     uint32_t s6 = 0;
     uint32_t s7 = 0;
     uintptr_t s8 = 0;
     uintptr_t t0 = 0;
-    uintptr_t *t1 = 0;
-    uintptr_t *t2 = 0;
-    uintptr_t *t3 = 0;
-    uintptr_t *t4 = 0;
-    uintptr_t *t5 = 0;
-    uintptr_t *t6 = 0;
+    uintptr_t t1 = 0; /* byte arithmetic like the vendor asm (was a typed pointer: += n scaled by sizeof) */
+    uintptr_t t2 = 0; /* byte arithmetic like the vendor asm (was a typed pointer: += n scaled by sizeof) */
+    uintptr_t t3 = 0; /* byte arithmetic like the vendor asm (was a typed pointer: += n scaled by sizeof) */
+    uintptr_t t4 = 0; /* byte arithmetic like the vendor asm (was a typed pointer: += n scaled by sizeof) */
+    uintptr_t t5 = 0; /* byte arithmetic like the vendor asm (was a typed pointer: += n scaled by sizeof) */
+    uintptr_t t6 = 0; /* byte arithmetic like the vendor asm (was a typed pointer: += n scaled by sizeof) */
     uintptr_t t7 = 0;
-    uint32_t *t8 = 0;
+    uintptr_t t8 = 0; /* byte arithmetic like the vendor asm (was a typed pointer: += n scaled by sizeof) */
     uint32_t t9 = 0;
-    uintptr_t *v0 = 0;
-    uintptr_t *v1 = 0;
+    uintptr_t v0 = 0; /* byte arithmetic like the vendor asm (was a typed pointer: += n scaled by sizeof) */
+    uintptr_t v1 = 0; /* byte arithmetic like the vendor asm (was a typed pointer: += n scaled by sizeof) */
 
     /* fragment 0: Prologue */
     /* function prologue: stack frame and callee-saved register setup */
@@ -114433,7 +114562,7 @@ int64_t Tiziano_adr_fpga(uintptr_t a0, uint32_t a1)
     v0 = 10;
 
     /* fragment 11: StackAccess */
-    local_1d8 = v0;
+    local_1d8[0] = v0;
     v0 = *(uint16_t *)((char *)s8 + 2);
     t2 = *(uint16_t *)((char *)s8 + 0);
     a1 = local_2f8;
@@ -114578,7 +114707,8 @@ Tiziano_adr_fpga0x364:
     if (a2 != a0) { goto Tiziano_adr_fpga0x1018; }
 
     /* fragment 34: ConstantLoad */
-    a0 = 0x0;
+    a0 = (uintptr_t)adr_gauss_local; /* vendor 5b8b0: lui/addiu adr_gauss_local, 5b8b8: addu a0,a0,a1 (a1 = idx << 2) */
+    a0 = a0 + a1;
 
     /* fragment 35: MemoryAccess */
     a0 = *(uint32_t *)((char *)a0 + 0);
@@ -114626,7 +114756,8 @@ Tiziano_adr_fpga0x3a4:
     if (a0 != a2) { goto Tiziano_adr_fpga0x3e8; }
 
     /* fragment 46: ConstantLoad */
-    v0 = 0x0;
+    v0 = (uintptr_t)adr_gauss_local; /* vendor 5b910: adr_gauss_local, 5b918: addu v0,v0,a1 */
+    v0 = v0 + a1;
 
     /* fragment 47: MemoryAccess */
     v0 = *(uint32_t *)((char *)v0 + 0);
@@ -115097,7 +115228,8 @@ Tiziano_adr_fpga0x888:
     *(uint16_t *)((char *)s1 + 16) = ((*(uint16_t *)((char *)(s1) + 4)) + (*(uint16_t *)((char *)(s1) + 6)));
     local_14 = 16;
     local_10 = 8;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)func_interp1_short)(a0); /* jalr target resolved by relocation */
+    /* vendor 5bde4..5be24: a3 = &local_1fc (addiu a3,sp,508), a2 = s2 in the jalr delay slot, a0/a1 as set up in fragments 112/115; the lift passed only a0 */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)func_interp1_short)(a0, a1, s2, (uintptr_t)local_1fc, 8, 16); /* jalr target resolved by relocation */
 
     /* fragment 137: Arithmetic */
     v1 = (int32_t *)&local_168;
@@ -115213,7 +115345,7 @@ Tiziano_adr_fpga0x9e0:
     if (v1 != 0) { goto Tiziano_adr_fpga0x1244; }
 
     /* fragment 160: StackAccess */
-    local_130 = v0;
+    local_130[0] = v0;
 
 Tiziano_adr_fpga0x9ec:
     /* fragment 161: MemoryAccess */
@@ -117190,7 +117322,7 @@ tisp_adr_param_array_set0x1c:
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)func_adr_reg_write_sometimes)(s0); /* jalr target resolved by relocation */
 
     /* fragment 7: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)func_gauss_local)(&adr_gauss_local, s0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)func_gauss_local)(adr_gauss_local, s0); /* jalr target resolved by relocation */
 
     /* fragment 8: Epilogue */
     /* function epilogue: restore registers and return */
@@ -139537,6 +139669,13 @@ ispcore_core_ops_init0x270:
     v0 = (uintptr_t)s0 + (uintptr_t)v0;
     v1 = *(uint8_t *)((char *)v1 + 1564);
     a0 = *(uint32_t *)((char *)v0 + 732);
+    /* #324: OEM 0x7a4a8 movz s3,zero,v1 / 0x7a4b0 movn s3,1,a0 / 0x7a4c0 sw s3,156(sp) (bne delay slot):
+     * tisp init WDR field = sensor WDR ? 1 : (WDR_OPEN byte ? state (2) : 0).  The lift dropped all three. */
+    if (v1 == 0)
+        s3 = 0;
+    if (a0 != 0)
+        s3 = 1;
+    (*__p_9c) = s3;
     v1 = 1;
     a0 = *(uint32_t *)((char *)v0 + 720);
     v0 = 10;

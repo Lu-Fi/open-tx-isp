@@ -201,7 +201,9 @@ static bool tx_isp_sinfo_key_supported(enum tx_isp_sinfo_key key)
 	switch (key) {
 	case TX_ISP_SINFO_MIN_FPS:
 	case TX_ISP_SINFO_MAX_FPS:
-		return config_flags & TX_ISP_SINFO_EXTENDED_ATTRS;
+		return config_flags &
+		       (TX_ISP_SINFO_EXTENDED_ATTRS |
+			TX_ISP_SINFO_FPS_RANGE);
 	case TX_ISP_SINFO_MCLK:
 	case TX_ISP_SINFO_BOOT:
 	case TX_ISP_SINFO_VIDEO_INTERFACE:
@@ -462,7 +464,8 @@ static void tx_isp_sinfo_show_key(struct seq_file *m,
 		break;
 	case TX_ISP_SINFO_MIN_FPS:
 		if (!(config_flags &
-		      TX_ISP_SINFO_EXTENDED_ATTRS))
+		      (TX_ISP_SINFO_EXTENDED_ATTRS |
+		       TX_ISP_SINFO_FPS_RANGE)))
 			break;
 		if (slot->subdev) {
 			fps = tx_isp_sinfo_u32_at(
@@ -476,7 +479,8 @@ static void tx_isp_sinfo_show_key(struct seq_file *m,
 		break;
 	case TX_ISP_SINFO_MAX_FPS:
 		if (!(config_flags &
-		      TX_ISP_SINFO_EXTENDED_ATTRS))
+		      (TX_ISP_SINFO_EXTENDED_ATTRS |
+		       TX_ISP_SINFO_FPS_RANGE)))
 			break;
 		if (slot->subdev) {
 			fps = tx_isp_sinfo_u32_at(
@@ -1422,9 +1426,18 @@ int tx_isp_sinfo_init(void)
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 17, 0)
 	/* Mainline procfs no longer accepts a slash in a single entry name. */
 	tx_isp_sinfo_jz_root = tx_isp_get_jz_proc_root();
-	if (tx_isp_sinfo_jz_root)
+	if (tx_isp_sinfo_jz_root) {
+		/* A previous tx-isp instance may have left the tree behind. */
+		remove_proc_subtree("sensor", tx_isp_sinfo_jz_root);
 		tx_isp_sinfo_root = proc_mkdir("sensor", tx_isp_sinfo_jz_root);
+	}
 #else
+	/*
+	 * Same on 3.10: proc_mkdir() fails (-EEXIST) over a leftover tree.
+	 * remove_proc_subtree() is available since 3.9 (the exit path uses it)
+	 * and returns -ENOENT silently when nothing is there.
+	 */
+	remove_proc_subtree("jz/sensor", NULL);
 	tx_isp_sinfo_root = proc_mkdir("jz/sensor", NULL);
 #endif
 	if (!tx_isp_sinfo_root) {

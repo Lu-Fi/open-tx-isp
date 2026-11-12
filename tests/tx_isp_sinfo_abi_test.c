@@ -158,6 +158,18 @@ static void test_policy_selects_only_dereferenced_offsets(void)
 		      TX_ISP_SINFO_CONFIG_OK, &config,
 		      config.flags | TX_ISP_SINFO_STATIC_METADATA);
 
+	/* FPS_RANGE checks only the two fps offsets, not the wiring ones. */
+	config = t31_config;
+	config.min_fps_offset = 0x31c;
+	config.max_fps_offset = 0x320;
+	config.attr_mclk_offset++;
+	EXPECT_STATUS("fps range ignores wiring", TX_ISP_SINFO_CONFIG_OK,
+		      &config, config.flags | TX_ISP_SINFO_FPS_RANGE);
+	config.max_fps_offset++;
+	EXPECT_STATUS("fps range checks its offsets",
+		      TX_ISP_SINFO_CONFIG_BAD_EXTENDED_OFFSETS,
+		      &config, config.flags | TX_ISP_SINFO_FPS_RANGE);
+
 	config = t40_config;
 	config.attr_mclk_offset++;
 	EXPECT_STATUS("reginfo skips attribute wiring",

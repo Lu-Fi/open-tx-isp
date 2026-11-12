@@ -33,6 +33,7 @@
 #include "tx_isp_t32_regs.h"
 #include "tx_isp_t32_mem.h"
 #include "tx_isp_t32_msca.h"
+#include "tx_isp_t32_soc.h"
 
 static unsigned int isp_memopt = T32_MEMOPT_DEFAULT;
 module_param(isp_memopt, uint, 0444);
@@ -43,7 +44,7 @@ MODULE_PARM_DESC(isp_memopt, "MDNS memory ratio in 1/1000 (<=1000 uncompressed, 
  * 32) despite the int-sized ioctl and refuses IMP_ISP_Open unless both match
  * its own strings (libimp 2.2.0: "PRJ007" / "20251107a").
  */
-static char *driver_soc = "PRJ007";
+static char *driver_soc = T32_SOC_NAME;
 module_param(driver_soc, charp, 0444);
 MODULE_PARM_DESC(driver_soc, "SoC name answered to DRIVER_VERSION");
 static char *driver_version = "20251107a";
@@ -61,13 +62,11 @@ MODULE_PARM_DESC(driver_version, "ISP driver version answered to DRIVER_VERSION 
  * fast-boot "first bin" flag at 860 (0: no kernel fast-boot bins).  The
  * mode is kept over RELEASE_SENSOR, as the vendor module does (#303).
  */
-#define T32_DEFAULT_BIN_SIZE	880
+/* T32_DEFAULT_BIN_SIZE / _VER / _SOC: tx_isp_t32_soc.h (T33: same 880 / 863 / 871) */
 #define T32_DEFAULT_BIN_WDR	852
 #define T32_DEFAULT_BIN_DN	856
 #define T32_DEFAULT_BIN_FIRST	860
 #define T32_DEFAULT_BIN_VI	862
-#define T32_DEFAULT_BIN_VER	863
-#define T32_DEFAULT_BIN_SOC	871
 #define T32_BIN_VIS		4	/* VI numbers whose bin mode is kept */
 
 /* SET_TIZIANO_PAR: 20 bytes (the request's size field says 4) */
@@ -632,24 +631,104 @@ struct t32_clk {
 	const char *name;
 	unsigned long probe_rate;	/* platform table */
 	unsigned long rate;		/* activate: isp_clk, isp_clks, isp_clkl, isp_clka, isp_clkv */
+	int *rate_param;		/* module parameter overriding rate (0: default) */
 	struct clk *clk;
 };
 
+/*
+ * Vendor glue module parameters (same names and types as the vendor
+ * module; the thingino glue passes them, unknown ones make insmod fail).
+ * *_name: parent of the clock, isp_clk*: working rate; 0 / NULL keeps the
+ * defaults below.  isp_clks / clks_name: scaler clock (T32 div_isps; the
+ * T33 has none, accepted and ignored).
+ */
+static char *clk_name, *clks_name, *clka_name, *clkv_name, *clkl_name;
+static int isp_clk, isp_clks, isp_clka, isp_clkv, isp_clkl;
+module_param(clk_name, charp, 0444);
+MODULE_PARM_DESC(clk_name, "chose parent clk");
+module_param(clks_name, charp, 0444);
+MODULE_PARM_DESC(clks_name, "chose scaler parent clk");
+module_param(clka_name, charp, 0444);
+MODULE_PARM_DESC(clka_name, "chose axi parent clk");
+module_param(clkv_name, charp, 0444);
+MODULE_PARM_DESC(clkv_name, "chose vpu parent clk");
+module_param(clkl_name, charp, 0444);
+MODULE_PARM_DESC(clkl_name, "chose ldc parent clk");
+module_param(isp_clk, int, 0444);
+MODULE_PARM_DESC(isp_clk, "isp clock freq");
+module_param(isp_clks, int, 0444);
+MODULE_PARM_DESC(isp_clks, "scaler clock freq");
+module_param(isp_clka, int, 0444);
+MODULE_PARM_DESC(isp_clka, "axi clock freq");
+module_param(isp_clkv, int, 0444);
+MODULE_PARM_DESC(isp_clkv, "vpu clock freq");
+module_param(isp_clkl, int, 0444);
+MODULE_PARM_DESC(isp_clkl, "ldc clock freq");
+
+/*
+ * Further vendor glue parameters.  direct_mode / ivdc_*: IVDC direct mode
+ * (ISP channel 0 straight into the encoder) live in tx_isp_t32_ivdcdrv.c
+ * (#349, T32 and T33 modules).
+ * The others are accepted for insmod compatibility and only stored.
+ */
+static int isp_ch0_pre_dequeue_time, isp_cache_line, atlas_open, zeratul_open;
+module_param(isp_ch0_pre_dequeue_time, int, 0444);
+MODULE_PARM_DESC(isp_ch0_pre_dequeue_time, "isp pre dequeue time, unit ms (accepted, unused)");
+module_param(isp_cache_line, int, 0444);
+MODULE_PARM_DESC(isp_cache_line, "isp cache line (accepted, unused)");
+module_param(atlas_open, int, 0444);
+MODULE_PARM_DESC(atlas_open, "atlas open (accepted, unused)");
+module_param(zeratul_open, int, 0444);
+MODULE_PARM_DESC(zeratul_open, "zeratul open (accepted, unused)");
+
+struct t32_clk_parent {
+	const char *mux;
+	const char *parent;
+	char **param;			/* *_name module parameter */
+};
+
+#ifdef TX_ISP_T33
+/*
+ * T33 3.10.14 clock tree (vendor module strings and /proc/jz/clock/clocks
+ * in QEMU): no div_isps and no mux_* clocks; the parents are set on the
+ * dividers themselves.  Vendor defaults measured: div_isp 325 MHz (mpll,
+ * 340 asked), div_ldc 325 (mpll, 357 asked), div_vpu 316.7 (sclka, 340
+ * asked), div_ispa 475 (sclka); gate_ldc and gate_vpu are opened too.
+ */
 static struct t32_clk t32_clks[] = {
-	{ "div_isp", 200000000, 219000000 },
-	{ "div_isps", 476000000, 476000000 },
-	{ "div_ldc", 588000000, 588000000 },
+	{ "div_isp", T32_CLK_ISP_PROBE, T32_CLK_ISP, &isp_clk },
+	{ "div_ldc", T32_CLK_LDC_PROBE, T32_CLK_LDC, &isp_clkl },
 	{ "gate_isp" },
-	{ "div_ispa", 500000000, 500000000 },
-	{ "div_vpu", 500000000, 500000000 },
+	{ "div_ispa", 500000000, 500000000, &isp_clka },
+	{ "div_vpu", T32_CLK_VPU_PROBE, T32_CLK_VPU, &isp_clkv },
+	{ "gate_ivdc" },
+	{ "gate_csi" },
+	{ "gate_ldc" },
+	{ "gate_vpu" },
+};
+
+static const struct t32_clk_parent t32_clk_parents[] = {
+	{ "div_isp", "mpll", &clk_name }, { "div_ldc", "mpll", &clkl_name },
+	{ "div_ispa", "sclka", &clka_name }, { "div_vpu", "sclka", &clkv_name },
+};
+#else
+static struct t32_clk t32_clks[] = {
+	{ "div_isp", T32_CLK_ISP_PROBE, T32_CLK_ISP, &isp_clk },
+	{ "div_isps", 476000000, 476000000, &isp_clks },
+	{ "div_ldc", T32_CLK_LDC_PROBE, T32_CLK_LDC, &isp_clkl },
+	{ "gate_isp" },
+	{ "div_ispa", 500000000, 500000000, &isp_clka },
+	{ "div_vpu", T32_CLK_VPU_PROBE, T32_CLK_VPU, &isp_clkv },
 	{ "gate_ivdc" },
 	{ "gate_csi" },
 };
 
-static const char *const t32_clk_parents[][2] = {
-	{ "mux_isp", "mpll" }, { "mux_isps", "mpll" }, { "mux_ldc", "mpll" },
-	{ "mux_ispa", "sclka" }, { "mux_vpu", "sclka" },
+static const struct t32_clk_parent t32_clk_parents[] = {
+	{ "mux_isp", "mpll", &clk_name }, { "mux_isps", "mpll", &clks_name },
+	{ "mux_ldc", "mpll", &clkl_name }, { "mux_ispa", "sclka", &clka_name },
+	{ "mux_vpu", "sclka", &clkv_name },
 };
+#endif
 
 static unsigned int t32_clk_users;
 
@@ -687,11 +766,13 @@ static void t32_clks_activate(void)
 	unsigned int i;
 
 	for (i = 0; i < ARRAY_SIZE(t32_clk_parents); i++) {
-		struct clk *mux = clk_get(NULL, t32_clk_parents[i][0]);
-		struct clk *par = clk_get(NULL, t32_clk_parents[i][1]);
+		const struct t32_clk_parent *p = &t32_clk_parents[i];
+		const char *pname = *p->param && **p->param ? *p->param : p->parent;
+		struct clk *mux = clk_get(NULL, p->mux);
+		struct clk *par = clk_get(NULL, pname);
 
 		if (!IS_ERR(mux) && !IS_ERR(par) && clk_set_parent(mux, par))
-			pr_warn("tx-isp-t32: %s parent not set\n", t32_clk_parents[i][0]);
+			pr_warn("tx-isp-t32: %s parent %s not set\n", p->mux, pname);
 		if (!IS_ERR(par))
 			clk_put(par);
 		if (!IS_ERR(mux))
@@ -700,10 +781,12 @@ static void t32_clks_activate(void)
 	for (i = 0; i < ARRAY_SIZE(t32_clks); i++) {
 		struct t32_clk *c = &t32_clks[i];
 
+		unsigned long rate = c->rate_param && *c->rate_param > 0 ? *c->rate_param : c->rate;
+
 		if (!c->clk)
 			continue;
-		if (c->rate && clk_get_rate(c->clk) != c->rate && clk_set_rate(c->clk, c->rate))
-			pr_warn("tx-isp-t32: clock %s rate %lu not set\n", c->name, c->rate);
+		if (rate && clk_get_rate(c->clk) != rate && clk_set_rate(c->clk, rate))
+			pr_warn("tx-isp-t32: clock %s rate %lu not set\n", c->name, rate);
 		if (clk_prepare_enable(c->clk))
 			pr_warn("tx-isp-t32: clock %s not enabled\n", c->name);
 	}
@@ -717,6 +800,12 @@ static void t32_clks_deactivate(void)
 		if (t32_clks[i].clk)
 			clk_disable_unprepare(t32_clks[i].clk);
 	}
+}
+
+/* ISP clocks on (an open /dev/tx-isp); rmmod runs with them off */
+int t32_core_clk_active(void)
+{
+	return t32_clk_users != 0;
 }
 
 static int t32_isp_open(struct inode *inode, struct file *file)
@@ -925,7 +1014,7 @@ static int t32_proc_show(struct seq_file *m, void *v)
 {
 	struct t32_vi *vi = &core.vi[0];
 
-	seq_printf(m, "tx-isp-t32 (open, S3: frames on 3 channels, sensor fps, no tisp)\n");
+	seq_printf(m, T32_SOC_DRV " (open, S3: frames on 3 channels, sensor fps, no tisp)\n");
 	seq_printf(m, "sensor: %s registered %d input %d streaming %d %ux%u\n",
 		   vi->registered ? vi->info.name : "-", vi->registered,
 		   vi->input_on, vi->streaming, vi->width, vi->height);
@@ -966,6 +1055,9 @@ static int t32_proc_show(struct seq_file *m, void *v)
 		   t32_lsc_drv_stats.list_runs, t32_lsc_drv_stats.waits, t32_lsc_drv_stats.timeouts);
 	seq_printf(m, "sensor fps %#x, stream-on list runs %u (last %u words) timeouts %u\n",
 		   t32_core_sensor_fps(), t32_rcfg_runs, t32_rcfg_last_len, t32_rcfg_timeouts);
+#ifdef TX_ISP_T33
+	t33_stats_show(m);
+#endif
 	t32_fs_show(m);
 	t32_ivdc_show(m);
 	return 0;
@@ -1026,6 +1118,17 @@ unsigned int t32_core_memopt(void)
 	return isp_memopt;
 }
 
+/* the ISP working memory libimp handed over (SET_ISP_MEM_INFO) */
+int t32_core_isp_mem(u32 *pa)
+{
+	struct t32_vi *vi = &core.vi[0];
+
+	if (!vi->isp_mem_pa || !vi->isp_mem_size)
+		return -ENODEV;
+	*pa = vi->isp_mem_pa;
+	return 0;
+}
+
 static int t32_proc_open(struct inode *inode, struct file *file)
 {
 	return single_open(file, t32_proc_show, NULL);
@@ -1076,7 +1179,7 @@ int tx_isp_t32_core_init(void)
 		proc_create("isp-m0", 0444, core.proc, &t32_proc_fops);
 		proc_create("isp-w02", 0444, core.proc, &t32_proc_fops);
 	}
-	pr_info("tx-isp-t32: open driver loaded (S3: 3 channels, sensor fps, no tisp) (memopt %u)\n", isp_memopt);
+	pr_info(T32_SOC_DRV ": open driver loaded (S3: 3 channels, sensor fps, no tisp) (memopt %u)\n", isp_memopt);
 	return 0;
 
 err_hw:

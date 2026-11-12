@@ -171,7 +171,7 @@ boundary/error tests and ASan/UBSan also pass.
 
 ## Live verification and comparison caveat
 
-The one-shot combination boots T41NQ/OS04D10 with `ric mode day`, unchanged
+The one-shot combination boots T41NQ/OS04D10 with the application's day-mode command, unchanged
 sensor calibration and Neo audio. Security policy reports `ae_target=0`;
 calibrated mean/target converge near 74/73 in the tested daylight scene.
 Six TCP/UDP H.264/AAC reconnect/decode tests pass.

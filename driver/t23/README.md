@@ -88,7 +88,7 @@ as follows:
 |---|---|---|
 | AE0: bit 26/27 `ae0_interrupt_*`, event 1 `tisp_ae0_process` | lifted stock code, ISR + work item (`tx_isp_t23_ae_oem_glue.inc`, `source_ae_oem=1`) | - |
 | ADR / defog: bit 18 / 20 `tiziano_*_interrupt_static`, events 2 / 3 `tisp_adr_process` / `tisp_defog_process` | lifted stock code, ISR + work item (`tx_isp_t23_adr_oem_glue.inc`, `source_adr_oem=1`) | `adr_oem_runs` (adr irq, adr process, defog irq, defog process) |
-| AWB: bit 30 `awb_interrupt_static` (statistics, `tiziano_awb_set_lum_th_freq`), event 9 `JZ_Isp_Awb`, event 8 `tisp_ct_update` | statistics snapshot + `t23x_awb_set_lum_th_freq` in the ISR, HLIL AWB work (every `source_awb_hlil_interval`-th interrupt, default 4) calling the CT updates directly | `awb_lum_th_runs`, `awb_lum_th_last` (0444) |
+| AWB: bit 30 `awb_interrupt_static` (statistics, `tiziano_awb_set_lum_th_freq`), event 9 `JZ_Isp_Awb`, event 8 `tisp_ct_update` | statistics snapshot + `t23x_awb_set_lum_th_freq` in the ISR, HLIL AWB work (every `source_awb_hlil_interval`-th interrupt, default 1 = every interrupt like stock, openimp #233) calling the CT updates directly | `awb_lum_th_runs`, `awb_lum_th_last` (0444) |
 
 `t23x_awb_set_lum_th_freq` writes 0xb038 on every AWB interrupt like stock:
 `par[176] << 16 | par[172] << 8 | max(1, min(wmean, par[168]) * _ae_reg[8] >> 10)`
@@ -101,7 +101,7 @@ sc2336p bank words: day 10 / 235 / 1, night 10 / 240 / 1.  Oracle:
 ## ISP OSD
 
 The ISP-drawn OSD (libimp `IMP_ISP_Tuning_*OsdRgn` / `IMP_OSD_*_ISP`, used by
-raptor and prudynt) is drawn by the MSCA into output 0 from ARGB pictures in
+two streamers) is drawn by the MSCA into output 0 from ARGB pictures in
 rmem. libimp sends `SetOSDAttr` (0x08000181, 12 bytes: type, byte order,
 alpha disable) and `SetOSDBlock` (0x08000182, 20 bytes: slot 0..7, enable,
 position, size, physical address, stride); `tx_isp_t23_tuning_ext.h` stores
@@ -155,8 +155,8 @@ update requests while frames flow.
 ### Symptom
 
 cam-B (Galayou Y4, T23N + sc2336, `isp_clk=200 MHz`, `direct_mode=0`,
-`isp_memopt=1`, `shvflip=1`), streamer timps: silent hard hang, no oops,
-both ping and the console die, the watchdog resets ~60 s later. timps
+`isp_memopt=1`, `shvflip=1`), the streamer: silent hard hang, no oops,
+both ping and the console die, the watchdog resets ~60 s later. The application
 wakes frame channel 0 on demand (daynight boot measure, switch and two
 re-asserts per switch, `DN_REASSERT_MS` 8000: `fs_kick_chn0` = EnableChn,
 500 ms, DisableChn) and re-sends HFLIP/VFLIP/running_mode on every chn0
@@ -175,21 +175,21 @@ do not hang.
 | `2100` | agg-24 module (every wake: input restart, `tisp_msca_chx_cfg_load()` incl. 0xd010, noop HVFLIP 0xd010) | tx-isp STREAMON 3170.962; wakes ("EnsureLinkStreamOn already-started") at 3171.546, 3177.966, 3186.147, 3194.318, 3202.955, 3214.217, 3222.202, 3230.847; dead after the 8th wake (ping timeout) |
 | `2118-fix` | b1a4a975 (flip skip, output always kept enabled, restart skip, rmem crumbs, no FIFO guard) | module reload, STREAMON 1012.344, dead before the first wake (+0.57 s expected); IRQ counters frozen (isp-m0 903); rmem crumbs read back zero after the reset |
 | `2128-step3c` | d28a0177, `msca_flip_skip_noop=1 msca_keep_enabled=1 msca_restart_skip=1` | STREAMON 543.037, 25 wakes up to 1143.646 (10 min), alive |
-| `2139-control` | same instance, switches set back to 0 at run time | 8 min / 34 wakes alive: inconclusive, the dangerous phase is the minutes right after a timps start |
-| `2227-fixon` | as `2128-step3c`, loop of `S95timps restart`, 180 s each | run 1 alive; run 2: DisableSensor 4237.497 (old process), new SET_BUF 4237.612, **"framechan0 unmatched MSCA completion y=0x3047000 uv=0x3245000 count=5" 4237.759**, tx-isp STREAMON 4237.765, first wake 4238.342, dead |
-| `2245-final` | a325b523 defaults (release on close, restart reuse = bit set again at a frame boundary) | guard start ok; first `S95timps restart`: tx-isp STREAMON 764.910, **"no frame boundary within 200 ms (framechan-streamon), applied directly" 765.101**, wake 765.850, dead. The released output of the old process was re-enabled without reload while the new input was starting (no frame-done yet) |
-| `4ea284c9` | stock-exact immediate channel start, release before every input start, start deferred to the first QBUF on an empty FIFO, flips and stop clears via the frame-done ISR | fresh insmod, first timps start: dead within seconds (no kmsg captured). Abandoned: the first-start path must stay the d28a0177 one |
+| `2139-control` | same instance, switches set back to 0 at run time | 8 min / 34 wakes alive: inconclusive, the dangerous phase is the minutes right after an application start |
+| `2227-fixon` | as `2128-step3c`, loop of application restarts (init script), 180 s each | run 1 alive; run 2: DisableSensor 4237.497 (old process), new SET_BUF 4237.612, **"framechan0 unmatched MSCA completion y=0x3047000 uv=0x3245000 count=5" 4237.759**, tx-isp STREAMON 4237.765, first wake 4238.342, dead |
+| `2245-final` | a325b523 defaults (release on close, restart reuse = bit set again at a frame boundary) | guard start ok; first application restart (init script): tx-isp STREAMON 764.910, **"no frame boundary within 200 ms (framechan-streamon), applied directly" 765.101**, wake 765.850, dead. The released output of the old process was re-enabled without reload while the new input was starting (no frame-done yet) |
+| `4ea284c9` | stock-exact immediate channel start, release before every input start, start deferred to the first QBUF on an empty FIFO, flips and stop clears via the frame-done ISR | fresh insmod, first application start: dead within seconds (no kmsg captured). Abandoned: the first-start path must stay the d28a0177 one |
 
 ### Root cause
 
 Observed on the device (each a single run, so "observed" rather than
 statistically proven):
-- The per-wake path of the agg-24 module hangs within ~60 s of a timps
+- The per-wake path of the agg-24 module hangs within ~60 s of an application
   start (`2100`); skipping the MSCA reload and the redundant update
   requests while the output keeps its enable bit across the input stop
-  survived 25 wakes (`2128-step3c`) and one full timps start (`2227` run 1).
+  survived 25 wakes (`2128-step3c`) and one full application start (`2227` run 1).
 - Keeping the output enabled into a new session is fatal: in `2227-fixon`
-  run 2 the output kept from the old timps process completed a frame into
+  run 2 the output kept from the old application process completed a frame into
   an old FIFO address ("unmatched MSCA completion") and the SoC died 0.6 s
   later.
 - Re-enabling a released output without reloading it, with the input of a
@@ -271,7 +271,7 @@ wakes) with its switches as defaults, plus one addition for the process
 restart. Nothing else differs from that path.
 
 1. `msca_flip_skip_noop=1`: a mirror/flip write with an unchanged 0xd050
-   word issues no 0xd010 update request (timps re-sends HVFLIP on every
+   word issues no 0xd010 update request (the application re-sends HVFLIP on every
    chn0 enable edge).
 2. `msca_keep_enabled=1`: the last STREAMOFF (input stops with it) leaves
    the output's 0xd040 bit set; a non-last STREAMOFF clears it as before.
@@ -281,7 +281,7 @@ restart. Nothing else differs from that path.
    refilled with the queued buffers) while the input is still stopped.
    Every other start does `tisp_channel_start()` as before / as stock.
 4. New, `msca_session_release=1`: tx-isp STREAMON with the input still
-   stopped (a new session, e.g. after a timps restart) switches off every
+   stopped (a new session, e.g. after an application restart) switches off every
    output left enabled that no channel streams, drops its completions,
    clears its address FIFO and forgets its loaded configuration, so its
    next STREAMON loads it like a first start. No frame flows at that point.
@@ -290,7 +290,7 @@ restart. Nothing else differs from that path.
 
 Per in-process wake on cam-B: STREAMOFF (bit kept, input stops), close,
 REQBUFS/QBUF, STREAMON (FIFO rearm with the input stopped, input start,
-no MSCA write). Per timps restart: release at tx-isp STREAMON, then the
+no MSCA write). Per application restart: release at tx-isp STREAMON, then the
 first-start path.
 
 Not done (tried in a325b523/4ea284c9, worse on the device): release on
@@ -305,13 +305,13 @@ galayou build), not from the device:
 
 - **Trigger pattern in every T23 death:** a frame-channel STREAMON while the
   input is live, 0.5-1 s after a tx-isp STREAMON (`EnsureLinkStreamOn
-  already-started`), death < 1 s later. With timps before `dac1200`
+  already-started`), death < 1 s later. With the application before `dac1200`
   (2026-10-05 22:34, kick reference held through the idle debounce) the
   wake was an input restart (`2100`: dead after 8 wakes); with the held
   reference the second EnableChn (chn1 or the JPEG channel) starts on the
   live input, and since `2245` every run died at that first one, the
   agg-24 module included (`2258-ch0only`), which had survived 8 wakes at
-  `2100`. Which timps binary cam-B ran in each run is not recorded; check
+  `2100`. Which application binary cam-B ran in each run is not recorded; check
   before the next bisect. This is the T41 pattern (channel start with the
   input live), so one mechanism is plausible for both.
 - **Stock keeps the pipeline up between channel starts** (verified):
@@ -345,11 +345,11 @@ galayou build), not from the device:
 
 Device experiments, cheapest first (no build needed except the last):
 
-1. Same binaries as `2128-step3c` (d28a0177, switches on, the timps of
-   21:28) now. Dies -> environment or timps binary, not the driver state.
+1. Same binaries as `2128-step3c` (d28a0177, switches on, the application build of
+   21:28) now. Dies -> environment or application binary, not the driver state.
 2. Stock-like input: `chan_stop_keep_input=1 msca_keep_enabled=2
    msca_fifo_rearm=0 msca_restart_skip=0 msca_flip_skip_noop=0` on the
-   d28a0177/baf4ce2e module, or the `fs_keepalive` timps. Survives ->
+   d28a0177/baf4ce2e module, or the `fs_keepalive` application build. Survives ->
    the per-start MSCA/FIFO path is the trigger; then bisect with
    `msca_fifo_rearm=0` alone.
 3. `find /overlay` loop (10 min) with the ISP stack not loaded; reboot ->
@@ -382,7 +382,7 @@ uncached page: layout and step codes in `tx_isp_t23_crumbs.h` (word 3 =
 last step | arg << 16, word 5 = irq + 1 while in the hard ISR, ring of 64
 steps). The next SET_BUF prints a valid record to kmsg (`previous record
 ...`, last 16 steps); devmem reads it directly. In rmem (crumbs=1) it
-survives a timps restart or a module reload, **not a reboot**: the T23
+survives an application restart or a module reload, **not a reboot**: the T23
 U-Boot (2013.07, 64 MiB) relocates to the top of RAM and
 `mem_malloc_init()` zeroes its 32 MiB malloc area below it, which covers
 all of rmem (0x2a00000-0x3ffffff); cam-B read all zero after a reset. A
@@ -397,12 +397,12 @@ kernel RAM.
 1. Fresh insmod with default parameters; check
    `/sys/module/tx_isp_t23/parameters/{msca_*,chan_stop_keep_input,crumbs}`
    = Y, 1, Y, Y, 0, N, 0. Stream kmsg to the host.
-2. Guard start of timps, >= 180 s (first-start path = d28a0177 step3c).
-3. Ten `S95timps restart`, each >= 180 s; per run kmsg and
+2. Guard start of the application, >= 180 s (first-start path = d28a0177 step3c).
+3. Ten application restarts (init script), each >= 180 s; per run kmsg and
    `msca_releases` (expected +1 per restart, "released at session start"
    in kmsg, no "unmatched MSCA completion").
 4. 30 min normal operation, then the overnight soak.
-5. Negative control: `msca_session_release=0` plus `S95timps restart`
+5. Negative control: `msca_session_release=0` plus an application restart
    loop should reproduce the `2227-fixon` run 2 hang; the agg-24 hang
    (`2100`) with `msca_flip_skip_noop=0 msca_keep_enabled=0
    msca_restart_skip=0`.
@@ -418,14 +418,14 @@ the sensor-generic contract above; they are retained as recovery history.
 - `sensor_sc2336_t23.ko` loads against the recovered module.
 - `/dev/tx-isp`, `/dev/isp-m0`, `/dev/misc-ivdc`, and `/dev/framechan0..3`
   are present.
-- `/proc/jz/sensor/sensor0` reports the SC2336 metadata expected by Raptor.
-- Raptor starts and publishes stable H.264 streams on both MSCA channels.
+- `/proc/jz/sensor/sensor0` reports the SC2336 metadata expected by the application.
+- The application starts and publishes stable H.264 streams on both MSCA channels.
 - The ten-object module passes a full one-shot device boot with advancing
   ISP/VIC interrupts and is followed by a verified persistent-driver reboot.
 - Both enabled MSCA channels now generate their polyphase curves through the
   shared scaler library. Exact host regressions cover the T23 unity and
   one-third curves, and a clean device boot published stable 1920x1080 and
-  640x360 streams at 25 fps with no fatal kernel, Raptor, or Android log
+  640x360 streams at 25 fps with no fatal kernel, application or Android log
   entries. The tested open module remains active with SHA-256
   `d1b53dbe46435b1bc5bbb90d29a4b24185c368a79323b97b2432e839c8893848`.
 - The math adapter now also owns `fix_point_div_32`, replacing the recovered
@@ -442,7 +442,7 @@ the sensor-generic contract above; they are retained as recovery history.
   32-bit fractional-product wrap before shifting. The device cycle decoded
   149 frames in six seconds, recorded 148 in six, and decoded 123 in the
   five-second post-transition check. Night/auto/day, image appearance, and
-  ISP/VIC interrupts remained healthy; no ISP, Raptor, or kernel fault
+  ISP/VIC interrupts remained healthy; no ISP, application or kernel fault
   appeared in `dmesg`, `logread`, or `logcat`. The tested open module remains
   active with SHA-256
   `31418bfe7de79751d18e64ff46309fc0674cb7e6e9f39c7cca2055ea8b2b9f7e`.
@@ -480,16 +480,16 @@ the sensor-generic contract above; they are retained as recovery history.
   `3b95aabf4e5014f53ac4fa003553a3cdf86873bd727542723fb064564f5b5669`.
 - The unsuffixed and `_64` two-/three-operand multiply bodies remain in the
   recovered core. An attempted adapter extraction built and inserted cleanly
-  but made `rvd` exit during startup on two consecutive fail-safe boots.
+  but made the video daemon exit during startup on two consecutive fail-safe boots.
   Rebuilding the committed local boundary reproduced the accepted
-  `3b95aabf...` module byte-for-byte, restored Raptor control calls, passed a
+  `3b95aabf...` module byte-for-byte, restored the application's control calls, passed a
   forced day transition, and decoded 124 main frames in five seconds. Treat
   this boundary as behavior/code-generation sensitive until its recovered
   call sites have typed signatures.
 - The canonical `tx-isp-t23.ko` now consumes the shared legacy frame-channel
   ioctl envelopes. Its deterministic sequential build is active with SHA-256
   `214708e247d78178796bae93856c6210d4d045007ea98b73958e9c1f9fa02b0f`.
-  Raptor reports 1920x1080 and 640x360 at 25 fps, an external RTSP consumer
+  the application reports 1920x1080 and 640x360 at 25 fps, an external RTSP consumer
   remains active, ISP/VIC interrupts advance, and the final `dmesg`,
   `logread`, and `logcat` fault scans are clean.
 - The graph endpoint search now runs through the host-tested common subdevice
@@ -605,7 +605,7 @@ the sensor-generic contract above; they are retained as recovery history.
   commits the complete `0x8800..0x8b4c` image, and clears top-bypass bit 15.
   Runtime total-gain changes refresh the interpolation subset with OEM
   `0x100` hysteresis. Parked, explicitly active, and no-argument active device
-  cycles passed full Raptor startup and RTSP checks; `source_sdns_internal_enable=0`
+  cycles passed full the application startup and RTSP checks; `source_sdns_internal_enable=0`
   retains a diagnostic top-level bypass while still validating register
   programming. The OEM 16-channel ratio scaler and complete linear/WDR table
   selector are recovered; their assembly sizes are 785/703 and 221/231 versus
@@ -686,7 +686,7 @@ the sensor-generic contract above; they are retained as recovery history.
   stub. Their setter/getter paths update the correct words, set the OEM AE
   refresh flags, and are dispatched explicitly for controls `0x0800002a` and
   `0x08000037`. Highlight round-tripped `0 -> 32 -> 0` through `libimp`;
-  direct OEM-layout ioctls confirmed backlight `0 -> 3 -> 0` (Raptor does not
+  direct OEM-layout ioctls confirmed backlight `0 -> 3 -> 0` (the application does not
   include the backlight getter in its aggregate query). A restored no-argument
   cycle decoded 256 RTSP frames at `YAVG/UAVG/VAVG`
   `108.2/129.5/125.8`, retained `30432/2698` ISP/VIC interrupts without new
@@ -860,7 +860,7 @@ the sensor-generic contract above; they are retained as recovery history.
   instructions versus 129 OEM, replacing its two-instruction hard stub and
   reducing the audit to 37 hard stubs and 79 collapses. A no-argument device
   cycle read the SC2336 `0xcb/0x3a` ID, decoded 260 RTSP frames, reached
-  `18303/1590` ISP/VIC interrupts without kernel or Raptor faults, and rebooted
+  `18303/1590` ISP/VIC interrupts without kernel or application faults, and rebooted
   module-clean.
 - The custom-AE ioctl path now retains the OEM control snapshot and histogram
   metadata layout, normalizes long/short integration and gain through the

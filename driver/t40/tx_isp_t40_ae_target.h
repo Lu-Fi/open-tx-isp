@@ -39,6 +39,7 @@
 
 #define T40_AET_OUTER		0x80U	/* tparams + 0x80 = OEM stMainAeOuter */
 #define T40_AET_ZONE		0x000U	/* u16: [0] y0 [1] rows [2] x0 [3] cols [4..18] col w [19..33] row h [34] lo [35] hi */
+#define T40_AET_STAB		0x2a8U	/* u16[4]: stable exit hi / lo (Q10 target/luma), tolerance lo / hi (#239) */
 #define T40_AET_MP48		0x288U	/* u16[11] (word 9: Pweight enable) */
 #define T40_AET_AF		0x314U	/* u16[3]: antiflicker enable, mode NORMAL (1) / AUTO (0), - */
 #define T40_AET_AFREQ		0x320U	/* u16: antiflicker frequency */
@@ -63,6 +64,7 @@ struct t40_aet_bank {
 	uint16_t scw[T40_AET_N];
 	uint8_t w[T40_AET_ZN * T40_AET_ZN];
 	uint16_t af[2], afreq;
+	uint16_t stab[4];
 };
 
 static inline uint32_t t40_aet_ld32(const uint8_t *b, uint32_t off)
@@ -99,6 +101,8 @@ static inline int t40_aet_parse(const uint8_t *bank, struct t40_aet_bank *p)
 	p->af[0] = t40_aet_ld16(o, T40_AET_AF);
 	p->af[1] = t40_aet_ld16(o, T40_AET_AF + 2U);
 	p->afreq = t40_aet_ld16(o, T40_AET_AFREQ);
+	for (i = 0; i < 4U; i++)
+		p->stab[i] = t40_aet_ld16(o, T40_AET_STAB + 2U * i);
 	for (i = 1; i < T40_AET_N; i++)
 		if (p->ev[i] < p->ev[i - 1U])
 			return -1;
@@ -366,6 +370,29 @@ static inline int t40_aet_ginv_build(const uint16_t *g, uint8_t *inv)
 			inv[v] = (uint8_t)(b - v < v - a ? hi : l);
 	}
 	return 0;
+}
+
+/*
+ * #232: AeTargetComp on an output-Y target like the OEM: the OEM scales the target in the statistics domain
+ * (tisp_ae_s_comp 0x39ed4 word x tisp_ae_long_tune2 l.214-216: target x word / 128), so on the gamma'd output the
+ * effect is far weaker than scaling the output target (Eufy c1 run, legacy path: comp 40 / 200 -> frame Y 39.8 / 239.7,
+ * vendor 92.6 / 140.5).  Used where the frame AE keeps an output-domain target (HLC / BLC / face metering).  The
+ * statistics value of base_out is the nearest gamma inverse; the scaled value is clamped to 255.
+ */
+static inline uint32_t t40_aet_comp_out(const uint16_t *g, uint32_t base_out, uint16_t word)
+{
+	uint32_t l, best = 0, bd = 0xffffffffU, d, v;
+
+	for (l = 0; l < 256U; l++) {
+		v = t40_aet_gamma8(g, l);
+		d = v > base_out ? v - base_out : base_out - v;
+		if (d < bd) {
+			bd = d;
+			best = l;
+		}
+	}
+	v = best * word >> 7;
+	return t40_aet_gamma8(g, v > 255U ? 255U : v);
 }
 
 #endif /* TX_ISP_T40_AE_TARGET_H */

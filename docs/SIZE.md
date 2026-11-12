@@ -81,7 +81,7 @@ settings always stay. Passing a removed parameter to `insmod` only logs
   bug has not been seen again in 70+ load/unload cycles. `TX_ISP_T41_TMO_SELFTEST=y`
   builds the `t41_tmo_map_selftest` parameter (off by default, 8 KB).
 
-T23 parameters left out: enable_irqs_on_streamon, log_framechan_payloads, text_watch, direct_msca_qbuf, direct_msca_start, direct_msca_cfg_load, direct_tisp_stream_regs, source_core_start, source_frame_done, source_msca_curves, source_msca_init, source_core_bypass, source_core_bypass_from_tuning, source_mdns_tuning_init, source_mdns_internal_enable, source_mdns_uv, source_mdns_gain_old, source_mdns_top_control, source_mdns_top_override, source_mdns_mode, source_mdns_paddr, source_mdns_size, source_mdns_used, source_mdns_set_count, source_mdns_restore_count, source_sdns_tuning_init, source_sdns_gain_old, source_adr_tuning_init, source_adr_initialized, source_adr_width, source_adr_height, source_gib_tuning_init, source_gamma_tuning_init, source_lsc_tuning_init, source_lsc_events, source_dpc_tuning_init, source_ydns_tuning_init, source_defog_tuning_init, source_defog_geometry_init, source_defog_initialized, source_defog_width, source_defog_height, source_defog_geometry_runs, source_lsc_runtime_ct, source_lsc_event_count, source_lsc_gain_events, source_ae_stats_irqs, source_ae_stats_snapshots, source_stock_stream_regs, source_ae_hlil_fast_interval, source_ae_hlil_sat_permille, source_ae_hlil_deadband, source_ae_hlil_runs, source_ae_hlil_updates, source_ae_hlil_drops, source_ae_hlil_state, source_ae_hlil_ev, source_ae_hlil_status, source_awb_static_init, source_awb_stats_init, source_awb_stats_processed_tap, source_awb_stats_wide_thresholds, source_awb_grayworld, source_awb_grayworld_interval, source_awb_grayworld_rbias, source_awb_grayworld_bbias, source_awb_profile_rbias, source_awb_profile_bbias, source_awb_hlil_interval, source_awb_hlil_min_pixels, source_awb_bootstrap_rgain, source_awb_bootstrap_bgain, source_awb_stats_irqs, source_awb_stats_snapshots, source_awb_grayworld_updates, source_awb_hlil_drops, source_awb_hlil_rg, source_awb_hlil_bg, source_awb_hlil_ct, source_awb_last_mf_rg, source_awb_last_mf_bg, source_wb_mode, source_bcsh_events, source_bcsh_ev_events, source_bcsh_ct_events, source_bcsh_ct_region, source_ccm_events, source_ccm_runtime_ct, source_ccm_event_count, source_dmsc_tuning_init, source_dmsc_sharpness, source_bcsh_tuning_init, source_bcsh_runtime, source_clm_tuning_init, source_clm_events, source_clm_startup_ct, source_clm_runtime_ct, source_clm_event_count, source_clm_region, source_bcsh_neutral, source_csccr_init, source_core_mode, direct_csi_start, direct_vic_start, vic_irq_unmask_all, direct_sensor_stream, source_csi_stream, source_sensor_stream, source_vic_stream, direct_enable_clks, csi_rate_override, sensor_i2c_adapter, real_platforms, child_platforms, recovered_child_probes.
+T23 parameters left out: enable_irqs_on_streamon, log_framechan_payloads, text_watch, direct_msca_qbuf, direct_msca_start, direct_msca_cfg_load, direct_tisp_stream_regs, source_core_start, source_frame_done, source_msca_curves, source_msca_init, source_core_bypass, source_core_bypass_from_tuning, source_mdns_tuning_init, source_mdns_internal_enable, source_mdns_uv, source_mdns_gain_old, source_mdns_top_control, source_mdns_top_override, source_mdns_mode, source_mdns_paddr, source_mdns_size, source_mdns_used, source_mdns_set_count, source_mdns_restore_count, source_sdns_tuning_init, source_sdns_gain_old, source_adr_tuning_init, source_adr_initialized, source_adr_width, source_adr_height, source_gib_tuning_init, source_gamma_tuning_init, source_lsc_tuning_init, source_lsc_events, source_dpc_tuning_init, source_ydns_tuning_init, source_defog_tuning_init, source_defog_geometry_init, source_defog_initialized, source_defog_width, source_defog_height, source_defog_geometry_runs, source_lsc_runtime_ct, source_lsc_event_count, source_lsc_gain_events, source_ae_stats_irqs, source_ae_stats_snapshots, source_stock_stream_regs, source_ae_hlil_fast_interval, source_ae_hlil_sat_permille, source_ae_hlil_deadband, source_ae_hlil_runs, source_ae_hlil_updates, source_ae_hlil_drops, source_ae_hlil_state, source_ae_hlil_ev, source_ae_hlil_status, source_awb_static_init, source_awb_stats_init, source_awb_stats_processed_tap, source_awb_stats_wide_thresholds, source_awb_grayworld, source_awb_grayworld_interval, source_awb_grayworld_rbias, source_awb_grayworld_bbias, source_awb_profile_rbias, source_awb_profile_bbias, source_awb_hlil_min_pixels, source_awb_bootstrap_rgain, source_awb_bootstrap_bgain, source_awb_stats_irqs, source_awb_stats_snapshots, source_awb_grayworld_updates, source_awb_hlil_drops, source_awb_hlil_rg, source_awb_hlil_bg, source_awb_hlil_ct, source_awb_last_mf_rg, source_awb_last_mf_bg, source_wb_mode, source_bcsh_events, source_bcsh_ev_events, source_bcsh_ct_events, source_bcsh_ct_region, source_ccm_events, source_ccm_runtime_ct, source_ccm_event_count, source_dmsc_tuning_init, source_dmsc_sharpness, source_bcsh_tuning_init, source_bcsh_runtime, source_clm_tuning_init, source_clm_events, source_clm_startup_ct, source_clm_runtime_ct, source_clm_event_count, source_clm_region, source_bcsh_neutral, source_csccr_init, source_core_mode, direct_csi_start, direct_vic_start, vic_irq_unmask_all, direct_sensor_stream, source_csi_stream, source_sensor_stream, source_vic_stream, direct_enable_clks, csi_rate_override, sensor_i2c_adapter, real_platforms, child_platforms, recovered_child_probes.
 
 T41 parameters behind the switch: t41_safe_tuning_events, t41_safe_ae_controller, t41_ae_target_q8, t41_ae_comp, t41_ae_cap_integration, t41_ae_cap_again, t41_ae_update_frames, t41_ae_calibrated_metering, t41_sensor_limits_error, t41_ae_flicker_floor_lines, t41_ae_flicker_ceiling_lines, t41_ae_flicker_frequency_hz, t41_ae_flicker_gib_gain_q10, t41_color_green_correction_q10, t41_color_blue_correction_q10, t41_ae_flicker_profile, t41_safe_gain_fanout_mask, t41_safe_ae_integration, t41_safe_ae_again, t41_safe_ae_gain_q16, t41_safe_ae_last_mean_q8, t41_gain_fanout_trigger, t41_safe_ev_fanout_mask, t41_ev_fanout_trigger, t41_safe_tmo_irq_stats, t41_safe_tisp_teardown, t41_safe_msca_start, t41_defer_vic_irq, t41_vic_frame_sync_work, t41_defer_vic_start, t41_defer_isp_start, t41_defer_isp_fw_thread, t41_defer_sensor_start, t41_defer_csi_start, t41_msca_frame_shadow_commit, t41_stock_awb_gain_a, t41_stock_awb_gain_b, t41_awb_gain_trigger, t41_native_awb, t41_awb_update_irqs, t41_awb_warmup_irqs, t41_awb_min_zones, t41_awb_min_pixels, t41_safe_awb_rgain, t41_safe_awb_bgain, t41_safe_awb_raw_r_q10, t41_safe_awb_raw_b_q10, t41_safe_awb_irq_count, t41_safe_awb_update_count, t41_safe_awb_reject_count, t41_safe_awb_bank, t41_stock_dmsc_profile, t41_stock_ysp_profile, t41_stock_ysp_unbypass, t41_stock_spatial_profile, t41_stock_cdns_profile, t41_stock_mdns_profile, t41_stock_adr_profile, t41_stock_tmo_profile, t41_tmo_frames, t41_tmo_dropped, t41_tmo_error, t41_ccm_error, t41_bcsh_error, t41_ydns_error, t41_ydns_gain, t41_ysp_error, t41_ysp_gain, t41_cdns_error, t41_cdns_gain, t41_mdns_error, t41_mdns_gain, t41_sdns_error, t41_sdns_gain, t41_gamma_error, t41_gamma_ev, t41_gamma_strength_value, t41_gamma_updates, t41_tmo_replay_trigger, t41_bcsh_color_model, t41_stat_y_out.
 
@@ -200,9 +200,48 @@ have to come back together (`tisp_event_init` caller + queue path in
   statistics, histogram and zone readers (`tisp_ae0_get_statistics`,
   `tisp_ae_get_y_zone`, ...) use the other. Sharing one buffer changes what
   those readers return unless they are proven idle with the lifted AE.
-- **T30 at -O0.** `-Os` with `--gc-sections` would shrink the module from
-  845 to 342 KB (RAM 677 to 289 KB), but there is no host equivalence
-  harness for the T30 recovered driver (like `tests/t20_fw`) and no T30
-  test camera. The layout-only part (`-ffunction-sections`,
-  `--gc-sections`, `-x`, `-mno-pdr`, still `-O0`) gives 673 KB (RAM 574
-  KB) without changing code generation.
+- **T30 at -O0** (Lu-Fi/openimp#274). The layout-only part is done:
+  `-ffunction-sections`, `--gc-sections`, `-x`, `-mno-pdr`, still `-O0`
+  (`TX_ISP_GC=n` restores the old layout), and the recovered source lost
+  151 functions no reference reaches (the other 810 compile to the same
+  code apart from `__LINE__` constants and the two ISR wrappers below,
+  per-function disassembly), 7 `#if 0` blocks and two dead lifted tails
+  behind an early `return` (the ISR wrappers no longer zero 18 resp. 35
+  unused stack slots). Module sections text/data/bss 662551 / 49088 /
+  36624 -> 565047 / 49088 / 36624 (vendor 257384 / 56688 / 34676). The
+  rest is `-O0` code generation: `TX_ISP_T30_OS=y` builds at `-Os` (text
+  243959, below the vendor) but is untested; a `-Os` build warns at 47
+  places that may rely on `-O0` (14 maybe-uninitialised locals, 25
+  out-of-bounds accesses, 3 missing returns, one returned stack address,
+  a 4.4 KB stack frame in `awb_calc_avg_weighted_gr_gb_mesh`). Needs those
+  fixed and a host or QEMU -O0 vs -Os equivalence run (like
+  `tests/t20_fw`) before -Os can be the default.
+  Site list (`-Wmaybe-uninitialized -Warray-bounds -Wreturn-type
+  -Wreturn-local-addr -Wframe-larger-than=1024`, `-w` removed from
+  `driver/t30/Kbuild` for the check; none of these is a pure rewrite, each
+  one is a lift defect whose vendor behaviour has to be read first):
+  - uninitialised use: `general_frame_start` (`quotient`/`val` in the
+    `count == 0` branch are never computed, the lift dropped the divide),
+    `sinter_strength`/`temper`/`temper_strength` (`result`/`ret` on the
+    non-0/1 selector path), `sensor_fsm_switch_state` (`result`),
+    `crop_fsm_process_event` (`new_state`), `apical_sbus_write_u8` (`a1`,
+    `fn`), `AWB_mesh_isra_1` (`cx`/`cy`), `awb_calc_avg_weighted_gr_gb_mesh`
+    (`result`).
+  - missing return: `cmos_fsm_switch_state`, `color_matrix_fsm_switch_state`,
+    `iridix_fsm_switch_state` (fall off the end for unhandled states).
+  - returned stack address: `awb_normalise` (returns `&sum0`, callers read
+    the int).
+  - 4.4 KB frame: `awb_calc_avg_weighted_gr_gb_mesh`.
+  - out of bounds: `apical_isp_table_s_attr` (6), `apical_isp_stab_g_attr`,
+    `apical_event_queue_push` (2), `__enqueue_in_driver_isra_0` (4), and the
+    LDC functions `ldc_frame_channel_streamoff`, `ldc_pad_event_handle`,
+    `ldc_core_ops_init` (14; owned by the LDC work, Lu-Fi/openimp#365).
+  Not changed in the #274 pass: any of them changes what -O0 executes
+  today, and there is no T30 device test available to compare.
+  Fixed in Lu-Fi/openimp#371 (vendor-equal, Unicorn oracle
+  `tests/t30_lift_oracle.sh`): all of the above except the LDC sites, plus
+  five more lost-base-register loads in `frame_channel_unlocked_ioctl_raw`
+  and the rest of the AWB mesh chain. `-Os` warnings now 21: 20 LDC
+  array-bounds (#365) and the 3 KB frame of
+  `awb_calc_avg_weighted_gr_gb_mesh` (vendor frame 3080 bytes). Check:
+  `make ... TX_ISP_T30_OS=y TX_ISP_T30_WARN=y`.

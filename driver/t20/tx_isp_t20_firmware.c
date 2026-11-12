@@ -58,6 +58,7 @@
 
 #include "../include/tx_isp/tx_isp_math.h"
 #include "../include/tx_isp/tx_isp_modulation.h"
+#include "tx_isp_t20_ae_max.h"
 
 #ifndef __regtrace_stringify
 #define __regtrace_stringify_1(x) #x
@@ -763,6 +764,14 @@ static unsigned int t20_ae_last_population;
 module_param(t20_ae_last_population, uint, 0444);
 static int t20_ae_last_exposure_log2;
 module_param(t20_ae_last_exposure_log2, int, 0444);
+/* #246: ISP digital gain of the last compact AE frame (log2 <<16). */
+static int t20_ae_last_isp_dgain_log2;
+module_param(t20_ae_last_isp_dgain_log2, int, 0444);
+/* cmos FSM inside the firmware context (OEM apical_isp.c.o 0x70: s0 + 256)
+ * and the ISP-gain word of its sensor callback tuple at +0x4c (OEM
+ * cmos_fsm_process_interrupt 0xb8c memcpy, read back at 0xcbc). */
+#define T20_CMOS_FSM_OFFSET 0x100
+#define T20_CMOS_FRAME_ISP_DGAIN 0x58
 static int t20_iridix_last_hist_factor;
 module_param(t20_iridix_last_hist_factor, int, 0444);
 static int t20_iridix_last_exposure_factor;
@@ -842,6 +851,12 @@ static unsigned int t20_awb_last_gain_11 = 0x100;
 module_param(t20_awb_last_gain_11, uint, 0444);
 static unsigned int t20_awb_last_color_temperature = 5000;
 module_param(t20_awb_last_color_temperature, uint, 0444);
+/* openimp #358: AWB updates that took the OEM "no zone counted" point */
+static unsigned int t20_awb_fallback_updates;
+module_param(t20_awb_fallback_updates, uint, 0444);
+/* CCM light source in use (ccm ctx +92: 1 = A, 2 = D40, 3 = D50, 0 = identity at high gain), openimp #246 */
+static unsigned int t20_ccm_last_light_source = 3;
+module_param(t20_ccm_last_light_source, uint, 0444);
 
 /* WHOLE_DRIVER_PLATFORM_DERIVATION
  * platform: linux_kernel_module
@@ -2237,8 +2252,8 @@ uint32_t ae_read_full_histogram_data(uintptr_t a0);
 int32_t AE_fsm_process_interrupt(int32_t *arg1, char arg2);
 int tx_isp_t20_simple_ae_apply(int32_t *total_exposure_log2,
 	uint32_t *integration_time, int32_t *analog_gain_log2,
-	uint32_t *analog_gain_code, const uint8_t *partition_steps,
-	uint32_t partition_step_count);
+	uint32_t *analog_gain_code, int32_t *isp_dgain_log2,
+	const uint8_t *partition_steps, uint32_t partition_step_count);
 uint32_t ae_calculate_exposure_ratio(int32_t *arg1);
 uint16_t* ae_calculate_target(uintptr_t a0);
 static int32_t set_integrator_ae(void *arg1, int32_t arg2, int32_t arg3, int32_t arg4);
@@ -11333,7 +11348,7 @@ int32_t color_matrix_change_CCMs(int32_t *arg1)
 	else if (mode == 1)
 		src = (int16_t *)(base + 0x62);
 	else
-		src = (int16_t *)(base + 0x74);
+		src = (int16_t *)(base + 0x98);	/* OEM 0x128c-0x1298: identity (+152) */
 
 	for (i = 0; i != 0x12; i += 2)
 		*(int16_t *)(base + i + 0x38) = *(int16_t *)((uint8_t *)src + i);
@@ -13036,15 +13051,15 @@ int32_t matrix_yuv_recompute(void *arg1)
 	uint8_t *base = arg1;
 	int16_t *mode_matrix = (int16_t *)(base + 0x70);
 	int16_t *brightness_matrix = (int16_t *)(base + 0x40);
-	int16_t *saturation_matrix = (int16_t *)(base + 0x28);
-	int16_t *contrast_matrix = (int16_t *)(base + 0x10);
-	const int16_t *contrast_src = (const int16_t *)(v_filter + 0x508);
+	int16_t *contrast_matrix = (int16_t *)(base + 0x28);
+	int16_t *saturation_matrix = (int16_t *)(base + 0x10);
+	const int16_t *saturation_src = (const int16_t *)(v_filter + 0x508);
 	uint16_t selector = *(uint16_t *)(base + 0xf6);
 	uint8_t brightness = base[0xa4];
-	uint8_t saturation = base[0xa3];
-	uint8_t contrast = base[0xa2];
+	uint8_t contrast = base[0xa3];	/* contrast_strength() writes ctx+0x2e17 = base+0xa3 */
+	uint8_t saturation = base[0xa2];	/* saturation_strength() writes ctx+0x2e16 = base+0xa2 */
 	int32_t brightness_offset;
-	int32_t contrast_scale;
+	int32_t saturation_scale;
 	unsigned int row, i;
 
 	memcpy(mode_matrix, t20_matrix_yuv_src,
@@ -13093,21 +13108,21 @@ int32_t matrix_yuv_recompute(void *arg1)
 	brightness_matrix[10] = (int16_t)brightness_offset;
 	brightness_matrix[11] = (int16_t)brightness_offset;
 
-	memset(saturation_matrix, 0, sizeof(t20_matrix_yuv_src));
-	saturation_matrix[0] = (uint16_t)saturation << 1;
-	saturation_matrix[4] = (uint16_t)saturation << 1;
-	saturation_matrix[8] = (uint16_t)saturation << 1;
-	saturation_matrix[9] = ((int32_t)0x80 - saturation) << 2;
-	saturation_matrix[10] = ((int32_t)0x80 - saturation) << 2;
-	saturation_matrix[11] = ((int32_t)0x80 - saturation) << 2;
+	memset(contrast_matrix, 0, sizeof(t20_matrix_yuv_src));
+	contrast_matrix[0] = (uint16_t)contrast << 1;
+	contrast_matrix[4] = (uint16_t)contrast << 1;
+	contrast_matrix[8] = (uint16_t)contrast << 1;
+	contrast_matrix[9] = ((int32_t)0x80 - contrast) << 2;
+	contrast_matrix[10] = ((int32_t)0x80 - contrast) << 2;
+	contrast_matrix[11] = ((int32_t)0x80 - contrast) << 2;
 
-	contrast_scale = ((int32_t)contrast - 0x80) << 1;
+	saturation_scale = ((int32_t)saturation - 0x80) << 1;
 	for (i = 0; i < 12; i++)
-		contrast_matrix[i] =
-			((int32_t)contrast_src[i] * contrast_scale) >> 8;
-	contrast_matrix[0] += 0x100;
-	contrast_matrix[4] += 0x100;
-	contrast_matrix[8] += 0x100;
+		saturation_matrix[i] =
+			((int32_t)saturation_src[i] * saturation_scale) >> 8;
+	saturation_matrix[0] += 0x100;
+	saturation_matrix[4] += 0x100;
+	saturation_matrix[8] += 0x100;
 
 	matrix_compute_hue_saturation(*(uint16_t *)(base + 0xa0),
 				      (int16_t *)(base + 0x58));
@@ -17681,6 +17696,18 @@ static u8 t20_ae_exposure_correction(u8 wdr_mode, u32 exposure_q6)
 	return correction[exposure_len - 1];
 }
 
+/*
+ * #267: optional guard against a one-LSB flip of the AE correction curve
+ * (t20_ae_curve_hysteresis(), tx_isp_t20_ae_max.h).  Not OEM behaviour:
+ * BEYOND VENDOR, default on by user decision 2026-11-11 (docs/BEYOND_VENDOR.md);
+ * t20_ae_flip_guard=0 restores the vendor behaviour.
+ */
+static bool t20_ae_flip_guard = true;
+module_param(t20_ae_flip_guard, bool, 0644);
+MODULE_PARM_DESC(t20_ae_flip_guard,
+	"hold a one-step AE correction-curve change until the exposure moved 1/16 stop (beyond vendor, default on; 0 = vendor)");
+static struct t20_ae_curve_hold t20_ae_curve_held;
+
 static u32 t20_ae_corrected_target(u32 target, s32 exposure_log2,
 				   u8 wdr_mode, u8 *curve_value)
 {
@@ -17688,6 +17715,11 @@ static u32 t20_ae_corrected_target(u32 target, s32 exposure_log2,
 	u8 curve = t20_ae_exposure_correction(wdr_mode, exposure_q6);
 	s32 target_log2;
 
+	if (t20_ae_flip_guard)
+		curve = t20_ae_curve_hysteresis(&t20_ae_curve_held, curve,
+						exposure_log2);
+	else
+		t20_ae_curve_held.valid = 0;
 	if (curve_value)
 		*curve_value = curve;
 	/* Both signed offsets are IQ/system-table values in 1/32-stop units. */
@@ -17713,10 +17745,22 @@ static bool simple_iridix_initialized;
 static unsigned int simple_trace_count;
 static unsigned int iq_trace_count;
 
+/*
+ * openimp #284 L5: a day/night IQ swap loads a new correction curve; the
+ * held value of the old curve must not survive it (the hold would keep the
+ * old one-LSB value until the exposure moves 1/16 stop, at night with the
+ * exposure at its cap possibly for good).  Called after the swap.
+ */
+void tx_isp_t20_ae_curve_hold_reset(void)
+{
+	t20_ae_curve_held.valid = 0;
+}
+
 static void t20_compact_ae_reset(void)
 {
 	ae_irq_trace_count = 0;
 	simple_exposure_log2 = -1;
+	t20_ae_curve_held.valid = 0;
 	simple_cooldown = 0;
 	simple_updates = 0;
 	simple_nr_initialized = false;
@@ -17729,6 +17773,7 @@ static void t20_compact_ae_reset(void)
 	t20_ae_last_curve = 0;
 	t20_ae_last_population = 0;
 	t20_ae_last_exposure_log2 = 0;
+	t20_ae_last_isp_dgain_log2 = 0;
 	t20_ccm_awb_updates = 0;
 }
 
@@ -17759,15 +17804,16 @@ int32_t AE_fsm_process_interrupt(int32_t *arg1, char arg2)
 		uint32_t integration = 0;
 		uint32_t again_code = 0;
 		int32_t again_log2 = 0;
+		int32_t isp_dgain_log2 = 0;
 		uint32_t mean = 0;
 		uint32_t target = 0;
 		uint32_t raw_target = 0;
 		uint32_t highlight_tail = 0;
 		uint32_t pi_coefficient = 0;
 		uint32_t gain_accuracy = 0;
-		uint32_t correction;
+		int32_t correction;
 		u8 curve_value = 0x80;
-		int32_t error;
+		int32_t error = 0;
 		int target_table;
 		bool tuning_feedback = false;
 
@@ -17795,25 +17841,32 @@ int32_t AE_fsm_process_interrupt(int32_t *arg1, char arg2)
 
 		/* Seed from the active sensor attribute before applying feedback. */
 		result = tx_isp_t20_simple_ae_apply(&simple_exposure_log2,
-			&integration, &again_log2, &again_code,
+			&integration, &again_log2, &again_code, &isp_dgain_log2,
 			exposure_partitions_balanced,
 			ARRAY_SIZE(exposure_partition_int_priority) / 2);
 		if (result == 0 && raw_target && pi_coefficient && gain_accuracy)
 			target = t20_ae_corrected_target(raw_target,
 				simple_exposure_log2, owner->wdr_mode, &curve_value);
+		/*
+		 * #252: the error is log2(target) - log2(mean) in Q16 like the
+		 * OEM ae_calculate_target() (ae_balanced_func.c.o 0x37c-0x820),
+		 * integrated with K = AE_PI_COEFF like ae_calculate_exposure()
+		 * (0x928-0x9e8, (err + acc) / K per frame); the step per
+		 * update, the 1-stop clamp and the deadband are in
+		 * t20_ae_log2_correction() (tx_isp_t20_ae_max.h).  A black
+		 * frame (mean 0) meters as 1.
+		 */
+		if (result == 0 && target)
+			error = (int32_t)log2_fixed_to_fixed(target, 0, 16) -
+				(int32_t)log2_fixed_to_fixed(max_t(u32, mean, 1),
+					0, 16);
 		if (result == 0 && target && simple_cooldown == 0) {
-			error = (int32_t)target - (int32_t)mean;
-			if (error > 1 || error < -1) {
-				correction = DIV_ROUND_UP((u32)abs(error) *
-					gain_accuracy, pi_coefficient);
-				if (error > 0)
-					simple_exposure_log2 += correction;
-				else
-					simple_exposure_log2 -= correction;
-			}
+			correction = t20_ae_log2_correction(error,
+				pi_coefficient);
+			simple_exposure_log2 += correction;
 			result = tx_isp_t20_simple_ae_apply(
 				&simple_exposure_log2, &integration,
-				&again_log2, &again_code,
+				&again_log2, &again_code, &isp_dgain_log2,
 				exposure_partitions_balanced,
 				ARRAY_SIZE(exposure_partition_int_priority) / 2);
 			tuning_feedback = result == 0;
@@ -17829,9 +17882,15 @@ int32_t AE_fsm_process_interrupt(int32_t *arg1, char arg2)
 				(void *)((u8 *)arg1 + (0xff0 - 0x308));
 			int32_t *sharpening = (void *)(isp + 0x1014);
 
-			*(uint16_t *)&stab[24] = (uint16_t)integration;
-			stab[28] = (uint8_t)clamp_t(int32_t,
-				again_log2 >> 11, 0, 255);
+			/* openimp #285: like the OEM cmos_update_exposure_
+			 * history(), a manual time (stab[3]) / analog gain
+			 * (stab[4]) keeps the value the user set in stab[24] /
+			 * stab[28]. */
+			if (!stab[3])
+				*(uint16_t *)&stab[24] = (uint16_t)integration;
+			if (!stab[4])
+				stab[28] = (uint8_t)clamp_t(int32_t,
+					again_log2 >> 11, 0, 255);
 			*(int32_t *)(isp + 0xf4) = again_code;
 			*(int32_t *)(isp + 0xf8) = again_log2 >> 12;
 			owner->exposure_log2 = simple_exposure_log2;
@@ -17843,7 +17902,23 @@ int32_t AE_fsm_process_interrupt(int32_t *arg1, char arg2)
 			 */
 			owner->sensor_analog_gain = again_log2;
 			owner->sensor_digital_gain = 0;
-			owner->isp_digital_gain = 0;
+			/*
+			 * #246: publish and apply the ISP digital gain like the
+			 * OEM cmos_digital_gain_update() + cmos_update_exposure_
+			 * history(): the owner view feeds the NR/sharpen/LSC/
+			 * saturation gain modulation, stab[32] is what isp-m0 and
+			 * GetTotalGain report (OEM only when not manual, stab[6]),
+			 * and the cmos frame-start interrupt writes register 0x1a0
+			 * (4.8) from the cmos+0x58 slot of the sensor callback
+			 * tuple (OEM cmos_func.c.o 0xcb8-0xd14; the interrupt-7
+			 * copy into that tuple is skipped in compact mode).
+			 */
+			owner->isp_digital_gain = isp_dgain_log2;
+			*(int32_t *)(isp + T20_CMOS_FSM_OFFSET +
+				T20_CMOS_FRAME_ISP_DGAIN) = isp_dgain_log2;
+			if (!stab[6])
+				stab[32] = (uint8_t)clamp_t(int32_t,
+					isp_dgain_log2 >> 11, 0, 255);
 			if (owner->wdr_mode == 0 && !owner->exposure_ratio)
 				owner->exposure_ratio = T20_EXPOSURE_RATIO_Q6_ONE;
 			if (t20_simple_nr) {
@@ -17926,10 +18001,11 @@ int32_t AE_fsm_process_interrupt(int32_t *arg1, char arg2)
 		t20_ae_last_curve = curve_value;
 		t20_ae_last_population = total;
 		t20_ae_last_exposure_log2 = simple_exposure_log2;
+		t20_ae_last_isp_dgain_log2 = isp_dgain_log2;
 		if (!t20_awb_feedback_ready) {
-			s32 stable_error = (s32)target - (s32)mean;
-
-			if (target && mean && stable_error >= -1 && stable_error <= 1) {
+			/* #252: "AE stable" = inside the log2 deadband (was
+			 * +-1 linear, i.e. +-10 % at comp 40, +-1.25 % at night) */
+			if (target && mean && t20_ae_log2_stable(error)) {
 				if (t20_awb_stable_ae_frames < 4)
 					t20_awb_stable_ae_frames++;
 				if (t20_awb_stable_ae_frames >= 4)
@@ -18822,6 +18898,95 @@ static bool tx_isp_t20_awb_apply_static_gains(void)
 	return true;
 }
 
+/*
+ * openimp #246: pick the CCM pair for the colour temperature ct like the OEM
+ * AWB state machine (AWB_fsm_process_state steps 9/0xa):
+ * awb_detect_light_source (libt20-firmware 0x25a0: CT at fsm+1912 < 3426 -> A,
+ * < 4501 -> D40, else D50) and awb_process_light_source (0x25d0: after
+ * fsm+1944 = 15 stable calls it writes the CCM ctx dev+3908..3913 =
+ * ccm +92..+97: new/old light, to/from matrix, 35-step blend).  The compact
+ * AWB skipped both, so the CCM stayed on the D50 matrix of
+ * color_matrix_fsm_clear() (ccm +94 = 3) at every CT.
+ */
+static inline uint16_t *t20_awb_lut16(int32_t id);
+
+static void tx_isp_t20_awb_light_source(int32_t *awb_fsm, u32 ct)
+{
+	if (!awb_fsm[0])
+		return;
+	*(s32 *)((u8 *)(uintptr_t)awb_fsm[0] + 0xec0) = ct;
+	*(s32 *)((u8 *)awb_fsm + 1912) = ct;
+	awb_detect_light_source(awb_fsm);
+	awb_process_light_source(awb_fsm);
+	t20_ccm_last_light_source = *((u8 *)(uintptr_t)awb_fsm[0] + 0xee8 + 92);
+}
+
+/*
+ * openimp #262: colour temperature of the manual / preset gains as the OEM
+ * awb_calc_avg_weighted_gr_gb_mesh in MANUAL (libt20-firmware 0x248c..0x2524):
+ * CT = 1e6 / AWB_mesh(0xffff / R, 0xffff / B) over the RG_POS (226) / BG_POS
+ * (251) axes and the CT mesh (214), R/B = the manual gains in Q8
+ * (fsm+24/+26 = stab[49]/[50] << 1, awb_normalise), 0 -> 0xffff.
+ */
+static u32 tx_isp_t20_awb_manual_ct(u32 red_q8, u32 blue_q8)
+{
+	u32 red = red_q8 ? 0xffffU / red_q8 : 0xffffU;
+	u32 blue = blue_q8 ? 0xffffU / blue_q8 : 0xffffU;
+	int32_t mesh = AWB_mesh(red, blue, (int16_t *)t20_awb_lut16(226),
+				(int16_t *)t20_awb_lut16(251), t20_awb_lut16(214));
+
+	return mesh > 0 ? 1000000U / (u32)mesh : 0;
+}
+
+/*
+ * CT of an AWB point (mesh R/G, B/G) from the IQ CT mesh, and the CCM/shading
+ * light source for it.
+ */
+static void t20_awb_ct_update(int32_t *awb_fsm, const u16 *rg_pos,
+			      const u16 *bg_pos, const u16 *ct_mesh,
+			      u32 average_rg, u32 average_bg)
+{
+	u32 x_index = 13;
+	u32 y_index = 13;
+	u32 x_fraction;
+	u32 y_fraction;
+	u32 row0;
+	u32 row1;
+	u32 mired;
+	u32 i;
+
+	for (i = 0; i < 14; i++) {
+		if (average_rg <= rg_pos[i + 1]) {
+			x_index = i;
+			break;
+		}
+	}
+	for (i = 0; i < 14; i++) {
+		if (average_bg <= bg_pos[i + 1]) {
+			y_index = i;
+			break;
+		}
+	}
+	x_fraction = ((average_rg - rg_pos[x_index]) << 8) /
+		max_t(u32, 1, rg_pos[x_index + 1] - rg_pos[x_index]);
+	y_fraction = ((average_bg - bg_pos[y_index]) << 8) /
+		max_t(u32, 1, bg_pos[y_index + 1] - bg_pos[y_index]);
+	row0 = (ct_mesh[y_index * 15 + x_index] *
+		 (256 - x_fraction) +
+		 ct_mesh[y_index * 15 + x_index + 1] * x_fraction +
+		 128) >> 8;
+	row1 = (ct_mesh[(y_index + 1) * 15 + x_index] *
+		 (256 - x_fraction) +
+		 ct_mesh[(y_index + 1) * 15 + x_index + 1] *
+		 x_fraction + 128) >> 8;
+	mired = (row0 * (256 - y_fraction) +
+		 row1 * y_fraction + 128) >> 8;
+	if (mired)
+		t20_simple_awb_color_temperature = min_t(u32,
+			1000000U / mired, 0xffff);
+	tx_isp_t20_awb_light_source(awb_fsm, t20_simple_awb_color_temperature);
+}
+
 static void tx_isp_t20_simple_awb_update(int32_t *awb_fsm)
 {
 	const u16 *static_wb;
@@ -18832,11 +18997,15 @@ static void tx_isp_t20_simple_awb_update(int32_t *awb_fsm)
 	const u16 *light_sources;
 	const u16 *ct_mesh;
 	const u8 *average_coefficient;
+	u32 light_source_count;
+	u32 low_rg, high_rg, low_bg, high_bg;
 	u64 weighted_rg = 0;
 	u64 weighted_bg = 0;
 	u64 total_weight = 0;
 	u32 accepted_population = 0;
 	u32 active_zones = 0;
+	u32 all_zone_rg = 0;
+	bool no_zone = false;
 	u32 average_rg;
 	u32 average_bg;
 	u32 coefficient;
@@ -18873,6 +19042,9 @@ static void tx_isp_t20_simple_awb_update(int32_t *awb_fsm)
 		accepted_population = 0;
 		average_rg = 0;
 		average_bg = 0;
+		/* openimp #262: the CCM follows the CT of the manual gains (OEM) */
+		tx_isp_t20_awb_light_source(awb_fsm, tx_isp_t20_awb_manual_ct(
+			(u32)stab[49] << 1, (u32)stab[50] << 1));
 		goto apply_gains;
 	}
 	if (t20_simple_awb_manual_applied) {
@@ -18906,7 +19078,19 @@ static void tx_isp_t20_simple_awb_update(int32_t *awb_fsm)
 		T20_CAL_MESH_RGBG_WEIGHT, 15, 15);
 	light_source_mesh = tx_isp_t20_awb_u16_table(
 		T20_CAL_MESH_LS_WEIGHT, 15, 15);
-	light_sources = tx_isp_t20_awb_u16_table(T20_CAL_LIGHT_SRC, 2, 2);
+	/*
+	 * openimp #353: CALIBRATION_LIGHT_SRC is one (R/G, B/G) row per known
+	 * light source; OEM awb_calc_avg_weighted_gr_gb_mesh loops over
+	 * _GET_ROWS(239) rows of _GET_COLS(239) entries.  The jxf23 bin has 2
+	 * rows, the jxf22 bin 4: requiring exactly 2x2 left the AWB without
+	 * tables on jxf22, so the gains stayed at the static WB.
+	 */
+	light_source_count = _GET_ROWS(T20_CAL_LIGHT_SRC);
+	light_sources = _GET_COLS(T20_CAL_LIGHT_SRC) == 2 &&
+		_GET_WIDTH(T20_CAL_LIGHT_SRC) == sizeof(u16) &&
+		light_source_count ?
+		(const u16 *)(uintptr_t)_GET_USHORT_PTR(T20_CAL_LIGHT_SRC) :
+		NULL;
 	ct_mesh = tx_isp_t20_awb_u16_table(
 		T20_CAL_MESH_COLOR_TEMPERATURE, 15, 15);
 	if (!static_wb || !average_coefficient || !average_coefficient[0] ||
@@ -18914,6 +19098,17 @@ static void tx_isp_t20_simple_awb_update(int32_t *awb_fsm)
 	    !light_sources || !ct_mesh)
 		return;
 	coefficient = average_coefficient[0];
+	/* OEM: the accepted box spans the mesh axes and every light source */
+	low_rg = rg_pos[0];
+	high_rg = rg_pos[14];
+	low_bg = bg_pos[0];
+	high_bg = bg_pos[14];
+	for (zone = 0; zone < light_source_count; zone++) {
+		low_rg = min_t(u32, low_rg, light_sources[zone * 2]);
+		high_rg = max_t(u32, high_rg, light_sources[zone * 2]);
+		low_bg = min_t(u32, low_bg, light_sources[zone * 2 + 1]);
+		high_bg = max_t(u32, high_bg, light_sources[zone * 2 + 1]);
+	}
 
 	/*
 	 * OEM T20 awb_read_statistics() adds the 0x8000 statistics-bank base
@@ -18932,6 +19127,10 @@ static void tx_isp_t20_simple_awb_update(int32_t *awb_fsm)
 		u32 mesh_weight;
 		u32 i;
 
+		/* #358: OEM awb_read_statistics() inverse of every zone, for
+		 * the no-zone fallback below (a 0 product reads as 1) */
+		all_zone_rg += 0xffffU / max_t(u32, 1,
+			((raw_rg * t20_simple_awb_red_q8) >> 8) & 0xffff);
 		if (population <= 0x100 || !raw_rg || !raw_bg ||
 		    raw_rg == 0xfff || raw_bg == 0xfff)
 			continue;
@@ -18941,13 +19140,13 @@ static void tx_isp_t20_simple_awb_update(int32_t *awb_fsm)
 			continue;
 		mesh_rg = 0xffffU / scaled_rg;
 		mesh_bg = 0xffffU / scaled_bg;
-		if (mesh_rg < rg_pos[0] || mesh_rg > rg_pos[14] ||
-		    mesh_bg < bg_pos[0] || mesh_bg > bg_pos[14])
+		if (mesh_rg < low_rg || mesh_rg > high_rg ||
+		    mesh_bg < low_bg || mesh_bg > high_bg)
 			continue;
 
 		mesh_weight = tx_isp_t20_awb_mesh_lookup(rg_pos, bg_pos,
 			weight_mesh, mesh_rg, mesh_bg);
-		for (i = 0; i < 2; i++) {
+		for (i = 0; i < light_source_count; i++) {
 			u32 source_weight = tx_isp_t20_awb_known_source_weight(
 				light_source_mesh, mesh_rg, mesh_bg,
 				light_sources[i * 2], light_sources[i * 2 + 1]);
@@ -18965,53 +19164,54 @@ static void tx_isp_t20_simple_awb_update(int32_t *awb_fsm)
 		accepted_population += population;
 		active_zones++;
 	}
-	if (!active_zones || !total_weight)
-		return;
-	average_rg = div64_u64(weighted_rg + total_weight / 2, total_weight);
-	average_bg = div64_u64(weighted_bg + total_weight / 2, total_weight);
-	{
-		u32 x_index = 13;
-		u32 y_index = 13;
-		u32 x_fraction;
-		u32 y_fraction;
-		u32 row0;
-		u32 row1;
-		u32 mired;
-		u32 i;
+	if (!active_zones || !total_weight) {
+		/*
+		 * openimp #358: no zone counted (IR night: every zone outside the
+		 * light-source box or under the mesh weight).  This returned and
+		 * held the gains of whatever scene came before, so the IR scene
+		 * ran at a history-dependent WB (and CT-selected shading bank);
+		 * the AE histogram is taken after both, and the AE settled
+		 * 7-17 % off the vendor.  OEM awb_calc_avg_weighted_gr_gb_mesh
+		 * (libt20-firmware 3.12.0, weight sum 0): the mean inverse R/G
+		 * of all zones above the IQ point table 224[row] (row = table
+		 * 216[0]) takes that point (with table 228[row] for B/G), else
+		 * 256/256, and the gains follow it as for counted zones.
+		 */
+		const u16 *row_table = (const u16 *)(uintptr_t)
+			_GET_USHORT_PTR(216);
+		const u16 *point_rg = (const u16 *)(uintptr_t)
+			_GET_USHORT_PTR(224);
+		const u16 *point_bg = (const u16 *)(uintptr_t)
+			_GET_USHORT_PTR(228);
+		u32 row = row_table && _GET_WIDTH(216) == sizeof(u16) &&
+			_GET_LEN(216) ? row_table[0] : 0xffff;
 
-		for (i = 0; i < 14; i++) {
-			if (average_rg <= rg_pos[i + 1]) {
-				x_index = i;
-				break;
-			}
+		average_rg = 256;
+		average_bg = 256;
+		if (point_rg && point_bg &&
+		    _GET_WIDTH(224) == sizeof(u16) &&
+		    _GET_WIDTH(228) == sizeof(u16) &&
+		    row < _GET_LEN(224) && row < _GET_LEN(228) &&
+		    point_rg[row] < all_zone_rg / 225) {
+			average_rg = point_rg[row];
+			average_bg = point_bg[row];
 		}
-		for (i = 0; i < 14; i++) {
-			if (average_bg <= bg_pos[i + 1]) {
-				y_index = i;
-				break;
-			}
-		}
-		x_fraction = ((average_rg - rg_pos[x_index]) << 8) /
-			max_t(u32, 1, rg_pos[x_index + 1] - rg_pos[x_index]);
-		y_fraction = ((average_bg - bg_pos[y_index]) << 8) /
-			max_t(u32, 1, bg_pos[y_index + 1] - bg_pos[y_index]);
-		row0 = (ct_mesh[y_index * 15 + x_index] *
-			 (256 - x_fraction) +
-			 ct_mesh[y_index * 15 + x_index + 1] * x_fraction +
-			 128) >> 8;
-		row1 = (ct_mesh[(y_index + 1) * 15 + x_index] *
-			 (256 - x_fraction) +
-			 ct_mesh[(y_index + 1) * 15 + x_index + 1] *
-			 x_fraction + 128) >> 8;
-		mired = (row0 * (256 - y_fraction) +
-			 row1 * y_fraction + 128) >> 8;
-		if (mired)
-			t20_simple_awb_color_temperature = min_t(u32,
-				1000000U / mired, 0xffff);
+		accepted_population = 0;
+		no_zone = true;
+		t20_awb_fallback_updates++;
+	} else {
+		average_rg = div64_u64(weighted_rg + total_weight / 2,
+				       total_weight);
+		average_bg = div64_u64(weighted_bg + total_weight / 2,
+				       total_weight);
 	}
-	if (awb_fsm[0])
-		*(s32 *)((u8 *)(uintptr_t)awb_fsm[0] + 0xec0) =
-			t20_simple_awb_color_temperature;
+	/* #358: as OEM (CT from the fifo-smoothed point, get_point()), the
+	 * fallback point takes its CT after the filter below: per update it
+	 * flips with the zone mean around table 224[row] (2865 K / 5000 K on
+	 * jxh42 IR), which toggled the CCM and the shading bank every frame. */
+	if (!no_zone)
+		t20_awb_ct_update(awb_fsm, rg_pos, bg_pos, ct_mesh,
+				  average_rg, average_bg);
 
 	desired_red_scale = clamp_t(u32,
 		0xffffU / max_t(u32, 1, average_rg), 0x40, 0x400);
@@ -19039,6 +19239,10 @@ static void tx_isp_t20_simple_awb_update(int32_t *awb_fsm)
 	 * SYSTEM_AWB_RED/BLUE_GAIN and GetWB read them. */
 	stab[49] = (uint8_t)min_t(u32, t20_simple_awb_red_q8 >> 1, 0xff);
 	stab[50] = (uint8_t)min_t(u32, t20_simple_awb_blue_q8 >> 1, 0xff);
+	if (no_zone)
+		t20_awb_ct_update(awb_fsm, rg_pos, bg_pos, ct_mesh,
+				  0xffffU / t20_simple_awb_red_q8,
+				  0xffffU / t20_simple_awb_blue_q8);
 	red_scale = t20_simple_awb_red_q8;
 	blue_scale = t20_simple_awb_blue_q8;
 

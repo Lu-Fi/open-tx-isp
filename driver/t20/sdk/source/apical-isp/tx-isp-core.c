@@ -632,7 +632,9 @@ static int isp_core_interrupt_service_routine(struct v4l2_subdev *sd, u32 status
 							}
 							//printk("$$$$ %s %d pattern = %d color = %d $$$$$\n", __func__,__LINE__,contrl->pattern,color);
 							apical_isp_top_rggb_start_write(color);
+							spin_lock(&t20_isp_top_lock);
 							apical_isp_top_bypass_mirror_write(core->hflip_state ?0:1);
+							spin_unlock(&t20_isp_top_lock);
 						}
 						if (t20_frame_end_stage == 1)
 							break;
@@ -961,9 +963,14 @@ static int isp_core_ops_s_power(struct v4l2_subdev *sd, int on)
 	return ISP_SUCCESS;
 }
 
+DEFINE_SPINLOCK(t20_isp_top_lock);
+
 static void isp_core_config_top_ctl_register(unsigned int name, unsigned int value)
 {
 	apical_isp_top_ctl_t top;
+	unsigned long flags;
+
+	spin_lock_irqsave(&t20_isp_top_lock, flags);
 	top.reg.low = APICAL_READ_32(0x40);
 	top.reg.high = APICAL_READ_32(0x44);
 
@@ -1094,6 +1101,7 @@ static void isp_core_config_top_ctl_register(unsigned int name, unsigned int val
 
 	APICAL_WRITE_32(0x40, top.reg.low);
 	APICAL_WRITE_32(0x44, top.reg.high);
+	spin_unlock_irqrestore(&t20_isp_top_lock, flags);
 }
 
 static int isp_core_config_dma_channel_write(struct tx_isp_core_device *core,
@@ -1472,17 +1480,22 @@ static int isp_core_frame_channel_set_crop(struct tx_isp_core_device *core, int 
 	unsigned int chan;
 	unsigned char status = 0;
 	int ret = ISP_SUCCESS;
+	unsigned long flags;
 
 	if (core->bypass == TX_ISP_FRAME_CHANNEL_BYPASS_ISP_ENABLE ) {
 		ret = -EPERM;
 	}
 	switch (vdev->index) {
 		case ISP_FR_VIDEO_CHANNEL:
+			spin_lock_irqsave(&t20_isp_top_lock, flags);
 			apical_isp_top_bypass_fr_crop_write(attr->crop_enable?0:1);
+			spin_unlock_irqrestore(&t20_isp_top_lock, flags);
 			chan = CROP_FR;
 			break;
 		case ISP_DS1_VIDEO_CHANNEL:
+			spin_lock_irqsave(&t20_isp_top_lock, flags);
 			apical_isp_top_bypass_ds1_crop_write(attr->crop_enable?0:1);
+			spin_unlock_irqrestore(&t20_isp_top_lock, flags);
 			chan = CROP_DS;
 			break;
 #if TX_ISP_EXIST_DS2_CHANNEL
@@ -1695,12 +1708,16 @@ static frame_chan_vdev_t *t2x_fcrop_ds(struct tx_isp_core_device *core,
 
 static void t2x_fcrop_bypass(int index, int bypass)
 {
+	unsigned long flags;
+
+	spin_lock_irqsave(&t20_isp_top_lock, flags);
 	if (index == ISP_DS1_VIDEO_CHANNEL)
 		apical_isp_top_bypass_ds1_crop_write(bypass);
 #if TX_ISP_EXIST_DS2_CHANNEL
 	else
 		apical_isp_top_bypass_ds2_crop_write(bypass);
 #endif
+	spin_unlock_irqrestore(&t20_isp_top_lock, flags);
 }
 
 static int t2x_fcrop_zoomable(frame_chan_vdev_t *vdev, const uint32_t *win)
@@ -2851,23 +2868,19 @@ static int isp_m0_show(struct seq_file *m, void *v)
 	isp_dgain = isp_m0_get(TSYSTEM, SYSTEM_ISP_DIGITAL_GAIN);
 	if (compact) {
 		max_it = tx_isp_t20_ae_max_integration_time();
-		/* the lower of sensor max and SetMaxAgain ceiling, as the
-		 * compact AE clamps in sensor_drv.c */
-		max_again = t20_ae_max_again_log2_5(attr->max_again,
-				stab.global_max_sensor_analog_gain);
-		/* the sensor table is stepped: the AE sits on the step the
-		 * sensor allocator rounds the cap down to */
-		if (attr->sensor_ctrl.alloc_again) {
-			unsigned int code = 0;
-
-			max_again = t20_ae_plateau_log2_5(max_again,
-				attr->sensor_ctrl.alloc_again(
-					t20_ae_request_log2_16(attr->max_again,
-						stab.global_max_sensor_analog_gain),
-					16, &code));
-		}
+		/* the lower of sensor max and SetMaxAgain ceiling, on the
+		 * table step the sensor allocator rounds it down to (jxh42
+		 * ceiling 144: 142).  The 1/16-stop reserve is taken before
+		 * the cap (#284), so the OEM plateau is unchanged. */
+		max_again = t20_ae_m0_max_again_log2_5(attr->max_again,
+				stab.global_max_sensor_analog_gain,
+				attr->sensor_ctrl.alloc_again);
 		max_dgain = 0;
-		max_isp_dgain = 0;
+		/* #246: the compact AE fills ISP digital gain up to
+		 * SetMaxDgain (stab[33]) and the 4.8 register maximum
+		 * (log2 just below 4.0, i.e. 127 in log2 <<5). */
+		max_isp_dgain = min_t(unsigned int,
+			stab.global_max_isp_digital_gain, 127);
 	} else {
 		max_it = stab.global_max_integration_time;
 		max_again = isp_m0_get(TSYSTEM, SYSTEM_MAX_SENSOR_ANALOG_GAIN);
@@ -3381,7 +3394,8 @@ int register_tx_isp_core_device(struct platform_device *pdev, struct v4l2_device
 
 	/* the frame buffer manager */
 	core_dev->vbm = frame_buffer_manager_create(core_dev->dev);
-	if (!core_dev->vbm) {
+	if (IS_ERR_OR_NULL(core_dev->vbm)) {
+		core_dev->vbm = NULL;
 		v4l2_err(v4l2_dev, "Failed to create the manager of frame buffer!\n");
 		ret = -ISP_ERROR;
 		goto failed_to_frame_buffer;

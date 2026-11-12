@@ -80,6 +80,7 @@
 #endif
 #include "tx_isp_t30_v4l2.h"
 #include "tx_isp_t30_stab.h"
+#include "tx_isp_t30_gctrl.h"
 #include "tx_isp_t30_fmt5c.h"
 
 #ifndef __regtrace_stringify
@@ -818,6 +819,35 @@ static int32_t num_all;
 static int32_t *num_all_ptr = &num_all;
 #endif
 
+/*
+ * OEM gp-relative accesses (Lu-Fi/openimp#371).  In the kernel $28 (gp) is
+ * current_thread_info(); the OEM SDK ko 4ea12e1f reads/writes gp+0 (task),
+ * gp+8 (flags, TIF_NEED_RESCHED test), gp+20 (preempt_count, inlined
+ * spin_lock_irqsave/preempt_enable) and gp+24 (addr_limit, inlined
+ * access_ok).  The lift resolved gp to the .sbss base (frame_delay.10417 =
+ * gp+0, _qlock2 = gp+8, sp.9007 = gp+20/+24) or to the constant 0, so the
+ * preempt count went to a static, wait entries got a NULL task and every
+ * access_ok() passed for kernel pointers.
+ */
+#define T30_GP_TASK()		((uintptr_t)current_thread_info()->task)
+#define T30_GP_FLAGS()		(current_thread_info()->flags)
+#define T30_GP_PREEMPT()	(current_thread_info()->preempt_count)
+#define T30_GP_ADDR_LIMIT()	((uintptr_t)current_thread_info()->addr_limit.seg)
+typedef char t30_gp_layout_check[(offsetof(struct thread_info, task) == 0 &&
+	offsetof(struct thread_info, flags) == 8 &&
+	offsetof(struct thread_info, preempt_count) == 20 &&
+	offsetof(struct thread_info, addr_limit) == 24) ? 1 : -1];
+/*
+ * The OEM inlined spin_lock_irqsave() as irq_save + gp->preempt_count++, and
+ * the lift pairs that with private_spin_unlock_irqrestore() (real unlock, i.e.
+ * preempt_enable()).  That only balances on a UP kernel with
+ * CONFIG_PREEMPT_COUNT=y and no spinlock debugging (qemu_t30x and the T30
+ * board configs).  Review L2, #365.
+ */
+#if !defined(CONFIG_PREEMPT_COUNT) || defined(CONFIG_SMP) || defined(CONFIG_DEBUG_SPINLOCK)
+#error "T30 GP macros assume UP, CONFIG_PREEMPT_COUNT=y, !CONFIG_DEBUG_SPINLOCK (OEM inlined spin_lock_irqsave)"
+#endif
+
 /* WHOLE_DRIVER_SUPPORT_DECLARATIONS */
 static const char LC3[] = "active";
 static const char LC4[] = "loaded";
@@ -894,6 +924,7 @@ static unsigned char stab[60] __aligned(4);
 #define T30_STAB32(off) (*(u32 *)(stab + (off)))
 #include "tx_isp_t30_system_item.h"
 #include "tx_isp_t30_ae_manual.h"
+#include "tx_isp_t30_fps_cnt.h"
 static const uint8_t CSWTCH_192[10];
 #include "tx_isp_t30_tuning_math.h"
 static const uint16_t resize_height_write_table[5] = {
@@ -902,7 +933,8 @@ static const uint16_t resize_height_write_table[5] = {
 static const uint16_t resize_height_read_table[5] = {
 	0x14b4, 0x14c2, 0x14cc, 0x14d6, 0x14e0
 };
-static const uint8_t awb_idx_table[6] = { 0, 1, 2, 3, 4, 5 };
+#include "tx_isp_t30_awb_preset.h"	/* get_awb_idx table (ko .rodata 0xdec) */
+#include "tx_isp_t30_temper.h"	/* Temper attr system-table items (SDK s/g_attr) */
 static uint32_t fifo_rg_avg;
 static uint32_t fifo_gb_avg;
 static int32_t iir_state[16];
@@ -1655,7 +1687,7 @@ static unsigned char __attribute__((aligned(4))) ldc_subdev_ops[20] = {
     0x00, 0x00, 0x00, 0x00,
 };
 static struct lock_class_key ldc_mlock_key;
-static uintptr_t ldc_params_nums;
+static uintptr_t ldc_params_nums = 6;	/* #365: OEM .data 0xb434 = 6 (was 0: no LDC resolution ever matched) */
 static unsigned char __attribute__((aligned(4))) ldc_default_params[6624] = {
     0x00, 0x05, 0x00, 0x00, 0xd0, 0x02, 0x00, 0x00, 0x00, 0x05, 0x00, 0x00, 0x00, 0x05, 0x00, 0x00,
     0x60, 0x01, 0x00, 0x00, 0x8b, 0x00, 0x00, 0x00, 0x60, 0x01, 0x00, 0x00, 0x8b, 0x00, 0x00, 0x00,
@@ -6143,20 +6175,13 @@ static unsigned char tmp_isp_param[277 * sizeof(uint32_t)]
 
 /* WHOLE_DRIVER_FORWARD_DECLARATIONS */
 #define apical_isp_table_s_attr apical_isp_table_s_attr_isra_0
-#define apical_isp_awb_weight_g_attr apical_isp_awb_weight_g_attr_isra_0
-#define apical_isp_awb_weight_s_attr apical_isp_awb_weight_s_attr_isra_0
-#define apical_isp_ae_weight_g_attr apical_isp_ae_weight_g_attr_isra_0
 #define apical_isp_ae_weight_s_attr apical_isp_ae_weight_s_attr_isra_0
 #define apical_isp_gamma_s_attr apical_isp_gamma_s_attr_isra_0
 #define apical_isp_stab_s_attr apical_isp_stab_s_attr_isra_0
 #define apical_isp_stab_g_attr apical_isp_stab_g_attr_isra_0
-#define apical_isp_gamma_g_attr apical_isp_gamma_g_attr_isra_0
 #define ispcore_frame_channel_streamoff ispcore_frame_channel_streamoff_isra_0
 #define ispcore_frame_channel_set_crop ispcore_frame_channel_set_crop_isra_0
-#define isp_enable_dma_transfer isp_enable_dma_transfer_isra_0
 #define isp_set_buffer_address_vflip_disable isp_set_buffer_address_vflip_disable_isra_0
-#define isp_configure_base_addr isp_configure_base_addr_isra_0
-#define isp_modify_dma_direction isp_modify_dma_direction_isra_0
 #define mscaler_frame_channel_streamoff mscaler_frame_channel_streamoff_isra_0
 #define __enqueue_in_driver __enqueue_in_driver_isra_0
 #define isp_subdev_release_clks isp_subdev_release_clks_isra_0
@@ -6170,27 +6195,16 @@ int vic_core_ops_ioctl(void *file, unsigned int cmd, unsigned int arg);
 int tx_isp_vic_start(void *arg1);
 int vic_core_s_stream(void *arg1, int arg2);
 int vic_sensor_ops_ioctl(void *file, unsigned int cmd);
-int dump_isp_vic_frd_open(struct inode *inode, struct file *file);
 int32_t isp_vic_interrupt_service_routine(uintptr_t a0);
 int tx_isp_vic_probe(struct platform_device *pdev);
-int32_t isp_vic_cmd_set(uintptr_t a0, uint32_t a1, uint32_t a2);
-int32_t isp_vic_frd_show(uintptr_t a0);
 int32_t vic_sensor_ops_sync_sensor_attr(void *arg1, void *arg2, int32_t arg3);
 int32_t tx_isp_vic_activate_subdev(uintptr_t a0);
 int32_t isp_lfb_ctrl_flb_enable(uint32_t a0);
-void * isp_lfb_reset(void);
 int32_t isp_lfb_ctrl_hw_recovery(uint32_t a0);
 int32_t isp_lfb_ctrl_select_fr(void);
 int32_t isp_lfb_ctrl_select_ds1(void);
-int32_t isp_lfb_ctrl_output_ncu(void);
-int32_t isp_lfb_ctrl_output_mscaler(void);
-int32_t isp_lfb_ctrl_vsync_wait(uint32_t a0);
-int32_t isp_lfb_ctrl_ncu_to_mscaler(void);
-int32_t isp_lfb_ctrl_ncu_to_ddr(void);
-void* isp_lfb_restart(void);
 uint32_t isp_lfb_config_default_dma(uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3);
 void* isp_lfb_config_resolution(uint32_t a0, uint32_t a1);
-int32_t isp_lfb_read_error_reg(void);
 void tx_vic_enable_irq(int32_t irq_mask);
 void tx_vic_disable_irq(int irq);
 int32_t vic_core_ops_init(void *arg1, int32_t arg2, int32_t arg3);
@@ -6205,7 +6219,6 @@ int tx_isp_vin_init(void *arg1, int arg2);
 int subdev_sensor_ops_set_input(void *vin, int *input);
 int video_input_cmd_open(struct inode *inode, struct file *file);
 int tx_isp_vin_probe(struct platform_device *pdev);
-int video_input_cmd_set(void *arg1, void *arg2, int arg3);
 int32_t tx_isp_vin_reset(void *arg1);
 int video_input_cmd_show(struct seq_file *m, void *v);
 int32_t subdev_sensor_ops_release_all_sensor(void *arg1);
@@ -6214,36 +6227,25 @@ void *isp_i2c_new_subdev_board(struct i2c_adapter *adap,
 			       const struct i2c_board_info *info);
 int32_t subdev_sensor_ops_enum_input(void *arg1, int32_t *arg2);
 int subdev_sensor_ops_ioctl(void *file, unsigned int cmd, void *arg);
-int dump_isp_csi_open(struct inode *inode, struct file *file);
-int32_t isp_csi_show(struct seq_file *m);
 int tx_isp_csi_probe(struct platform_device *pdev);
 int32_t csi_video_s_stream(void *arg1, int32_t arg2, int32_t arg3);
 int csi_sensor_ops_ioctl(void *file, unsigned int cmd);
 int32_t csi_sensor_ops_sync_sensor_attr(void *subdev, void *video_in);
 int32_t tx_isp_csi_activate_subdev(uintptr_t a0);
-int32_t dump_csi_reg(void *arg1);
-void check_csi_error(void);
 int32_t csi_set_on_lanes(void *arg1, int32_t arg2);
 int64_t csi_core_ops_init(uintptr_t a0, uint32_t a1);
 int32_t tx_isp_csi_slake_subdev(uintptr_t a0);
 int32_t isp_core_tunning_open(uint32_t a0, uintptr_t a1);
-int apical_isp_wb_s_control(void *arg1, int32_t *arg2);
 #ifndef REGTRACE_KERNEL_TREE_BUILD
 int apical_isp_table_s_attr_isra_0(void *arg1, void *arg2) __asm__("apical_isp_table_s_attr.isra.0");
 #endif
 int apical_isp_table_s_attr_isra_0(void *arg1, void *arg2);
 #ifndef REGTRACE_KERNEL_TREE_BUILD
-int32_t apical_isp_awb_weight_g_attr_isra_0(uintptr_t arg1) __asm__("apical_isp_awb_weight_g_attr.isra.0");
 #endif
-int32_t apical_isp_awb_weight_g_attr_isra_0(uintptr_t arg1);
 #ifndef REGTRACE_KERNEL_TREE_BUILD
-int32_t apical_isp_awb_weight_s_attr_isra_0(uint32_t a0) __asm__("apical_isp_awb_weight_s_attr.isra.0");
 #endif
-int32_t apical_isp_awb_weight_s_attr_isra_0(uint32_t a0);
 #ifndef REGTRACE_KERNEL_TREE_BUILD
-int32_t apical_isp_ae_weight_g_attr_isra_0(uintptr_t a0) __asm__("apical_isp_ae_weight_g_attr.isra.0");
 #endif
-int32_t apical_isp_ae_weight_g_attr_isra_0(uintptr_t a0);
 #ifndef REGTRACE_KERNEL_TREE_BUILD
 int32_t apical_isp_ae_weight_s_attr_isra_0(uint32_t a0) __asm__("apical_isp_ae_weight_s_attr.isra.0");
 #endif
@@ -6261,9 +6263,7 @@ int apical_isp_stab_g_attr_isra_0(void *arg1) __asm__("apical_isp_stab_g_attr.is
 #endif
 int apical_isp_stab_g_attr_isra_0(void *arg1);
 #ifndef REGTRACE_KERNEL_TREE_BUILD
-int32_t apical_isp_gamma_g_attr_isra_0(void *arg1) __asm__("apical_isp_gamma_g_attr.isra.0");
 #endif
-int32_t apical_isp_gamma_g_attr_isra_0(void *arg1);
 int32_t isp_core_tuning_event(int32_t *arg1, int32_t arg2, int32_t arg3);
 int32_t apical_isp_core_ops_s_ctrl(void **arg1, int32_t *arg2, int32_t arg3);
 int64_t apical_isp_core_ops_g_ctrl(uintptr_t a0, uintptr_t a1);
@@ -6292,22 +6292,16 @@ int32_t ispcore_frame_channel_set_crop_isra_0(int32_t channel, void *crop_info) 
 #endif
 int32_t ispcore_frame_channel_set_crop_isra_0(int32_t channel, void *crop_info);
 #ifndef REGTRACE_KERNEL_TREE_BUILD
-int32_t isp_enable_dma_transfer_isra_0(void *arg1, int32_t arg2) __asm__("isp_enable_dma_transfer.isra.0");
 #endif
-int32_t isp_enable_dma_transfer_isra_0(void *arg1, int32_t arg2);
 #ifndef REGTRACE_KERNEL_TREE_BUILD
 int32_t isp_set_buffer_address_vflip_disable_isra_0(void *arg1, void *arg2, int32_t arg3) __asm__("isp_set_buffer_address_vflip_disable.isra.0");
 #endif
 int32_t isp_set_buffer_address_vflip_disable_isra_0(void *arg1, void *arg2, int32_t arg3);
 #ifndef REGTRACE_KERNEL_TREE_BUILD
-int isp_configure_base_addr_isra_0(void *arg1) __asm__("isp_configure_base_addr.isra.0");
 #endif
-int isp_configure_base_addr_isra_0(void *arg1);
 int64_t ispcore_pad_event_handle(uintptr_t a0, uint32_t a1, uintptr_t a2);
 #ifndef REGTRACE_KERNEL_TREE_BUILD
-uint32_t isp_modify_dma_direction_isra_0(void *arg1) __asm__("isp_modify_dma_direction.isra.0");
 #endif
-uint32_t isp_modify_dma_direction_isra_0(void *arg1);
 int32_t ispcore_interrupt_service_routine(uintptr_t a0);
 int32_t ispcore_activate_module(void *arg1);
 int32_t system_program_interrupt_event(int32_t arg1, int32_t arg2);
@@ -6322,14 +6316,12 @@ int get_dynamic_calibrations(void *arg1);
 int32_t get_static_calibrations(void *arg1);
 int32_t init_isp_set(int32_t arg1);
 int32_t preview_set_supported(void);
-int32_t get_current_set(void);
 int32_t _GET_LOOKUP_PTR(int32_t arg1);
 int32_t _GET_LUT_PTR(uint32_t a0);
 int32_t _GET_UCHAR_PTR(int32_t arg1);
 int32_t _GET_USHORT_PTR(int32_t arg1);
 int32_t _GET_UINT_PTR(int32_t arg1);
 int32_t _GET_MOD_ENTRY16_PTR(int32_t arg1);
-int32_t _GET_MOD_ENTRY32_PTR(int32_t arg1);
 uint32_t _GET_ROWS(int32_t arg1);
 uint32_t _GET_COLS(int32_t arg1);
 int32_t _GET_LEN(int32_t arg1);
@@ -6338,10 +6330,8 @@ int32_t _GET_SIZE(int32_t arg1);
 int32_t _GET_HDR_TABLE_INDEX(int32_t arg1, int32_t arg2);
 int32_t apical_calibrations_init(uint32_t a0);
 uint32_t free_tx_isp_priv_param_manage(void);
-int64_t load_tx_isp_parameters(uintptr_t a0);
 uint32_t apical_custom_initialization(void);
 int32_t init_tx_isp_customer_parameter(uint32_t arg1);
-int32_t apical_custom_sequence(void);
 int32_t init_sensor_interface(void);
 int32_t reset_sensor_interface(void);
 int32_t load_sensor_interface(void);
@@ -6360,13 +6350,9 @@ int32_t spi_init_access(void);
 uint32_t system_timer_timestamp(void);
 int32_t system_timer_frequency(void);
 void system_timer_init(void);
-int32_t system_uart_open(void);
-int32_t system_uart_write(void);
-int32_t system_uart_read(void);
 int32_t* init_semaphore(uintptr_t a0);
 int32_t raise_semaphore(uintptr_t a0);
 int32_t wait_semaphore(uintptr_t a0, uint32_t a1);
-int32_t destroy_semaphore(uintptr_t a0);
 int32_t sensor_hw_reset_enable(void);
 int32_t sensor_alloc_analog_gain(int32_t arg1, int16_t *arg2);
 int32_t sensor_alloc_digital_gain(int32_t arg1, void *arg2);
@@ -6387,14 +6373,6 @@ int32_t sensor_end_changes(void);
 int32_t sensor_hw_reset_disable(void);
 int sensor_init(void *arg1);
 int32_t apical_sensor_early_init(uint32_t arg1);
-int isp_fops_write(struct file *file, const char __user *buf, size_t count);
-int32_t isp_fops_read(struct file *filp, char __user *buf, size_t count);
-int32_t isp_fops_release(void);
-int32_t isp_fops_open(void);
-int32_t system_chardev_init(void);
-int system_chardev_read(void *buf);
-int system_chardev_write(int arg1);
-int32_t system_chardev_destroy(void);
 #ifndef TX_ISP_T30_SHARED_MATH
 uint32_t private_math_exp2(int32_t arg1, int32_t arg2, int32_t arg3);
 #endif
@@ -6429,8 +6407,6 @@ void *private_platform_get_drvdata(const struct platform_device *pdev);
 int private_platform_device_register(struct platform_device *pdev);
 void private_platform_device_unregister(struct platform_device *pdev);
 struct resource *private_platform_get_resource(struct platform_device *pdev, unsigned int type, unsigned int num);
-int private_dev_set_drvdata(struct device *dev, void *data);
-void *private_dev_get_drvdata(const struct device *dev);
 int private_platform_get_irq(struct platform_device *pdev, unsigned int num);
 void private_iounmap(const volatile void __iomem *addr);
 int private_request_threaded_irq(unsigned int irq, irq_handler_t handler, irq_handler_t thread_fn, unsigned long flags, const char *name, void *dev);
@@ -6441,29 +6417,19 @@ void private_spin_unlock_irqrestore(spinlock_t *lock, unsigned long flags);
 void private_mutex_lock(struct mutex *lock);
 void private_mutex_unlock(struct mutex *lock);
 struct clk *private_clk_get(struct device *dev, const char *id);
-int private_clk_is_enabled(struct clk *clk);
 unsigned long private_clk_get_rate(struct clk *clk);
 struct i2c_adapter *private_i2c_get_adapter(int nr);
 void private_i2c_put_adapter(struct i2c_adapter *adap);
-int private_i2c_register_driver(struct module *owner, struct i2c_driver *driver);
 struct i2c_client *private_i2c_new_device(struct i2c_adapter *adap, const struct i2c_board_info *info);
 void private_i2c_unregister_device(struct i2c_client *client);
-int private_gpio_direction_input(unsigned int gpio);
-int private_gpio_set_debounce(unsigned int gpio, unsigned int debounce);
-int private_jzgpio_ctrl_pull(int port, int enable_pull, unsigned long pins);
 unsigned long long private_sched_clock(void);
 bool private_try_module_get(struct module *module);
 void private_module_put(struct module *module);
 void private_init_completion(struct completion *x);
-void private_complete(struct completion *x);
 int private_wait_for_completion_interruptible(struct completion *x);
 int private_misc_register(struct miscdevice *mdev);
 int private_misc_deregister(struct miscdevice *mdev);
-ssize_t private_seq_read(struct file *file, char __user *buf, size_t size, loff_t *ppos);
-loff_t private_seq_lseek(struct file *file, loff_t offset, int whence);
-int private_single_release(struct inode *inode, struct file *file);
 int private_single_open_size(struct file *file, int (*show)(struct seq_file *, void *), void *data, size_t size);
-struct proc_dir_entry *private_jz_proc_mkdir(char *s);
 void private_get_isp_priv_mem(unsigned int *phyaddr, unsigned int *size);
 struct proc_dir_entry *private_proc_create_data(const char *name, umode_t mode, struct proc_dir_entry *parent, const struct file_operations *proc_fops, void *data);
 int32_t isp_printf(uint32_t level, const char *fmt, ...);
@@ -6492,7 +6458,6 @@ int32_t ncu_sync_sensor_attr(void *arg1, void *arg2, int32_t arg3);
 int32_t ncu_slake_module(void *arg1);
 int ncu_activate_module(void *arg1);
 int64_t ncu_pad_event_handle(uintptr_t a0, uint32_t a1, uintptr_t a2);
-int64_t tx_isp_sync_ncu(void);
 int32_t ldc_core_ops_ioctl(void *subdev, uint32_t event, void *data);
 int32_t ldc_link_setup(void);
 int tx_isp_ldc_open(struct inode *inode, struct file *file);
@@ -6506,13 +6471,9 @@ int32_t ldc_activate_module(void *arg1);
 int32_t * ldc_restart_module(void *arg1);
 int32_t ldc_core_interrupt_service_routine(uintptr_t a0);
 int32_t ldc_pad_event_handle(int32_t *arg1, int32_t arg2, int32_t *arg3);
-char* tx_isp_sync_ldc(void);
-int32_t * configure_channel_dma_addr(void *arg1);
 int32_t mscaler_core_ops_ioctl(void *subdev, unsigned int event, void *data);
 int32_t mscaler_link_setup(void);
 int mscaler_video_s_stream(void *arg1, int enable);
-int32_t channel_dma_buffer_done(void *arg1);
-void * msclaer_notify_front_module(void *arg1, int arg2);
 irqreturn_t mscaler_core_interrupt_service_routine(
 	struct tx_isp_t30_subdev *sd, u32 status, bool *handled);
 static inline u32 tx_isp_t30_mscaler_read(
@@ -6521,8 +6482,6 @@ static inline void tx_isp_t30_mscaler_write(
 	struct tx_isp_t30_mscaler_device *mscaler, u32 reg, u32 value);
 static void tx_isp_t30_mscaler_configure_dma(
 	struct tx_isp_t30_mscaler_output *chan);
-int32_t dump_isp_mscaler_open(uint32_t a0, uint32_t a1);
-int32_t isp_mscaler_show(struct seq_file *m);
 int32_t mscaler_sync_sensor_attr(void *subdev, void *video_in);
 int tx_isp_mscaler_probe(struct platform_device *pdev);
 static inline void tx_isp_t30_check_mscaler_layout(void);
@@ -6535,8 +6494,6 @@ int32_t mscaler_pad_event_handle(void *arg1, int32_t arg2, void **arg3);
 int mscaler_slake_module(void *arg1);
 int mscaler_activate_module(void *arg1);
 void * __vb2_queue_free(void *arg1, int32_t arg2);
-int32_t dump_isp_framesource_open(uint32_t a0, uint32_t a1);
-int32_t isp_framesource_show(struct seq_file *m);
 int frame_channel_open(int fd, void *file);
 int32_t __fill_v4l2_buffer(void *arg1, void *arg2);
 int32_t fs_activate_module(void *arg1);
@@ -6608,9 +6565,6 @@ int32_t apical_init_calibrations(int32_t arg1);
 struct stab_t * init_stab(void);
 int32_t apical_process(void);
 int32_t apical_init(void);
-int32_t apical_frame_buffer_configure_temper(uint32_t arg1);
-int32_t apical_frame_buffer_configure_all(uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3, uint32_t arg4);
-int32_t apical_change_resolution(uint32_t arg1);
 int32_t apical_interrupt_frame_start(int32_t *arg1);
 int32_t apical_interrupt_ae_stats(int32_t *arg1);
 int32_t apical_interrupt_awb_stats(int32_t *arg1);
@@ -6622,7 +6576,6 @@ int32_t apical_interrupt_fpga_frame_wdr(int32_t *arg1);
 int32_t apical_program_interrupt_event_part_0(int32_t arg1, int32_t arg2) __asm__("apical_program_interrupt_event.part.0");
 #endif
 int32_t apical_program_interrupt_event_part_0(int32_t arg1, int32_t arg2);
-int32_t apical_get_current_isp_index(void);
 char * load_isp_sequence(uint32_t arg1);
 int32_t apical_fw_interrupts_init(void *arg1);
 int32_t apical_fw_init(int32_t *arg1);
@@ -6653,32 +6606,17 @@ int32_t div_fixed(int32_t arg1, int32_t arg2, int32_t arg3);
 int32_t solving_nth_root_045(int32_t arg1, int32_t arg2);
 int32_t line_offset(uint32_t a0, uint32_t a1);
 #endif
-int32_t apical_cosine(int32_t arg1);
-int32_t apical_sine(int32_t arg1);
 uint32_t apical_event_queue_push(int32_t *arg1, char arg2);
 uint32_t apical_event_queue_pop(int32_t *arg1);
 int32_t apical_loop_buffer_init(int32_t *arg1, int32_t arg2, int32_t arg3);
 uint32_t apical_loop_buffer_read_u8(void *arg1, int32_t arg2);
-int32_t apical_loop_buffer_write_u8(int32_t *buf, int32_t offset, char val);
-int32_t isp_io_write_sample(int32_t arg1, int32_t arg2, int32_t arg3, char arg4);
-uint32_t isp_io_read_sample(int32_t arg1, int32_t arg2, char arg3);
+int32_t apical_loop_buffer_write_u8(int32_t *buf, int32_t offset, uint8_t val);
 int32_t apical_sbus_isp_init(void *arg1);
-int32_t i2c_io_read_sample(int32_t *arg1, uint32_t arg2, char arg3);
-int32_t i2c_io_write_sample(uintptr_t a0, uint32_t a1, uint32_t a2, uint32_t a3);
 int32_t apical_sbus_i2c_init(void *arg1);
-int32_t i2c_init_access(void);
 int32_t spi_io_write_sample(uintptr_t a0, uint32_t a1, uint32_t a2, uint32_t a3);
 int32_t spi_io_read_sample(uint32_t *arg1, uint32_t arg2, char arg3);
 int32_t apical_sbus_spi_init(void *arg1);
-void sensor_write_data(int32_t *dev, int32_t reg, char *buf, int32_t count);
-int64_t sequence_read_u16(uintptr_t a0);
-int64_t sequence_read_u32(uintptr_t a0);
-uint8_t sequence_write_u16(uintptr_t a0, uint32_t a1);
-uint8_t sequence_write_u32(uintptr_t a0, uint32_t a1);
-char * sensor_load_binary_sequence(int32_t *dev, void *base, int32_t idx);
-int32_t sensor_load_array_sequence(int32_t *arg1, void *arg2, int32_t arg3);
 int32_t APICAL_READ_32(int32_t arg1);
-uint32_t APICAL_READ_16(uint32_t addr);
 uint32_t APICAL_READ_8(uint32_t addr);
 int32_t APICAL_WRITE_32(int32_t addr, uint32_t val);
 void * APICAL_WRITE_16(void *arg1, int16_t arg2);
@@ -6755,13 +6693,11 @@ int32_t selftest_fw_revision(int32_t a1, int32_t a2, char arg3, int32_t *arg4);
 int32_t selftest_api_revision(int32_t arg1, int32_t arg2, char arg3, int32_t *arg4);
 int32_t selftest_calibration_revision(int32_t arg1, int32_t arg2, char arg3, int32_t *arg4);
 int32_t isp_system_state(void *arg1, int32_t arg2, char arg3, int32_t *arg4);
-int32_t system_sensor_select(uint32_t a0, uint32_t a1, uint32_t a2, uintptr_t a3);
 int32_t test_pattern_enable(int32_t arg1, int32_t arg2, char arg3, int32_t *arg4);
 int32_t test_pattern(int32_t arg1, int32_t arg2, char arg3, int32_t *arg4);
 int32_t fr_pipe_status(int32_t arg1, int32_t arg2, char arg3, int32_t *arg4);
 int32_t ds1_pipe_status(int32_t arg1, int32_t arg2, char arg3, int32_t *arg4);
 int32_t ds2_pipe_status(int32_t arg1, int32_t arg2, char arg3, int32_t *arg4);
-int32_t system_frame_buffer(void);
 int32_t resolution_active_image(void *arg1, int32_t arg2, char arg3, int32_t *arg4);
 int32_t fps_mode(void *arg1, int32_t arg2, char arg3, int32_t *arg4);
 int32_t set_sensor_fps(void *arg1, int32_t arg2, char arg3, int32_t *arg4);
@@ -6813,7 +6749,6 @@ int32_t register_size(int32_t arg1, int32_t arg2, char arg3, int32_t *arg4);
 int32_t register_source(void *arg1, int16_t arg2, char arg3, int32_t *arg4);
 int32_t register_value(void *arg1, char arg2, char arg3, uint32_t *arg4);
 int32_t scene_mode(void *arg1, int32_t arg2, char arg3, int32_t *arg4);
-int32_t sharpening_mode(uint32_t a0, uint32_t a1, uint32_t a2, uintptr_t a3);
 int32_t sharpening_strength(void *arg1, int32_t arg2, char arg3, int32_t *arg4);
 int32_t fr_output_mode(void *arg1, int32_t arg2, char arg3, int32_t *arg4);
 int32_t ds1_output_mode(void *arg1, int32_t arg2, char arg3, int32_t *arg4);
@@ -6862,7 +6797,6 @@ uint32_t cmos_long_exposure_update(uint32_t *arg1);
 int32_t cmos_calc_target_gain(void *arg1);
 int32_t cmos_update_wdr_mode(void);
 void * cmos_set_exposure_target(int32_t *arg1, int32_t arg2, int32_t arg3);
-int32_t defect_pixel_table_read(uint32_t *buf, uint32_t count);
 int32_t defect_pixel_table_write(void *arg1, void *arg2);
 int32_t defect_pixel_initialize(uintptr_t a0);
 int32_t defect_pixel_update(int32_t *arg1);
@@ -6870,15 +6804,12 @@ int32_t mesh_shading_modulate_strength(int32_t *arg1);
 int32_t saturation_modulate_strength(int32_t *arg1);
 int32_t color_matrix_fsm_process_interrupt(void);
 int32_t matrix_matrix_multiply(void *arg1, void *arg2, void *arg3, int32_t arg4, int32_t arg5, int32_t arg6);
-int32_t matrix_vector_multiply(void *arg1, void *arg2, void *arg3, int32_t arg4, int32_t arg5);
 int32_t complement_to_direct(int32_t arg1);
 int32_t direct_to_complement(int32_t arg1);
 int32_t color_matrix_recalculate(int32_t *arg1);
 int32_t color_matrix_setup(int16_t *arg1, int16_t arg2, int16_t arg3, int16_t arg4, int16_t arg5, int16_t arg6, int16_t arg7, int16_t arg8, int16_t arg9, int16_t arg10);
 int32_t shading_mesh_reload(int32_t arg1);
 int32_t shading_mesh_load(int32_t arg1);
-int is_yuv_format(int16_t fmt);
-int32_t shading_mesh_init(void);
 int32_t color_matrix_write(void *arg1);
 int32_t color_matrix_update(int32_t *arg1);
 int32_t color_matrix_change_CCMs(int32_t *arg1);
@@ -6902,7 +6833,6 @@ uint32_t general_frame_start(uint32_t *arg1);
 uint32_t general_frame_end(uint32_t *arg1);
 int32_t general_fsm_process_interrupt(int32_t *arg1, char arg2);
 uint32_t calc_fe_lut_output(int32_t *arg1, int16_t arg2);
-uint32_t calc_fe_lut_input(uint32_t *arg1, uint16_t arg2);
 int16_t * matrix_compute_hue_saturation(int32_t arg1, int16_t *arg2);
 int32_t update_composite_matrix(void *arg1, void *arg2);
 uint32_t compute_transfrom_matrix(void *arg1, void *arg2, char arg3);
@@ -6917,7 +6847,6 @@ int32_t apical_isp_init(uintptr_t a0);
 int32_t apical_isp_process_interrupt(void *arg1, char arg2);
 int32_t apical_isp_process_events(void *arg1, int32_t arg2);
 int32_t sensor_fsm_clear(void *arg1);
-int32_t sensor_request_interrupt(int32_t *arg1, int32_t arg2);
 uint32_t sensor_fsm_switch_state(int32_t *fsm, int32_t new_state);
 uint32_t sensor_fsm_process_state(int32_t *fsm);
 int32_t sensor_fsm_process_event(int32_t *fsm, int32_t event);
@@ -6927,7 +6856,6 @@ int cmos_fsm_switch_state(int32_t *arg1, int32_t arg2);
 int32_t cmos_fsm_process_state(int32_t *arg1);
 int32_t cmos_fsm_process_event(int32_t *arg1, int32_t arg2);
 void defect_pixel_fsm_clear(void *fsm);
-int32_t defect_pixel_request_interrupt(int32_t *arg1, int32_t arg2);
 void defect_pixel_fsm_switch_state(int32_t *fsm, int32_t new_state);
 void defect_pixel_fsm_process_state(int32_t *arg1);
 int32_t defect_pixel_fsm_process_event(int32_t *arg1, int32_t arg2);
@@ -6952,18 +6880,15 @@ int iridix_fsm_switch_state(int32_t *arg1, int32_t arg2);
 void iridix_fsm_process_state(int32_t *arg1);
 int32_t iridix_fsm_process_event(int32_t *fsm, int32_t event);
 int noise_reduction_fsm_clear(void *fsm);
-int32_t noise_reduction_request_interrupt(int32_t *arg1, int32_t arg2);
 int32_t noise_reduction_fsm_switch_state(void *arg1, int32_t arg2);
 int32_t noise_reduction_fsm_process_state(struct noise_reduction_fsm_state *state);
 int32_t noise_reduction_fsm_process_event(struct noise_reduction_fsm_state *state,
 					 uint32_t event);
 int32_t sharpening_fsm_clear(uintptr_t a0);
-int32_t sharpening_request_interrupt(int32_t *arg1, int32_t arg2);
 int32_t sharpening_fsm_switch_state(int32_t *fsm, int32_t new_state);
 void sharpening_fsm_process_state(int32_t *fsm);
 int32_t sharpening_fsm_process_event(int32_t *arg1, int32_t arg2);
 int32_t flash_fsm_clear(void *arg1);
-int32_t flash_request_interrupt(int32_t *arg1, int32_t arg2);
 void flash_fsm_switch_state(int32_t *arg1, int32_t arg2);
 void flash_fsm_process_state(int32_t *arg1);
 int32_t flash_fsm_process_event(int32_t *fsm, int32_t event);
@@ -6987,27 +6912,12 @@ int32_t matrix_yuv_request_interrupt(int32_t *arg1, int32_t arg2);
 int32_t matrix_yuv_fsm_switch_state(int32_t *arg1, int32_t arg2);
 void matrix_yuv_fsm_process_state(int32_t *arg1);
 int32_t matrix_yuv_fsm_process_event(int32_t *arg1, int32_t arg2);
-uint32_t mem_read_u16(uintptr_t arg1);
-uint32_t mem_read_u32(int32_t *arg1);
-void * mem_write_u16(uintptr_t arg1, uint32_t arg2);
-void* mem_write_u32(uintptr_t a0, uint32_t a1);
 uint32_t apical_sbus_read_u8(int32_t *arg1, uint32_t arg2);
 uint32_t apical_sbus_read_u16(int32_t *dev, uint32_t addr);
 uint32_t apical_sbus_read_u32(struct apical_sbus_dev *dev, uint32_t offset);
-int32_t apical_sbus_read_data_u8(int32_t *arg1, int32_t arg2, void *arg3, int32_t arg4);
-int32_t apical_sbus_read_data_u16(int32_t *arg1, uint32_t arg2, void *arg3, int32_t arg4);
-int32_t apical_sbus_read_data_u32(uintptr_t a0, uint32_t a1, uintptr_t a2, uint32_t a3);
 int32_t apical_sbus_write_u8(int32_t *arg1, int32_t arg2, char arg3);
 int32_t apical_sbus_write_u16(int32_t *arg1, uint32_t arg2, int16_t arg3);
 int32_t apical_sbus_write_u32(struct apical_sbus_dev *dev, uint32_t reg, uint32_t val);
-int32_t apical_sbus_write_data_u8(int32_t *arg1, int32_t arg2, void *arg3, int32_t arg4);
-int32_t apical_sbus_write_data_u16(int32_t *arg1, uint32_t arg2, void *arg3, int32_t arg4);
-int32_t apical_sbus_write_data_u32(int32_t *arg1, uint32_t arg2, void *arg3, int32_t arg4);
-int32_t apical_sbus_write_data(uintptr_t a0, uint32_t a1, uintptr_t a2, uint32_t a3);
-int32_t apical_sbus_copy(int32_t *dst, uint32_t dst_off, int32_t *src, uint32_t src_off, int32_t len);
-uint32_t sensor_sync_get_output_resolution(void *arg1, int16_t *arg2);
-int32_t apply_dvi_sync_param(int16_t *arg1);
-int32_t apply_dvi_fpga_sync_param(int16_t *arg1);
 int32_t sensor_init_output(void *arg1, int32_t arg2);
 int32_t sensor_hw_init(int32_t *arg1);
 int32_t sensor_update_black(int32_t *arg1);
@@ -7015,19 +6925,14 @@ int32_t sensor_sw_init(int32_t *arg1);
 int32_t sensor_load_vars(void);
 int32_t sensor_start_calibrate(void);
 int32_t sensor_stop_calibrate(void);
-int sensor_fps_change(void);
-int32_t sensor_get_lines_second(void *arg1);
 int32_t ae_initialize(int32_t *arg1);
 uint32_t ae_read_full_histogram_data(uintptr_t a0);
 int32_t AE_fsm_process_interrupt(int32_t *arg1, char arg2);
 uint32_t ae_calculate_exposure_ratio(int32_t *arg1);
 void * ae_calculate_target(int32_t *arg1);
-int32_t set_integrator_ae(void *arg1, int32_t arg2, int32_t arg3, int32_t arg4);
 int32_t ae_calculate_exposure(uintptr_t a0);
 int32_t ae_exposure_correction(int32_t *arg1, int32_t arg2);
 uint32_t luts_fetch(uint32_t arg1, uint32_t arg2, uint32_t arg3, uint32_t arg4, uint16_t *arg5, uint16_t arg6);
-uint32_t fifo_push(uint32_t arg1, uint32_t arg2);
-uint16_t * get_point(uint16_t *arg1);
 int32_t interpl(int32_t x0, int32_t x1, int32_t y0, int32_t x1_end, int32_t y1);
 int16_t * init_interp_2d_point(int16_t *arg1, int32_t arg2, int32_t arg3, void *arg4, int16_t *arg5, int16_t *arg6);
 int32_t get_index(int32_t arg1, void *arg2);
@@ -7035,13 +6940,11 @@ int32_t get_index(int32_t arg1, void *arg2);
 int32_t AWB_mesh_isra_1(uint32_t arg1, uint32_t arg2, int16_t *arg3, int16_t *arg4, void *arg5) __asm__("AWB_mesh.isra.1");
 #endif
 int32_t AWB_mesh_isra_1(uint32_t arg1, uint32_t arg2, int16_t *arg3, int16_t *arg4, void *arg5);
-int16_t * init_interp_2d_point_LUT(int16_t *out, int32_t x, int32_t y, int32_t base, int16_t x_min, int16_t x_step, int16_t y_min, int16_t y_step, int16_t y_base, void *lut);
+int16_t * init_interp_2d_point_LUT(int16_t *out, int32_t x, int32_t y, int32_t base, int16_t x_max, int16_t x_step, int16_t y_base, int16_t y_max, int16_t y_step, void *lut);
 int32_t AWB_mesh_LUT(int32_t arg1, int32_t arg2, int32_t arg3, int32_t arg4, int16_t arg5, int16_t arg6, int16_t arg7, int16_t arg8, int16_t arg9, void *arg10);
 int32_t mesh_AWB_getKnownSourceLight_weight_LUT(int32_t arg1, int16_t arg2, int16_t arg3, int32_t arg4, int32_t arg5);
 int32_t awb_coeffs_write(void);
 uint32_t awb_init(void *arg1);
-int32_t awb_set_identity(void *arg1);
-int32_t awb_read_statistics(void *arg1);
 int32_t AWB_fsm_process_interrupt(int32_t *arg1, char arg2);
 int32_t awb_zones_calculate(void);
 int32_t compute_weight(int32_t arg1, int32_t arg2, void *arg3, int32_t *arg4, void *arg5, void *arg6);
@@ -7070,36 +6973,24 @@ int32_t flash_processing(int32_t *arg1);
 int32_t dis_initialize(int32_t *arg1);
 int32_t dis_update_stats(int32_t *arg1);
 int32_t dis_update_settings(uintptr_t arg1);
-int32_t dis_update_output(void *arg1, int32_t arg2, int32_t arg3, int32_t arg4, int32_t arg5);
 void dis_analyze_stats(void *arg1);
 int32_t dis_fsm_process_interrupt(int32_t *arg1, char arg2);
 int32_t dis_get_default_settings(int32_t *arg1);
 int32_t dis_reset(void *arg1);
 int32_t dis_set_settings(int32_t arg1, int32_t arg2);
 int32_t dis_get_settings(int32_t arg1, int32_t arg2);
-int32_t dis_check_settings(int32_t a0, int32_t a1, int32_t a2, int32_t a3);
 int32_t dis_open(void **arg1, int32_t arg2, int32_t arg3, int32_t arg4,
 		 int32_t arg5, int32_t arg6, int32_t arg7, int32_t arg8,
 		 int32_t arg9, int32_t arg10);
-int32_t dis_close(int32_t arg1);
 int32_t dis_clip_gmv_vector(void *arg1, int32_t *arg2);
 int32_t dis_analyze(void *arg1, void *arg2, int32_t *arg3, int32_t *arg4);
-int32_t dis_update_bg_map(void *arg1, int32_t arg2, int32_t *arg3);
 int32_t apical_wdr_fs_isp_setup(int32_t arg1);
 int32_t iir_filter_reset(void *arg1);
 int32_t iir_filter_v2(int32_t arg1, int32_t arg2, int32_t arg3, int32_t *arg4);
-int32_t iir_filter_v4(int32_t arg1, int32_t arg2, int32_t arg3, int32_t *arg4);
-int32_t iir_filter_v3(int32_t arg1, int32_t arg2, int32_t arg3, int32_t *arg4);
-int32_t get_common_estimations(void *arg1, int32_t arg2, int32_t arg3, uint32_t *arg4, int32_t *arg5);
-int32_t validate_smooth_test(void *arg1, int32_t arg2);
 int32_t validate_complexity_test(void *arg1, int32_t arg2);
-int32_t validate_borders(uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3, uint32_t arg4);
 int32_t validate_motion_vectors(int32_t arg1, void *arg2, int32_t arg3, int32_t arg4);
-int32_t get_exp(uint32_t a0, uintptr_t a1);
 int32_t get_gmv_gauss_init(void **arg1, int32_t arg2);
-int32_t get_gmv_gauss_method_fast_v1(void *arg1, int32_t *arg2, int32_t arg3, int32_t arg4, int32_t *arg5);
 int32_t get_gmv_gauss_method_fast_v2(void *arg1, int32_t arg2, int32_t *arg3);
-int32_t get_gmv_gauss_method_fast_v3(void *arg1, int32_t arg2, int32_t *arg3);
 int tx_isp_vic_remove(struct platform_device *pdev);
 int tx_isp_vin_remove(struct platform_device *pdev);
 int tx_isp_csi_remove(struct platform_device *pdev);
@@ -7110,14 +7001,7 @@ int tx_isp_mscaler_remove(struct platform_device *pdev);
 int tx_isp_fs_remove(struct platform_device *pdev);
 int tx_isp_remove(struct platform_device *pdev);
 void cleanup_module(void);
-int32_t dump_vic_reg(uintptr_t a0);
-void check_vic_error(void);
 int32_t isp_core_tunning_release(uint32_t a0, uintptr_t a1);
-void system_reset_sensor(void);
-int32_t I2C_init(void);
-int32_t I2C_close(void);
-int32_t I2C_write(int32_t arg1, char *arg2, int32_t arg3);
-int32_t I2C_read(int32_t addr, int32_t data, int32_t size);
 int32_t init_module(void);
 
 /* WHOLE_DRIVER_RELOCATED_DATA_PATCHES */
@@ -7924,12 +7808,6 @@ int vic_sensor_ops_ioctl(void *file, unsigned int cmd)
 	}
 }
 
-/* WHOLE_DRIVER_CANDIDATE fn_0000000000000588 origin=model_output original=dump_isp_vic_frd_open */
-int dump_isp_vic_frd_open(struct inode *inode, struct file *file)
-{
-    return private_single_open_size(file, (int (*)(struct seq_file *, void *))0xc90, PDE_DATA(inode), 0x400);
-}
-
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000005d0 origin=fragment_seed original=isp_vic_interrupt_service_routine */
 static int tx_isp_t30_vic_interrupt(struct tx_isp_t30_subdev *sd)
 {
@@ -7955,167 +7833,7 @@ static int tx_isp_t30_vic_interrupt(struct tx_isp_t30_subdev *sd)
 
 int32_t isp_vic_interrupt_service_routine(uintptr_t a0)
 {
-    uint32_t *local_10 = 0;
-    uint32_t local_14 = 0;
-    uint32_t *local_18 = 0;
-    uint32_t local_24 = 0;
-    uint32_t local_28 = 0;
-    uint32_t local_2c = 0;
-    uint32_t local_30 = 0;
-    uint32_t local_34 = 0;
-    uint32_t *a1 = 0;
-    uint32_t a2 = 0;
-    uint32_t *a3 = 0;
-    uint32_t ra = 0;
-    uintptr_t *s0 = 0;
-    uint32_t *s1 = 0;
-    uint32_t *s2 = 0;
-    uintptr_t *s3 = 0;
-    uintptr_t *v0 = 0;
-    uintptr_t v1 = 0;
-
 	return tx_isp_t30_vic_interrupt((void *)a0);
-
-    /* fragment 0: Branch */
-    if (a0 == 0) { goto isp_vic_interrupt_service_routine0x1fc; }
-
-    /* fragment 1: Arithmetic */
-    v0 = a0 < -4095;
-
-    /* fragment 2: Branch */
-    if (v0 == 0) { goto isp_vic_interrupt_service_routine0x1fc; }
-
-    /* fragment 3: Prologue */
-    /* function prologue: stack frame and callee-saved register setup */
-
-    /* fragment 4: MemoryAccess */
-    s3 = *(uint32_t *)((char *)a0 + 212);
-
-    /* fragment 5: Branch */
-    if (s3 == 0) { goto isp_vic_interrupt_service_routine0x1dc; }
-
-    /* fragment 6: Arithmetic */
-    v0 = s3 < -4095;
-
-    /* fragment 7: Branch */
-    v1 = 131072;
-    if (v0 == 0) { goto isp_vic_interrupt_service_routine0x1dc; }
-
-    /* fragment 8: MemoryAccess */
-    v0 = *(uint32_t *)((char *)a0 + 184);
-    v0 = v0 + v1;
-    v1 = *(uint32_t *)((char *)v0 + 28);
-    local_10 = v1;
-    v1 = *(uint32_t *)((char *)v0 + 12);
-    local_18 = v1;
-    v1 = local_10;
-    a0 = local_18;
-    v1 = ~(0 | v1);
-    v1 = v1 & a0;
-    local_14 = v1;
-    v1 = local_14;
-    *(uint32_t *)((char *)v0 + 4) = v1;
-    v0 = local_14;
-    v1 = 3145728;
-    v0 = (uintptr_t)v0 & v1;
-
-    /* fragment 9: Branch */
-    a0 = (uintptr_t)&LC3;
-    if (v0 == 0) { goto isp_vic_interrupt_service_routine0xb4; }
-
-    /* fragment 10: CallSetup */
-    *(uint32_t *)((char *)(*(uint32_t *)((char *)((uintptr_t)s3) + 184)) + 0) = (*(uint32_t *)((char *)(*(uint32_t *)((char *)((uintptr_t)s3) + 184)) + 0) | 16);
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))printk)((int32_t *)((const char *)(uintptr_t)&LC3), (uintptr_t)(local_14)); /* jalr target resolved by relocation */
-
-isp_vic_interrupt_service_routine0xb4:
-    /* fragment 11: StackAccess */
-    v0 = local_14;
-    v1 = 16777216;
-    v0 = (uintptr_t)v0 & v1;
-
-    /* fragment 12: Branch */
-    s0 = 3006267392;
-    if (v0 == 0) { goto isp_vic_interrupt_service_routine0x188; }
-
-    /* fragment 13: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(0, &LC4, s0 + 588, *(uint32_t *)((char *)(s0) + 588)); /* jalr target resolved by relocation */
-
-    /* fragment 14: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(0, &LC4, s0 + 608, *(uint32_t *)((char *)(s0) + 608)); /* jalr target resolved by relocation */
-
-    /* fragment 15: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(0, &LC4, s0 + 612, *(uint32_t *)((char *)(s0) + 612)); /* jalr target resolved by relocation */
-
-    /* fragment 16: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(0, &LC4, s0 + 616, *(uint32_t *)((char *)(s0) + 616)); /* jalr target resolved by relocation */
-
-    /* fragment 17: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(0, &LC4, s0 + 620, *(uint32_t *)((char *)(s0) + 620)); /* jalr target resolved by relocation */
-
-    /* fragment 18: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(0, &LC4, s0 + 624, *(uint32_t *)((char *)(s0) + 624)); /* jalr target resolved by relocation */
-
-    /* fragment 19: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(0, &LC4, s0 + 628, *(uint32_t *)((char *)(s0) + 628)); /* jalr target resolved by relocation */
-
-    /* fragment 20: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(0, &LC4, s0 + 632, *(uint32_t *)((char *)(s0) + 632)); /* jalr target resolved by relocation */
-
-    /* fragment 21: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(0, &LC4, s0 + 636, *(uint32_t *)((char *)(s0) + 636)); /* jalr target resolved by relocation */
-
-isp_vic_interrupt_service_routine0x188:
-    /* fragment 22: StackAccess */
-    v0 = local_14;
-    v1 = 67108864;
-    v0 = (uintptr_t)v0 & v1;
-
-    /* fragment 23: Branch */
-    v1 = 65536;
-    if (v0 == 0) { goto isp_vic_interrupt_service_routine0x1bc; }
-
-    /* fragment 24: CallSetup */
-    *(uint32_t *)((char *)((*(uint32_t *)((char *)(s3) + 184)) + v1) + 0) = 0;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_complete)(s3 + 324); /* jalr target resolved by relocation */
-
-isp_vic_interrupt_service_routine0x1bc:
-    /* fragment 25: StackAccess */
-    v0 = local_14;
-    v1 = 65536;
-    v0 = (uintptr_t)v0 & v1;
-
-    /* fragment 26: Branch */
-    if (v0 == 0) { goto isp_vic_interrupt_service_routine0x1e0; }
-
-    /* fragment 27: MemoryAccess */
-    v0 = *(uint32_t *)((char *)s3 + 348);
-    v0 = v0 + 1;
-    *(uint32_t *)((char *)s3 + 348) = v0;
-
-isp_vic_interrupt_service_routine0x1dc:
-    /* fragment 28: Epilogue */
-    /* function epilogue: restore registers and return */
-    return (int32_t)v0;
-
-isp_vic_interrupt_service_routine0x1e0:
-    /* fragment 29: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    /* fragment 30: Arithmetic */
-    v0 = 1;
-
-    /* fragment 31: Epilogue */
-    /* function epilogue: restore registers and return */
-    return (int32_t)v0;
-
-isp_vic_interrupt_service_routine0x1fc:
-    /* fragment 32: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    /* fragment 33: Arithmetic */
-    v0 = 1;
-
-    return 0;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000007d4 origin=fragment_seed original=tx_isp_vic_probe */
@@ -8150,7 +7868,7 @@ int tx_isp_vic_probe(struct platform_device *pdev)
     if (v0 != 0) { goto tx_isp_vic_probe0x6c; }
 
     /* fragment 3: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(int32_t *)isp_printf)(2, &LC5); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(int32_t *)isp_printf)(2, &LC5, (uintptr_t)a2);	/* #369 "%s" arg a2 */ /* jalr target resolved by relocation */
 
     /* fragment 4: Arithmetic */
     v0 = -1;
@@ -8209,394 +7927,6 @@ tx_isp_vic_probe0xcc:
     goto tx_isp_vic_probe0x54;
 
     return ((int64_t)(uint32_t)v1 << 32) | (uint32_t)v0;
-}
-
-/* WHOLE_DRIVER_CANDIDATE fn_0000000000000924 origin=fragment_seed original=isp_vic_cmd_set */
-int32_t isp_vic_cmd_set(uintptr_t a0, uint32_t a1, uint32_t a2)
-{
-    uint32_t *local_10 = 0;
-    uint32_t local_1c = 0;
-    uint32_t local_20 = 0;
-    uint32_t local_24 = 0;
-    uint32_t local_28 = 0;
-    uint32_t local_2c = 0;
-    uint32_t local_30 = 0;
-    uint32_t local_34 = 0;
-    uint32_t local_38 = 0;
-    uint32_t local_3c = 0;
-    uint32_t *a3 = 0;
-    uint32_t at = 0;
-    uintptr_t gp = 0;
-    uint32_t ra = 0;
-    uintptr_t *s0 = 0;
-    uint32_t *s1 = 0;
-    uint32_t *s2 = 0;
-    uintptr_t *s3 = 0;
-    uint32_t s4 = 0;
-    uint32_t s5 = 0;
-    uint32_t s6 = 0;
-    uint32_t s7 = 0;
-    uint32_t t9 = 0;
-    uintptr_t *v0 = 0;
-    uintptr_t v1 = 0;
-
-    /* fragment 0: Prologue */
-    /* function prologue: stack frame and callee-saved register setup */
-
-    /* fragment 1: MemoryAccess */
-    s3 = *(uint32_t *)((char *)a0 + 112);
-    v0 = *(uint32_t *)((char *)s3 + 60);
-
-    /* fragment 2: Branch */
-    v1 = v0 < -4095;
-    if (v0 == 0) { goto isp_vic_cmd_set0x54; }
-
-    /* fragment 3: Branch */
-    if (v1 == 0) { goto isp_vic_cmd_set0x54; }
-
-    /* fragment 4: MemoryAccess */
-    s0 = *(uint32_t *)((char *)v0 + 212);
-
-    /* fragment 5: Branch */
-    v0 = s0 < -4095;
-    if (s0 == 0) { goto isp_vic_cmd_set0x54; }
-
-    /* fragment 6: Branch */
-    s4 = a2 < 33;
-    if (v0 != 0) { goto isp_vic_cmd_set0x94; }
-
-isp_vic_cmd_set0x54:
-    /* fragment 7: ConstantLoad */
-    a1 = 0x0;
-
-isp_vic_cmd_set0x5c:
-    /* fragment 8: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    /* fragment 9: Arithmetic */
-    a0 = s3;
-    t9 = (uintptr_t)&seq_printf;
-
-    /* fragment 10: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    /* fragment 11: Arithmetic */
-    t9 = t9;
-
-    /* fragment 12: IndirectTailCall */
-    return ((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))seq_printf)((uintptr_t)((void *)(uintptr_t)a0), (uintptr_t)("%s"), (uintptr_t)(({ uintptr_t __regtrace_cstr = (uintptr_t)((const char *)(uintptr_t)a1); (const char *)(__regtrace_cstr ? __regtrace_cstr : (uintptr_t)"<null>"); })));
-
-isp_vic_cmd_set0x94:
-    /* fragment 13: Arithmetic */
-    s1 = a2;
-
-    /* fragment 14: Branch */
-    s5 = a1;
-    if (s4 != 0) { goto isp_vic_cmd_set0xc4; }
-
-    /* fragment 15: CallSetup */
-    v0 = (uintptr_t *)__kmalloc(a2 + 1, 32976); /* jalr target resolved by relocation */
-
-    /* fragment 16: Branch */
-    s2 = v0;
-    if (v0 != 0) { goto isp_vic_cmd_set0xcc; }
-
-    /* fragment 17: Branch */
-    s1 = -12;
-    goto isp_vic_cmd_set0x2dc;
-
-isp_vic_cmd_set0xc4:
-    /* fragment 18: ConstantLoad */
-    s2 = 0x0;
-
-isp_vic_cmd_set0xcc:
-    /* fragment 19: Arithmetic */
-    v1 = s5 | (uintptr_t)s1;
-    v0 = s5 + (uintptr_t)s1;
-    v0 = (uintptr_t)v0 | v1;
-
-    /* fragment 20: MemoryAccess */
-    v1 = 0;
-    v0 = (uintptr_t)v0 & v1;
-
-    /* fragment 21: Branch */
-    a2 = s1;
-    if (v0 != 0) { goto isp_vic_cmd_set0x120; }
-
-    /* fragment 22: CallSetup */
-    __might_sleep((const char *)(uintptr_t)&LC10, 201, 0); /* jalr target resolved by relocation */
-
-    /* fragment 23: CallSetup */
-    v0 = (uintptr_t *)__copy_user((void *)(int32_t *)s2, (void *)(uintptr_t)s5, s1); /* jalr target resolved by relocation */
-
-isp_vic_cmd_set0x120:
-    /* fragment 24: Branch */
-    v0 = (uintptr_t *)&LC11;
-    if (a2 == 0) { goto isp_vic_cmd_set0x144; }
-
-    /* fragment 25: Branch */
-    v0 = (uintptr_t *)&kfree;
-    if (s4 != 0) { goto isp_vic_cmd_set0x13c; }
-
-    /* fragment 26: CallSetup */
-    kfree((void *)(uintptr_t)s2); /* jalr target resolved by relocation */
-
-isp_vic_cmd_set0x13c:
-    /* fragment 27: Branch */
-    s1 = -14;
-    goto isp_vic_cmd_set0x2dc;
-
-isp_vic_cmd_set0x144:
-    /* fragment 28: Arithmetic */
-    v1 = s2;
-    v0 = v0;
-    a0 = 7;
-
-isp_vic_cmd_set0x150:
-    /* fragment 29: MemoryAccess */
-    a1 = *(uint8_t *)((char *)v1 + 0);
-
-    /* fragment 30: Branch */
-    if (a0 == 0) { goto isp_vic_cmd_set0x170; }
-
-    /* fragment 31: Arithmetic */
-    a0 = a0 - 1;
-
-    /* fragment 32: Branch */
-    v1 = v1 + 1;
-    if (at != a1) { goto isp_vic_cmd_set0x174; }
-
-    /* fragment 33: Branch */
-    v0 = v0 + 1;
-    if (a1 != 0) { goto isp_vic_cmd_set0x150; }
-
-isp_vic_cmd_set0x170:
-    /* fragment 34: Arithmetic */
-    a1 = at;
-
-isp_vic_cmd_set0x174:
-    /* fragment 35: Arithmetic */
-    a1 = a1 - at;
-
-    /* fragment 36: Branch */
-    if (a1 != 0) { goto isp_vic_cmd_set0x2a8; }
-
-    /* fragment 37: MemoryAccess */
-    a2 = *(uint32_t *)((char *)s0 + 220);
-    v0 = a2 < 2689;
-
-    /* fragment 38: Branch */
-    if (v0 != 0) { goto isp_vic_cmd_set0x1cc; }
-
-    /* fragment 39: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    /* fragment 40: Arithmetic */
-    a1 = (uint32_t *)&LC12;
-    a0 = s3;
-    t9 = (uintptr_t)&seq_printf;
-
-    /* fragment 41: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    /* fragment 42: Arithmetic */
-    a1 = a1;
-    t9 = t9;
-
-    /* fragment 43: IndirectTailCall */
-    return ((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))seq_printf)((uintptr_t)((void *)(uintptr_t)a0), (uintptr_t)("%s"), (uintptr_t)(({ uintptr_t __regtrace_cstr = (uintptr_t)((const char *)(uintptr_t)a1); (const char *)(__regtrace_cstr ? __regtrace_cstr : (uintptr_t)"<null>"); })));
-
-isp_vic_cmd_set0x1cc:
-    /* fragment 44: MemoryAccess */
-    v0 = *(uint32_t *)((char *)s0 + 316);
-
-    /* fragment 45: Branch */
-    s6 = a2 << 1;
-    if (v0 == 0) { goto isp_vic_cmd_set0x1e4; }
-
-    /* fragment 46: Arithmetic */
-    a1 = (uint32_t *)&LC13;
-
-    /* fragment 47: Branch */
-    a1 = (uint32_t *)&LC13;
-    goto isp_vic_cmd_set0x5c;
-
-isp_vic_cmd_set0x1e4:
-    /* fragment 48: CallSetup */
-    s5 = *(uint32_t *)((char *)(s0) + 224);
-    s5 = s6 * s5;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)isp_malloc_buffer)(s6 * s5); /* jalr target resolved by relocation */
-
-    /* fragment 49: Branch */
-    int _bc_v0_49 = v0 == 0;
-    *(uint32_t *)((char *)s0 + 316) = v0;
-    if (_bc_v0_49) { goto isp_vic_cmd_set0x2a8; }
-
-    /* fragment 50: Arithmetic */
-    a1 = 2147483648;
-
-    /* fragment 51: MemoryAccess */
-    v1 = *(uint32_t *)((char *)s0 + 184);
-    v0 = v0 + a1;
-    *(uint32_t *)((char *)s0 + 320) = v0;
-    v0 = 65536;
-    v1 = v1 + (uintptr_t)v0;
-    a0 = 1;
-    *(uint32_t *)((char *)v1 + 8) = a0;
-    v1 = *(uint32_t *)((char *)s0 + 220);
-    a0 = *(uint32_t *)((char *)s0 + 224);
-    v1 = v1 << 16;
-    v1 = v1 | a0;
-    a0 = *(uint32_t *)((char *)s0 + 184);
-    s7 = (uintptr_t)&private_wait_for_completion_interruptible;
-    a0 = a0 + (uintptr_t)v0;
-    s7 = s7;
-    *(uint32_t *)((char *)a0 + 4) = v1;
-    v1 = *(uint32_t *)((char *)s0 + 184);
-    v1 = v1 + (uintptr_t)v0;
-    *(uint32_t *)((char *)v1 + 20) = s6;
-    v1 = *(uint32_t *)((char *)s0 + 184);
-    a0 = *(uint32_t *)((char *)s0 + 316);
-    v1 = v1 + (uintptr_t)v0;
-    s6 = 100;
-    *(uint32_t *)((char *)v1 + 24) = a0;
-    v1 = *(uint32_t *)((char *)s0 + 184);
-    a0 = s0 + 324;
-    v0 = v1 + (uintptr_t)v0;
-    *(uint32_t *)((char *)v0 + 0) = a1;
-
-isp_vic_cmd_set0x278:
-    /* fragment 52: CallSetup */
-    local_10 = a0;
-    v0 = (uintptr_t *)((uintptr_t (*)(int32_t *))(uintptr_t)private_wait_for_completion_interruptible)(a0); /* jalr target resolved by relocation */
-
-    /* fragment 53: Branch */
-    s6 = s6 - 1;
-    if (v0 >= 0) { goto isp_vic_cmd_set0x30c; }
-
-    /* fragment 54: Branch */
-    a0 = local_10;
-    if (s6 != 0) { goto isp_vic_cmd_set0x278; }
-
-    /* fragment 55: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))seq_printf)((int32_t *)((void *)(uintptr_t)s3), (uintptr_t)("%s"), (uintptr_t)(({ uintptr_t __regtrace_cstr = (uintptr_t)((const char *)(uintptr_t)&LC14); (const char *)(__regtrace_cstr ? __regtrace_cstr : (uintptr_t)"<null>"); }))); /* jalr target resolved by relocation */
-
-isp_vic_cmd_set0x2a8:
-    /* fragment 56: MemoryAccess */
-    a0 = *(uint32_t *)((char *)s0 + 316);
-
-    /* fragment 57: Branch */
-    v0 = (uintptr_t *)&isp_free_buffer;
-    if (a0 == 0) { goto isp_vic_cmd_set0x2c4; }
-
-    /* fragment 58: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(int32_t *))(uintptr_t)isp_free_buffer)(a0); /* jalr target resolved by relocation */
-
-    /* fragment 59: MemoryAccess */
-    *(uint32_t *)((char *)s0 + 316) = 0;
-
-isp_vic_cmd_set0x2c4:
-    /* fragment 60: Branch */
-    if (s4 != 0) { goto isp_vic_cmd_set0x2e0; }
-
-    /* fragment 61: CallSetup */
-    kfree((void *)(uintptr_t)s2); /* jalr target resolved by relocation */
-
-isp_vic_cmd_set0x2dc:
-    /* fragment 62: Epilogue */
-    /* function epilogue: restore registers and return */
-    return (int32_t)v0;
-
-isp_vic_cmd_set0x2e0:
-    /* fragment 63: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    /* fragment 64: Arithmetic */
-    v0 = s1;
-
-    /* fragment 65: Epilogue */
-    /* function epilogue: restore registers and return */
-    return (int32_t)v0;
-
-isp_vic_cmd_set0x30c:
-    /* fragment 66: CallSetup */
-    v0 = (uintptr_t *)filp_open((const char *)(int32_t *)&LC15, 769, 502); /* jalr target resolved by relocation */
-
-    /* fragment 67: CallSetup */
-    s6 = 0;
-    (void)0;
-    s3 = v0;
-    v0 = (uintptr_t *)vfs_write((void *)(uintptr_t)v0, (const char *)(uintptr_t)(*(uint32_t *)((char *)(s0) + 320)), s5, (void *)(uintptr_t)(v0 + 40)); /* jalr target resolved by relocation */
-
-    /* fragment 68: CallSetup */
-    v0 = (uintptr_t *)filp_close((void *)(int32_t *)s3, (void *)(uintptr_t)0); /* jalr target resolved by relocation */
-
-    /* fragment 69: Branch */
-    (void)0;
-    goto isp_vic_cmd_set0x2a8;
-
-    return 0;
-}
-
-/* WHOLE_DRIVER_CANDIDATE fn_0000000000000c90 origin=fragment_seed original=isp_vic_frd_show */
-int32_t isp_vic_frd_show(uintptr_t a0)
-{
-    uint32_t local_14 = 0;
-    uint32_t *a1 = 0;
-    uint32_t a2 = 0;
-    uint32_t ra = 0;
-    uint32_t t9 = 0;
-    uintptr_t *v0 = 0;
-    uint32_t v1 = 0;
-
-    /* fragment 0: MemoryAccess */
-    v0 = *(uint32_t *)((char *)a0 + 60);
-
-    /* fragment 1: Branch */
-    v1 = v0 < -4095;
-    if (v0 == 0) { goto isp_vic_frd_show0x3c; }
-
-    /* fragment 2: Branch */
-    if (v1 == 0) { goto isp_vic_frd_show0x3c; }
-
-    /* fragment 3: MemoryAccess */
-    v0 = *(uint32_t *)((char *)v0 + 212);
-
-    /* fragment 4: Branch */
-    v1 = v0 < -4095;
-    if (v0 == 0) { goto isp_vic_frd_show0x3c; }
-
-    /* fragment 5: Branch */
-    a1 = (uint32_t *)&LC17;
-    if (v1 == 0) { goto isp_vic_frd_show0x3c; }
-
-    /* fragment 6: Arithmetic */
-    t9 = (uintptr_t)&seq_printf;
-
-    /* fragment 7: MemoryAccess */
-    a2 = *(uint32_t *)((char *)v0 + 348);
-    t9 = t9;
-
-    /* fragment 8: IndirectTailCall */
-    return ((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))seq_printf)((uintptr_t)((void *)(uintptr_t)a0), (uintptr_t)("%s"), (uintptr_t)(({ uintptr_t __regtrace_cstr = (uintptr_t)((const char *)(uintptr_t)&LC17); (const char *)(__regtrace_cstr ? __regtrace_cstr : (uintptr_t)"<null>"); })));
-
-isp_vic_frd_show0x3c:
-    /* fragment 9: Prologue */
-    /* function prologue: stack frame and callee-saved register setup */
-
-    /* fragment 10: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(int32_t *)isp_printf)(2, &LC16); /* jalr target resolved by relocation */
-
-    /* fragment 11: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    /* fragment 12: Arithmetic */
-    v0 = 0;
-
-    /* fragment 13: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    return 0;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000000cfc origin=model_output original=vic_sensor_ops_sync_sensor_attr */
@@ -8756,15 +8086,6 @@ int32_t isp_lfb_ctrl_flb_enable(uint32_t a0)
 	return 0;
 }
 
-/* WHOLE_DRIVER_CANDIDATE fn_0000000000000eac origin=model_output original=isp_lfb_reset */
-void *isp_lfb_reset(void)
-{
-    void *ptr = *(void **)((char *)((char *)&dump_vsd));
-    void *result = *(void **)((char *)ptr + 0xb8);
-    *(uint32_t *)((char *)result + 0x200) = 0;
-    return result;
-}
-
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000000ec4 origin=fragment_seed original=isp_lfb_ctrl_hw_recovery */
 int32_t isp_lfb_ctrl_hw_recovery(uint32_t a0)
 {
@@ -8805,202 +8126,6 @@ int32_t isp_lfb_ctrl_select_ds1(void)
 	return 0;
 }
 
-/* WHOLE_DRIVER_CANDIDATE fn_0000000000000f94 origin=fragment_seed original=isp_lfb_ctrl_output_ncu */
-int32_t isp_lfb_ctrl_output_ncu(void)
-{
-    uint32_t local_0 = 0;
-    uint32_t a0 = 0;
-    uint32_t ra = 0;
-    uintptr_t *v0 = 0;
-    uintptr_t v1 = 0;
-
-    /* fragment 0: Arithmetic */
-    v0 = (uintptr_t *)&vic_cmd_buf;
-
-    /* fragment 1: MemoryAccess */
-    v0 = *(uint32_t *)((char *)((char *)&dump_vsd));
-    a0 = -65;
-    v1 = *(uint32_t *)((char *)v0 + 184);
-    v0 = *(uint32_t *)((char *)v1 + 512);
-    local_0 = v0;
-    v0 = local_0;
-    v0 = (uintptr_t)v0 & a0;
-    local_0 = v0;
-    v0 = local_0;
-    local_0 = v0;
-    v0 = local_0;
-    *(uint32_t *)((char *)v1 + 512) = v0;
-
-    /* fragment 2: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    return 0;
-}
-
-/* WHOLE_DRIVER_CANDIDATE fn_0000000000000fd4 origin=fragment_seed original=isp_lfb_ctrl_output_mscaler */
-int32_t isp_lfb_ctrl_output_mscaler(void)
-{
-    uint32_t local_0 = 0;
-    uint32_t a0 = 0;
-    uint32_t ra = 0;
-    uintptr_t *v0 = 0;
-    uintptr_t v1 = 0;
-
-    /* fragment 0: Arithmetic */
-    v0 = (uintptr_t *)&vic_cmd_buf;
-
-    /* fragment 1: MemoryAccess */
-    v0 = *(uint32_t *)((char *)((char *)&dump_vsd));
-    a0 = -65;
-    v1 = *(uint32_t *)((char *)v0 + 184);
-    v0 = *(uint32_t *)((char *)v1 + 512);
-    local_0 = v0;
-    v0 = local_0;
-    v0 = (uintptr_t)v0 & a0;
-    local_0 = v0;
-    v0 = local_0;
-    v0 = (uintptr_t)v0 | 64;
-    local_0 = v0;
-    v0 = local_0;
-    *(uint32_t *)((char *)v1 + 512) = v0;
-
-    /* fragment 2: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    return 0;
-}
-
-/* WHOLE_DRIVER_CANDIDATE fn_0000000000001018 origin=fragment_seed original=isp_lfb_ctrl_vsync_wait */
-int32_t isp_lfb_ctrl_vsync_wait(uint32_t a0)
-{
-    uint32_t local_0 = 0;
-    uintptr_t *a1 = 0;
-    uint32_t ra = 0;
-    uintptr_t *v0 = 0;
-    uint32_t v1 = 0;
-
-    /* fragment 0: Arithmetic */
-    v0 = (uintptr_t *)&vic_cmd_buf;
-
-    /* fragment 1: MemoryAccess */
-    v0 = *(uint32_t *)((char *)((char *)&dump_vsd));
-    v1 = 4293853184;
-    v1 = v1 | 65535;
-    a1 = *(uint32_t *)((char *)v0 + 184);
-    a0 = a0 << 20;
-    v0 = *(uint32_t *)((char *)a1 + 512);
-    local_0 = v0;
-    v0 = local_0;
-    v0 = (uintptr_t)v0 & v1;
-    local_0 = v0;
-    v0 = local_0;
-    a0 = a0 | (uintptr_t)v0;
-    local_0 = a0;
-    v0 = local_0;
-    *(uint32_t *)((char *)a1 + 512) = v0;
-
-    /* fragment 2: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    return 0;
-}
-
-/* WHOLE_DRIVER_CANDIDATE fn_0000000000001064 origin=fragment_seed original=isp_lfb_ctrl_ncu_to_mscaler */
-int32_t isp_lfb_ctrl_ncu_to_mscaler(void)
-{
-    uint32_t local_0 = 0;
-    uintptr_t a0 = 0;
-    uint32_t ra = 0;
-    uintptr_t *v0 = 0;
-    uint32_t v1 = 0;
-
-    /* fragment 0: Arithmetic */
-    v0 = (uintptr_t *)&vic_cmd_buf;
-
-    /* fragment 1: MemoryAccess */
-    v0 = *(uint32_t *)((char *)((char *)&dump_vsd));
-    v1 = 4292804608;
-    v1 = v1 | 65535;
-    a0 = *(uint32_t *)((char *)v0 + 184);
-    v0 = *(uint32_t *)((char *)a0 + 512);
-    local_0 = v0;
-    v0 = local_0;
-    v0 = (uintptr_t)v0 & v1;
-    local_0 = v0;
-    v0 = local_0;
-    local_0 = v0;
-    v0 = local_0;
-    *(uint32_t *)((char *)a0 + 512) = v0;
-
-    /* fragment 2: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    return 0;
-}
-
-/* WHOLE_DRIVER_CANDIDATE fn_00000000000010a8 origin=fragment_seed original=isp_lfb_ctrl_ncu_to_ddr */
-int32_t isp_lfb_ctrl_ncu_to_ddr(void)
-{
-    uint32_t local_0 = 0;
-    uintptr_t a0 = 0;
-    uint32_t ra = 0;
-    uintptr_t *v0 = 0;
-    uint32_t v1 = 0;
-
-    /* fragment 0: Arithmetic */
-    v0 = (uintptr_t *)&vic_cmd_buf;
-
-    /* fragment 1: MemoryAccess */
-    v0 = *(uint32_t *)((char *)((char *)&dump_vsd));
-    v1 = 4292804608;
-    v1 = v1 | 65535;
-    a0 = *(uint32_t *)((char *)v0 + 184);
-    v0 = *(uint32_t *)((char *)a0 + 512);
-    local_0 = v0;
-    v0 = local_0;
-    v0 = (uintptr_t)v0 & v1;
-    local_0 = v0;
-    v0 = local_0;
-    v1 = 2097152;
-    v0 = (uintptr_t)v0 | v1;
-    local_0 = v0;
-    v0 = local_0;
-    *(uint32_t *)((char *)a0 + 512) = v0;
-
-    /* fragment 2: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    return 0;
-}
-
-/* WHOLE_DRIVER_CANDIDATE fn_00000000000010f4 origin=fragment_seed original=isp_lfb_restart */
-void* isp_lfb_restart(void)
-{
-    uint32_t ra = 0;
-    uintptr_t *v0 = 0;
-    uintptr_t v1 = 0;
-
-    /* fragment 0: Arithmetic */
-    v0 = (uintptr_t *)&vic_cmd_buf;
-
-    /* fragment 1: MemoryAccess */
-    v0 = *(uint32_t *)((char *)((char *)&dump_vsd));
-    v1 = *(uint32_t *)((char *)v0 + 184);
-    *(uint32_t *)((char *)v1 + 516) = 0;
-    v0 = *(uint32_t *)((char *)v0 + 184);
-    v1 = 1;
-    *(uint32_t *)((char *)v0 + 516) = v1;
-
-    /* fragment 2: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    /* fragment 3: Unknown */
-    /* unmatched fragment 3 (Unknown): no deterministic matcher for Unknown */
-    /* asm: 1114:	00000000 	nop */
-
-    return (void*)v0;
-}
-
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000001118 origin=fragment_seed original=isp_lfb_config_default_dma */
 uint32_t isp_lfb_config_default_dma(uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3)
 {
@@ -9028,30 +8153,6 @@ void* isp_lfb_config_resolution(uint32_t a0, uint32_t a1)
 	__raw_writel((a1 << 16) | a0, base + 0x214);
 	__raw_writel(((a1 >> 1) << 16) | (a0 >> 1), base + 0x234);
 	return base;
-}
-
-/* WHOLE_DRIVER_CANDIDATE fn_00000000000011c8 origin=fragment_seed original=isp_lfb_read_error_reg */
-int32_t isp_lfb_read_error_reg(void)
-{
-    uint32_t ra = 0;
-    uintptr_t *v0 = 0;
-
-    /* fragment 0: Arithmetic */
-    v0 = (uintptr_t *)&vic_cmd_buf;
-
-    /* fragment 1: MemoryAccess */
-    v0 = *(uint32_t *)((char *)((char *)&dump_vsd));
-    v0 = *(uint32_t *)((char *)v0 + 184);
-    v0 = *(uint32_t *)((char *)v0 + 588);
-
-    /* fragment 2: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    /* fragment 3: Unknown */
-    /* unmatched fragment 3 (Unknown): no deterministic matcher for Unknown */
-    /* asm: 11dc:	00000000 	nop */
-
-    return 0;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000011e0 origin=model_output original=tx_vic_enable_irq */
@@ -9089,6 +8190,7 @@ void tx_vic_disable_irq(int irq)
 	void (*disable)(void *);
 	unsigned long flags;
 	uint32_t reg;
+	unsigned int sync_irq = 0;
 
 	if (IS_ERR_OR_NULL(vic))
 		return;
@@ -9102,10 +8204,17 @@ void tx_vic_disable_irq(int irq)
 	if (reg == 0 && *(uint32_t *)(vic + 0x138) != 0) {
 		*(uint32_t *)(vic + 0x138) = 0;
 		disable = *(void (**)(void *))(vic + 0x88);
-		if (disable)
+		if (disable) {
+			/* irqs are off here: the hook takes the nosync path */
 			disable(vic + 0x80);
+			sync_irq = ((struct tx_isp_t30_irq_device *)(vic + 0x80))->irq;
+		}
 	}
 	spin_unlock_irqrestore((spinlock_t *)(vic + 0x12c), flags);
+	/* process-context callers (apical_change_resolution, i2c_io_read_sample,
+	 * vic_core_ops_init) still wait for a running handler, now without the lock */
+	if (sync_irq && !in_interrupt())
+		synchronize_irq(sync_irq);
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000013b4 origin=model_output original=vic_core_ops_init */
@@ -9188,7 +8297,8 @@ int tx_isp_vic_slake_subdev(void *arg1)
 
 	if (state == 2) {
 		*(int *)((char *)vic + 0x124) = 1;
-		clk_array = (int *)((char *)arg1 + 0xbc);
+		/* vendor 0x1540: lw s3,188(s0) = the clock array pointer */
+		clk_array = *(int **)((char *)arg1 + 0xbc);
 		clk_count = *(int *)((char *)arg1 + 0xc0);
 
 		for (i = clk_count - 1; i >= 0; i--)
@@ -9266,50 +8376,19 @@ int32_t vin_s_stream(void *arg1, int32_t arg2)
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000016a4 origin=fragment_seed original=tx_isp_vin_activate_subdev */
 int32_t tx_isp_vin_activate_subdev(uintptr_t a0)
 {
-    uint32_t *local_10 = 0;
-    uint32_t *local_18 = 0;
-    uint32_t local_1c = 0;
-    uint32_t ra = 0;
-    uintptr_t *s0 = 0;
-    uintptr_t *v0 = 0;
-    uint32_t v1 = 0;
+	/*
+	 * SDK-built ko 0x16a4.  Plain C: the register lift declared s0/v0 as
+	 * `uintptr_t *`, so the open count at +0xf8 stepped by 4 (the slake
+	 * stepped back by 4, which hid it).
+	 */
+	char *vin = (char *)a0;
 
-    /* fragment 0: Prologue */
-    /* function prologue: stack frame and callee-saved register setup */
-
-    /* fragment 1: CallSetup */
-    s0 = a0;
-    local_10 = a0 + 232;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_mutex_lock)(a0 + 232); /* jalr target resolved by relocation */
-
-    /* fragment 2: MemoryAccess */
-    v1 = *(uint32_t *)((char *)s0 + 244);
-    v0 = 1;
-
-    /* fragment 3: Branch */
-    a0 = local_10;
-    if (v1 != v0) { goto tx_isp_vin_activate_subdev0x3c; }
-
-    /* fragment 4: CallSetup */
-    v0 = 2;
-    *(uint32_t *)((char *)s0 + 244) = v0;
-
-tx_isp_vin_activate_subdev0x3c:
-    /* fragment 5: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(int32_t *))(uintptr_t)private_mutex_unlock)(a0); /* jalr target resolved by relocation */
-
-    /* fragment 6: MemoryAccess */
-    v0 = *(uint32_t *)((char *)s0 + 248);
-    v0 = v0 + 1;
-    *(uint32_t *)((char *)s0 + 248) = v0;
-    ra = local_1c;
-    s0 = local_18;
-    v0 = 0;
-
-    /* fragment 7: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    return 0;
+	private_mutex_lock((struct mutex *)(vin + 0xe8));
+	if (*(int32_t *)(vin + 0xf4) == 1)
+		*(int32_t *)(vin + 0xf4) = 2;
+	private_mutex_unlock((struct mutex *)(vin + 0xe8));
+	(*(uint32_t *)(vin + 0xf8))++;
+	return 0;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000001710 origin=model_output original=tx_isp_vin_init */
@@ -9344,273 +8423,6 @@ int tx_isp_vin_init(void *arg1, int arg2)
 
 	vin->vin_state = (0 < (unsigned int)arg2) + 2;
 	return ret;
-}
-
-/* WHOLE_DRIVER_CANDIDATE fn_00000000000017a4 origin=fragment_seed original=subdev_sensor_ops_set_input */
-static int64_t subdev_sensor_ops_set_input_raw(uintptr_t a0, uintptr_t a1,
-					       uint32_t a2)
-{
-    uint32_t *local_10 = 0;
-    uint32_t local_1c = 0;
-    uint32_t local_20 = 0;
-    uint32_t local_24 = 0;
-    uint32_t local_28 = 0;
-    uint32_t local_2c = 0;
-    uint32_t ra = 0;
-    uint32_t *s0 = 0;
-    uintptr_t *s1 = 0;
-    uintptr_t *s2 = 0;
-    uintptr_t *s3 = 0;
-    uintptr_t *v0 = 0;
-    uint32_t v1 = 0;
-
-    /* fragment 0: Prologue */
-    /* function prologue: stack frame and callee-saved register setup */
-
-    /* fragment 1: Branch */
-    if (a0 == 0) { goto subdev_sensor_ops_set_input0x168; }
-
-    /* fragment 2: Arithmetic */
-    s2 = a1;
-
-    /* fragment 3: Branch */
-    local_10 = 0;
-    if (a1 == 0) { goto subdev_sensor_ops_set_input0x168; }
-
-    /* fragment 4: MemoryAccess */
-    s1 = *(uint32_t *)((char *)a0 + 228);
-
-    /* fragment 5: Branch */
-    s3 = a0;
-    if (s1 == 0) { goto subdev_sensor_ops_set_input0xf8; }
-
-    /* fragment 6: MemoryAccess */
-    v1 = *(uint32_t *)((char *)s1 + 220);
-    v0 = *(uint32_t *)((char *)a1 + 0);
-
-    /* fragment 7: Branch */
-    int _bc_v1_7 = v1 == v0;
-    v0 = 4;
-    if (_bc_v1_7) { goto subdev_sensor_ops_set_input0x108; }
-
-    /* fragment 8: MemoryAccess */
-    v1 = *(uint32_t *)((char *)a0 + 244);
-
-    /* fragment 9: Branch */
-    a1 = (uint32_t *)&LC1;
-    if (v1 != v0) { goto subdev_sensor_ops_set_input0x88; }
-
-    /* fragment 10: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(int32_t *)isp_printf)(1, &LC1); /* jalr target resolved by relocation */
-
-    /* fragment 11: Arithmetic */
-    s0 = -1;
-
-subdev_sensor_ops_set_input0x68:
-    /* fragment 12: Epilogue */
-    /* function epilogue: restore registers and return */
-    return (int64_t)v0;
-
-subdev_sensor_ops_set_input0x6c:
-    /* fragment 13: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    /* fragment 14: Arithmetic */
-    v0 = s0;
-
-    /* fragment 15: Epilogue */
-    /* function epilogue: restore registers and return */
-    return (int64_t)v0;
-
-subdev_sensor_ops_set_input0x88:
-    /* fragment 16: MemoryAccess */
-    v0 = *(uint32_t *)((char *)a0 + 124);
-
-    /* fragment 17: Branch */
-    a2 = (uintptr_t)&local_10;
-    if (v0 == 0) { goto subdev_sensor_ops_set_input0xc8; }
-
-    /* fragment 18: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(int32_t *))(uintptr_t)tx_isp_release_device)(a0); /* jalr target resolved by relocation */
-
-    /* fragment 19: Branch */
-    s0 = v0;
-    if (v0 == 0) { goto subdev_sensor_ops_set_input0xd0; }
-
-subdev_sensor_ops_set_input0xa4:
-    /* fragment 20: CallSetup */
-    a1 = (uint32_t *)&LC2;
-    a2 = *(uint32_t *)((char *)s1 + 316);
-    a1 = a1;
-
-subdev_sensor_ops_set_input0xb0:
-    /* fragment 21: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(int32_t *))(uintptr_t)isp_printf)(1); /* jalr target resolved by relocation */
-
-    /* fragment 22: Branch */
-    goto subdev_sensor_ops_set_input0x6c;
-
-subdev_sensor_ops_set_input0xc8:
-    /* fragment 23: Branch */
-    s0 = -515;
-    goto subdev_sensor_ops_set_input0xa4;
-
-subdev_sensor_ops_set_input0xd0:
-    /* fragment 24: MemoryAccess */
-    *(uint32_t *)((char *)s3 + 228) = 0;
-    v0 = *(uint32_t *)((char *)s1 + 124);
-
-    /* fragment 25: Branch */
-    a1 = 16777216;
-    if (v0 == 0) { goto subdev_sensor_ops_set_input0x1a4; }
-
-    /* fragment 26: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tx_isp_release_device)(s1, a1 + 1, 0); /* jalr target resolved by relocation */
-
-    /* fragment 27: Branch */
-    s0 = v0;
-    if (v0 != 0) { goto subdev_sensor_ops_set_input0x68; }
-
-subdev_sensor_ops_set_input0xf8:
-    /* fragment 28: MemoryAccess */
-    v1 = *(uint32_t *)((char *)s2 + 0);
-    v0 = -1;
-
-    /* fragment 29: Branch */
-    int _bc_v1_29 = v1 != v0;
-    v0 = (uintptr_t *)&private_mutex_lock;
-    if (_bc_v1_29) { goto subdev_sensor_ops_set_input0x110; }
-
-subdev_sensor_ops_set_input0x108:
-    /* fragment 30: Branch */
-    s0 = 0;
-    goto subdev_sensor_ops_set_input0x68;
-
-subdev_sensor_ops_set_input0x110:
-    /* fragment 31: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_mutex_lock)(s3 + 232); /* jalr target resolved by relocation */
-
-    /* fragment 32: MemoryAccess */
-    s1 = *(uint32_t *)((char *)s3 + 220);
-    v1 = s3 + 220;
-    s1 = s1 - 228;
-
-subdev_sensor_ops_set_input0x128:
-    /* fragment 33: Arithmetic */
-    v0 = s1 + 228;
-
-    /* fragment 34: Branch */
-    if (v1 != v0) { goto subdev_sensor_ops_set_input0x170; }
-
-subdev_sensor_ops_set_input0x134:
-    /* fragment 35: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_mutex_unlock)(s3 + 232); /* jalr target resolved by relocation */
-
-    /* fragment 36: MemoryAccess */
-    a2 = *(uint32_t *)((char *)s2 + 0);
-    v0 = *(uint32_t *)((char *)s1 + 220);
-
-    /* fragment 37: Branch */
-    a1 = (uint32_t *)&LC3;
-    if (v0 == a2) { goto subdev_sensor_ops_set_input0x18c; }
-
-    /* fragment 38: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(int32_t *)isp_printf)(2, &LC3); /* jalr target resolved by relocation */
-
-subdev_sensor_ops_set_input0x168:
-    /* fragment 39: Branch */
-    s0 = -22;
-    goto subdev_sensor_ops_set_input0x68;
-
-subdev_sensor_ops_set_input0x170:
-    /* fragment 40: MemoryAccess */
-    a0 = *(uint32_t *)((char *)s1 + 220);
-    v0 = *(uint32_t *)((char *)s2 + 0);
-
-    /* fragment 41: Branch */
-    if (a0 == v0) { goto subdev_sensor_ops_set_input0x134; }
-
-    /* fragment 42: MemoryAccess */
-    s1 = *(uint32_t *)((char *)s1 + 228);
-
-    /* fragment 43: Branch */
-    s1 = s1 - 228;
-    goto subdev_sensor_ops_set_input0x128;
-
-subdev_sensor_ops_set_input0x18c:
-    /* fragment 44: MemoryAccess */
-    *(uint32_t *)((char *)s3 + 228) = s1;
-
-    /* fragment 45: Branch */
-    s0 = -2;
-    if (s1 == 0) { goto subdev_sensor_ops_set_input0x68; }
-
-    /* fragment 46: MemoryAccess */
-    v0 = *(uint32_t *)((char *)s1 + 124);
-
-    /* fragment 47: Branch */
-    a1 = 16777216;
-    if (v0 != 0) { goto subdev_sensor_ops_set_input0x1ac; }
-
-subdev_sensor_ops_set_input0x1a4:
-    /* fragment 48: Branch */
-    s0 = -515;
-    goto subdev_sensor_ops_set_input0x68;
-
-subdev_sensor_ops_set_input0x1ac:
-    /* fragment 49: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tx_isp_release_device)(s1, a1 + 1, s1 + 460); /* jalr target resolved by relocation */
-
-    /* fragment 50: Branch */
-    s0 = v0;
-    if (v0 != 0) { goto subdev_sensor_ops_set_input0x68; }
-
-    /* fragment 51: Arithmetic */
-    v0 = 1;
-
-    /* fragment 52: StackAccess */
-    local_10 = v0;
-    v0 = *(uint32_t *)((char *)s1 + 124);
-
-    /* fragment 53: Branch */
-    a2 = (uintptr_t)&local_10;
-    if (v0 == 0) { goto subdev_sensor_ops_set_input0x1fc; }
-
-    /* fragment 54: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(int32_t *)tx_isp_release_device)(s1, 16777216); /* jalr target resolved by relocation */
-
-    /* fragment 55: Branch */
-    s0 = v0;
-    if (v0 == 0) { goto subdev_sensor_ops_set_input0x204; }
-
-subdev_sensor_ops_set_input0x1ec:
-    /* fragment 56: Arithmetic */
-    a1 = (uint32_t *)&LC4;
-
-    /* fragment 57: MemoryAccess */
-    a2 = *(uint32_t *)((char *)s1 + 316);
-
-    /* fragment 58: Branch */
-    a1 = (uint32_t *)&LC4;
-    goto subdev_sensor_ops_set_input0xb0;
-
-subdev_sensor_ops_set_input0x1fc:
-    /* fragment 59: Branch */
-    s0 = -515;
-    goto subdev_sensor_ops_set_input0x1ec;
-
-subdev_sensor_ops_set_input0x204:
-    /* fragment 60: MemoryAccess */
-    v0 = *(uint32_t *)((char *)s1 + 516);
-    v1 = *(uint16_t *)((char *)s1 + 520);
-    v0 = (uintptr_t)v0 << 16;
-    v0 = (uintptr_t)v0 | v1;
-
-    /* fragment 61: Branch */
-    *(uint32_t *)((char *)s2 + 0) = v0;
-    goto subdev_sensor_ops_set_input0x68;
-
-    return ((int64_t)(uint32_t)v1 << 32) | (uint32_t)v0;
 }
 
 static int tx_isp_t30_notify_module(void *module, unsigned int event,
@@ -9747,211 +8559,6 @@ int tx_isp_vin_probe(struct platform_device *pdev)
 	return ret;
 }
 
-/* WHOLE_DRIVER_CANDIDATE fn_0000000000001b3c origin=model_output original=video_input_cmd_set */
-int video_input_cmd_set(void *arg1, void *arg2, int arg3)
-{
-    void *entry = 0;
-	void *s5 = *(void **)((char *)arg1 + 0x70);
-	void *v0 = *(void **)((char *)s5 + 0x3c);
-	void *v0_1;
-	void *s1;
-	int s6;
-	int s4;
-	void *s3;
-	char *s0;
-	int *result;
-	int a2_1;
-	int v0_15;
-	char *a0_5;
-	const char *v1_5;
-	int a1_2;
-	uint32_t at_3;
-	uint32_t a2_3;
-	uint32_t a2_4;
-	char *a0_10;
-	const char *v1_6;
-	uint32_t at_4;
-	uint32_t a1_5;
-	uint32_t a1_5_diff;
-	int var_30;
-	uint64_t v0_16;
-	uint64_t v0_17;
-	void *var_48;
-	int var_40;
-	int var_3c;
-	int *var_38;
-	int var_34;
-	void *v0_20;
-	const char *a2_6;
-	uint64_t v0_9;
-	void *v0_12;
-	int v0_13;
-	int s1_2;
-	int v0_21;
-	int v0_14;
-
-	if (v0 == 0 || (unsigned long)v0 >= 0xfffff001UL)
-		goto no_sensor;
-
-	v0_1 = *(void **)((char *)v0 + 0xd8);
-	if (v0_1 == 0 || (unsigned long)v0_1 >= 0xfffff001UL)
-		goto no_sensor;
-
-	s1 = *(void **)((char *)v0_1 + 0xe4);
-	if (s1 == 0)
-		goto no_sensor;
-
-	s6 = (arg3 < 0x81) ? 1 : 0;
-	if ((unsigned long)s1 >= 0xfffff001UL)
-		goto no_sensor;
-
-	s4 = arg3;
-	s3 = arg2;
-
-	if (s6 != 0) {
-		s0 = (char *)video_input_cmd_set;
-	} else {
-		s0 = (char *)__kmalloc(arg3 + 1, 0x80d0);
-		result = -12;
-		if (s0 == 0)
-			goto out;
-	}
-
-	result = arg3;
-	a2_1 = arg3;
-
-	if ((((unsigned long)s3 + (unsigned long)arg3) | (unsigned long)s3 | (unsigned long)arg3) & *(unsigned int *)(uintptr_t)entry) {
-		/* page fault check failed, skip copy */
-	} else {
-		__might_sleep("include/linux/kernel.h", 0xc9, 0);
-		a2_1 = __copy_user(s0, s3, arg3);
-	}
-
-	v0_15 = 9;
-
-	if (a2_1 != 0) {
-		result = -14;
-		if (s6 == 0) {
-			kfree(s0);
-			goto out;
-		}
-		goto out;
-	}
-
-	a0_5 = s0;
-	v1_5 = "r sen_reg";
-	a1_2 = 9;
-
-	while (1) {
-		a2_3 = (uint32_t)(unsigned char)*a0_5;
-		at_3 = (uint32_t)(unsigned char)*v1_5;
-		if (a1_2 != 0) {
-			a1_2 -= 1;
-			a0_5++;
-			if (at_3 != a2_3)
-				break;
-			v1_5++;
-			if (a2_3 != 0)
-				continue;
-		}
-		a2_3 = at_3;
-		break;
-	}
-
-	a2_4 = a2_3 - at_3;
-
-	if (a2_4 != 0) {
-		a0_10 = s0;
-		v1_6 = "w sen_reg";
-		while (1) {
-			a1_5 = (uint32_t)(unsigned char)*a0_10;
-			at_4 = (uint32_t)(unsigned char)*v1_6;
-			if (v0_15 != 0) {
-				v0_15 -= 1;
-				a0_10++;
-				if (at_4 != a1_5)
-					break;
-				v1_6++;
-				if (a1_5 != 0)
-					continue;
-			}
-			a1_5 = at_4;
-			break;
-		}
-		a1_5_diff = a1_5 - at_4;
-
-		if (a1_5_diff != 0) {
-			sprintf((char *)video_input_cmd_set, "null");
-		} else {
-			var_30 = 0;
-			v0_16 = simple_strtoull(s0 + 0xa, &var_30, 0);
-			v0_17 = simple_strtoull((char *)var_30 + 1, 0, 0);
-			((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))seq_printf)((uintptr_t)(s5), (uintptr_t)("isp: sensor reg write 0x%x(0x%x)\n"), (uintptr_t)((unsigned int)v0_16), (uintptr_t)((unsigned int)v0_17));
-			var_48 = (char *)s1 + 0x8c;
-			var_40 = (int)v0_16;
-			var_3c = 0;
-			var_38[0] = (int)v0_17;
-			var_34 = 0;
-			v0_20 = *(void **)((char *)s1 + 0xc4);
-			v0_20 = *(void **)v0_20;
-
-			if (v0_20 == 0) {
-				a2_6 = "failed";
-			} else {
-				v0_21 = *(int *)((char *)v0_20 + 0x10);
-				if (v0_21 == 0) {
-					a2_6 = "failed";
-				} else {
-					v0_14 = ((int (*)(void *, void *))v0_21)(s1, &var_48);
-					if (v0_14 != 0)
-						a2_6 = "failed";
-					else
-						a2_6 = "ok";
-				}
-			}
-			((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))sprintf)((uintptr_t)((char *)video_input_cmd_set), (uintptr_t)("%s"), (uintptr_t)(a2_6));
-		}
-	} else {
-		v0_9 = simple_strtoull(s0 + 0xa, 0, a2_4);
-		var_48 = (char *)s1 + 0x8c;
-		var_40 = (int)v0_9;
-		var_3c = 0;
-		v0_12 = *(void **)((char *)s1 + 0xc4);
-		v0_12 = *(void **)v0_12;
-
-		if (v0_12 != 0) {
-			v0_13 = *(int *)((char *)v0_12 + 0xc);
-			if (v0_13 == 0) {
-				((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))isp_printf)((uintptr_t)(2), (uintptr_t)("##### err %s.%d\n"), (uintptr_t)("video_input_cmd_set"), (uintptr_t)(621));
-				s1_2 = 0;
-			} else {
-				v0_14 = ((int (*)(void *, void *))v0_13)(s1, &var_48);
-				if (v0_14 != 0) {
-					((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))isp_printf)((uintptr_t)(2), (uintptr_t)("##### err %s.%d\n"), (uintptr_t)("video_input_cmd_set"), (uintptr_t)(621));
-					s1_2 = 0;
-				} else {
-					s1_2 = 0;
-				}
-			}
-		} else {
-			((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))isp_printf)((uintptr_t)(2), (uintptr_t)("##### err %s.%d\n"), (uintptr_t)("video_input_cmd_set"), (uintptr_t)(621));
-			s1_2 = 0;
-		}
-		((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))seq_printf)((uintptr_t)(s5), (uintptr_t)("isp: sensor reg read 0x%x(0x%x)\n"), (uintptr_t)((unsigned int)v0_9), (uintptr_t)((unsigned int)s1_2));
-		((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))sprintf)((uintptr_t)((char *)video_input_cmd_set), (uintptr_t)("0x%x\n"), (uintptr_t)((unsigned int)s1_2));
-	}
-
-	if (s6 == 0)
-		kfree(s0);
-
-out:
-	return result;
-
-no_sensor:
-	seq_printf(s5, "don't have active sensor, please set sensor firstly!\n");
-	return 0;
-}
-
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000001f00 origin=model_output original=tx_isp_vin_reset */
 int32_t tx_isp_vin_reset(void *arg1)
 {
@@ -10046,120 +8653,34 @@ int32_t subdev_sensor_ops_release_all_sensor(void *arg1)
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000002100 origin=fragment_seed original=tx_isp_vin_slake_subdev */
 int32_t tx_isp_vin_slake_subdev(uintptr_t a0)
 {
-    uint32_t *local_10 = 0;
-    uint32_t *local_18 = 0;
-    uint32_t local_20 = 0;
-    uint32_t local_24 = 0;
-    uint32_t *a1 = 0;
-    uint32_t ra = 0;
-    uintptr_t *s0 = 0;
-    uintptr_t *v0 = 0;
-    uint32_t v1 = 0;
+	/*
+	 * SDK-built ko 0x2100..0x21f0.  Plain C: the register lift kept the
+	 * byte offsets on `uintptr_t *s0`, so the list-head test compared
+	 * against vin + 0x370 (always "not empty") and the mutex taken at the
+	 * end was vin + 0x3a0 instead of vin->mlock (+0xe8): the first fd close
+	 * that reached this function (#2 fix of ispcore_slake_module) hung in
+	 * mutex_lock (QEMU T30, 2026-11-07: D state in tx_isp_release).
+	 */
+	char *vin = (char *)a0;
+	int input = -1;
 
-    /* fragment 0: Prologue */
-    /* function prologue: stack frame and callee-saved register setup */
-
-    /* fragment 1: MemoryAccess */
-    v0 = *(uint32_t *)((char *)a0 + 248);
-
-    /* fragment 2: Branch */
-    s0 = a0;
-    if (v0 == 0) { goto tx_isp_vin_slake_subdev0x24; }
-
-    /* fragment 3: Arithmetic */
-    v0 = v0 - 1;
-
-    /* fragment 4: Branch */
-    int _bc_v0_4 = v0 != 0;
-    *(uint32_t *)((char *)a0 + 248) = v0;
-    if (_bc_v0_4) { goto tx_isp_vin_slake_subdev0xe0; }
-
-tx_isp_vin_slake_subdev0x24:
-    /* fragment 5: MemoryAccess */
-    v1 = *(uint32_t *)((char *)s0 + 244);
-    v0 = 4;
-
-    /* fragment 6: Branch */
-    int _bc_v1_6 = v1 != v0;
-    v0 = 0;
-    if (_bc_v1_6) { goto tx_isp_vin_slake_subdev0x48; }
-
-    /* fragment 7: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(int32_t *)vin_s_stream)(s0, 0); /* jalr target resolved by relocation */
-
-    /* fragment 8: MemoryAccess */
-    v1 = *(uint32_t *)((char *)s0 + 244);
-
-tx_isp_vin_slake_subdev0x48:
-    /* fragment 9: Arithmetic */
-    v0 = 3;
-
-    /* fragment 10: Branch */
-    int _bc_v1_10 = v1 != v0;
-    v0 = 0;
-    if (_bc_v1_10) { goto tx_isp_vin_slake_subdev0x64; }
-
-    /* fragment 11: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(int32_t *)tx_isp_vin_init)(s0, 0); /* jalr target resolved by relocation */
-
-tx_isp_vin_slake_subdev0x64:
-    /* fragment 12: MemoryAccess */
-    v0 = *(uint32_t *)((char *)s0 + 228);
-
-    /* fragment 13: Branch */
-    int _bc_v0_13 = v0 == 0;
-    v0 = -1;
-    if (_bc_v0_13) { goto tx_isp_vin_slake_subdev0x88; }
-
-    /* fragment 14: CallSetup */
-    local_10 = v0;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(int32_t *)subdev_sensor_ops_set_input)(s0, &local_10); /* jalr target resolved by relocation */
-
-tx_isp_vin_slake_subdev0x88:
-    /* fragment 15: MemoryAccess */
-    v1 = *(uint32_t *)((char *)s0 + 220);
-    v0 = s0 + 220;
-
-    /* fragment 16: Branch */
-    int _bc_v1_16 = v1 == v0;
-    v0 = 0;
-    if (_bc_v1_16) { goto tx_isp_vin_slake_subdev0xa4; }
-
-    /* fragment 17: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(int32_t *))(uintptr_t)subdev_sensor_ops_release_all_sensor)(s0); /* jalr target resolved by relocation */
-
-tx_isp_vin_slake_subdev0xa4:
-    /* fragment 18: CallSetup */
-    local_18 = s0 + 232;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_mutex_lock)(s0 + 232); /* jalr target resolved by relocation */
-
-    /* fragment 19: MemoryAccess */
-    v1 = *(uint32_t *)((char *)s0 + 244);
-    v0 = 2;
-
-    /* fragment 20: Branch */
-    a0 = local_18;
-    if (v1 != v0) { goto tx_isp_vin_slake_subdev0xd0; }
-
-    /* fragment 21: CallSetup */
-    v0 = 1;
-    *(uint32_t *)((char *)s0 + 244) = v0;
-
-tx_isp_vin_slake_subdev0xd0:
-    /* fragment 22: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(int32_t *))(uintptr_t)private_mutex_unlock)(a0); /* jalr target resolved by relocation */
-
-tx_isp_vin_slake_subdev0xe0:
-    /* fragment 23: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    /* fragment 24: Arithmetic */
-    v0 = 0;
-
-    /* fragment 25: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    return 0;
+	if (*(uint32_t *)(vin + 0xf8)) {
+		if (--*(uint32_t *)(vin + 0xf8) != 0)
+			return 0;
+	}
+	if (*(int32_t *)(vin + 0xf4) == 4)
+		vin_s_stream(vin, 0);
+	if (*(int32_t *)(vin + 0xf4) == 3)
+		tx_isp_vin_init(vin, 0);
+	if (*(void **)(vin + 0xe4))
+		subdev_sensor_ops_set_input(vin, &input);
+	if (*(void **)(vin + 0xdc) != (void *)(vin + 0xdc))
+		subdev_sensor_ops_release_all_sensor(vin);
+	private_mutex_lock((struct mutex *)(vin + 0xe8));
+	if (*(int32_t *)(vin + 0xf4) == 2)
+		*(int32_t *)(vin + 0xf4) = 1;
+	private_mutex_unlock((struct mutex *)(vin + 0xe8));
+	return 0;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000021f4 origin=model_output original=isp_i2c_new_subdev_board */
@@ -10465,49 +8986,6 @@ register_sensor:
 	return ret;
 }
 
-/* WHOLE_DRIVER_CANDIDATE fn_0000000000002920 origin=model_output original=dump_isp_csi_open */
-int dump_isp_csi_open(struct inode *inode, struct file *file)
-{
-    return private_single_open_size(file, isp_csi_show, PDE_DATA(inode), 0x400);
-}
-
-/* WHOLE_DRIVER_CANDIDATE fn_0000000000002968 origin=model_output original=isp_csi_show */
-int32_t isp_csi_show(struct seq_file *m)
-{
-	uint32_t *ptr = (uint32_t *)((uintptr_t)m + 0x3c);
-	uint32_t *ptr2;
-	uint32_t *reg;
-	int32_t ret = 0;
-	uint32_t val20, val24;
-
-	if (ptr == NULL || (uint32_t)ptr >= 0xfffff001u) {
-		isp_printf(2, "The parameter is invalid!\n", 0);
-		return 0;
-	}
-
-	ptr2 = (uint32_t *)((uintptr_t)ptr + 0xd4);
-	if (ptr2 == NULL || (uint32_t)ptr2 >= 0xfffff001u) {
-		isp_printf(2, "The parameter is invalid!\n", 0);
-		return 0;
-	}
-
-	reg = (uint32_t *)((uintptr_t)ptr2 + 0xb8);
-	val20 = reg[5];
-	val24 = reg[6];
-
-	if (val20 != 0)
-		ret = ((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))seq_printf)((uintptr_t)(m), (uintptr_t)("0x0020 is  0x%x\n"), (uintptr_t)(val20));
-
-	if (val24 != 0)
-		ret += ((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))seq_printf)((uintptr_t)(m), (uintptr_t)("0x0024 is  0x%x\n"), (uintptr_t)(val24));
-
-	if (val20 == 0 && val24 == 0)
-		return ret;
-
-	ret += ((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))seq_printf)((uintptr_t)(m), (uintptr_t)("0x0014 is  0x%x\n"), (uintptr_t)(reg[3]));
-	return ret;
-}
-
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000002a88 origin=fragment_seed original=tx_isp_csi_probe */
 int tx_isp_csi_probe(struct platform_device *pdev)
 {
@@ -10664,177 +9142,6 @@ int32_t tx_isp_csi_activate_subdev(uintptr_t a0)
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000002e0c origin=fragment_seed original=tx_isp_csi_activate_subdev */
-/* Raw recovery retained for audit; the kernel build uses the typed OEM path. */
-static int32_t tx_isp_csi_activate_subdev_raw(uintptr_t a0)
-{
-    uint32_t *local_10 = 0;
-    uint32_t local_14 = 0;
-    uint32_t *local_18 = 0;
-    uint32_t local_1c = 0;
-    uint32_t local_20 = 0;
-    uint32_t local_24 = 0;
-    uint32_t ra = 0;
-    uintptr_t *s0 = 0;
-    uintptr_t *s1 = 0;
-    uint32_t *s2 = 0;
-    uint32_t *s3 = 0;
-    uint32_t s4 = 0;
-    uintptr_t *v0 = 0;
-    uint32_t v1 = 0;
-
-    /* fragment 0: Branch */
-    if (a0 == 0) { goto tx_isp_csi_activate_subdev0xec; }
-
-    /* fragment 1: Prologue */
-    /* function prologue: stack frame and callee-saved register setup */
-
-    /* fragment 2: Arithmetic */
-    v0 = a0 < -4095;
-
-    /* fragment 3: StackAccess */
-    local_10 = s0;
-    local_24 = ra;
-    local_20 = s4;
-    local_1c = s3;
-    local_18 = s2;
-    local_14 = s1;
-
-    /* fragment 4: Branch */
-    s0 = a0;
-    if (v0 == 0) { goto tx_isp_csi_activate_subdev0xe4; }
-
-    /* fragment 5: MemoryAccess */
-    s1 = *(uint32_t *)((char *)a0 + 212);
-
-    /* fragment 6: Branch */
-    if (s1 == 0) { goto tx_isp_csi_activate_subdev0xe4; }
-
-    /* fragment 7: Arithmetic */
-    v0 = s1 < -4095;
-
-    /* fragment 8: Branch */
-    s4 = s1 + 296;
-    if (v0 == 0) { goto tx_isp_csi_activate_subdev0xe4; }
-
-    /* fragment 9: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(int32_t *))(uintptr_t)private_mutex_lock)(s4); /* jalr target resolved by relocation */
-
-    /* fragment 10: MemoryAccess */
-    v1 = *(uint32_t *)((char *)s1 + 292);
-    v0 = 1;
-
-    /* fragment 11: Branch */
-    int _bc_v1_11 = v1 == v0;
-    v0 = 2;
-    if (_bc_v1_11) { goto tx_isp_csi_activate_subdev0x9c; }
-
-tx_isp_csi_activate_subdev0x68:
-    /* fragment 12: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(int32_t *))(uintptr_t)private_mutex_unlock)(s4); /* jalr target resolved by relocation */
-
-    /* fragment 13: Arithmetic */
-    v0 = 0;
-
-tx_isp_csi_activate_subdev0x7c:
-    /* fragment 14: Epilogue */
-    /* function epilogue: restore registers and return */
-    return (int32_t)v0;
-
-tx_isp_csi_activate_subdev0x9c:
-    /* fragment 15: MemoryAccess */
-    *(uint32_t *)((char *)s1 + 292) = v0;
-    s2 = *(uint32_t *)((char *)s0 + 188);
-
-    /* fragment 16: Branch */
-    v0 = s2 < -4095;
-    if (s2 == 0) { goto tx_isp_csi_activate_subdev0x68; }
-
-    /* fragment 17: Branch */
-    s3 = (int32_t *)&private_clk_enable;
-    if (v0 == 0) { goto tx_isp_csi_activate_subdev0x68; }
-
-    /* fragment 18: Arithmetic */
-    s1 = 0;
-    s3 = s3;
-
-    /* fragment 19: MemoryAccess */
-    v0 = *(uint32_t *)((char *)s0 + 192);
-
-tx_isp_csi_activate_subdev0xc0:
-    /* fragment 20: Arithmetic */
-    v0 = s1 < v0;
-
-    /* fragment 21: Branch */
-    int _bc_v0_21 = v0 == 0;
-    v0 = (uintptr_t)s1 << 2;
-    if (_bc_v0_21) { goto tx_isp_csi_activate_subdev0x68; }
-
-    /* fragment 22: CallSetup */
-    s1 = s1 + 1;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_clk_enable)(*(uint32_t *)((char *)((uintptr_t)s2 + (uintptr_t)v0) + 0)); /* jalr target resolved by relocation */
-
-    /* fragment 23: Branch */
-    v0 = *(uint32_t *)((char *)(s0) + 192);
-    goto tx_isp_csi_activate_subdev0xc0;
-
-tx_isp_csi_activate_subdev0xe4:
-    /* fragment 24: Branch */
-    v0 = -22;
-    goto tx_isp_csi_activate_subdev0x7c;
-
-tx_isp_csi_activate_subdev0xec:
-    /* fragment 25: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    /* fragment 26: Arithmetic */
-    v0 = -22;
-
-    return 0;
-}
-
-/* WHOLE_DRIVER_CANDIDATE fn_0000000000002f00 origin=model_output original=dump_csi_reg */
-int32_t dump_csi_reg(void *arg1)
-{
-    volatile uint32_t *regs = *(volatile uint32_t **)((char *)arg1 + 0xb8);
-
-    isp_printf(0, "****>>>>> dump csi reg <<<<<******\n", 0);
-    isp_printf(0, "**********VERSION =%08x\n", regs[0]);
-    isp_printf(0, "**********N_LANES =%08x\n", regs[1]);
-    isp_printf(0, "**********PHY_SHUTDOWNZ = %08x\n", regs[2]);
-    isp_printf(0, "**********DPHY_RSTZ = %08x\n", regs[3]);
-    isp_printf(0, "**********CSI2_RESETN =%08x\n", regs[4]);
-    isp_printf(0, "**********PHY_STATE = %08x\n", regs[5]);
-    isp_printf(0, "**********DATA_IDS_1 = %08x\n", regs[6]);
-    isp_printf(0, "**********DATA_IDS_2 = %08x\n", regs[7]);
-    isp_printf(0, "**********ERR1 = %08x\n", regs[8]);
-    isp_printf(0, "**********ERR2 = %08x\n", regs[9]);
-    isp_printf(0, "**********MASK1 =%08x\n", regs[10]);
-    isp_printf(0, "**********MASK2 =%08x\n", regs[11]);
-    isp_printf(0, "**********PHY_TST_CTRL0 = %08x\n", regs[12]);
-    return isp_printf(0, "**********PHY_TST_CTRL1 = %08x\n", regs[13]);
-}
-
-/* WHOLE_DRIVER_CANDIDATE fn_0000000000003090 origin=model_output original=check_csi_error */
-void check_csi_error(void)
-{
-    void *base;
-    void *err;
-    uint32_t err1;
-    uint32_t err2;
-
-    for (;;) {
-        base = dump_csd;
-        dump_csi_reg(base);
-        err = *(void **)((char *)base + 0xb8);
-        err1 = *(uint32_t *)((char *)err + 0x20);
-        err2 = *(uint32_t *)((char *)err + 0x24);
-        if (err1 != 0)
-            isp_printf(0, "error-------- 1:0x%08x\n", err1);
-        if (err2 != 0)
-            isp_printf(0, "error-------- 2:0x%08x\n", err2);
-    }
-}
-
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000003114 origin=model_output original=csi_set_on_lanes */
 int32_t csi_set_on_lanes(void *arg1, int32_t arg2)
 {
@@ -11109,149 +9416,36 @@ csi_core_ops_init0x2a4:
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000003468 origin=fragment_seed original=tx_isp_csi_slake_subdev */
 int32_t tx_isp_csi_slake_subdev(uintptr_t a0)
 {
-    uint32_t local_14 = 0;
-    uint32_t *local_18 = 0;
-    uint32_t local_1c = 0;
-    uint32_t local_20 = 0;
-    uint32_t local_24 = 0;
-    uint32_t *a1 = 0;
-    uint32_t ra = 0;
-    uintptr_t *s0 = 0;
-    uintptr_t *s1 = 0;
-    uint32_t *s2 = 0;
-    uint32_t *s3 = 0;
-    uintptr_t *v0 = 0;
-    uint32_t v1 = 0;
+	/*
+	 * SDK-built ko 0x3468..0x358c.  Plain C: the register lift kept the
+	 * byte offsets on `uintptr_t *` registers (mutex at csd + 0x4a0 instead
+	 * of +0x128, the clock index stepped by 4) and called
+	 * csi_video_s_stream without the enable argument (vendor 0x34c4 a1 = 0).
+	 */
+	struct tx_isp_t30_subdev *sd = (void *)a0;
+	char *csd;
+	struct clk **clks;
+	int32_t i;
 
-    /* fragment 0: Branch */
-    if (a0 == 0) { goto tx_isp_csi_slake_subdev0x124; }
-
-    /* fragment 1: Prologue */
-    /* function prologue: stack frame and callee-saved register setup */
-
-    /* fragment 2: Arithmetic */
-    v0 = a0 < -4095;
-
-    /* fragment 3: StackAccess */
-    local_14 = s0;
-    local_24 = ra;
-    local_20 = s3;
-    local_1c = s2;
-    local_18 = s1;
-
-    /* fragment 4: Branch */
-    s0 = a0;
-    if (v0 == 0) { goto tx_isp_csi_slake_subdev0x11c; }
-
-    /* fragment 5: MemoryAccess */
-    s1 = *(uint32_t *)((char *)a0 + 212);
-
-    /* fragment 6: Branch */
-    if (s1 == 0) { goto tx_isp_csi_slake_subdev0x11c; }
-
-    /* fragment 7: Arithmetic */
-    v0 = s1 < -4095;
-
-    /* fragment 8: Branch */
-    if (v0 == 0) { goto tx_isp_csi_slake_subdev0x11c; }
-
-    /* fragment 9: MemoryAccess */
-    v1 = *(uint32_t *)((char *)s1 + 292);
-    v0 = 4;
-
-    /* fragment 10: Branch */
-    int _bc_v1_10 = v1 != v0;
-    v0 = 0;
-    if (_bc_v1_10) { goto tx_isp_csi_slake_subdev0x64; }
-
-    /* fragment 11: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(int32_t *))(uintptr_t)csi_video_s_stream)(a0); /* jalr target resolved by relocation */
-
-    /* fragment 12: MemoryAccess */
-    v1 = *(uint32_t *)((char *)s1 + 292);
-
-tx_isp_csi_slake_subdev0x64:
-    /* fragment 13: Arithmetic */
-    v0 = 3;
-
-    /* fragment 14: Branch */
-    s3 = s1 + 296;
-    if (v1 != v0) { goto tx_isp_csi_slake_subdev0x88; }
-
-    /* fragment 15: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(int32_t *)csi_core_ops_init)(s0, 0); /* jalr target resolved by relocation */
-
-    /* fragment 16: CallSetup */
-    s3 = s1 + 296;
-
-tx_isp_csi_slake_subdev0x88:
-    /* fragment 17: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(int32_t *))(uintptr_t)private_mutex_lock)(s3); /* jalr target resolved by relocation */
-
-    /* fragment 18: MemoryAccess */
-    v1 = *(uint32_t *)((char *)s1 + 292);
-    v0 = 2;
-
-    /* fragment 19: Branch */
-    int _bc_v1_19 = v1 == v0;
-    v0 = 1;
-    if (_bc_v1_19) { goto tx_isp_csi_slake_subdev0xd8; }
-
-tx_isp_csi_slake_subdev0xa8:
-    /* fragment 20: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(int32_t *))(uintptr_t)private_mutex_unlock)(s3); /* jalr target resolved by relocation */
-
-    /* fragment 21: Arithmetic */
-    v0 = 0;
-
-tx_isp_csi_slake_subdev0xbc:
-    /* fragment 22: Epilogue */
-    /* function epilogue: restore registers and return */
-    return (int32_t)v0;
-
-tx_isp_csi_slake_subdev0xd8:
-    /* fragment 23: MemoryAccess */
-    *(uint32_t *)((char *)s1 + 292) = v0;
-    s1 = *(uint32_t *)((char *)s0 + 188);
-
-    /* fragment 24: Branch */
-    v0 = s1 < -4095;
-    if (s1 == 0) { goto tx_isp_csi_slake_subdev0xa8; }
-
-    /* fragment 25: Branch */
-    s2 = (uint32_t *)&private_clk_disable;
-    if (v0 == 0) { goto tx_isp_csi_slake_subdev0xa8; }
-
-    /* fragment 26: MemoryAccess */
-    s0 = *(uint32_t *)((char *)s0 + 192);
-    s0 = s0 - 1;
-    s2 = s2;
-
-tx_isp_csi_slake_subdev0xfc:
-    /* fragment 27: Branch */
-    v0 = (uintptr_t)s0 << 2;
-    if (s0 < 0) { goto tx_isp_csi_slake_subdev0xa8; }
-
-    /* fragment 28: CallSetup */
-    s0 = s0 - 1;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_clk_disable)(*(uint32_t *)((char *)((uintptr_t)s1 + (uintptr_t)v0) + 0)); /* jalr target resolved by relocation */
-
-    /* fragment 29: Branch */
-    goto tx_isp_csi_slake_subdev0xfc;
-
-tx_isp_csi_slake_subdev0x11c:
-    /* fragment 30: Branch */
-    v0 = -22;
-    goto tx_isp_csi_slake_subdev0xbc;
-
-tx_isp_csi_slake_subdev0x124:
-    /* fragment 31: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    /* fragment 32: Arithmetic */
-    v0 = -22;
-
-    return 0;
+	if (sd == NULL || IS_ERR(sd))
+		return -EINVAL;
+	csd = *(char **)((char *)sd + 0xd4);
+	if (csd == NULL || IS_ERR(csd))
+		return -EINVAL;
+	if (*(int32_t *)(csd + 0x124) == 4)
+		csi_video_s_stream(sd, 0, 0);
+	if (*(int32_t *)(csd + 0x124) == 3)
+		csi_core_ops_init(a0, 0);
+	private_mutex_lock((struct mutex *)(csd + 0x128));
+	if (*(int32_t *)(csd + 0x124) == 2) {
+		*(int32_t *)(csd + 0x124) = 1;
+		clks = *(struct clk ***)((char *)sd + 0xbc);
+		if (clks != NULL && !IS_ERR(clks))
+			for (i = *(int32_t *)((char *)sd + 0xc0) - 1; i >= 0; i--)
+				private_clk_disable(clks[i]);
+	}
+	private_mutex_unlock((struct mutex *)(csd + 0x128));
+	return 0;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000035a0 origin=fragment_seed original=isp_core_tunning_open */
@@ -11306,67 +9500,6 @@ int32_t isp_core_tunning_open(uint32_t a0, uintptr_t a1)
 	return 0;
 }
 
-/* WHOLE_DRIVER_CANDIDATE fn_0000000000003620 origin=model_output original=apical_isp_wb_s_control */
-int apical_isp_wb_s_control(void *arg1, int32_t *arg2)
-{
-	int32_t *s0 = arg1;
-	int32_t *s1 = arg2;
-	int32_t cmd = *s1;
-	uint32_t var_20 = 0;
-	uint32_t *var_28 = &var_20;
-	int32_t a2;
-	int32_t *a1;
-	int32_t src;
-
-	if (cmd == 0x8000000) {
-		src = s1[1];
-
-		if (((src + 0xec) | src) & *(uint32_t *)(entry_gp + 0x18)) {
-			/* page aligned, skip copy */
-		} else {
-			__might_sleep("include/linux/kernel.h", 0xc9, 0);
-			__copy_user((char *)s0 + 8, (void *)src, 0xec);
-		}
-
-		apical_command(3, 0x61, *(uint16_t *)((uintptr_t)s0 + 0xc) / 0x64, 0, &var_20);
-		apical_command(3, 0x62, *(uint16_t *)((uintptr_t)s0 + 0xe) / 0x64, 0, &var_20);
-		var_28 = &var_20;
-		a2 = *(int32_t *)((char *)s0 + 8);
-		a1 = 0x66;
-	} else if (cmd == 0x8000002) {
-
-		if (((src + 4) | src) & *(uint32_t *)(entry_gp + 0x18)) {
-			/* page aligned, skip copy */
-		} else {
-			__might_sleep("include/linux/kernel.h", 0xc9, 0);
-			__copy_user((char *)s0 + 0xf4, (void *)src, 4);
-		}
-
-		if (*(int32_t *)((char *)s0 + 4) != 0)
-			return 0;
-
-		apical_command(3, 0x63, *(uint16_t *)((char *)s0 + 0xf4), 0, &var_20);
-		var_28 = &var_20;
-		a2 = *(uint16_t *)((char *)s0 + 0xf6);
-		a1 = 0x64;
-	} else if (cmd == 0x9a0914) {
-		int32_t idx = s1[1];
-		int32_t val = -22;
-
-		if ((uint32_t)idx < 0xa)
-			val = (int8_t)CSWTCH_192[idx];
-
-		apical_command(3, 0x60, val, 0, &var_20);
-		*(int32_t *)((char *)s0 + 4) = s1[1];
-		return 0;
-	} else {
-		return -22;
-	}
-
-	apical_command(3, a1, a2, 0, var_28);
-	return 0;
-}
-
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000003820 origin=model_output original=apical_isp_table_s_attr.isra.0 */
 #ifndef REGTRACE_KERNEL_TREE_BUILD
 int apical_isp_table_s_attr_isra_0(void *arg1, void *arg2) __asm__("apical_isp_table_s_attr.isra.0");
@@ -11384,7 +9517,7 @@ int apical_isp_table_s_attr(void *arg1, void *arg2)
     int var_2c;
     int var_24;
     int var_20;
-    char var_38[24];
+    uint32_t var_38[6];
     int retval;
 
     ptr = *(void **)((char *)arg1 + 0xd4);
@@ -11393,17 +9526,25 @@ int apical_isp_table_s_attr(void *arg1, void *arg2)
     if (*(int *)((char *)ptr + 0x19c) == 0)
         goto err_alloc;
 
-    if ((((unsigned int)(arg2 + 0x18) | (unsigned int)arg2) & *(unsigned int *)(entry_gp + 0x18)) == 0) {
-        __might_sleep("include/linux/kernel.h", 0xc9, 0);
-        copy_from_user(var_38, (const void __user *)(uintptr_t)(arg2), 0x18);
-    }
+    /*
+     * OEM SDK ko 0x3820: the 24-byte request {u32 id; u32 a, b, c; u32 res;
+     * u32 user_buf} is copied to sp+24, size = a * b * c (sp+28/32/36), buffer
+     * pointer sp+44.  The lift read the fields at var_38 + 0x1c..0x2c (past
+     * the 24-byte copy, stack garbage) and tested the user range against
+     * entry_gp[24] (outside the 16-word stand-in for gp/thread_info, so not
+     * the addr_limit).  copy_from_user() does the OEM access_ok check; on a
+     * fault the OEM continued with an uncopied stack buffer, here it is zero.
+     */
+    memset(var_38, 0, sizeof(var_38));
+    if (copy_from_user(var_38, (const void __user *)(uintptr_t)(arg2), 0x18))
+        memset(var_38, 0, sizeof(var_38));
 
-    var_34 = *(int *)(var_38 + 0x1c);
-    var_30 = *(int *)(var_38 + 0x20);
-    var_2c = *(int *)(var_38 + 0x2c);
+    var_34 = (int)var_38[1];
+    var_30 = (int)var_38[2];
+    var_2c = (int)var_38[3];
     size = var_34 * var_30 * var_2c;
-    var_24 = *(int *)(var_38 + 0x24);
-    type = var_38[0];
+    var_24 = (int)var_38[5];
+    type = (char)var_38[0];
 
     if (var_24 == 0) {
         ((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))printk)((uintptr_t)("%s,%d, param err\n"), (uintptr_t)("apical_isp_table_s_attr"), (uintptr_t)(0xbaa));
@@ -11417,10 +9558,9 @@ int apical_isp_table_s_attr(void *arg1, void *arg2)
         goto err_alloc;
     }
 
-    if ((((unsigned int)(size + var_24) | (unsigned int)size | (unsigned int)var_24) & *(unsigned int *)(entry_gp + 0x18)) == 0) {
-        __might_sleep("include/linux/kernel.h", 0xc9, 0);
-        __copy_user(buf, (void *)var_24, size);
-    }
+    /* OEM: access_ok + __copy_user; buf is __GFP_ZERO (0x80d0) if it faults */
+    if (copy_from_user(buf, (const void __user *)(uintptr_t)var_24, size))
+        memset(buf, 0, size);
 
     ret = apical_api_calibration(type & 0xff, 0, (uintptr_t)buf, size, &var_20);
     status = var_20;
@@ -11440,181 +9580,13 @@ out:
 
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000039f0 origin=model_output original=apical_isp_awb_weight_g_attr.isra.0 */
 #ifndef REGTRACE_KERNEL_TREE_BUILD
-int32_t apical_isp_awb_weight_g_attr_isra_0(uintptr_t arg1) __asm__("apical_isp_awb_weight_g_attr.isra.0");
 #endif
-int32_t apical_isp_awb_weight_g_attr_isra_0(uintptr_t arg1)
-{
-    uint8_t buf[225];
-    uint32_t *i;
-    uint32_t j;
-    uint32_t val;
-    uint32_t *dst;
-    uint32_t *result;
-    uint32_t gp_mask;
-
-    for (i = (uint32_t *)0x1f00; (uintptr_t)i != 0x1fe1; i = (uintptr_t)i + 0xf) {
-        for (j = 0; j != 0xf; j++) {
-            val = APICAL_READ_32((uintptr_t)i & 0xfffffffc);
-            ((void **)buf)[j] = (uint8_t)(val >> (((uintptr_t)i << 3) & 0x1f));
-        }
-    }
-
-    dst = *(uint32_t *)((char *)arg1 + 4);
-    gp_mask = *(uint32_t *)(uintptr_t)0x18;
-
-    result = (((uintptr_t)dst + 0xe1) | (uintptr_t)dst) & gp_mask;
-
-    if (result != 0)
-        return result;
-
-    __might_sleep("include/linux/kernel.h", 0xc9, 0);
-    return copy_to_user((void __user *)(uintptr_t)((void *)dst), buf, 0xe1);
-}
-
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000003aec origin=model_output original=apical_isp_awb_weight_s_attr.isra.0 */
 #ifndef REGTRACE_KERNEL_TREE_BUILD
-int32_t apical_isp_awb_weight_s_attr_isra_0(uint32_t a0) __asm__("apical_isp_awb_weight_s_attr.isra.0");
 #endif
-int32_t apical_isp_awb_weight_s_attr_isra_0(uint32_t a0)
-{
-    char buf[225];
-    uint32_t *i;
-    uint32_t j;
-    uint32_t shift;
-    uint32_t *mask;
-    uint32_t val;
-    uint32_t byte;
-    uint32_t addr;
-    uint32_t read_val;
-    uint32_t pde_mask;
-
-    pde_mask = *(uint32_t *)0x18;
-
-    if ((((a0 + 0xe1) | a0) & pde_mask) == 0) {
-        __might_sleep("include/linux/kernel.h", 0xc9, 0);
-        copy_from_user(buf, (const void __user *)(uintptr_t)((void __user *)a0), 0xe1);
-    }
-
-    for (i = (uint32_t *)0x1f00; (uintptr_t)i != 0x1fe1; i = (uintptr_t)i + 0xf) {
-        for (j = 0; j != 0xf; j++) {
-            addr = (uintptr_t)i & 0xfffffffc;
-            shift = ((uintptr_t)i << 3) & 0x1f;
-            byte = (uint8_t)buf[(uintptr_t)i - 0x1f00];
-            read_val = APICAL_READ_32(addr);
-            mask = ~(0xff << shift) & read_val;
-            val = (uintptr_t)mask | ((uint32_t)byte << shift);
-            APICAL_WRITE_32(addr, val);
-        }
-    }
-
-    return 0x1fe1;
-}
-
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000003c10 origin=fragment_seed original=apical_isp_ae_weight_g_attr.isra.0 */
 #ifndef REGTRACE_KERNEL_TREE_BUILD
-int32_t apical_isp_ae_weight_g_attr_isra_0(uintptr_t a0) __asm__("apical_isp_ae_weight_g_attr.isra.0");
 #endif
-int32_t apical_isp_ae_weight_g_attr_isra_0(uintptr_t a0)
-{
-    uint32_t *local_10 = 0;
-    uint32_t local_fc = 0;
-    uint32_t local_100 = 0;
-    uint32_t local_104 = 0;
-    uint32_t local_108 = 0;
-    uint32_t local_10c = 0;
-    uint32_t local_110 = 0;
-    uint32_t local_114 = 0;
-    uint32_t local_118 = 0;
-    uint32_t local_11c = 0;
-    uint32_t *a1 = 0;
-    uint32_t a2 = 0;
-    uint32_t at = 0;
-    uintptr_t gp = 0;
-    uint32_t ra = 0;
-    uint32_t *s0 = 0;
-    uint32_t *s1 = 0;
-    uintptr_t *s2 = 0;
-    uint32_t *s3 = 0;
-    uint32_t s4 = 0;
-    uint32_t s5 = 0;
-    uint32_t s6 = 0;
-    uint32_t s7 = 0;
-    uintptr_t *v0 = 0;
-    uintptr_t v1 = 0;
-
-    /* fragment 0: Prologue */
-    /* function prologue: stack frame and callee-saved register setup */
-
-    /* fragment 1: CallSetup */
-    s4 = (uintptr_t)&APICAL_READ_32;
-    local_118 = s7;
-    local_114 = s6;
-    local_110 = s5;
-    local_104 = s2;
-    local_100 = s1;
-    local_11c = ra;
-    local_108 = s3;
-    local_fc = s0;
-    s2 = a0;
-    s1 = 7680;
-    s5 = -4;
-    s4 = s4;
-    s6 = 15;
-    s7 = 7905;
-
-apical_isp_ae_weight_g_attr_isra_00x44:
-    /* fragment 2: CallSetup */
-    s0 = s1;
-    s3 = 0;
-
-apical_isp_ae_weight_g_attr_isra_00x4c:
-    /* fragment 3: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)APICAL_READ_32)((uintptr_t)s0 & s5); /* jalr target resolved by relocation */
-
-    /* fragment 4: Arithmetic */
-    v1 = (uintptr_t)&local_10;
-    v1 = v1 + (uintptr_t)s0;
-    a0 = (uintptr_t)s0 << 3;
-    v0 = (uintptr_t)v0 >> a0;
-    s3 = s3 + 1;
-
-    /* fragment 5: MemoryAccess */
-    *(uint8_t *)((char *)v1 + -7680) = v0;
-
-    /* fragment 6: Branch */
-    s0 = s0 + 1;
-    if (s3 != s6) { goto apical_isp_ae_weight_g_attr_isra_00x4c; }
-
-    /* fragment 7: Arithmetic */
-    s1 = s1 + 15;
-
-    /* fragment 8: Branch */
-    if (s1 != s7) { goto apical_isp_ae_weight_g_attr_isra_00x44; }
-
-    /* fragment 9: MemoryAccess */
-    s0 = *(uint32_t *)((char *)s2 + 4);
-    v1 = 0;
-    v0 = s0 + 225;
-    v0 = (uintptr_t)v0 | (uintptr_t)s0;
-    v0 = (uintptr_t)v0 & v1;
-
-    /* fragment 10: Branch */
-    a0 = (uintptr_t)&LC1;
-    if (v0 != 0) { goto apical_isp_ae_weight_g_attr_isra_00xd0; }
-
-    /* fragment 11: CallSetup */
-    __might_sleep((const char *)(uintptr_t)&LC1, 201, 0); /* jalr target resolved by relocation */
-
-    /* fragment 12: CallSetup */
-    v0 = (uintptr_t *)__copy_user((void *)(int32_t *)s0, (void *)(uintptr_t)&local_10, 225); /* jalr target resolved by relocation */
-
-apical_isp_ae_weight_g_attr_isra_00xd0:
-    /* fragment 13: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    return 0;
-}
-
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000003d0c origin=fragment_seed original=apical_isp_ae_weight_s_attr.isra.0 */
 #ifndef REGTRACE_KERNEL_TREE_BUILD
 int32_t apical_isp_ae_weight_s_attr_isra_0(uint32_t a0) __asm__("apical_isp_ae_weight_s_attr.isra.0");
@@ -11638,9 +9610,9 @@ int32_t apical_isp_ae_weight_s_attr_isra_0(uint32_t a0)
     uint32_t at = 0;
     uintptr_t gp = 0;
     uint32_t ra = 0;
-    uint32_t *s0 = 0;
-    uint32_t *s1 = 0;
-    uint32_t *s2 = 0;
+    uint32_t s0 = 0;	/* #375: untyped register (zone address / counter, vendor 4ea12e1f 0x3d0c) */
+    uint32_t s1 = 0;	/* #375: untyped register (zone address / counter, vendor 4ea12e1f 0x3d0c) */
+    uint32_t s2 = 0;	/* #375: untyped register (zone address / counter, vendor 4ea12e1f 0x3d0c) */
     uint32_t *s3 = 0;
     uint32_t s4 = 0;
     uint32_t s5 = 0;
@@ -11667,7 +9639,7 @@ int32_t apical_isp_ae_weight_s_attr_isra_0(uint32_t a0)
     local_108 = s2;
     local_104 = s1;
     local_100 = s0;
-    v1 = 0;
+    v1 = T30_GP_ADDR_LIMIT();	/* OEM lw v1,24(gp): addr_limit (#371) */
     v0 = (uintptr_t)v0 | a0;
     v0 = (uintptr_t)v0 & v1;
 
@@ -11705,7 +9677,7 @@ apical_isp_ae_weight_s_attr_isra_00xa4:
 
     /* fragment 9: CallSetup */
     s2 = s2 + 1;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)APICAL_WRITE_32)(local_f8, ((~(0 | (s4 << ((uintptr_t)s0 << 3)))) & (uintptr_t)v0) | (s6 << ((uintptr_t)s0 << 3))); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)APICAL_WRITE_32)(local_f8, ((~(0 | (s4 << ((s0 << 3) & 31)))) & (uintptr_t)v0) | (s6 << ((s0 << 3) & 31))	/* OEM sllv: low 5 bits */); /* jalr target resolved by relocation */
 
     /* fragment 10: Branch */
     s0 = s0 + 1;
@@ -11782,7 +9754,7 @@ apical_isp_gamma_s_attr_isra_00x4c:
 
 apical_isp_gamma_s_attr_isra_00x64:
     /* fragment 8: MemoryAccess */
-    v1 = 0;
+    v1 = T30_GP_ADDR_LIMIT();	/* OEM lw v1,24(gp): addr_limit (#371) */
     v0 = a0 + 258;
     v0 = (uintptr_t)v0 | a0;
     v0 = (uintptr_t)v0 & v1;
@@ -11837,38 +9809,18 @@ int apical_isp_stab_g_attr(void *arg1)
     memset(buf, 0, 0x70);
     memcpy(buf, (void *)stab, 0x3c);
 
-    result = ((user_ptr + 0x70) | user_ptr) & *(int *)(entry_gp + 0x18);
-    if (result != 0)
-        return result;
-
-    __might_sleep("include/linux/kernel.h", 0xc9, 0);
-    return copy_to_user((void __user *)(uintptr_t)((void *)(uintptr_t)(user_ptr)), buf, 0x70);
+    /*
+     * OEM SDK ko 0x4384: access_ok(user, 0x70) on the addr_limit at gp+24,
+     * then __copy_user.  The lift read entry_gp[24] (past the 16-word
+     * stand-in, not the addr_limit); copy_to_user() does the real check.
+     */
+    (void)result;
+    return copy_to_user((void __user *)(uintptr_t)user_ptr, buf, 0x70);
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000004428 origin=model_output original=apical_isp_gamma_g_attr.isra.0 */
 #ifndef REGTRACE_KERNEL_TREE_BUILD
-int32_t apical_isp_gamma_g_attr_isra_0(void *arg1) __asm__("apical_isp_gamma_g_attr.isra.0");
 #endif
-int32_t apical_isp_gamma_g_attr_isra_0(void *arg1)
-{
-    uint16_t buf[129];
-    int32_t *i;
-    int32_t *s0;
-    int32_t *result;
-
-    for (i = 0x10400; (uintptr_t)i != 0x10604; i = (uintptr_t)i + 4)
-        *(uint16_t *)&buf[((uintptr_t)i - 0x10400) / 4] = (uint16_t)APICAL_READ_32((uintptr_t)i);
-
-    s0 = *(int32_t *)((char *)arg1 + 4);
-    result = (((uintptr_t)s0 + 0x102) | (uintptr_t)s0) & get_fs().seg;
-
-    if (result != 0)
-        return result;
-
-    __might_sleep("include/linux/kernel.h", 0xc9, 0);
-    return (int32_t)copy_to_user((void __user *)(uintptr_t)((void *)s0), buf, 0x102);
-}
-
 /*
  * Frame-done state of IMAGE_TUNING_CID_WAIT_FRAME (OEM frame_done_wq, frame_done_cond,
  * frame_done_cnt).  The lifted byte-array copies were not usable as a wait queue (the
@@ -11989,7 +9941,7 @@ int32_t apical_isp_core_ops_s_ctrl(void **arg1, int32_t *arg2, int32_t arg3)
 				int32_t var_4c = 1;
 				int16_t var_48 = 0;
 				var_2c = 0;
-				if ((((uint32_t)((uintptr_t)s1 + 0xc) | (uint32_t)s1) & (uint32_t)entry_gp) == 0) {
+				if ((((uint32_t)((uintptr_t)s1 + 0xc) | (uint32_t)s1) & (uint32_t)T30_GP_ADDR_LIMIT()) == 0) {
 					__might_sleep("include/linux/kernel.h", 0xc9, 0);
 					copy_from_user(&var_50, (const void __user *)(uintptr_t)((void *)s1), 0xc);
 				}
@@ -12114,6 +10066,33 @@ int32_t apical_isp_core_ops_s_ctrl(void **arg1, int32_t *arg2, int32_t arg3)
 	return 0xffffffff;
 }
 
+/*
+ * #375: OEM apical_isp_core_ops_g_ctrl jump tables (vendor 4ea12e1f .rodata+556 / +824 / +872).  Arm
+ * 0x8a98 = "s0 = -1" (unsupported), 0x8da0 = "return 0", 0x9da4 = value = tuning +3776.  Every other arm is
+ * served before the lifted function by tx_isp_t30_tuning_ctl_get() or the VIDIOC_G_CTRL wrapper, except
+ * 0x8000020 (OEM 0x8bec, AE attribute block) and 0x800002c (OEM 0x8ec8, apical_isp_stab_g_attr), which
+ * #379 serves here (the lift left them -1; no libimp 1.0.5 call uses 0x8000020, 0x800002c is MoveState and
+ * integration time).
+ */
+/*
+ * #379: OEM g_ctrl arm 0x8bec (id 0x8000020).  Three apical_command(3, 0x58/0x5b/0x5a, -1, 1, &tmp) calls whose
+ * result is discarded, the tuning words at +0x828 (u16), +0x82a (u16) and +0x830 (u32) set to all ones, then
+ * a 0xf0 byte copy of tuning+0x828 to the user pointer (access_ok failure and copy result are ignored: the
+ * OEM returns 0 either way).
+ */
+static int t30_g_ctrl_ae_attr(void *tuning, uint32_t *ctl)
+{
+	uint32_t tmp = 0;
+	uint8_t *t = tuning;
+
+	apical_command(3, 0x58, 0xffffffffu, 1, &tmp);
+	apical_command(3, 0x5b, 0xffffffffu, 1, &tmp);
+	apical_command(3, 0x5a, 0xffffffffu, 1, &tmp);
+	t30_gctrl_ae_attr_mark(t);
+	if (copy_to_user((void __user *)(uintptr_t)ctl[1], t + 0x828, 0xf0))
+		return 0;
+	return 0;
+}
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000008a14 origin=fragment_seed original=apical_isp_core_ops_g_ctrl */
 int64_t apical_isp_core_ops_g_ctrl(uintptr_t a0, uintptr_t a1)
 {
@@ -12163,14 +10142,14 @@ int64_t apical_isp_core_ops_g_ctrl(uintptr_t a0, uintptr_t a1)
     uint32_t at = 0;
     uintptr_t gp = 0;
     uint32_t ra = 0;
-    uintptr_t *s0 = 0;
-    uintptr_t *s1 = 0;
-    uintptr_t *s2 = 0;
+    uintptr_t s0 = 0;	/* #375: untyped MIPS register (OEM byte arithmetic) */
+    uintptr_t s1 = 0;	/* #375: untyped MIPS register (OEM byte arithmetic) */
+    uintptr_t s2 = 0;	/* #375: untyped MIPS register (OEM byte arithmetic) */
     uint32_t *s3 = 0;
     uint32_t s4 = 0;
     uint32_t s5 = 0;
     uint32_t s6 = 0;
-    uintptr_t *v0 = 0;
+    uintptr_t v0 = 0;	/* #375: untyped MIPS register (OEM byte arithmetic) */
     uintptr_t v1 = 0;
 
     /* fragment 0: Prologue */
@@ -12252,106 +10231,14 @@ apical_isp_core_ops_g_ctrl0x90:
     v0 = 0;
     if (_bc_v0_17) { goto apical_isp_core_ops_g_ctrl0x84; }
 
-    /* fragment 18: Arithmetic */
-    v1 = v1 << 2;
-    v0 = v0 + 556;
-    v0 = v0 + v1;
-
-    /* fragment 19: MemoryAccess */
-    v0 = *(uint32_t *)((char *)v0 + 0);
-
-    /* fragment 20: IndirectTailCall */
-    switch (a1) {
-        case 0x980914: return -ENOSYS; /* inline case at 0x8da0 */
-        case 0x980915: return -ENOSYS; /* inline case at 0x99c4 */
-        case 0x980916: return -ENOSYS; /* inline case at 0x8a98 */
-        case 0x980917: return -ENOSYS; /* inline case at 0x8da0 */
-        case 0x980918: return -ENOSYS; /* inline case at 0x9024 */
-        case 0x980919: return (int32_t)((uintptr_t (*)(uintptr_t, uintptr_t))APICAL_READ_32)((uintptr_t)((void *)a0), (uintptr_t)((int)a2));
-        case 0x98091a: return -ENOSYS; /* inline case at 0x9a14 */
-        case 0x98091b: return (int32_t)((uintptr_t (*)(uintptr_t, uintptr_t))APICAL_READ_32)((uintptr_t)((void *)a0), (uintptr_t)((int)a2));
-        case 0x98091c: return (int32_t)((uintptr_t (*)(uintptr_t, uintptr_t))APICAL_READ_32)((uintptr_t)((void *)a0), (uintptr_t)((int)a2));
-        case 0x98091d: return -ENOSYS; /* inline case at 0x8a98 */
-        case 0x98091e: return -ENOSYS; /* inline case at 0x8a98 */
-        case 0x98091f: return -ENOSYS; /* inline case at 0x8a98 */
-        case 0x980920: return -ENOSYS; /* inline case at 0x8a98 */
-        case 0x980921: return -ENOSYS; /* inline case at 0x8a98 */
-        case 0x980922: return -ENOSYS; /* inline case at 0x8a98 */
-        case 0x980923: return -ENOSYS; /* inline case at 0x8a98 */
-        case 0x980924: return -ENOSYS; /* inline case at 0x8a98 */
-        case 0x980925: return -ENOSYS; /* inline case at 0x8a98 */
-        case 0x980926: return -ENOSYS; /* inline case at 0x8a98 */
-        case 0x980927: return -ENOSYS; /* inline case at 0x8a98 */
-        case 0x980928: return -ENOSYS; /* inline case at 0x8a98 */
-        case 0x980929: return -ENOSYS; /* inline case at 0x8a98 */
-        case 0x98092a: return -ENOSYS; /* inline case at 0x8a98 */
-        case 0x98092b: return -ENOSYS; /* inline case at 0x8a98 */
-        case 0x98092c: return -ENOSYS; /* inline case at 0x8a98 */
-        case 0x98092d: return -ENOSYS; /* inline case at 0x8a98 */
-        case 0x98092e: return -ENOSYS; /* inline case at 0x8a98 */
-        case 0x98092f: return -ENOSYS; /* inline case at 0x8a98 */
-        case 0x980930: return -ENOSYS; /* inline case at 0x8a98 */
-        case 0x980931: return -ENOSYS; /* inline case at 0x8a98 */
-        case 0x980932: return -ENOSYS; /* inline case at 0x8a98 */
-        case 0x980933: return -ENOSYS; /* inline case at 0x8a98 */
-        case 0x980934: return -ENOSYS; /* inline case at 0x8bec */
-        case 0x980935: return -ENOSYS; /* inline case at 0x8da0 */
-        case 0x980936: return -ENOSYS; /* inline case at 0x8e3c */
-        case 0x980937: return -ENOSYS; /* inline case at 0x93b4 */
-        case 0x980938: return -ENOSYS; /* inline case at 0x8fc4 */
-        case 0x980939: return -ENOSYS; /* inline case at 0x8ed8 */
-        case 0x98093a: return -ENOSYS; /* inline case at 0x9874 */
-        case 0x98093b: return -ENOSYS; /* inline case at 0x8de8 */
-        case 0x98093c: return -ENOSYS; /* inline case at 0x91d0 */
-        case 0x98093d: return -ENOSYS; /* inline case at 0x920c */
-        case 0x98093e: return -ENOSYS; /* inline case at 0x9248 */
-        case 0x98093f: return -ENOSYS; /* inline case at 0x8eac */
-        case 0x980940: return -ENOSYS; /* inline case at 0x8ec8 */
-        case 0x980941: return -ENOSYS; /* inline case at 0x9a04 */
-        case 0x980942: return (int32_t)((uintptr_t (*)(uintptr_t, uintptr_t))APICAL_READ_32)((uintptr_t)((void *)a0), (uintptr_t)((int)a2));
-        case 0x980943: return -ENOSYS; /* inline case at 0x8a98 */
-        case 0x980944: return -ENOSYS; /* inline case at 0x8a98 */
-        case 0x980945: return -ENOSYS; /* inline case at 0x8a98 */
-        case 0x980946: return -ENOSYS; /* inline case at 0x8a98 */
-        case 0x980947: return -ENOSYS; /* inline case at 0x8a98 */
-        case 0x980948: return -ENOSYS; /* inline case at 0x8a98 */
-        case 0x980949: return -ENOSYS; /* inline case at 0x8a98 */
-        case 0x98094a: return -ENOSYS; /* inline case at 0x8a98 */
-        case 0x98094b: return -ENOSYS; /* inline case at 0x8a98 */
-        case 0x98094c: return -ENOSYS; /* inline case at 0x8a98 */
-        case 0x98094d: return -ENOSYS; /* inline case at 0x8a98 */
-        case 0x98094e: return -ENOSYS; /* inline case at 0x8a98 */
-        case 0x98094f: return -ENOSYS; /* inline case at 0x8a98 */
-        case 0x980950: return -ENOSYS; /* inline case at 0x8a98 */
-        case 0x980951: return -ENOSYS; /* inline case at 0x8a98 */
-        case 0x980952: return -ENOSYS; /* inline case at 0x8a98 */
-        case 0x980953: return -ENOSYS; /* inline case at 0x8a98 */
-        case 0x980954: return -ENOSYS; /* inline case at 0x8da0 */
-        case 0x980955: return -ENOSYS; /* inline case at 0x8da0 */
-        case 0x980956: return (int32_t)((uintptr_t (*)(uintptr_t, uintptr_t))APICAL_READ_32)((uintptr_t)((void *)a0), (uintptr_t)((int)a2));
-        case 0x980957: return -ENOSYS; /* inline case at 0x9d8c */
-        case 0x980958: return -ENOSYS; /* inline case at 0x9d94 */
-        case 0x980959: return -ENOSYS; /* inline case at 0x8a98 */
-        case 0x98095a: return -ENOSYS; /* inline case at 0x8a98 */
-        case 0x98095b: return -ENOSYS; /* inline case at 0x9d9c */
-        case 0x98095c: return -ENOSYS; /* inline case at 0x8a98 */
-        case 0x98095d: return -ENOSYS; /* inline case at 0x8a98 */
-        case 0x98095e: return -ENOSYS; /* inline case at 0x9dcc */
-        case 0x98095f: return -ENOSYS; /* inline case at 0x8a98 */
-        case 0x980960: return -ENOSYS; /* inline case at 0x8a98 */
-        case 0x980961: return -ENOSYS; /* inline case at 0x8a98 */
-        case 0x980962: return -ENOSYS; /* inline case at 0x9dac */
-        case 0x980963: return -ENOSYS; /* inline case at 0x8da0 */
-        case 0x980964: return -ENOSYS; /* inline case at 0x93f8 */
-        case 0x980965: return -ENOSYS; /* inline case at 0x96c4 */
-        case 0x980966: return -ENOSYS; /* inline case at 0x8a98 */
-        case 0x980967: return -ENOSYS; /* inline case at 0x8a98 */
-        case 0x980968: return -ENOSYS; /* inline case at 0x8a98 */
-        case 0x980969: return -ENOSYS; /* inline case at 0x8a98 */
-        case 0x98096a: return -ENOSYS; /* inline case at 0x9da4 */
-        case 0x98096b: return -ENOSYS; /* inline case at 0x8a98 */
-        case 0x98096c: return -ENOSYS; /* inline case at 0x9dd4 */
-        default: return -1;
+    /* #375: vendor 4ea12e1f 0x8ab0..0x8ac4 (.rodata+556, id - 0x8000000 < 67): jr through the g_ctrl jump table 1.  The lift read the table at
+     * NULL + offset (typed v0) and then switched on the control pointer; dispatch on the index instead. */
+    switch (t30_g_ctrl_jt(1, (uint32_t)v1)) {
+    case T30_GCTRL_JT_AE_ATTR: s0 = t30_g_ctrl_ae_attr((void *)s2, (uint32_t *)s1); goto apical_isp_core_ops_g_ctrl0x14c;
+    case T30_GCTRL_JT_STAB: apical_isp_stab_g_attr((void *)s1); s0 = 0; goto apical_isp_core_ops_g_ctrl0x14c;
+    case T30_GCTRL_JT_ZERO: goto apical_isp_core_ops_g_ctrl0x38c;
+    case T30_GCTRL_JT_TUNING_3776: v0 = *(uint32_t *)((char *)s2 + 3776); goto apical_isp_core_ops_g_ctrl0x3cc;
+    default: goto apical_isp_core_ops_g_ctrl0x84;
     }
 
 apical_isp_core_ops_g_ctrl0xb8:
@@ -12364,106 +10251,12 @@ apical_isp_core_ops_g_ctrl0xb8:
     v1 = 0;
     if (_bc_v1_22) { goto apical_isp_core_ops_g_ctrl0x84; }
 
-    /* fragment 23: Arithmetic */
-    v0 = (uintptr_t)v0 << 2;
-    v1 = v1 + 824;
-    v0 = v1 + (uintptr_t)v0;
-
-    /* fragment 24: MemoryAccess */
-    v0 = *(uint32_t *)((char *)v0 + 0);
-
-    /* fragment 25: IndirectTailCall */
-    switch (a1) {
-        case 0x980914: return -ENOSYS; /* inline case at 0x8da0 */
-        case 0x980915: return -ENOSYS; /* inline case at 0x99c4 */
-        case 0x980916: return -ENOSYS; /* inline case at 0x8a98 */
-        case 0x980917: return -ENOSYS; /* inline case at 0x8da0 */
-        case 0x980918: return -ENOSYS; /* inline case at 0x9024 */
-        case 0x980919: return (int32_t)((uintptr_t (*)(uintptr_t, uintptr_t))APICAL_READ_32)((uintptr_t)((void *)a0), (uintptr_t)((int)a2));
-        case 0x98091a: return -ENOSYS; /* inline case at 0x9a14 */
-        case 0x98091b: return (int32_t)((uintptr_t (*)(uintptr_t, uintptr_t))APICAL_READ_32)((uintptr_t)((void *)a0), (uintptr_t)((int)a2));
-        case 0x98091c: return (int32_t)((uintptr_t (*)(uintptr_t, uintptr_t))APICAL_READ_32)((uintptr_t)((void *)a0), (uintptr_t)((int)a2));
-        case 0x98091d: return -ENOSYS; /* inline case at 0x8a98 */
-        case 0x98091e: return -ENOSYS; /* inline case at 0x8a98 */
-        case 0x98091f: return -ENOSYS; /* inline case at 0x8a98 */
-        case 0x980920: return -ENOSYS; /* inline case at 0x8a98 */
-        case 0x980921: return -ENOSYS; /* inline case at 0x8a98 */
-        case 0x980922: return -ENOSYS; /* inline case at 0x8a98 */
-        case 0x980923: return -ENOSYS; /* inline case at 0x8a98 */
-        case 0x980924: return -ENOSYS; /* inline case at 0x8a98 */
-        case 0x980925: return -ENOSYS; /* inline case at 0x8a98 */
-        case 0x980926: return -ENOSYS; /* inline case at 0x8a98 */
-        case 0x980927: return -ENOSYS; /* inline case at 0x8a98 */
-        case 0x980928: return -ENOSYS; /* inline case at 0x8a98 */
-        case 0x980929: return -ENOSYS; /* inline case at 0x8a98 */
-        case 0x98092a: return -ENOSYS; /* inline case at 0x8a98 */
-        case 0x98092b: return -ENOSYS; /* inline case at 0x8a98 */
-        case 0x98092c: return -ENOSYS; /* inline case at 0x8a98 */
-        case 0x98092d: return -ENOSYS; /* inline case at 0x8a98 */
-        case 0x98092e: return -ENOSYS; /* inline case at 0x8a98 */
-        case 0x98092f: return -ENOSYS; /* inline case at 0x8a98 */
-        case 0x980930: return -ENOSYS; /* inline case at 0x8a98 */
-        case 0x980931: return -ENOSYS; /* inline case at 0x8a98 */
-        case 0x980932: return -ENOSYS; /* inline case at 0x8a98 */
-        case 0x980933: return -ENOSYS; /* inline case at 0x8a98 */
-        case 0x980934: return -ENOSYS; /* inline case at 0x8bec */
-        case 0x980935: return -ENOSYS; /* inline case at 0x8da0 */
-        case 0x980936: return -ENOSYS; /* inline case at 0x8e3c */
-        case 0x980937: return -ENOSYS; /* inline case at 0x93b4 */
-        case 0x980938: return -ENOSYS; /* inline case at 0x8fc4 */
-        case 0x980939: return -ENOSYS; /* inline case at 0x8ed8 */
-        case 0x98093a: return -ENOSYS; /* inline case at 0x9874 */
-        case 0x98093b: return -ENOSYS; /* inline case at 0x8de8 */
-        case 0x98093c: return -ENOSYS; /* inline case at 0x91d0 */
-        case 0x98093d: return -ENOSYS; /* inline case at 0x920c */
-        case 0x98093e: return -ENOSYS; /* inline case at 0x9248 */
-        case 0x98093f: return -ENOSYS; /* inline case at 0x8eac */
-        case 0x980940: return -ENOSYS; /* inline case at 0x8ec8 */
-        case 0x980941: return -ENOSYS; /* inline case at 0x9a04 */
-        case 0x980942: return (int32_t)((uintptr_t (*)(uintptr_t, uintptr_t))APICAL_READ_32)((uintptr_t)((void *)a0), (uintptr_t)((int)a2));
-        case 0x980943: return -ENOSYS; /* inline case at 0x8a98 */
-        case 0x980944: return -ENOSYS; /* inline case at 0x8a98 */
-        case 0x980945: return -ENOSYS; /* inline case at 0x8a98 */
-        case 0x980946: return -ENOSYS; /* inline case at 0x8a98 */
-        case 0x980947: return -ENOSYS; /* inline case at 0x8a98 */
-        case 0x980948: return -ENOSYS; /* inline case at 0x8a98 */
-        case 0x980949: return -ENOSYS; /* inline case at 0x8a98 */
-        case 0x98094a: return -ENOSYS; /* inline case at 0x8a98 */
-        case 0x98094b: return -ENOSYS; /* inline case at 0x8a98 */
-        case 0x98094c: return -ENOSYS; /* inline case at 0x8a98 */
-        case 0x98094d: return -ENOSYS; /* inline case at 0x8a98 */
-        case 0x98094e: return -ENOSYS; /* inline case at 0x8a98 */
-        case 0x98094f: return -ENOSYS; /* inline case at 0x8a98 */
-        case 0x980950: return -ENOSYS; /* inline case at 0x8a98 */
-        case 0x980951: return -ENOSYS; /* inline case at 0x8a98 */
-        case 0x980952: return -ENOSYS; /* inline case at 0x8a98 */
-        case 0x980953: return -ENOSYS; /* inline case at 0x8a98 */
-        case 0x980954: return -ENOSYS; /* inline case at 0x8da0 */
-        case 0x980955: return -ENOSYS; /* inline case at 0x8da0 */
-        case 0x980956: return (int32_t)((uintptr_t (*)(uintptr_t, uintptr_t))APICAL_READ_32)((uintptr_t)((void *)a0), (uintptr_t)((int)a2));
-        case 0x980957: return -ENOSYS; /* inline case at 0x9d8c */
-        case 0x980958: return -ENOSYS; /* inline case at 0x9d94 */
-        case 0x980959: return -ENOSYS; /* inline case at 0x8a98 */
-        case 0x98095a: return -ENOSYS; /* inline case at 0x8a98 */
-        case 0x98095b: return -ENOSYS; /* inline case at 0x9d9c */
-        case 0x98095c: return -ENOSYS; /* inline case at 0x8a98 */
-        case 0x98095d: return -ENOSYS; /* inline case at 0x8a98 */
-        case 0x98095e: return -ENOSYS; /* inline case at 0x9dcc */
-        case 0x98095f: return -ENOSYS; /* inline case at 0x8a98 */
-        case 0x980960: return -ENOSYS; /* inline case at 0x8a98 */
-        case 0x980961: return -ENOSYS; /* inline case at 0x8a98 */
-        case 0x980962: return -ENOSYS; /* inline case at 0x9dac */
-        case 0x980963: return -ENOSYS; /* inline case at 0x8da0 */
-        case 0x980964: return -ENOSYS; /* inline case at 0x93f8 */
-        case 0x980965: return -ENOSYS; /* inline case at 0x96c4 */
-        case 0x980966: return -ENOSYS; /* inline case at 0x8a98 */
-        case 0x980967: return -ENOSYS; /* inline case at 0x8a98 */
-        case 0x980968: return -ENOSYS; /* inline case at 0x8a98 */
-        case 0x980969: return -ENOSYS; /* inline case at 0x8a98 */
-        case 0x98096a: return -ENOSYS; /* inline case at 0x9da4 */
-        case 0x98096b: return -ENOSYS; /* inline case at 0x8a98 */
-        case 0x98096c: return -ENOSYS; /* inline case at 0x9dd4 */
-        default: return -1;
+    /* #375: vendor 4ea12e1f 0x8ad8..0x8aec (.rodata+824, id - 0x980914 < 12): jr through the g_ctrl jump table 2.  The lift read the table at
+     * NULL + offset (typed v0) and then switched on the control pointer; dispatch on the index instead. */
+    switch (t30_g_ctrl_jt(2, (uint32_t)v0)) {
+    case T30_GCTRL_JT_ZERO: goto apical_isp_core_ops_g_ctrl0x38c;
+    case T30_GCTRL_JT_TUNING_3776: v0 = *(uint32_t *)((char *)s2 + 3776); goto apical_isp_core_ops_g_ctrl0x3cc;
+    default: goto apical_isp_core_ops_g_ctrl0x84;
     }
 
 apical_isp_core_ops_g_ctrl0xe0:
@@ -12526,7 +10319,7 @@ apical_isp_core_ops_g_ctrl0xf8:
 apical_isp_core_ops_g_ctrl0x14c:
     /* fragment 40: Epilogue */
     /* function epilogue: restore registers and return */
-    return (int64_t)v0;
+    return (int64_t)s0;	/* OEM g_ctrl+0x14c: lw ra..; move v0,s0, the lift returned the stale v0 (#371) */
 
 apical_isp_core_ops_g_ctrl0x150:
     /* fragment 41: Epilogue */
@@ -12579,106 +10372,12 @@ apical_isp_core_ops_g_ctrl0x1a0:
     v1 = 0;
     if (_bc_v1_52) { goto apical_isp_core_ops_g_ctrl0x84; }
 
-    /* fragment 53: Arithmetic */
-    v0 = (uintptr_t)v0 << 2;
-    v1 = v1 + 872;
-    v0 = v1 + (uintptr_t)v0;
-
-    /* fragment 54: MemoryAccess */
-    v0 = *(uint32_t *)((char *)v0 + 0);
-
-    /* fragment 55: IndirectTailCall */
-    switch (a1) {
-        case 0x980914: return -ENOSYS; /* inline case at 0x8da0 */
-        case 0x980915: return -ENOSYS; /* inline case at 0x99c4 */
-        case 0x980916: return -ENOSYS; /* inline case at 0x8a98 */
-        case 0x980917: return -ENOSYS; /* inline case at 0x8da0 */
-        case 0x980918: return -ENOSYS; /* inline case at 0x9024 */
-        case 0x980919: return (int32_t)((uintptr_t (*)(uintptr_t, uintptr_t))APICAL_READ_32)((uintptr_t)((void *)a0), (uintptr_t)((int)a2));
-        case 0x98091a: return -ENOSYS; /* inline case at 0x9a14 */
-        case 0x98091b: return (int32_t)((uintptr_t (*)(uintptr_t, uintptr_t))APICAL_READ_32)((uintptr_t)((void *)a0), (uintptr_t)((int)a2));
-        case 0x98091c: return (int32_t)((uintptr_t (*)(uintptr_t, uintptr_t))APICAL_READ_32)((uintptr_t)((void *)a0), (uintptr_t)((int)a2));
-        case 0x98091d: return -ENOSYS; /* inline case at 0x8a98 */
-        case 0x98091e: return -ENOSYS; /* inline case at 0x8a98 */
-        case 0x98091f: return -ENOSYS; /* inline case at 0x8a98 */
-        case 0x980920: return -ENOSYS; /* inline case at 0x8a98 */
-        case 0x980921: return -ENOSYS; /* inline case at 0x8a98 */
-        case 0x980922: return -ENOSYS; /* inline case at 0x8a98 */
-        case 0x980923: return -ENOSYS; /* inline case at 0x8a98 */
-        case 0x980924: return -ENOSYS; /* inline case at 0x8a98 */
-        case 0x980925: return -ENOSYS; /* inline case at 0x8a98 */
-        case 0x980926: return -ENOSYS; /* inline case at 0x8a98 */
-        case 0x980927: return -ENOSYS; /* inline case at 0x8a98 */
-        case 0x980928: return -ENOSYS; /* inline case at 0x8a98 */
-        case 0x980929: return -ENOSYS; /* inline case at 0x8a98 */
-        case 0x98092a: return -ENOSYS; /* inline case at 0x8a98 */
-        case 0x98092b: return -ENOSYS; /* inline case at 0x8a98 */
-        case 0x98092c: return -ENOSYS; /* inline case at 0x8a98 */
-        case 0x98092d: return -ENOSYS; /* inline case at 0x8a98 */
-        case 0x98092e: return -ENOSYS; /* inline case at 0x8a98 */
-        case 0x98092f: return -ENOSYS; /* inline case at 0x8a98 */
-        case 0x980930: return -ENOSYS; /* inline case at 0x8a98 */
-        case 0x980931: return -ENOSYS; /* inline case at 0x8a98 */
-        case 0x980932: return -ENOSYS; /* inline case at 0x8a98 */
-        case 0x980933: return -ENOSYS; /* inline case at 0x8a98 */
-        case 0x980934: return -ENOSYS; /* inline case at 0x8bec */
-        case 0x980935: return -ENOSYS; /* inline case at 0x8da0 */
-        case 0x980936: return -ENOSYS; /* inline case at 0x8e3c */
-        case 0x980937: return -ENOSYS; /* inline case at 0x93b4 */
-        case 0x980938: return -ENOSYS; /* inline case at 0x8fc4 */
-        case 0x980939: return -ENOSYS; /* inline case at 0x8ed8 */
-        case 0x98093a: return -ENOSYS; /* inline case at 0x9874 */
-        case 0x98093b: return -ENOSYS; /* inline case at 0x8de8 */
-        case 0x98093c: return -ENOSYS; /* inline case at 0x91d0 */
-        case 0x98093d: return -ENOSYS; /* inline case at 0x920c */
-        case 0x98093e: return -ENOSYS; /* inline case at 0x9248 */
-        case 0x98093f: return -ENOSYS; /* inline case at 0x8eac */
-        case 0x980940: return -ENOSYS; /* inline case at 0x8ec8 */
-        case 0x980941: return -ENOSYS; /* inline case at 0x9a04 */
-        case 0x980942: return (int32_t)((uintptr_t (*)(uintptr_t, uintptr_t))APICAL_READ_32)((uintptr_t)((void *)a0), (uintptr_t)((int)a2));
-        case 0x980943: return -ENOSYS; /* inline case at 0x8a98 */
-        case 0x980944: return -ENOSYS; /* inline case at 0x8a98 */
-        case 0x980945: return -ENOSYS; /* inline case at 0x8a98 */
-        case 0x980946: return -ENOSYS; /* inline case at 0x8a98 */
-        case 0x980947: return -ENOSYS; /* inline case at 0x8a98 */
-        case 0x980948: return -ENOSYS; /* inline case at 0x8a98 */
-        case 0x980949: return -ENOSYS; /* inline case at 0x8a98 */
-        case 0x98094a: return -ENOSYS; /* inline case at 0x8a98 */
-        case 0x98094b: return -ENOSYS; /* inline case at 0x8a98 */
-        case 0x98094c: return -ENOSYS; /* inline case at 0x8a98 */
-        case 0x98094d: return -ENOSYS; /* inline case at 0x8a98 */
-        case 0x98094e: return -ENOSYS; /* inline case at 0x8a98 */
-        case 0x98094f: return -ENOSYS; /* inline case at 0x8a98 */
-        case 0x980950: return -ENOSYS; /* inline case at 0x8a98 */
-        case 0x980951: return -ENOSYS; /* inline case at 0x8a98 */
-        case 0x980952: return -ENOSYS; /* inline case at 0x8a98 */
-        case 0x980953: return -ENOSYS; /* inline case at 0x8a98 */
-        case 0x980954: return -ENOSYS; /* inline case at 0x8da0 */
-        case 0x980955: return -ENOSYS; /* inline case at 0x8da0 */
-        case 0x980956: return (int32_t)((uintptr_t (*)(uintptr_t, uintptr_t))APICAL_READ_32)((uintptr_t)((void *)a0), (uintptr_t)((int)a2));
-        case 0x980957: return -ENOSYS; /* inline case at 0x9d8c */
-        case 0x980958: return -ENOSYS; /* inline case at 0x9d94 */
-        case 0x980959: return -ENOSYS; /* inline case at 0x8a98 */
-        case 0x98095a: return -ENOSYS; /* inline case at 0x8a98 */
-        case 0x98095b: return -ENOSYS; /* inline case at 0x9d9c */
-        case 0x98095c: return -ENOSYS; /* inline case at 0x8a98 */
-        case 0x98095d: return -ENOSYS; /* inline case at 0x8a98 */
-        case 0x98095e: return -ENOSYS; /* inline case at 0x9dcc */
-        case 0x98095f: return -ENOSYS; /* inline case at 0x8a98 */
-        case 0x980960: return -ENOSYS; /* inline case at 0x8a98 */
-        case 0x980961: return -ENOSYS; /* inline case at 0x8a98 */
-        case 0x980962: return -ENOSYS; /* inline case at 0x9dac */
-        case 0x980963: return -ENOSYS; /* inline case at 0x8da0 */
-        case 0x980964: return -ENOSYS; /* inline case at 0x93f8 */
-        case 0x980965: return -ENOSYS; /* inline case at 0x96c4 */
-        case 0x980966: return -ENOSYS; /* inline case at 0x8a98 */
-        case 0x980967: return -ENOSYS; /* inline case at 0x8a98 */
-        case 0x980968: return -ENOSYS; /* inline case at 0x8a98 */
-        case 0x980969: return -ENOSYS; /* inline case at 0x8a98 */
-        case 0x98096a: return -ENOSYS; /* inline case at 0x9da4 */
-        case 0x98096b: return -ENOSYS; /* inline case at 0x8a98 */
-        case 0x98096c: return -ENOSYS; /* inline case at 0x9dd4 */
-        default: return -1;
+    /* #375: vendor 4ea12e1f 0x8bcc..0x8be4 (.rodata+872, id - 0x8000160 < 10): jr through the g_ctrl jump table 3.  The lift read the table at
+     * NULL + offset (typed v0) and then switched on the control pointer; dispatch on the index instead. */
+    switch (t30_g_ctrl_jt(3, (uint32_t)v0)) {
+    case T30_GCTRL_JT_ZERO: goto apical_isp_core_ops_g_ctrl0x38c;
+    case T30_GCTRL_JT_TUNING_3776: v0 = *(uint32_t *)((char *)s2 + 3776); goto apical_isp_core_ops_g_ctrl0x3cc;
+    default: goto apical_isp_core_ops_g_ctrl0x84;
     }
 
     /* fragment 56: CallSetup */
@@ -12702,7 +10401,7 @@ apical_isp_core_ops_g_ctrl0x1a0:
     /* fragment 60: MemoryAccess */
     *(uint32_t *)((char *)s2 + 2096) = v0;
     s0 = *(uint32_t *)((char *)s1 + 4);
-    v1 = 0;
+    v1 = T30_GP_ADDR_LIMIT();	/* OEM lw v1,24(gp): addr_limit (#371) */
     v0 = s0 + 240;
     v0 = (uintptr_t)v0 | (uintptr_t)s0;
     v0 = (uintptr_t)v0 & v1;
@@ -12753,7 +10452,7 @@ apical_isp_core_ops_g_ctrl0x2d0:
     *(uint32_t *)((char *)s2 + 3788) = v1;
     *(uint8_t *)((char *)s2 + 3792) = v0;
     s0 = *(uint32_t *)((char *)s1 + 4);
-    v1 = 0;
+    v1 = T30_GP_ADDR_LIMIT();	/* OEM lw v1,24(gp): addr_limit (#371) */
     v0 = s0 + 8;
     v0 = (uintptr_t)v0 | (uintptr_t)s0;
     v0 = (uintptr_t)v0 & v1;
@@ -12801,7 +10500,7 @@ apical_isp_core_ops_g_ctrl0x320:
     /* fragment 81: MemoryAccess */
     *(uint16_t *)((char *)s2 + 3810) = v0;
     s0 = *(uint32_t *)((char *)s1 + 4);
-    v1 = 0;
+    v1 = T30_GP_ADDR_LIMIT();	/* OEM lw v1,24(gp): addr_limit (#371) */
     v0 = s0 + 12;
     v0 = (uintptr_t)v0 | (uintptr_t)s0;
     v0 = (uintptr_t)v0 & v1;
@@ -12961,7 +10660,7 @@ apical_isp_core_ops_g_ctrl0x548:
     local_20 = v0;
     v0 = *(uint16_t *)((char *)s2 + 128);
     local_22 = v0;
-    v1 = 0;
+    v1 = T30_GP_ADDR_LIMIT();	/* OEM lw v1,24(gp): addr_limit (#371) */
     v0 = s0 + 12;
     v0 = (uintptr_t)v0 | (uintptr_t)s0;
     v0 = (uintptr_t)v0 & v1;
@@ -13063,7 +10762,7 @@ apical_isp_core_ops_g_ctrl0x6d4:
     v0 = local_3c;
     s0 = *(uint32_t *)((char *)s1 + 4);
     local_1e = v0;
-    v1 = 0;
+    v1 = T30_GP_ADDR_LIMIT();	/* OEM lw v1,24(gp): addr_limit (#371) */
     v0 = s0 + 8;
     v0 = (uintptr_t)v0 | (uintptr_t)s0;
     v0 = (uintptr_t)v0 & v1;
@@ -13113,7 +10812,7 @@ apical_isp_core_ops_g_ctrl0x6d4:
     /* fragment 149: MemoryAccess */
     s0 = *(uint32_t *)((char *)s1 + 4);
     local_1c = v0;
-    v1 = 0;
+    v1 = T30_GP_ADDR_LIMIT();	/* OEM lw v1,24(gp): addr_limit (#371) */
     v0 = s0 + 6;
     v0 = (uintptr_t)v0 | (uintptr_t)s0;
     v0 = (uintptr_t)v0 & v1;
@@ -13328,7 +11027,7 @@ apical_isp_core_ops_g_ctrl0x9dc:
     s0 = *(uint32_t *)((char *)s1 + 4);
     v0 = a1 + v1;
     s2 = v0 + 52;
-    v1 = 0;
+    v1 = T30_GP_ADDR_LIMIT();	/* OEM lw v1,24(gp): addr_limit (#371) */
     v0 = s0 + 24;
     v0 = (uintptr_t)v0 | (uintptr_t)s0;
     v0 = (uintptr_t)v0 & v1;
@@ -13395,7 +11094,7 @@ apical_isp_core_ops_g_ctrl0xad0:
     local_1c = s0;
     local_20 = s6;
     local_24 = s5;
-    v1 = 0;
+    v1 = T30_GP_ADDR_LIMIT();	/* OEM lw v1,24(gp): addr_limit (#371) */
     v0 = s1 + 24;
     v0 = (uintptr_t)v0 | (uintptr_t)s1;
     v0 = (uintptr_t)v0 & v1;
@@ -13487,7 +11186,7 @@ apical_isp_core_ops_g_ctrl0xbf4:
     v0 = (uintptr_t)v0 | v1;
 
     /* fragment 236: MemoryAccess */
-    v1 = 0;
+    v1 = T30_GP_ADDR_LIMIT();	/* OEM lw v1,24(gp): addr_limit (#371) */
     v0 = (uintptr_t)v0 & v1;
 
     /* fragment 237: Branch */
@@ -13515,7 +11214,7 @@ apical_isp_core_ops_g_ctrl0xc5c:
     v0 = (uintptr_t)v0 | v1;
 
     /* fragment 243: MemoryAccess */
-    v1 = 0;
+    v1 = T30_GP_ADDR_LIMIT();	/* OEM lw v1,24(gp): addr_limit (#371) */
     v0 = (uintptr_t)v0 & v1;
 
     /* fragment 244: Branch */
@@ -13537,7 +11236,7 @@ apical_isp_core_ops_g_ctrl0xc5c:
 
     /* fragment 248: MemoryAccess */
     s0 = *(uint32_t *)((char *)s1 + 4);
-    v1 = 0;
+    v1 = T30_GP_ADDR_LIMIT();	/* OEM lw v1,24(gp): addr_limit (#371) */
     v0 = s0 + 24;
     v0 = (uintptr_t)v0 | (uintptr_t)s0;
     v0 = (uintptr_t)v0 & v1;
@@ -13562,7 +11261,7 @@ apical_isp_core_ops_g_ctrl0xd00:
     *(uint32_t *)((char *)((char *)&frame_done_cond)) = v0;
     *(uint32_t *)((char *)((char *)&frame_done_cond + 0x4)) = v1;
     local_3c = 0;
-    v0 = *(uint32_t *)((char *)&frame_delay_10417);
+    v0 = T30_GP_TASK();
     s5 = (uintptr_t)&frame_done_wq;
     local_40 = v0;
     v0 = (uintptr_t *)&autoremove_wake_function;
@@ -13596,7 +11295,7 @@ apical_isp_core_ops_g_ctrl0xd54:
 
 apical_isp_core_ops_g_ctrl0xd7c:
     /* fragment 258: MemoryAccess */
-    v0 = *(uint32_t *)((char *)&frame_delay_10417);
+    v0 = T30_GP_TASK();
     v0 = *(uint32_t *)((char *)v0 + 4);
     v0 = *(uint32_t *)((char *)v0 + 8);
     v0 = (uintptr_t)v0 & 2;
@@ -13638,11 +11337,13 @@ apical_isp_core_ops_g_ctrl0xdc4:
     a0 = *(uint32_t *)((char *)((char *)&frame_done_cnt));
     a1 = *(uint32_t *)((char *)((char *)&frame_done_cnt + 0x4));
     v0 = -145;
+    if (s0 != 0) v0 = 0;	/* OEM 9800 movn v0,zero,s0 (dropped by the lift, #371) */
     v1 = -512;
     v1 = (uintptr_t)s0 ^ v1;
+    if (v1 != 0) s0 = v0;	/* OEM 9814 movn s0,v0,v1: the 0x14c epilogue returns s0 */
     local_20 = a0;
     local_24 = a1;
-    v1 = 0;
+    v1 = T30_GP_ADDR_LIMIT();	/* OEM lw v1,24(gp): addr_limit (#371) */
     v0 = s1 + 24;
     v0 = (uintptr_t)v0 | (uintptr_t)s1;
     v0 = (uintptr_t)v0 & v1;
@@ -13728,7 +11429,7 @@ apical_isp_core_ops_g_ctrl0xf64:
     v0 = local_3c;
     s0 = *(uint32_t *)((char *)s1 + 4);
     local_2c = v0;
-    v1 = 0;
+    v1 = T30_GP_ADDR_LIMIT();	/* OEM lw v1,24(gp): addr_limit (#371) */
     v0 = s0 + 24;
     v0 = (uintptr_t)v0 | (uintptr_t)s0;
     v0 = (uintptr_t)v0 & v1;
@@ -13835,7 +11536,7 @@ apical_isp_core_ops_g_ctrl0xf64:
     /* fragment 311: MemoryAccess */
     s0 = *(uint32_t *)((char *)s1 + 4);
     local_27 = v0;
-    v1 = 0;
+    v1 = T30_GP_ADDR_LIMIT();	/* OEM lw v1,24(gp): addr_limit (#371) */
     v0 = s0 + 16;
     v0 = (uintptr_t)v0 | (uintptr_t)s0;
     v0 = (uintptr_t)v0 & v1;
@@ -13909,7 +11610,7 @@ apical_isp_core_ops_g_ctrl0xf64:
     /* fragment 329: MemoryAccess */
     s0 = *(uint32_t *)((char *)s1 + 4);
     local_31 = v0;
-    v1 = 0;
+    v1 = T30_GP_ADDR_LIMIT();	/* OEM lw v1,24(gp): addr_limit (#371) */
     v0 = s0 + 28;
     v0 = (uintptr_t)v0 | (uintptr_t)s0;
     v0 = (uintptr_t)v0 & v1;
@@ -14015,7 +11716,7 @@ apical_isp_core_ops_g_ctrl0xf64:
     /* fragment 355: MemoryAccess */
     s0 = *(uint32_t *)((char *)s1 + 4);
     local_3b = v0;
-    v1 = 0;
+    v1 = T30_GP_ADDR_LIMIT();	/* OEM lw v1,24(gp): addr_limit (#371) */
     v0 = s0 + 36;
     v0 = (uintptr_t)v0 | (uintptr_t)s0;
     v0 = (uintptr_t)v0 & v1;
@@ -14116,6 +11817,33 @@ static int tx_isp_t30_tuning_set_isp_process(
 	return 0;
 }
 
+/*
+ * #236 debug trace: registers written ONLY by the ISP init sequence
+ * (group 2, tx_isp_t30_isp_config_seq.h), never by driver code, plus the
+ * Temper frame-buffer format 0xa00.  Printed after load_isp_sequence(2)
+ * and at IMAGE_TUNING_CID_TEMPER_BUF so one device run shows whether the
+ * sequence values reach the hardware (all equal to the sequence) or are
+ * lost (reset values).  Expected from the sequence: 0x28=0x20 0x7c=0x1
+ * 0x108=0xf0f 0x1c0=0x5 0x1d0=0xaa 0x240=0xc043 0x270=0xffff 0x2ac=0xff
+ * 0x2b8=0xff 0x340=0x6 0x400=0xbd 0x444=0xa0 0x4a4=0x1 0xa00=0x..0005
+ * 0xa40=0x..0005.
+ */
+static void tx_isp_t30_trace_seq_regs(const char *where)
+{
+	static const u16 regs[] = {
+		0x028, 0x07c, 0x108, 0x1c0, 0x1d0, 0x240, 0x270,
+		0x2ac, 0x2b8, 0x340, 0x400, 0x444, 0x4a4, 0xa00, 0xa40,
+	};
+	char line[16 * ARRAY_SIZE(regs) + 1];
+	unsigned int i;
+	int pos = 0;
+
+	for (i = 0; i < ARRAY_SIZE(regs); i++)
+		pos += scnprintf(line + pos, sizeof(line) - pos, " %x=%x",
+				 regs[i], APICAL_READ_32(regs[i]));
+	pr_debug("tx-isp-t30: seqregs %s:%s\n", where, line);
+}
+
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000009ddc origin=model_output original=isp_core_tunning_unlocked_ioctl */
 long isp_core_tunning_unlocked_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 {
@@ -14131,6 +11859,7 @@ long isp_core_tunning_unlocked_ioctl(struct file *file, unsigned int cmd, unsign
 	struct v4l2_control control;
 	long ret;
 	u32 temper_ctrl;
+	u32 temper_fmt;
 	struct tx_isp_t30_temper_attr temper_attr;
 	struct tx_isp_t30_core_video_view *video_core;
 	struct tx_isp_t30_system_gain_view *system_gain;
@@ -14254,6 +11983,11 @@ long isp_core_tunning_unlocked_ioctl(struct file *file, unsigned int cmd, unsign
 						APICAL_WRITE_32(0x0a24,
 							video_core->control.input_width * 4);
 					}
+					/* SDK apical_isp_temper_dns_s_attr: system-table items */
+					t30_temper_s_attr_stab(stab, temper_attr.mode,
+							       temper_attr.manual_strength,
+							       tuning->temper_max,
+							       tuning->temper_min);
 					temper_ctrl = APICAL_READ_32(0x0a28);
 					APICAL_WRITE_32(0x0a28, temper_ctrl | 1);
 					temper_ctrl = APICAL_READ_32(0x0040);
@@ -14288,10 +12022,19 @@ long isp_core_tunning_unlocked_ioctl(struct file *file, unsigned int cmd, unsign
 						default_control.control.value);
 					APICAL_WRITE_32(0x0a1c,
 						default_control.control.value);
-					temper_ctrl = APICAL_READ_32(0x0a00);
+					tx_isp_t30_trace_seq_regs("temper_buf");
+					/*
+					 * #236: bits [3:0] (packing mode 5) come from the
+					 * ISP init sequence and are kept as in the vendor
+					 * arm; only the DMA enable bits change here.
+					 */
+					temper_fmt = APICAL_READ_32(0x0a00);
+					temper_ctrl = temper_fmt;
 					temper_ctrl &= ~0x03000000;
 					temper_ctrl |= 0x00030000;
 					APICAL_WRITE_32(0x0a00, temper_ctrl);
+					pr_debug("tx-isp-t30: temper_buf 0xa00 %#x -> %#x\n",
+					       temper_fmt, APICAL_READ_32(0x0a00));
 				}
 				ret = 0;
 			} else {
@@ -14317,6 +12060,23 @@ long isp_core_tunning_unlocked_ioctl(struct file *file, unsigned int cmd, unsign
 					       system_gain->isp_digital_gain,
 					       default_control.control.value);
 				ret = 0;
+			} else if (default_control.control.id == 0x08000083) {
+				/*
+				 * IMAGE_TUNING_CID_TEMPER_ATTR get (SDK
+				 * apical_isp_temper_dns_g_attr): mode from the temper
+				 * bypass bit and the manual flag, strength = target.
+				 * The lifted g_ctrl switch has no arm for it.
+				 */
+				int tmode;
+				uint8_t tstr;
+
+				t30_temper_g_attr(stab, APICAL_READ_32(0x0040), &tmode, &tstr);
+				memset(&temper_attr, 0, sizeof(temper_attr));
+				temper_attr.mode = tmode;
+				temper_attr.manual_strength = tstr;
+				ret = copy_to_user((void __user *)(uintptr_t)
+						   default_control.control.value,
+						   &temper_attr, sizeof(temper_attr)) ? -EFAULT : 0;
 			} else if (default_control.control.id == 0x0800002c) {
 				/*
 				 * IMAGE_TUNING_CID_SYSTEM_TAB get (OEM apical_isp_stab_g_attr):
@@ -14403,70 +12163,32 @@ isp_core_tuning_deinit0x18:
 /* WHOLE_DRIVER_CANDIDATE fn_000000000000a130 origin=fragment_seed original=ispcore_sensor_ops_release_all_sensor */
 int32_t ispcore_sensor_ops_release_all_sensor(uintptr_t a0)
 {
-    uint32_t *local_10 = 0;
-    uint32_t local_14 = 0;
-    uint32_t *local_18 = 0;
-    uint32_t local_1c = 0;
-    uint32_t ra = 0;
-    uint32_t *s0 = 0;
-    uintptr_t *s1 = 0;
-    uint32_t *s2 = 0;
-    uintptr_t *v0 = 0;
+	/*
+	 * #375: vendor 4ea12e1f 0xa130: call sd->ops->sensor->release_all_sensor(sd) of the 16 child subdevs
+	 * (+0x38..+0x74); stop at the first result that is neither 0 nor -515 (-ENOIOCTLCMD) and return it.
+	 * The lift stepped a `uintptr_t *` by 4 slots, called tx_isp_release_device() instead of the callback
+	 * and returned 0 on that error.
+	 */
+	uintptr_t *slot;
 
-    /* fragment 0: Prologue */
-    /* function prologue: stack frame and callee-saved register setup */
+	for (slot = (uintptr_t *)(a0 + 0x38); slot != (uintptr_t *)(a0 + 0x78); slot++) {
+		uintptr_t sd = *slot, sensor_ops;
+		int32_t (*fn)(uintptr_t);
+		int32_t ret;
 
-    /* fragment 1: Arithmetic */
-    s1 = a0 + 56;
-    s0 = a0 + 120;
-    s2 = -515;
-
-ispcore_sensor_ops_release_all_sensor0x20:
-    /* fragment 2: MemoryAccess */
-    a0 = *(uint32_t *)((char *)s1 + 0);
-
-    /* fragment 3: Branch */
-    if (a0 == 0) { goto ispcore_sensor_ops_release_all_sensor0x60; }
-
-    /* fragment 4: MemoryAccess */
-    v0 = *(uint32_t *)((char *)a0 + 196);
-    v0 = *(uint32_t *)((char *)v0 + 12);
-
-    /* fragment 5: Branch */
-    if (v0 == 0) { goto ispcore_sensor_ops_release_all_sensor0x60; }
-
-    /* fragment 6: MemoryAccess */
-    v0 = *(uint32_t *)((char *)v0 + 0);
-
-    /* fragment 7: Branch */
-    if (v0 == 0) { goto ispcore_sensor_ops_release_all_sensor0x60; }
-
-    /* fragment 8: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(int32_t *))(uintptr_t)tx_isp_release_device)(a0); /* jalr target resolved by relocation */
-
-    /* fragment 9: Branch */
-    if (v0 == 0) { goto ispcore_sensor_ops_release_all_sensor0x60; }
-
-    /* fragment 10: Branch */
-    if (v0 != s2) { goto ispcore_sensor_ops_release_all_sensor0x70; }
-
-ispcore_sensor_ops_release_all_sensor0x60:
-    /* fragment 11: Arithmetic */
-    s1 = s1 + 4;
-
-    /* fragment 12: Branch */
-    v0 = 0;
-    if (s1 != s0) { goto ispcore_sensor_ops_release_all_sensor0x20; }
-
-    /* fragment 13: Epilogue */
-    /* function epilogue: restore registers and return */
-    return (int32_t)v0;
-
-ispcore_sensor_ops_release_all_sensor0x70:
-    /* fragment 14: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    return 0;
+		if (!sd)
+			continue;
+		sensor_ops = *(uintptr_t *)(*(uintptr_t *)(sd + 0xc4) + 0xc);
+		if (!sensor_ops)
+			continue;
+		fn = *(int32_t (**)(uintptr_t))sensor_ops;
+		if (!fn)
+			continue;
+		ret = fn(sd);
+		if (ret != 0 && ret != -515)
+			return ret;
+	}
+	return 0;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000000a1b4 origin=model_output original=ispcore_sensor_ops_ioctl */
@@ -14895,7 +12617,7 @@ int32_t isp_info_show(struct seq_file *m)
 		sensor_name = *(const char **)((char *)sensor + 0x120);
 		sensor_w = *(uint32_t *)((char *)sensor + 0xec);
 		sensor_h = *(uint32_t *)((char *)sensor + 0xf0);
-		integ_time = *(uint16_t *)((char *)((char *)&sp_9007 + 0x4));
+		integ_time = *(uint16_t *)(stab + 0x18);	/* OEM abe4 lhu a2,24(s8), s8 = stab (#371) */
 		isp_top = APICAL_READ_32(0x40);
 
 		total += ((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))seq_printf)((uintptr_t)(m), (uintptr_t)("Software Version : %s\n"), (uintptr_t)("H20190523a"));
@@ -15332,994 +13054,6 @@ static int tx_isp_t30_ispcore_video_stream_off(
 	return ret == -ENOIOCTLCMD ? 0 : ret;
 }
 
-static int64_t ispcore_frame_channel_streamoff_raw(uintptr_t a0)
-{
-    uint32_t *local_10 = 0;
-    uint32_t *local_18 = 0;
-    uint32_t local_1c = 0;
-    uint32_t local_20 = 0;
-    uint32_t local_28 = 0;
-    uint32_t local_2c = 0;
-    uint32_t local_30 = 0;
-    uint32_t local_34 = 0;
-    uint32_t local_38 = 0;
-    uint32_t local_3c = 0;
-    uint32_t local_40 = 0;
-    uint32_t local_44 = 0;
-    uint32_t local_48 = 0;
-    uint32_t local_4c = 0;
-    uintptr_t *a1 = 0;
-    uintptr_t a2 = 0;
-    uint32_t *a3 = 0;
-    uintptr_t gp = 0;
-    uint32_t ra = 0;
-    uintptr_t *s0 = 0;
-    uintptr_t *s1 = 0;
-    uintptr_t *s2 = 0;
-    uint32_t *s3 = 0;
-    uintptr_t s4 = 0;
-    uintptr_t s5 = 0;
-    uint32_t s6 = 0;
-    uint32_t s7 = 0;
-    uint32_t s8 = 0;
-    uint32_t t9 = 0;
-    uintptr_t *v0 = 0;
-    uint32_t v1 = 0;
-
-    /* fragment 0: Prologue */
-    /* function prologue: stack frame and callee-saved register setup */
-
-    /* fragment 1: Arithmetic */
-    v0 = 4;
-
-    /* fragment 2: StackAccess */
-    local_4c = ra;
-    local_48 = s8;
-    local_44 = s7;
-    local_40 = s6;
-    local_3c = s5;
-    local_38 = s4;
-    local_34 = s3;
-    local_30 = s2;
-    local_2c = s1;
-    local_28 = s0;
-    s7 = *(uint8_t *)((char *)a0 + 7);
-
-    /* fragment 3: Branch */
-    if (s7 != v0) { goto ispcore_frame_channel_streamoff_isra_00x21c; }
-
-    /* fragment 4: CallSetup */
-    s0 = *(uint32_t *)((char *)(a0) + 32);
-    s5 = *(uint32_t *)((char *)(s0) + 88);
-    s1 = *(uint32_t *)((char *)(s0) + 76);
-    s2 = a0;
-    v0 = (uintptr_t *)arch_local_irq_save(); /* jalr target resolved by relocation */
-
-    /* fragment 5: MemoryAccess */
-    v1 = *(uint32_t *)((char *)&sp_9007);
-    a1 = v0;
-    v1 = v1 + 1;
-    *(uint32_t *)((char *)&sp_9007) = v1;
-    v0 = *(uint32_t *)((char *)s0 + 80);
-    s3 = (int32_t *)&private_spin_unlock_irqrestore;
-
-    /* fragment 6: Branch */
-    s3 = (int32_t *)&private_spin_unlock_irqrestore;
-    if (v0 == s7) { goto ispcore_frame_channel_streamoff_isra_00xb0; }
-
-    /* fragment 7: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    /* fragment 8: Arithmetic */
-    a0 = s0 + 120;
-    t9 = s3;
-
-    /* fragment 9: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    /* fragment 10: IndirectTailCall */
-    return ((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))private_spin_unlock_irqrestore)((uintptr_t)(a0), (uintptr_t)(a1), (uintptr_t)(a2), (uintptr_t)(a3));
-
-ispcore_frame_channel_streamoff_isra_00xb0:
-    /* fragment 11: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_spin_unlock_irqrestore)(s0 + 120); /* jalr target resolved by relocation */
-
-    /* fragment 12: MemoryAccess */
-    v0 = *(uint32_t *)((char *)s2 + 20);
-    s1 = s1 + 11;
-    v0 = (uintptr_t)v0 & 32;
-
-    /* fragment 13: Branch */
-    s1 = (uintptr_t)s1 << 8;
-    if (v0 == 0) { goto ispcore_frame_channel_streamoff_isra_00x120; }
-
-    /* fragment 14: Arithmetic */
-    v0 = (uintptr_t *)&vic_cmd_buf;
-    v1 = 1;
-    s8 = (uintptr_t)&private_msleep;
-
-    /* fragment 15: MemoryAccess */
-    *(uint8_t *)((char *)((char *)&g_switch_lfb_off)) = v1;
-    s7 = 100;
-    s8 = s8;
-
-ispcore_frame_channel_streamoff_isra_00xe4:
-    /* fragment 16: MemoryAccess */
-    v1 = *(uint8_t *)((char *)((char *)&g_switch_lfb_off));
-
-    /* fragment 17: Branch */
-    if (v1 == 0) { goto ispcore_frame_channel_streamoff_isra_00x120; }
-
-    /* fragment 18: CallSetup */
-    s7 = s7 - 1;
-    local_20 = v0;
-    v0 = (uintptr_t *)((uintptr_t (*)(int32_t *))(uintptr_t)private_msleep)(5); /* jalr target resolved by relocation */
-
-    /* fragment 19: Branch */
-    v0 = local_20;
-    if (s7 != 0) { goto ispcore_frame_channel_streamoff_isra_00xe4; }
-
-    /* fragment 20: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(int32_t *)isp_printf)(2, &LC89); /* jalr target resolved by relocation */
-
-ispcore_frame_channel_streamoff_isra_00x120:
-    /* fragment 21: Arithmetic */
-    v1 = 842072064;
-
-    /* fragment 22: MemoryAccess */
-    v0 = *(uint32_t *)((char *)s0 + 12);
-    a0 = v1 + 22094;
-
-    /* fragment 23: Branch */
-    v1 = v1 + 22095;
-    if (v0 == a0) { goto ispcore_frame_channel_streamoff_isra_00x318; }
-
-    /* fragment 24: Arithmetic */
-    v1 = v0 < v1;
-
-    /* fragment 25: Branch */
-    int _bc_v1_25 = v1 == 0;
-    v1 = 825360384;
-    if (_bc_v1_25) { goto ispcore_frame_channel_streamoff_isra_00x24c; }
-
-    /* fragment 26: Arithmetic */
-    v1 = v1 + 22094;
-
-    /* fragment 27: Branch */
-    if (v0 == v1) { goto ispcore_frame_channel_streamoff_isra_00x318; }
-
-ispcore_frame_channel_streamoff_isra_00x14c:
-    /* fragment 28: CallSetup */
-    v0 = (uintptr_t *)arch_local_irq_save(); /* jalr target resolved by relocation */
-
-    /* fragment 29: StackAccess */
-    local_20 = v0;
-    v0 = *(uint32_t *)((char *)&sp_9007);
-    v0 = v0 + 1;
-    *(uint32_t *)((char *)&sp_9007) = v0;
-    v0 = 2;
-    *(uint32_t *)((char *)s0 + 80) = v0;
-    v1 = 1048576;
-    v0 = 3;
-    a0 = 2097152;
-    *(uint8_t *)((char *)s2 + 7) = v0;
-    a3 = s0 + 112;
-    v1 = v1 + 256;
-    a0 = a0 + 512;
-
-ispcore_frame_channel_streamoff_isra_00x188:
-    /* fragment 30: MemoryAccess */
-    v0 = *(uint32_t *)((char *)s0 + 112);
-
-    /* fragment 31: Branch */
-    s7 = TX_ISP_FRAME_EVENT_BYPASS_ISP;
-    if (a3 != v0) { goto ispcore_frame_channel_streamoff_isra_00x374; }
-
-    /* fragment 32: Arithmetic */
-    s8 = (uintptr_t)&tx_isp_send_event_to_remote;
-
-    /* fragment 33: MemoryAccess */
-    s4 = *(uint32_t *)((char *)s0 + 88);
-    s2 = s0 + 132;
-    s1 = s0;
-    s7 = s7 + 6;
-    s8 = s8;
-
-ispcore_frame_channel_streamoff_isra_00x1ac:
-    /* fragment 34: MemoryAccess */
-    v0 = *(uint8_t *)((char *)s0 + 159);
-    v1 = (uintptr_t)s1 - (uintptr_t)s0;
-    v0 = v1 < v0;
-
-    /* fragment 35: Branch */
-    a1 = local_20;
-    if (v0 != 0) { goto ispcore_frame_channel_streamoff_isra_00x390; }
-
-    /* fragment 36: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_spin_unlock_irqrestore)(s0 + 120); /* jalr target resolved by relocation */
-
-    /* fragment 37: MemoryAccess */
-    a0 = *(uint32_t *)((char *)s5 + 336);
-    a2 = 44;
-    a3 = a0 * a2;
-    v0 = *(uint16_t *)((char *)s5 + 324);
-    a1 = (uint32_t *)&tx_isp_platform_device;
-    *(uint32_t *)((char *)s0 + 4) = v0;
-    v1 = *(uint16_t *)((char *)s5 + 326);
-    a1 = a1 + 3796;
-    a0 = (uintptr_t)a3 + (uintptr_t)a1;
-    *(uint32_t *)((char *)s0 + 8) = v1;
-    a1 = *(uint32_t *)((char *)a0 + 32);
-    *(uint32_t *)((char *)s0 + 12) = a1;
-    a0 = *(uint32_t *)((char *)a0 + 36);
-    *(uint8_t *)((char *)s0 + 36) = 0;
-    v0 = (uintptr_t)v0 * a0;
-    *(uint8_t *)((char *)s0 + 56) = 0;
-    *(uint8_t *)((char *)s0 + 159) = 0;
-    v0 = (uintptr_t)v0 >> 3;
-    v1 = v1 * (uintptr_t)v0;
-    *(uint32_t *)((char *)s0 + 20) = v0;
-    *(uint32_t *)((char *)s0 + 24) = v1;
-
-ispcore_frame_channel_streamoff_isra_00x21c:
-    /* fragment 38: Epilogue */
-    /* function epilogue: restore registers and return */
-    return (int64_t)v0;
-
-ispcore_frame_channel_streamoff_isra_00x24c:
-    /* fragment 39: ConstantLoad */
-    v1 = 0x41424752;
-
-    /* fragment 40: Branch */
-    v1 = v1 + 18259;
-    if (v0 == a0) { goto ispcore_frame_channel_streamoff_isra_00x290; }
-
-    /* fragment 41: Arithmetic */
-    v1 = v0 < v1;
-
-    /* fragment 42: Branch */
-    int _bc_v1_42 = v1 == 0;
-    v1 = 875823104;
-    if (_bc_v1_42) { goto ispcore_frame_channel_streamoff_isra_00x2e8; }
-
-    /* fragment 43: Arithmetic */
-    v1 = v1 + 13401;
-
-    /* fragment 44: Branch */
-    int _bc_v0_44 = v0 == v1;
-    v1 = 3433889792;
-    if (_bc_v0_44) { goto ispcore_frame_channel_streamoff_isra_00x290; }
-
-    /* fragment 45: Arithmetic */
-    v1 = v1 | 47294;
-    v0 = v0 + v1;
-    v1 = 4278124544;
-    v1 = v1 | 65535;
-    v0 = (uintptr_t)v0 & v1;
-
-    /* fragment 46: Branch */
-    if (v0 != 0) { goto ispcore_frame_channel_streamoff_isra_00x14c; }
-
-ispcore_frame_channel_streamoff_isra_00x290:
-    /* fragment 47: CallSetup */
-    s7 = (uintptr_t)&APICAL_READ_32;
-
-ispcore_frame_channel_streamoff_isra_00x294:
-    /* fragment 48: CallSetup */
-    a0 = s1 + 36;
-    s7 = s7;
-    s8 = 65536;
-
-ispcore_frame_channel_streamoff_isra_00x2a0:
-    /* fragment 49: CallSetup */
-    local_20 = a0;
-    v0 = (uintptr_t *)((uintptr_t (*)(int32_t *))(uintptr_t)APICAL_READ_32)(a0); /* jalr target resolved by relocation */
-
-    /* fragment 50: Arithmetic */
-    v0 = (uintptr_t)v0 & s8;
-
-    /* fragment 51: Branch */
-    a0 = local_20;
-    if (v0 != 0) { goto ispcore_frame_channel_streamoff_isra_00x2a0; }
-
-    /* fragment 52: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(int32_t *))(uintptr_t)APICAL_READ_32)(s1); /* jalr target resolved by relocation */
-
-    /* fragment 53: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)APICAL_WRITE_32)((uintptr_t)s1, (uintptr_t)v0 & (-513)); /* jalr target resolved by relocation */
-
-    /* fragment 54: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)APICAL_WRITE_32)(s1 + 28, 8); /* jalr target resolved by relocation */
-
-    /* fragment 55: Branch */
-    goto ispcore_frame_channel_streamoff_isra_00x14c;
-
-ispcore_frame_channel_streamoff_isra_00x2e8:
-    /* fragment 56: ConstantLoad */
-    v1 = 0x56595559;
-
-    /* fragment 57: Branch */
-    int _bc_v0_57 = v0 == v1;
-    v1 = 1498808320;
-    if (_bc_v0_57) { goto ispcore_frame_channel_streamoff_isra_00x290; }
-
-    /* fragment 58: Arithmetic */
-    v1 = v1 + 22869;
-
-    /* fragment 59: Branch */
-    int _bc_v0_59 = v0 == v1;
-    v1 = 1346502656;
-    if (_bc_v0_59) { goto ispcore_frame_channel_streamoff_isra_00x290; }
-
-    /* fragment 60: Arithmetic */
-    v1 = v1 + 18258;
-
-    /* fragment 61: Branch */
-    if (v0 != v1) { goto ispcore_frame_channel_streamoff_isra_00x14c; }
-
-    /* fragment 62: Branch */
-    s7 = (uintptr_t)&APICAL_READ_32;
-    goto ispcore_frame_channel_streamoff_isra_00x294;
-
-ispcore_frame_channel_streamoff_isra_00x318:
-    /* fragment 63: CallSetup */
-    s7 = (uintptr_t)&APICAL_READ_32;
-    a0 = s1 + 164;
-    s7 = s7;
-    s8 = 65536;
-
-ispcore_frame_channel_streamoff_isra_00x328:
-    /* fragment 64: CallSetup */
-    local_20 = a0;
-    v0 = (uintptr_t *)((uintptr_t (*)(int32_t *))(uintptr_t)APICAL_READ_32)(a0); /* jalr target resolved by relocation */
-
-    /* fragment 65: Arithmetic */
-    v0 = (uintptr_t)v0 & s8;
-
-    /* fragment 66: Branch */
-    a0 = local_20;
-    if (v0 != 0) { goto ispcore_frame_channel_streamoff_isra_00x328; }
-
-    /* fragment 67: CallSetup */
-    s8 = s1 + 128;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)APICAL_READ_32)(s1 + 128); /* jalr target resolved by relocation */
-
-    /* fragment 68: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)APICAL_WRITE_32)(s8, (uintptr_t)v0 & (-513)); /* jalr target resolved by relocation */
-
-    /* fragment 69: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)APICAL_WRITE_32)(s1 + 156, 8); /* jalr target resolved by relocation */
-
-    /* fragment 70: Branch */
-    s7 = (uintptr_t)&APICAL_READ_32;
-    goto ispcore_frame_channel_streamoff_isra_00x294;
-
-ispcore_frame_channel_streamoff_isra_00x374:
-    /* fragment 71: MemoryAccess */
-    a1 = *(uint32_t *)((char *)v0 + 4);
-    a2 = *(uint32_t *)((char *)v0 + 0);
-    *(uint32_t *)((char *)a2 + 4) = a1;
-    *(uint32_t *)((char *)a1 + 0) = a2;
-    *(uint32_t *)((char *)v0 + 0) = v1;
-
-    /* fragment 72: Branch */
-    *(uint32_t *)((char *)v0 + 4) = a0;
-    goto ispcore_frame_channel_streamoff_isra_00x188;
-
-ispcore_frame_channel_streamoff_isra_00x390:
-    /* fragment 73: MemoryAccess */
-    v0 = *(uint8_t *)((char *)s1 + 120);
-
-    /* fragment 74: Branch */
-    a2 = (uintptr_t)&local_10;
-    if (v0 == 0) { goto ispcore_frame_channel_streamoff_isra_00x3bc; }
-
-    /* fragment 75: CallSetup */
-    local_18 = *(uint32_t *)((char *)(s2) + 0);
-    local_1c = *(uint32_t *)((char *)(s4) + 356);
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tx_isp_send_event_to_remote)(*(uint32_t *)((char *)(s0) + 84), s7); /* jalr target resolved by relocation */
-
-    /* fragment 76: MemoryAccess */
-    *(uint8_t *)((char *)s1 + 120) = 0;
-
-ispcore_frame_channel_streamoff_isra_00x3bc:
-    /* fragment 77: Arithmetic */
-    s2 = s2 + 4;
-
-    /* fragment 78: Branch */
-    s1 = s1 + 1;
-    goto ispcore_frame_channel_streamoff_isra_00x1ac;
-
-    return ((int64_t)(uint32_t)v1 << 32) | (uint32_t)v0;
-}
-
-/* WHOLE_DRIVER_CANDIDATE fn_000000000000b9ac origin=fragment_seed original=ispcore_video_s_stream */
-static int64_t tx_isp_t30_ispcore_video_s_stream_raw(uintptr_t a0,
-						      uint32_t a1)
-{
-	unsigned long flags;
-    uint32_t *local_10 = 0;
-    uint32_t local_14 = 0;
-    uint32_t *local_18 = 0;
-    uint32_t local_1c = 0;
-    uint32_t local_24 = 0;
-    uint32_t local_28 = 0;
-    uint32_t local_2c = 0;
-    uint32_t local_30 = 0;
-    uint32_t local_34 = 0;
-    uint32_t local_38 = 0;
-    uint32_t local_3c = 0;
-    uint32_t local_40 = 0;
-    uint32_t local_44 = 0;
-    uint32_t a2 = 0;
-    uint32_t *a3 = 0;
-    uintptr_t gp = 0;
-    uint32_t ra = 0;
-    uintptr_t *s0 = 0;
-    uint32_t *s1 = 0;
-    uint32_t *s2 = 0;
-    uint32_t *s3 = 0;
-    uint32_t s4 = 0;
-    uint32_t s5 = 0;
-    uint32_t s6 = 0;
-    uint32_t s7 = 0;
-    uintptr_t *v0 = 0;
-	uint32_t v1 = 0;
-
-	if (!a1)
-		return tx_isp_t30_ispcore_video_stream_off((void *)a0);
-
-    /* fragment 0: Prologue */
-    /* function prologue: stack frame and callee-saved register setup */
-
-    /* fragment 1: CallSetup */
-    s0 = *(uint32_t *)((char *)(a0) + 212);
-    s4 = a0;
-    s3 = a1;
-	spin_lock_irqsave((spinlock_t *)((char *)s0 + 0xdc), flags);
-
-	/* fragment 3: MemoryAccess */
-    v0 = *(uint32_t *)((char *)s0 + 232);
-    s1 = (uintptr_t *)&private_spin_unlock_irqrestore;
-    v0 = v0 < 3;
-
-    /* fragment 4: Branch */
-    s1 = (uintptr_t *)&private_spin_unlock_irqrestore;
-    if (v0 == 0) { goto ispcore_video_s_stream0xc4; }
-
-    /* fragment 5: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(2, &LC90, 0 + 1756, 1874); /* jalr target resolved by relocation */
-
-    /* fragment 6: CallSetup */
-	spin_unlock_irqrestore((spinlock_t *)((char *)s0 + 0xdc), flags);
-
-    /* fragment 7: Arithmetic */
-    v0 = -1;
-
-ispcore_video_s_stream0x98:
-    /* fragment 8: Epilogue */
-    /* function epilogue: restore registers and return */
-    return (int64_t)v0;
-
-ispcore_video_s_stream0xa0:
-    /* fragment 9: Epilogue */
-    /* function epilogue: restore registers and return */
-    return (int64_t)v0;
-
-ispcore_video_s_stream0xc4:
-    /* fragment 10: CallSetup */
-	spin_unlock_irqrestore((spinlock_t *)((char *)s0 + 0xdc), flags);
-
-    /* fragment 11: MemoryAccess */
-    s6 = *(uint32_t *)((char *)s0 + 232);
-    *(uint32_t *)((char *)s0 + 360) = 0;
-    *(uint32_t *)((char *)s0 + 364) = 0;
-    *(uint32_t *)((char *)s0 + 372) = 0;
-
-    /* fragment 12: Branch */
-    *(uint32_t *)((char *)s0 + 356) = 0;
-    if (s3 == 0) { goto ispcore_video_s_stream0x5f0; }
-
-    /* fragment 13: Arithmetic */
-    v1 = 3;
-
-    /* fragment 14: Branch */
-    v0 = 0;
-    if (s6 != v1) { goto ispcore_video_s_stream0x200; }
-
-    /* fragment 15: CallSetup */
-    local_18 = 0;
-    local_10 = (uint32_t *)&local_18;
-    s1 = (uintptr_t *)&APICAL_READ_32;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(int32_t *)apical_command)(1, 9, 0, 0); /* jalr target resolved by relocation */
-
-    /* fragment 16: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(int32_t *))(uintptr_t)APICAL_READ_32)(48); /* jalr target resolved by relocation */
-
-    /* fragment 17: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)APICAL_WRITE_32)(48, (uintptr_t)v0 & (-4) | 2); /* jalr target resolved by relocation */
-
-    /* fragment 18: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)APICAL_WRITE_32)(256, 1048576 + 1); /* jalr target resolved by relocation */
-
-    /* fragment 19: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(int32_t *))(uintptr_t)APICAL_READ_32)(64); /* jalr target resolved by relocation */
-
-    /* fragment 20: CallSetup */
-    *(uint32_t *)((char *)s0 + 312) = v0;
-    v0 = (uintptr_t *)((uintptr_t (*)(int32_t *))(uintptr_t)APICAL_READ_32)(68); /* jalr target resolved by relocation */
-
-    /* fragment 21: MemoryAccess */
-    *(uint32_t *)((char *)s0 + 316) = v0;
-    v0 = *(uint32_t *)((char *)s0 + 236);
-    v0 = v0 < 2689;
-
-    /* fragment 22: Branch */
-    *(uint32_t *)((char *)s0 + 352) = 0;
-    if (v0 == 0) { goto ispcore_video_s_stream0x190; }
-
-    /* fragment 23: MemoryAccess */
-    v0 = *(uint32_t *)((char *)s0 + 240);
-    v0 = v0 < 2049;
-
-    /* fragment 24: Branch */
-    if (v0 != 0) { goto ispcore_video_s_stream0x250; }
-
-ispcore_video_s_stream0x190:
-    /* fragment 25: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))printk)((int32_t *)("%s"), (uintptr_t)(({ uintptr_t __regtrace_cstr = (uintptr_t)((const char *)(uintptr_t)&LC91); (const char *)(__regtrace_cstr ? __regtrace_cstr : (uintptr_t)"<null>"); }))); /* jalr target resolved by relocation */
-
-ispcore_video_s_stream0x1a4:
-    /* fragment 26: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(int32_t *))(uintptr_t)APICAL_READ_32)(164); /* jalr target resolved by relocation */
-
-    /* fragment 27: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)APICAL_WRITE_32)(164, (uintptr_t)v0 & 4294901760); /* jalr target resolved by relocation */
-
-    /* fragment 28: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(int32_t *))(uintptr_t)APICAL_READ_32)(164); /* jalr target resolved by relocation */
-
-    /* fragment 29: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)APICAL_WRITE_32)(164, (uintptr_t)v0 | 65535); /* jalr target resolved by relocation */
-
-    /* fragment 30: CallSetup */
-    local_10 = (uint32_t *)&local_1c;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(int32_t *)apical_command)(1, 9, 1, 0); /* jalr target resolved by relocation */
-
-    /* fragment 31: Branch */
-    v1 = local_18;
-    if (v0 != 0) { goto ispcore_video_s_stream0x5b8; }
-
-    /* fragment 32: Arithmetic */
-    v0 = 4;
-
-    /* fragment 33: MemoryAccess */
-    *(uint32_t *)((char *)s0 + 232) = v0;
-
-ispcore_video_s_stream0x1fc:
-    /* fragment 34: StackAccess */
-    v0 = local_18;
-
-ispcore_video_s_stream0x200:
-    /* fragment 35: Arithmetic */
-    /* Walk submods[15]..submods[0]; +0x78 is the parent field. */
-    s0 = s4 + 116;
-    s1 = -515;
-    s4 = s4 + 52;
-
-ispcore_video_s_stream0x20c:
-    /* fragment 36: MemoryAccess */
-    a0 = *(uint32_t *)((char *)s0 + 0);
-
-    /* fragment 37: Branch */
-    if (a0 == 0) { goto ispcore_video_s_stream0x238; }
-
-    /* fragment 38: MemoryAccess */
-    v0 = *(uint32_t *)((char *)a0 + 196);
-    v0 = *(uint32_t *)((char *)v0 + 4);
-
-    /* fragment 39: Branch */
-    if (v0 == 0) { goto ispcore_video_s_stream0x234; }
-
-    /* fragment 40: MemoryAccess */
-    v0 = *(uint32_t *)((char *)v0 + 0);
-
-    /* fragment 41: Branch */
-    if (v0 != 0) { goto ispcore_video_s_stream0x6a4; }
-
-ispcore_video_s_stream0x234:
-    /* fragment 42: Arithmetic */
-    v0 = -515;
-
-ispcore_video_s_stream0x238:
-    /* fragment 43: Arithmetic */
-    s0 = s0 - 4;
-
-    /* fragment 44: Branch */
-    v1 = -515;
-    if (s4 != s0) { goto ispcore_video_s_stream0x20c; }
-
-    /* fragment 45: Arithmetic */
-    v1 = (uintptr_t)v0 ^ v1;
-
-    /* fragment 46: Branch */
-    goto ispcore_video_s_stream0x98;
-
-ispcore_video_s_stream0x250:
-    /* fragment 47: MemoryAccess */
-    v0 = *(uint32_t *)((char *)s0 + 244);
-    v1 = v0 < 12301;
-
-    /* fragment 48: Branch */
-    int _bc_v1_48 = v1 == 0;
-    v1 = v0 < 12289;
-    if (_bc_v1_48) { goto ispcore_video_s_stream0x334; }
-
-    /* fragment 49: Branch */
-    int _bc_v1_49 = v1 == 0;
-    v1 = 8177;
-    if (_bc_v1_49) { goto ispcore_video_s_stream0x2bc; }
-
-    /* fragment 50: Branch */
-    int _bc_v0_50 = v0 == v1;
-    v1 = 8209;
-    if (_bc_v0_50) { goto ispcore_video_s_stream0x588; }
-
-    /* fragment 51: Branch */
-    int _bc_v0_51 = v0 == v1;
-    v1 = 4104;
-    if (_bc_v0_51) { goto ispcore_video_s_stream0x594; }
-
-    /* fragment 52: Branch */
-    if (v0 == v1) { goto ispcore_video_s_stream0x55c; }
-
-ispcore_video_s_stream0x280:
-    /* fragment 53: CallSetup */
-    *(uint32_t *)((char *)s0 + 336) = 9;
-    *(uint32_t *)((char *)s0 + 332) = 9;
-    local_10 = v0;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(2, &LC96, 0 + 1708, 1795); /* jalr target resolved by relocation */
-
-    /* fragment 54: Branch */
-    goto ispcore_video_s_stream0x1a4;
-
-ispcore_video_s_stream0x2bc:
-    /* fragment 55: Arithmetic */
-    v1 = 1;
-    v0 = v0 - 12289;
-    v0 = v1 << (uintptr_t)v0;
-    v1 = (uintptr_t)v0 & 1277;
-
-    /* fragment 56: Branch */
-    v0 = (uintptr_t)v0 & 770;
-    if (v1 != 0) { goto ispcore_video_s_stream0x3b8; }
-
-    /* fragment 57: Branch */
-    a1 = (uint32_t *)&LC94;
-    if (v0 != 0) { goto ispcore_video_s_stream0x364; }
-
-    /* fragment 58: CallSetup */
-    a1 = (uint32_t *)&LC93;
-
-ispcore_video_s_stream0x2e0:
-    /* fragment 59: CallSetup */
-    v0 = (uintptr_t *)memcpy((void *)(int32_t *)&tx_isp_platform_device, (void *)(uintptr_t)&LC93, 32); /* jalr target resolved by relocation */
-
-    /* fragment 60: ConstantLoad */
-    v0 = 0xed4;
-
-    /* fragment 61: MemoryAccess */
-    *(uint32_t *)((char *)v0 + 428) = v1;
-    v1 = 16;
-    *(uint32_t *)((char *)v0 + 432) = v1;
-    v1 = 6;
-    *(uint32_t *)((char *)v0 + 436) = v1;
-    v0 = 9;
-    *(uint32_t *)((char *)s0 + 332) = 0;
-    *(uint32_t *)((char *)s0 + 336) = v0;
-
-    /* fragment 62: Branch */
-    s6 = 2;
-    goto ispcore_video_s_stream0x40c;
-
-ispcore_video_s_stream0x334:
-    /* fragment 63: Arithmetic */
-    v1 = v0 - 12301;
-    a0 = v1 < 8;
-
-    /* fragment 64: Branch */
-    if (a0 == 0) { goto ispcore_video_s_stream0x280; }
-
-    /* fragment 65: Arithmetic */
-    v0 = 1;
-    v0 = (uintptr_t)v0 << v1;
-    v1 = (uintptr_t)v0 & 165;
-
-    /* fragment 66: Branch */
-    v0 = (uintptr_t)v0 & 74;
-    if (v1 != 0) { goto ispcore_video_s_stream0x504; }
-
-    /* fragment 67: Branch */
-    a1 = (uint32_t *)&LC93;
-    if (v0 != 0) { goto ispcore_video_s_stream0x2e0; }
-
-    /* fragment 68: CallSetup */
-    a1 = (uint32_t *)&LC94;
-
-ispcore_video_s_stream0x364:
-    /* fragment 69: CallSetup */
-    v0 = (uintptr_t *)memcpy((void *)(int32_t *)&tx_isp_platform_device, (void *)(uintptr_t)&LC94, 32); /* jalr target resolved by relocation */
-
-    /* fragment 70: ConstantLoad */
-    v0 = 0xed4;
-
-    /* fragment 71: MemoryAccess */
-    *(uint32_t *)((char *)v0 + 428) = v1;
-    v1 = 16;
-    *(uint32_t *)((char *)v0 + 432) = v1;
-    v1 = 6;
-    *(uint32_t *)((char *)v0 + 436) = v1;
-    v0 = 9;
-    *(uint32_t *)((char *)s0 + 332) = 0;
-    *(uint32_t *)((char *)s0 + 336) = v0;
-
-    /* fragment 72: Branch */
-    s6 = 1;
-    goto ispcore_video_s_stream0x40c;
-
-ispcore_video_s_stream0x3b8:
-    /* fragment 73: CallSetup */
-    v0 = (uintptr_t *)memcpy((void *)(int32_t *)&tx_isp_platform_device, (void *)(uintptr_t)&LC92, 32); /* jalr target resolved by relocation */
-
-    /* fragment 74: CallSetup */
-    v0 = (uintptr_t *)&tx_isp_platform_device;
-    v0 = v0 + 3796;
-    v1 = 842072064;
-    v1 = v1 + 18242;
-    *(uint32_t *)((char *)v0 + 428) = v1;
-    v1 = 16;
-    *(uint32_t *)((char *)v0 + 432) = v1;
-    v1 = 6;
-    *(uint32_t *)((char *)v0 + 436) = v1;
-    v0 = 9;
-    *(uint32_t *)((char *)s0 + 332) = 0;
-    *(uint32_t *)((char *)s0 + 336) = v0;
-    s6 = 3;
-
-ispcore_video_s_stream0x40c:
-    /* fragment 75: CallSetup */
-    *(uint16_t *)((char *)s0 + 324) = (*(uint32_t *)((char *)(s0) + 236));
-    *(uint32_t *)((char *)s0 + 328) = s6;
-    *(uint16_t *)((char *)s0 + 326) = (*(uint32_t *)((char *)(s0) + 240));
-    v0 = (uintptr_t *)((uintptr_t (*)(int32_t *))(uintptr_t)APICAL_READ_32)(24); /* jalr target resolved by relocation */
-
-    /* fragment 76: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)APICAL_WRITE_32)(24, ((uintptr_t)v0 & (-4)) | s6); /* jalr target resolved by relocation */
-
-    /* fragment 77: MemoryAccess */
-    v1 = *(uint32_t *)((char *)s0 + 232);
-    v0 = 4;
-
-    /* fragment 78: Branch */
-    if (v1 == v0) { goto ispcore_video_s_stream0x1a4; }
-
-    /* fragment 79: CallSetup */
-    s7 = *(uint16_t *)((char *)(s0) + 324);
-    s6 = 4294901760;
-    v0 = (uintptr_t *)((uintptr_t (*)(int32_t *))(uintptr_t)APICAL_READ_32)(16); /* jalr target resolved by relocation */
-
-    /* fragment 80: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)APICAL_WRITE_32)(16, ((uintptr_t)v0 & s6) | s7); /* jalr target resolved by relocation */
-
-    /* fragment 81: CallSetup */
-    s7 = *(uint16_t *)((char *)(s0) + 326);
-    v0 = (uintptr_t *)((uintptr_t (*)(int32_t *))(uintptr_t)APICAL_READ_32)(20); /* jalr target resolved by relocation */
-
-    /* fragment 82: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)APICAL_WRITE_32)(20, ((uintptr_t)v0 & s6) | s7); /* jalr target resolved by relocation */
-
-    /* fragment 83: MemoryAccess */
-    a1 = *(uint32_t *)((char *)s0 + 336);
-    v1 = 44;
-    a2 = a1 * v1;
-    v0 = (uintptr_t *)&tx_isp_platform_device;
-    v0 = v0 + 3796;
-    a0 = 0;
-    a1 = a2 + (uintptr_t)v0;
-
-ispcore_video_s_stream0x4a4:
-    /* fragment 84: MemoryAccess */
-    v0 = *(uint32_t *)((char *)s0 + 344);
-    v0 = a0 < v0;
-
-    /* fragment 85: Branch */
-    v1 = 160;
-    if (v0 == 0) { goto ispcore_video_s_stream0x1a4; }
-
-    /* fragment 86: Arithmetic */
-    a2 = a0 * v1;
-
-    /* fragment 87: MemoryAccess */
-    v0 = *(uint32_t *)((char *)s0 + 340);
-    v0 = a2 + (uintptr_t)v0;
-    v1 = *(uint32_t *)((char *)v0 + 80);
-
-    /* fragment 88: Branch */
-    if (v1 == 0) { goto ispcore_video_s_stream0x4fc; }
-
-    /* fragment 89: MemoryAccess */
-    v1 = *(uint16_t *)((char *)s0 + 324);
-    *(uint32_t *)((char *)v0 + 4) = v1;
-    a2 = *(uint16_t *)((char *)s0 + 326);
-    *(uint32_t *)((char *)v0 + 8) = a2;
-    a3 = *(uint32_t *)((char *)a1 + 32);
-    *(uint32_t *)((char *)v0 + 12) = a3;
-    a3 = *(uint32_t *)((char *)a1 + 36);
-    v1 = v1 * (uintptr_t)a3;
-    v1 = v1 >> 3;
-    a2 = a2 * v1;
-    *(uint32_t *)((char *)v0 + 20) = v1;
-    *(uint32_t *)((char *)v0 + 24) = a2;
-
-ispcore_video_s_stream0x4fc:
-    /* fragment 90: Branch */
-    a0 = a0 + 1;
-    goto ispcore_video_s_stream0x4a4;
-
-ispcore_video_s_stream0x504:
-    /* fragment 91: CallSetup */
-    v0 = (uintptr_t *)memcpy((void *)(int32_t *)&tx_isp_platform_device, (void *)(uintptr_t)&LC95, 32); /* jalr target resolved by relocation */
-
-    /* fragment 92: ConstantLoad */
-    v0 = 0xed4;
-
-    /* fragment 93: MemoryAccess */
-    *(uint32_t *)((char *)v0 + 428) = v1;
-    v1 = 16;
-    *(uint32_t *)((char *)v0 + 432) = v1;
-    v1 = 6;
-    *(uint32_t *)((char *)v0 + 436) = v1;
-    v0 = 9;
-    *(uint32_t *)((char *)s0 + 332) = 0;
-    *(uint32_t *)((char *)s0 + 336) = v0;
-
-    /* fragment 94: Branch */
-    s6 = 0;
-    goto ispcore_video_s_stream0x40c;
-
-ispcore_video_s_stream0x55c:
-    /* fragment 95: CallSetup */
-    v0 = 4;
-    *(uint32_t *)((char *)s0 + 332) = v0;
-    v0 = 5;
-
-ispcore_video_s_stream0x568:
-    /* fragment 96: CallSetup */
-    *(uint32_t *)((char *)s0 + 336) = v0;
-
-ispcore_video_s_stream0x56c:
-    /* fragment 97: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(int32_t *))(uintptr_t)APICAL_READ_32)(68); /* jalr target resolved by relocation */
-
-    /* fragment 98: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)APICAL_WRITE_32)(68, (uintptr_t)v0 | 512); /* jalr target resolved by relocation */
-
-    /* fragment 99: Branch */
-    s6 = 0;
-    goto ispcore_video_s_stream0x40c;
-
-ispcore_video_s_stream0x588:
-    /* fragment 100: MemoryAccess */
-    *(uint32_t *)((char *)s0 + 332) = 0;
-
-    /* fragment 101: Branch */
-    v0 = 7;
-    goto ispcore_video_s_stream0x568;
-
-ispcore_video_s_stream0x594:
-    /* fragment 102: CallSetup */
-    *(uint32_t *)((char *)s0 + 332) = 0;
-    *(uint32_t *)((char *)s0 + 336) = s6;
-    v0 = (uintptr_t *)((uintptr_t (*)(int32_t *))(uintptr_t)APICAL_READ_32)(68); /* jalr target resolved by relocation */
-
-    /* fragment 103: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)APICAL_WRITE_32)(68, (uintptr_t)v0 | 24576); /* jalr target resolved by relocation */
-
-    /* fragment 104: Branch */
-    goto ispcore_video_s_stream0x56c;
-
-ispcore_video_s_stream0x5b8:
-    /* fragment 105: CallSetup */
-    local_10 = v0;
-    local_14 = v1;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(2, &LC97, 0 + 1732, 1853); /* jalr target resolved by relocation */
-
-    /* fragment 106: Arithmetic */
-    v0 = -1;
-
-    /* fragment 107: Branch */
-    local_18 = v0;
-    goto ispcore_video_s_stream0x1fc;
-
-ispcore_video_s_stream0x5f0:
-    /* fragment 108: Arithmetic */
-    v0 = 4;
-
-    /* fragment 109: Branch */
-    if (s6 != v0) { goto ispcore_video_s_stream0x66c; }
-
-    /* fragment 110: Arithmetic */
-    s1 = 0;
-    s5 = 4;
-    s2 = 480;
-
-ispcore_video_s_stream0x608:
-    /* fragment 111: MemoryAccess */
-    v0 = *(uint32_t *)((char *)s0 + 340);
-    v0 = (uintptr_t)(uintptr_t)v0 + (uintptr_t)s1;
-    v1 = *(uint32_t *)((char *)v0 + 80);
-
-    /* fragment 112: Branch */
-    if (v1 != s5) { goto ispcore_video_s_stream0x630; }
-
-    /* fragment 113: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)ispcore_frame_channel_streamoff_isra_0)(*(uint32_t *)((char *)(v0) + 84)); /* jalr target resolved by relocation */
-
-ispcore_video_s_stream0x630:
-    /* fragment 114: Arithmetic */
-    s1 = s1 + 160;
-
-    /* fragment 115: Branch */
-    v0 = (uintptr_t *)&local_18;
-    if (s1 != s2) { goto ispcore_video_s_stream0x608; }
-
-    /* fragment 116: CallSetup */
-    local_10 = v0;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(int32_t *)apical_command)(1, 9, 0, 0); /* jalr target resolved by relocation */
-
-    /* fragment 117: Branch */
-    a2 = 0;
-    if (v0 != 0) { goto ispcore_video_s_stream0x674; }
-
-    /* fragment 118: Arithmetic */
-    v0 = 3;
-
-    /* fragment 119: MemoryAccess */
-    *(uint32_t *)((char *)s0 + 232) = v0;
-
-ispcore_video_s_stream0x66c:
-    /* fragment 120: Branch */
-    v0 = 0;
-    goto ispcore_video_s_stream0x200;
-
-ispcore_video_s_stream0x674:
-    /* fragment 121: CallSetup */
-    local_10 = v0;
-    local_14 = 0;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(2, &LC98, a2 + 1756, 1910); /* jalr target resolved by relocation */
-
-    /* fragment 122: Branch */
-    v0 = -22;
-    goto ispcore_video_s_stream0x200;
-
-ispcore_video_s_stream0x6a4:
-    /* fragment 123: CallSetup */
-    v0 = (uintptr_t *)(long)
-	((int (*)(void *, int))(uintptr_t)v0)((void *)a0, s3);
-
-    /* fragment 124: Branch */
-    if (v0 == 0) { goto ispcore_video_s_stream0x238; }
-
-    /* fragment 125: Branch */
-    if (v0 == s1) { goto ispcore_video_s_stream0x238; }
-
-    /* fragment 126: Branch */
-    s7 = local_40;
-    goto ispcore_video_s_stream0xa0;
-
-	return ((int64_t)(uint32_t)v1 << 32) | (uint32_t)v0;
-}
-
 static u32 tx_isp_t30_bayer_pattern(u32 mbus_code, u32 fallback)
 {
 	switch (mbus_code) {
@@ -16630,36 +13364,7 @@ out:
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000000c274 origin=model_output original=isp_enable_dma_transfer.isra.0 */
 #ifndef REGTRACE_KERNEL_TREE_BUILD
-int32_t isp_enable_dma_transfer_isra_0(void *arg1, int32_t arg2) __asm__("isp_enable_dma_transfer.isra.0");
 #endif
-int32_t isp_enable_dma_transfer_isra_0(void *arg1, int32_t arg2)
-{
-	struct isp_dma_ctx *ctx = (struct isp_dma_ctx *)arg1;
-	int32_t magic = *(volatile int32_t *)((uintptr_t)arg1 + 0xc);
-	int32_t val;
-	int32_t *a1;
-
-	if (magic == 0x3132564e || magic == 0x3231564e) {
-		val = (*(volatile int32_t *)((uintptr_t)arg1 + 0x4c) << 8) + 0xba4;
-		if (arg2 == 0) {
-			APICAL_WRITE_32(val, 3);
-			a1 = 3;
-		} else {
-			APICAL_WRITE_32(val, 2);
-			a1 = 2;
-		}
-		val = (*(volatile int32_t *)((uintptr_t)arg1 + 0x4c) << 8);
-	} else if (arg2 != 0) {
-		a1 = 2;
-		val = (*(volatile int32_t *)((uintptr_t)arg1 + 0x4c) << 8);
-	} else {
-		a1 = 3;
-		val = (*(volatile int32_t *)((uintptr_t)arg1 + 0x4c) << 8);
-	}
-
-	return APICAL_WRITE_32(val + 0xb24, a1);
-}
-
 /* WHOLE_DRIVER_CANDIDATE fn_000000000000c318 origin=model_output original=isp_set_buffer_address_vflip_disable.isra.0 */
 #ifndef REGTRACE_KERNEL_TREE_BUILD
 int32_t isp_set_buffer_address_vflip_disable_isra_0(void *arg1, void *arg2, int32_t arg3) __asm__("isp_set_buffer_address_vflip_disable.isra.0");
@@ -16699,67 +13404,7 @@ int32_t isp_set_buffer_address_vflip_disable_isra_0(void *arg1, void *arg2, int3
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000000c444 origin=model_output original=isp_configure_base_addr.isra.0 */
 #ifndef REGTRACE_KERNEL_TREE_BUILD
-int isp_configure_base_addr_isra_0(void *arg1) __asm__("isp_configure_base_addr.isra.0");
 #endif
-int isp_configure_base_addr_isra_0(void *arg1)
-{
-    uint32_t s4 = 0;
-    uint32_t *result;
-
-    while (1) {
-        result = s4 < *(uint32_t *)((char *)arg1 + 0x158) ? 1 : 0;
-        if (result == 0)
-            break;
-
-        char *s3 = (char *)(s4 * 0xa0) + *(uint32_t *)((char *)arg1 + 0x154);
-
-        if (*(uint32_t *)(s3 + 0x50) == 4 &&
-            ((*(uint32_t **)((uintptr_t)s3 + 0x54))[0x14 / 4] & 0x20) == 0) {
-            uint32_t a2 = (APICAL_READ_32((s4 << 8) + 0xb24) >> 8) & 7;
-            uint32_t s6 = 0;
-
-            while (1) {
-                uint32_t v0_7 = *(uint8_t *)(s3 + 0x9f);
-
-                if (s6 >= v0_7)
-                    break;
-
-                uint32_t a2_4 = a2 % v0_7;
-                char *v0_8 = (void *)((uintptr_t)s3 + a2_4);
-
-                if (*(uint8_t *)(v0_8 + 0x78) == 0) {
-                    char *a1 = (void *)(*(char **)((uintptr_t)s3 + 0x70));
-
-                    if (a1 == s3 + 0x70)
-                        break;
-
-                    char *v1_4 = (void *)(*(char **)((uintptr_t)a1 + 4));
-                    char *a0_2 = *(char **)a1;
-                    *(char **)(a0_2 + 4) = v1_4;
-                    *(char **)v1_4 = a0_2;
-                    *(uint32_t *)a1 = 0x100100;
-                    *(uint32_t *)(a1 + 4) = 0x200200;
-
-                    if (a1 != 0) {
-                        isp_set_buffer_address_vflip_disable_isra_0(s3, a1, a2_4);
-                        *(uint8_t *)(v0_8 + 0x7d) = *(uint8_t *)((char *)arg1 + 0x16c);
-                        *(uint8_t *)(v0_8 + 0x78) = 1;
-                        *(uint32_t *)((uintptr_t)s3 + ((a2_4 + 0x20) << 2) + 4) =
-                            *(uint32_t *)(a1 + 8);
-                    }
-                }
-
-                s6 = (s6 + 1) & 0xff;
-                a2 = (a2_4 + 1) & 0xff;
-            }
-        }
-
-        s4 += 1;
-    }
-
-	return result;
-}
-
 static struct tx_isp_t30_frame_channel_format *
 tx_isp_t30_find_output_format(u32 fourcc, u32 start, u32 end)
 {
@@ -16838,8 +13483,14 @@ static int tx_isp_t30_ispcore_config_dma(void *chan,
 	apical_command(4, 0x73 + index, 0x57, 0, &command_ret);
 	pr_err("tx-isp-t30: core fmt ch=%u output command complete ret=%d\n",
 	       index, command_ret);
+	/*
+	 * CSC mode of the channel (SDK tx-isp-core.c:800-834, :929-937, OEM
+	 * ispcore_pad_event_handle xori 0x2011 / movz at 0xcb98/0xcc78/0xcc98):
+	 * 0x08 when the sensor delivers YUYV8_1X16 (core+0xf4 = mbus code
+	 * 0x2011), else 0x0f.  Was hard-coded 0x0f.
+	 */
 	APICAL_WRITE_32(index == 0 ? 0x570 : index == 1 ? 0x6b0 : 0x7b0,
-			0x0f);
+			*(u32 *)((char *)core + 0xf4) == 0x2011 ? 0x08 : 0x0f);
 	return 0;
 }
 
@@ -17305,11 +13956,11 @@ ispcore_pad_event_handle_get_fmt:
     v1 = v1 + 3796;
     v0 = a2 + v1;
     v0 = *(uint32_t *)((char *)v0 + 32);
-    *(uint32_t *)((char *)&rg_avg) = v0;
+    *(uint32_t *)((char *)s0 + 12) = v0;	/* OEM c684 sw v0,12(s0) (#371) */
     v0 = *(uint32_t *)((char *)a1 + 24);
-    *(uint8_t *)((char *)&csp_9009) = 0;
-    *(uint32_t *)((char *)((char *)&sp_9007 + 0x4)) = v0;
-    *(uint8_t *)((char *)((char *)&fsp_9016 + 0x4)) = 0;
+    *(uint8_t *)((char *)s0 + 36) = 0;
+    *(uint32_t *)((char *)s0 + 24) = v0;
+    *(uint8_t *)((char *)s0 + 56) = 0;
 
 ispcore_pad_event_handle0xbc:
     /* fragment 14: Arithmetic */
@@ -17318,7 +13969,7 @@ ispcore_pad_event_handle0xbc:
 ispcore_pad_event_handle0xc0:
     /* fragment 15: Epilogue */
     /* function epilogue: restore registers and return */
-    return (int64_t)v0;
+    return (int64_t)s2;	/* OEM c69c: move v0,s2, the lift returned the stale v0 (#371) */
 
 ispcore_pad_event_handle0xc4:
     /* fragment 16: Epilogue */
@@ -17843,12 +14494,14 @@ ispcore_pad_event_handle0x598:
     v0 = *(uint32_t *)((char *)s5 + 244);
     v1 = 8;
     v0 = (uintptr_t)v0 ^ 8209;
+    /* lost movz s2,v1,v0 (OEM 0xcb9c/0xcc80/0xcca0): csc 8 for YUYV8_1X16 */
+    if (v0 == 0) { s2 = (uint32_t *)(uintptr_t)v1; }
     a1 = 0;
     a0 = 22;
 
 ispcore_pad_event_handle0x5cc:
     /* fragment 143: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(int32_t *))(uintptr_t)isp_core_config_top_ctl_register)(a0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)isp_core_config_top_ctl_register)(a0, a1);	/* #369 OEM 0xcba0/0xccec a1 = bit */ /* jalr target resolved by relocation */
 
 ispcore_pad_event_handle0x5dc:
     /* fragment 144: MemoryAccess */
@@ -17910,6 +14563,8 @@ ispcore_pad_event_handle0x694:
     s2 = 15;
     v0 = (uintptr_t)v0 ^ 8209;
     v1 = 8;
+    /* lost movz s2,v1,v0 (OEM 0xcb9c/0xcc80/0xcca0): csc 8 for YUYV8_1X16 */
+    if (v0 == 0) { s2 = (uint32_t *)(uintptr_t)v1; }
     a1 = 0;
 
     /* fragment 159: Branch */
@@ -17922,6 +14577,8 @@ ispcore_pad_event_handle0x6b4:
     s2 = 15;
     v0 = (uintptr_t)v0 ^ 8209;
     v1 = 8;
+    /* lost movz s2,v1,v0 (OEM 0xcb9c/0xcc80/0xcca0): csc 8 for YUYV8_1X16 */
+    if (v0 == 0) { s2 = (uint32_t *)(uintptr_t)v1; }
 
     /* fragment 161: Branch */
     a0 = 36;
@@ -17948,7 +14605,7 @@ ispcore_pad_event_handle0x6e4:
     if (v1 != v0) { goto ispcore_pad_event_handle0x510; }
 
     /* fragment 167: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(int32_t *))(uintptr_t)isp_core_config_top_ctl_register)(16); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)isp_core_config_top_ctl_register)(16, 0);	/* #369 OEM 0xccc8 move a1,zero */ /* jalr target resolved by relocation */
 
     /* fragment 168: Branch */
     a1 = *(uint32_t *)((char *)(s3) + 40);
@@ -17961,7 +14618,7 @@ ispcore_pad_event_handle0x708:
 
 ispcore_pad_event_handle0x710:
     /* fragment 170: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(int32_t *))(uintptr_t)isp_core_config_top_ctl_register)(a0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)isp_core_config_top_ctl_register)(a0, a1);	/* #369 OEM 0xcce4 li a1,1 */ /* jalr target resolved by relocation */
 
     /* fragment 171: Branch */
     v1 = *(uint32_t *)((char *)(s5) + 336);
@@ -18030,7 +14687,7 @@ ispcore_pad_event_handle0x780:
 ispcore_pad_event_handle0x784:
     /* fragment 187: CallSetup */
     local_10 = (uint32_t *)&local_20;
-    v0 = (uintptr_t *)((uintptr_t (*)(int32_t *))(uintptr_t)apical_command)(4); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)apical_command)(4, a1, a2, 0, (uintptr_t)&local_20);	/* #369 OEM 0xcd5c-0xcd74: a1 = subcmd, a2 = value, a3 = 0, 16(sp) = &local_20 */ /* jalr target resolved by relocation */
 
     /* fragment 188: Branch */
     v0 = *(uint32_t *)((char *)(s1) + 76);
@@ -18147,7 +14804,7 @@ ispcore_pad_event_handle0x834:
 
 ispcore_pad_event_handle0x8a4:
     /* fragment 214: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)isp_lfb_config_resolution)(*(uint32_t *)((char *)(s0) + 4)); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)isp_lfb_config_resolution)(*(uint32_t *)((char *)(s0) + 4), a1);	/* #369 OEM 0xce7c lw a1,8(s0) */ /* jalr target resolved by relocation */
 
     /* fragment 215: CallSetup */
     v0 = (uintptr_t *)((uintptr_t (*)(int32_t *))(uintptr_t)isp_lfb_ctrl_hw_recovery)(1); /* jalr target resolved by relocation */
@@ -18344,7 +15001,7 @@ ispcore_pad_event_handle0xaa4:
     v0 = (uintptr_t *)arch_local_irq_save(); /* jalr target resolved by relocation */
 
     /* fragment 264: CallSetup */
-    *(uint32_t *)((char *)&sp_9007) = ((*(uint32_t *)((char *)(gp) + 20)) + 1);
+    T30_GP_PREEMPT() += 1;	/* OEM gp+20 (#371) */
     *(uint32_t *)((char *)s0 + 80) = 4;
     *(uint8_t *)((char *)s1 + 7) = 4;
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(int32_t *)private_spin_unlock_irqrestore)(s5, v0); /* jalr target resolved by relocation */
@@ -18403,9 +15060,7 @@ ispcore_pad_event_handle_queue_buffer:
     v0 = (uintptr_t *)arch_local_irq_save(); /* jalr target resolved by relocation */
 
     /* fragment 280: CallSetup */
-    v1 = *(uint32_t *)((char *)&sp_9007);
-    v1 = v1 + 1;
-    *(uint32_t *)((char *)&sp_9007) = v1;
+    T30_GP_PREEMPT() += 1;	/* OEM lw/addiu/sw 20(gp): preempt_count (#371) */
     v1 = *(uint32_t *)((char *)s1 + 116);
     a0 = s1 + 112;
     *(uint32_t *)((char *)s1 + 116) = s0;
@@ -18418,7 +15073,7 @@ ispcore_pad_event_handle_queue_buffer:
 ispcore_pad_event_handle0xba8:
     /* fragment 281: CallSetup */
     s2 = 0;
-    v0 = (uintptr_t *)((uintptr_t (*)(int32_t *))(uintptr_t)private_spin_unlock_irqrestore)(a0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)private_spin_unlock_irqrestore)(a0, a1);	/* OEM a1 = flags (#371) */ /* jalr target resolved by relocation */
 
     /* fragment 282: Branch */
     goto ispcore_pad_event_handle0xc4;
@@ -18443,9 +15098,7 @@ ispcore_pad_event_handle_free_buffers:
     v0 = (uintptr_t *)arch_local_irq_save(); /* jalr target resolved by relocation */
 
     /* fragment 288: MemoryAccess */
-    v1 = *(uint32_t *)((char *)&sp_9007);
-    v1 = v1 + 1;
-    *(uint32_t *)((char *)&sp_9007) = v1;
+    T30_GP_PREEMPT() += 1;	/* OEM lw/addiu/sw 20(gp): preempt_count (#371) */
     a0 = 1048576;
     a2 = 2097152;
     a1 = s0 + 112;
@@ -18680,7 +15333,7 @@ ispcore_pad_event_handle0xd9c:
 
 ispcore_pad_event_handle0xdbc:
     /* fragment 341: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(int32_t *))(uintptr_t)APICAL_WRITE_32)(a0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)APICAL_WRITE_32)(a0, (uintptr_t)s2); /* csc value was lost by the lift (OEM 0xd390 move a1,s2) */
 
 ispcore_pad_event_handle0xdcc:
     /* fragment 342: CallSetup */
@@ -18695,52 +15348,7 @@ ispcore_pad_event_handle0xdcc:
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000000d3c8 origin=model_output original=isp_modify_dma_direction.isra.0 */
 #ifndef REGTRACE_KERNEL_TREE_BUILD
-uint32_t isp_modify_dma_direction_isra_0(void *arg1) __asm__("isp_modify_dma_direction.isra.0");
 #endif
-uint32_t isp_modify_dma_direction_isra_0(void *arg1)
-{
-	struct isp_dma_ctx {
-		uint32_t _r0[3];
-		uint32_t magic;
-		uint32_t _r4[13];
-		uint32_t base;
-		uint32_t dir;
-		uint32_t *cfg;
-		uint32_t _r7[27];
-		uint32_t value;
-		uint8_t *cur;
-		uint8_t count;
-		uint32_t _r10[11];
-	} *ctx = (struct isp_dma_ctx *)arg1;
-
-	uint32_t ret;
-
-	if (ctx->dir != 4)
-		return 4;
-
-	ret = ctx->cfg[5] & 0x20;
-	if (ret)
-		return ret;
-
-	{
-		uint32_t v = APICAL_READ_32((ctx->base << 8) + 0xb24);
-		uint32_t idx = ((v >> 8) & 7) + 1;
-		uint32_t q = idx % ctx->count;
-		uint8_t *b = ctx->value + q + 0x7d;
-		uint8_t *cur = ctx->cur;
-
-		if (cur == b)
-			return b;
-
-		ctx->cur = b;
-
-		if (ctx->magic == 0x3132564e || ctx->magic == 0x3231564e)
-			APICAL_WRITE_32((ctx->base << 8) + 0xba0, ctx->value);
-
-		return APICAL_WRITE_32((ctx->base << 8) + 0xb20, ctx->value);
-	}
-}
-
 static void tx_isp_t30_ispcore_enable_lfb_channel(
 	struct tx_isp_t30_core_output_channel *chan)
 {
@@ -18788,6 +15396,13 @@ static bool tx_isp_t30_core_chan_direct(struct tx_isp_t30_core_output_channel *c
 	case V4L2_PIX_FMT_SGBRG12:
 	case V4L2_PIX_FMT_SGRBG12:
 	case V4L2_PIX_FMT_SRGGB12:
+	/*
+	 * #365: NV12/NV21 to DDR as well (the core -> LDC link of graph 2,
+	 * flag 0x10): the bank helper writes Y and UV like the OEM
+	 * isp_set_buffer_address_vflip_disable.
+	 */
+	case V4L2_PIX_FMT_NV12:
+	case V4L2_PIX_FMT_NV21:
 		return true;
 	default:
 		return false;
@@ -19055,1165 +15670,7 @@ static int tx_isp_t30_ispcore_interrupt(struct tx_isp_t30_subdev *sd)
 /* WHOLE_DRIVER_CANDIDATE fn_000000000000d4bc origin=fragment_seed original=ispcore_interrupt_service_routine */
 int32_t ispcore_interrupt_service_routine(uintptr_t a0)
 {
-    uint32_t *local_18 = 0;
-    uint32_t local_1c = 0;
-    uint32_t local_20 = 0;
-    uint32_t local_24 = 0;
-    uint32_t local_28 = 0;
-    uint32_t local_2c = 0;
-    uint32_t local_30 = 0;
-    uint32_t local_34 = 0;
-    uint32_t local_38 = 0;
-    uint32_t local_40 = 0;
-    uint32_t local_44 = 0;
-    uint32_t local_48 = 0;
-    uint32_t local_4c = 0;
-    uint32_t local_50 = 0;
-    uint32_t local_54 = 0;
-    uint32_t local_58 = 0;
-    uint32_t local_5c = 0;
-    uint32_t local_60 = 0;
-    uint32_t local_64 = 0;
-    uintptr_t *a1 = 0;
-    uint32_t a2 = 0;
-    uint32_t *a3 = 0;
-    uint32_t ra = 0;
-    uintptr_t *s0 = 0;
-    uint32_t *s1 = 0;
-    uint32_t *s2 = 0;
-    uintptr_t *s3 = 0;
-    uint32_t s4 = 0;
-    uint32_t s5 = 0;
-    uintptr_t s6 = 0;
-    uint32_t s7 = 0;
-    uintptr_t s8 = 0;
-    uintptr_t t0 = 0;
-    uintptr_t *v0 = 0;
-    uintptr_t v1 = 0;
-
 	return tx_isp_t30_ispcore_interrupt((void *)a0);
-
-    /* fragment 0: Prologue */
-    /* function prologue: stack frame and callee-saved register setup */
-
-    /* fragment 1: CallSetup */
-    s0 = *(uint32_t *)((char *)(a0) + 212);
-    v0 = (uintptr_t *)((uintptr_t (*)(int32_t *))(uintptr_t)APICAL_READ_32)(24); /* jalr target resolved by relocation */
-
-    /* fragment 2: CallSetup */
-    s4 = v0;
-    v0 = (uintptr_t *)((uintptr_t (*)(int32_t *))(uintptr_t)APICAL_READ_32)(160); /* jalr target resolved by relocation */
-
-    /* fragment 3: Arithmetic */
-    s5 = v0;
-    v1 = 1;
-    v0 = (uintptr_t)v0 & 65535;
-
-    /* fragment 4: Branch */
-    local_24 = v1;
-    if (v0 == 0) { goto ispcore_interrupt_service_routine0xac4; }
-
-    /* fragment 5: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(int32_t *))(uintptr_t)APICAL_READ_32)(164); /* jalr target resolved by relocation */
-
-    /* fragment 6: CallSetup */
-    s3 = 4294901760;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)APICAL_WRITE_32)(164, (uintptr_t)v0 & 4294901760); /* jalr target resolved by relocation */
-
-    /* fragment 7: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(int32_t *))(uintptr_t)APICAL_READ_32)(164); /* jalr target resolved by relocation */
-
-    /* fragment 8: CallSetup */
-    local_20 = s5 & 65535;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)APICAL_WRITE_32)(164, ((uintptr_t)v0 & (uintptr_t)s3) | (s5 & 65535)); /* jalr target resolved by relocation */
-
-    /* OEM uses s3 as the IRQ bit index after clearing the pending mask. */
-    s3 = 0;
-
-    /* fragment 9: ConstantLoad */
-    v0 = 0x5d0;
-
-    /* fragment 10: StackAccess */
-    local_30 = v0;
-    s5 = s5 - 11320;
-    s7 = (uintptr_t)&vic_cmd_buf;
-
-ispcore_interrupt_service_routine0xc0:
-    /* fragment 11: StackAccess */
-    v0 = local_20;
-
-ispcore_interrupt_service_routine0xc4:
-    /* fragment 12: Arithmetic */
-    v0 = (uintptr_t)(v0) >> (uintptr_t)s3;
-    v0 = (uintptr_t)v0 & 1;
-
-    /* fragment 13: Branch */
-    int _bc_v0_13 = v0 == 0;
-    v0 = s3 < 14;
-    if (_bc_v0_13) { goto ispcore_interrupt_service_routine0xab4; }
-
-    /* fragment 14: Branch */
-    int _bc_v0_14 = v0 == 0;
-    v0 = local_30;
-    if (_bc_v0_14) { goto ispcore_interrupt_service_routine0xab4; }
-
-    /* fragment 15: Arithmetic */
-    s6 = (uintptr_t)s3 << 2;
-    v0 = v0 + s6;
-
-    /* fragment 16: MemoryAccess */
-    v0 = *(uint32_t *)((char *)v0 + 0);
-
-    /* fragment 17: IndirectTailCall */
-    /* Source-backed replacement for the recovered absolute-address jump table. */
-    switch ((uintptr_t)s3) {
-        case 0: goto ispcore_interrupt_service_routine0x78c;
-        case 1: goto ispcore_interrupt_service_routine0xab4;
-        case 2:
-        case 3:
-        case 4:
-        case 8:
-        case 9:
-        case 10: goto ispcore_interrupt_service_routine0x940;
-        case 5: goto ispcore_interrupt_service_routine0x13c;
-        case 6: goto ispcore_interrupt_service_routine0x44c;
-        case 7: goto ispcore_interrupt_service_routine0xf0;
-        case 11: goto ispcore_interrupt_service_routine0xab4;
-        case 12: goto ispcore_interrupt_service_routine0x768;
-        case 13: goto ispcore_interrupt_service_routine0x9d8;
-        default: goto ispcore_interrupt_service_routine0xab4;
-    }
-
-ispcore_interrupt_service_routine0xf0:
-    /* fragment 18: Arithmetic */
-    v0 = s7 + 336;
-
-    /* fragment 19: MemoryAccess */
-    v0 = *(uint32_t *)((char *)v0 + 28);
-
-    /* fragment 20: Branch */
-    v1 = (uintptr_t)&vic_cmd_buf;
-    if (v0 == 0) { goto ispcore_interrupt_service_routine0x108; }
-
-    /* fragment 21: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)tx_isp_release_device)(*(uint32_t *)((char *)((char *)&isr_param + 0x1c))); /* jalr target resolved by relocation */
-
-ispcore_interrupt_service_routine0x108:
-    /* fragment 22: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(int32_t *))(uintptr_t)isp_configure_base_addr_isra_0)(s0); /* jalr target resolved by relocation */
-
-    /* fragment 23: Arithmetic */
-    v0 = 1;
-
-    /* fragment 24: MemoryAccess */
-    *(uint32_t *)((char *)s0 + 360) = v0;
-    v0 = *(uint32_t *)((char *)s0 + 356);
-    s3 = 8;
-    v0 = v0 + 1;
-    *(uint32_t *)((char *)s0 + 356) = v0;
-    v0 = 2;
-
-    /* fragment 25: Branch */
-    local_24 = v0;
-    goto ispcore_interrupt_service_routine0xc0;
-
-ispcore_interrupt_service_routine0x13c:
-    /* fragment 26: Arithmetic */
-    v0 = s7 + 336;
-
-    /* fragment 27: MemoryAccess */
-    v0 = *(uint32_t *)((char *)v0 + 20);
-
-    /* fragment 28: Branch */
-    v1 = (uintptr_t)&vic_cmd_buf;
-    if (v0 == 0) { goto ispcore_interrupt_service_routine0x154; }
-
-    /* fragment 29: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)tx_isp_release_device)(*(uint32_t *)((char *)((char *)&isr_param + 0x14))); /* jalr target resolved by relocation */
-
-ispcore_interrupt_service_routine0x154:
-    /* fragment 30: MemoryAccess */
-    s8 = *(uint32_t *)((char *)s0 + 340);
-    v0 = *(uint32_t *)((char *)s8 + 84);
-    a1 = *(uint32_t *)((char *)v0 + 20);
-    a1 = (uintptr_t)a1 & 32;
-
-    /* fragment 31: Branch */
-    a0 = 4;
-    if (a1 == 0) { goto ispcore_interrupt_service_routine0x1bc; }
-
-    /* fragment 32: MemoryAccess */
-    a1 = *(uint32_t *)((char *)s8 + 80);
-
-    /* fragment 33: Branch */
-    v0 = *(uint8_t *)((char *)(uintptr_t *) + 156);
-    if (a1 != a0) { goto ispcore_interrupt_service_routine0x19c; }
-
-    /* fragment 34: Branch */
-    int _bc_v0_34 = v0 != 0;
-    v0 = 1;
-    if (_bc_v0_34) { goto ispcore_interrupt_service_routine0x3dc; }
-
-ispcore_interrupt_service_routine0x180:
-    /* fragment 35: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(int32_t *)isp_enable_dma_transfer_isra_0)(s8, 1); /* jalr target resolved by relocation */
-
-    /* fragment 36: Branch */
-    v0 = 1;
-    goto ispcore_interrupt_service_routine0x3dc;
-
-ispcore_interrupt_service_routine0x19c:
-    /* fragment 37: Branch */
-    int _bc_v0_37 = v0 == 0;
-    v0 = 65536;
-    if (_bc_v0_37) { goto ispcore_interrupt_service_routine0x404; }
-
-ispcore_interrupt_service_routine0x1a4:
-    /* fragment 38: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(int32_t *)isp_enable_dma_transfer_isra_0)(s8, 0); /* jalr target resolved by relocation */
-
-    /* fragment 39: Branch */
-    *(uint8_t *)((char *)s8 + 156) = 0;
-    goto ispcore_interrupt_service_routine0x290;
-
-ispcore_interrupt_service_routine0x1bc:
-    /* fragment 40: Arithmetic */
-    v0 = 825360384;
-
-    /* fragment 41: MemoryAccess */
-    a0 = *(uint32_t *)((char *)s8 + 12);
-    v0 = v0 + 22094;
-
-    /* fragment 42: Branch */
-    s6 = *(uint32_t *)((char *)(s8) + 88);
-    if (a0 == v0) { goto ispcore_interrupt_service_routine0x1e0; }
-
-    /* fragment 43: ConstantLoad */
-    v0 = 0x3231564e;
-
-    /* fragment 44: Branch */
-    a2 = 0;
-    if (a0 != v0) { goto ispcore_interrupt_service_routine0x1f8; }
-
-ispcore_interrupt_service_routine0x1e0:
-    /* fragment 45: CallSetup */
-    v0 = (uintptr_t)((uintptr_t (*)(uintptr_t))(uintptr_t)APICAL_READ_32)(((*(uint32_t *)((char *)(uintptr_t *) + 76)) << 8) + 2980); /* jalr target resolved by relocation */
-
-    /* fragment 46: CallSetup */
-    a1 = v0;
-    a2 = 1;
-
-ispcore_interrupt_service_routine0x1f8:
-    /* fragment 47: CallSetup */
-    local_2c = a2;
-    local_28 = a1;
-    v0 = (uintptr_t)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)APICAL_READ_32)(((*(uint32_t *)((char *)(uintptr_t *) + 76)) << 8) + 2852, (uintptr_t)a1, a2); /* jalr target resolved by relocation */
-
-    /* fragment 48: StackAccess */
-    a2 = local_2c;
-    s3 = (uintptr_t)v0 >> 8;
-    a1 = local_28;
-
-    /* fragment 49: Branch */
-    s3 = (uintptr_t)s3 & 7;
-    if (a2 == 0) { goto ispcore_interrupt_service_routine0x2a0; }
-
-    /* fragment 50: Arithmetic */
-    a0 = (uintptr_t)a1 >> 8;
-    a0 = a0 & 7;
-
-    /* fragment 51: Branch */
-    if (s3 == a0) { goto ispcore_interrupt_service_routine0x2a0; }
-
-    /* fragment 52: MemoryAccess */
-    s3 = *(uint8_t *)((char *)s8 + 159);
-    v0 = 825360384;
-    a0 = *(uint32_t *)((char *)s8 + 12);
-    s3 = s3 - 1;
-    v0 = v0 + 22094;
-
-    /* fragment 53: Branch */
-    s3 = (uintptr_t)s3 | 8;
-    if (a0 == v0) { goto ispcore_interrupt_service_routine0x260; }
-
-    /* fragment 54: ConstantLoad */
-    v0 = 0x3231564e;
-
-    /* fragment 55: Branch */
-    if (a0 != v0) { goto ispcore_interrupt_service_routine0x274; }
-
-ispcore_interrupt_service_routine0x260:
-    /* fragment 56: CallSetup */
-    v0 = (uintptr_t)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)APICAL_WRITE_32)(((*(uint32_t *)((char *)(uintptr_t *) + 76)) << 8) + 2972, (uintptr_t)s3); /* jalr target resolved by relocation */
-
-ispcore_interrupt_service_routine0x274:
-    /* fragment 57: CallSetup */
-    v0 = (uintptr_t)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)APICAL_WRITE_32)(((*(uint32_t *)((char *)(uintptr_t *) + 76)) << 8) + 2844, (uintptr_t)s3); /* jalr target resolved by relocation */
-
-    /* fragment 58: CallSetup */
-    v0 = 1;
-    *(uint8_t *)((char *)s8 + 157) = v0;
-
-ispcore_interrupt_service_routine0x290:
-    /* fragment 59: CallSetup */
-    v0 = (int32_t *)isp_modify_dma_direction_isra_0((void *)s0);
-
-    /* fragment 60: Branch */
-    s3 = 6;
-    goto ispcore_interrupt_service_routine0xc0;
-
-ispcore_interrupt_service_routine0x2a0:
-    /* fragment 61: MemoryAccess */
-    a0 = *(uint8_t *)((char *)s8 + 157);
-    v1 = (uintptr_t)v0 | (uintptr_t)a1;
-
-    /* fragment 62: Branch */
-    local_28 = v1;
-    if (a0 == 0) { goto ispcore_interrupt_service_routine0x314; }
-
-    /* fragment 63: MemoryAccess */
-    a1 = *(uint8_t *)((char *)s8 + 159);
-    a0 = 825360384;
-    a2 = *(uint32_t *)((char *)s8 + 12);
-    a0 = a0 + 22094;
-
-    /* fragment 64: Branch */
-    a1 = a1 - 1;
-    if (a2 == a0) { goto ispcore_interrupt_service_routine0x2d8; }
-
-    /* fragment 65: ConstantLoad */
-    a0 = 0x3231564e;
-
-    /* fragment 66: Branch */
-    if (a2 != a0) { goto ispcore_interrupt_service_routine0x2f8; }
-
-ispcore_interrupt_service_routine0x2d8:
-    /* fragment 67: CallSetup */
-    local_34 = v0;
-    local_2c = a1;
-    v0 = (uintptr_t)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)APICAL_WRITE_32)(((*(uint32_t *)((char *)(uintptr_t *) + 76)) << 8) + 2972, (uintptr_t)a1); /* jalr target resolved by relocation */
-
-    /* fragment 68: CallSetup */
-    v0 = local_34;
-    a1 = local_2c;
-
-ispcore_interrupt_service_routine0x2f8:
-    /* fragment 69: CallSetup */
-    local_2c = v0;
-    v0 = (uintptr_t)((uintptr_t (*)(uintptr_t))(uintptr_t)APICAL_WRITE_32)(((*(uint32_t *)((char *)(uintptr_t *) + 76)) << 8) + 2844); /* jalr target resolved by relocation */
-
-    /* fragment 70: StackAccess */
-    v0 = local_2c;
-    *(uint8_t *)((char *)s8 + 157) = 0;
-
-ispcore_interrupt_service_routine0x314:
-    /* fragment 71: StackAccess */
-    v1 = local_28;
-    a0 = 65536;
-    v0 = (uintptr_t)v0 >> 11;
-    a0 = v1 & a0;
-    v0 = (uintptr_t)v0 & 7;
-    a3 = (uint32_t *)&tx_isp_send_event_to_remote;
-    a0 = *(uint32_t *)((char *)s8 + 84);
-    t0 = s8 + (uintptr_t)v0;
-    a1 = *(uint8_t *)((char *)t0 + 120);
-
-    /* fragment 72: Branch */
-    a3 = (uint32_t *)&tx_isp_send_event_to_remote;
-    if (a1 == 0) { goto ispcore_interrupt_service_routine0x3e4; }
-
-    /* fragment 73: CallSetup */
-    local_18 = *(uint32_t *)((char *)(s8 + (((uintptr_t)v0 + 32) << 2)) + 4);
-    local_1c = *(uint32_t *)((char *)(s6) + 356);
-    local_28 = t0;
-    v0 = (uintptr_t *)((uintptr_t (*)(int32_t *))(uintptr_t)tx_isp_send_event_to_remote)(a0); /* jalr target resolved by relocation */
-
-    /* fragment 74: StackAccess */
-    t0 = local_28;
-    *(uint8_t *)((char *)t0 + 120) = 0;
-    v0 = *(uint8_t *)((char *)s8 + 159);
-
-ispcore_interrupt_service_routine0x380:
-    /* fragment 75: Arithmetic */
-    s3 = s3 + 1;
-
-    /* fragment 76: Unknown */
-    /* unmatched fragment 76 (Unknown): no deterministic matcher for Unknown */
-    /* asm: d840:	0262001a 	div	zero,s3,v0 */
-
-    /* fragment 77: Arithmetic */
-    v0 = 1;
-    s3 = s8 + (uintptr_t)s3;
-
-    /* fragment 78: MemoryAccess */
-    a0 = *(uint8_t *)((char *)s3 + 120);
-
-    /* fragment 79: Branch */
-    if (a0 == v0) { goto ispcore_interrupt_service_routine0x290; }
-
-    /* fragment 80: CallSetup */
-    v0 = (uintptr_t)((uintptr_t (*)(uintptr_t))(uintptr_t)APICAL_READ_32)(((*(uint32_t *)((char *)(uintptr_t *) + 76)) << 8) + 2852); /* jalr target resolved by relocation */
-
-    /* fragment 81: MemoryAccess */
-    a1 = *(uint32_t *)((char *)s8 + 84);
-    a1 = *(uint32_t *)((char *)a1 + 20);
-    a1 = (uintptr_t)a1 & 32;
-
-    /* fragment 82: Branch */
-    a0 = *(uint8_t *)((char *)(s8) + 156);
-    if (a1 == 0) { goto ispcore_interrupt_service_routine0x40c; }
-
-    /* fragment 83: MemoryAccess */
-    a1 = *(uint32_t *)((char *)s8 + 80);
-    v0 = 4;
-
-    /* fragment 84: Branch */
-    if (a1 != v0) { goto ispcore_interrupt_service_routine0x3fc; }
-
-    /* fragment 85: Branch */
-    v0 = 1;
-    if (a0 == 0) { goto ispcore_interrupt_service_routine0x180; }
-
-ispcore_interrupt_service_routine0x3dc:
-    /* fragment 86: Branch */
-    *(uint8_t *)((char *)s8 + 156) = v0;
-    goto ispcore_interrupt_service_routine0x290;
-
-ispcore_interrupt_service_routine0x3e4:
-    /* fragment 87: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(int32_t *))(uintptr_t)tx_isp_send_event_to_remote)(a0); /* jalr target resolved by relocation */
-
-    /* fragment 88: Branch */
-    v0 = *(uint8_t *)((char *)(uintptr_t *) + 159);
-    goto ispcore_interrupt_service_routine0x380;
-
-ispcore_interrupt_service_routine0x3fc:
-    /* fragment 89: Branch */
-    v0 = 65536;
-    if (a0 != 0) { goto ispcore_interrupt_service_routine0x1a4; }
-
-ispcore_interrupt_service_routine0x404:
-    /* fragment 90: Branch */
-    *(uint8_t *)((char *)s8 + 156) = 0;
-    goto ispcore_interrupt_service_routine0x290;
-
-ispcore_interrupt_service_routine0x40c:
-    /* fragment 91: Arithmetic */
-    v0 = (uintptr_t)v0 >> 8;
-
-    /* fragment 92: MemoryAccess */
-    a1 = *(uint8_t *)((char *)s8 + 159);
-    v0 = (uintptr_t)v0 & 7;
-    v0 = v0 + 1;
-
-    /* fragment 93: Unknown */
-    /* unmatched fragment 93 (Unknown): no deterministic matcher for Unknown */
-    /* asm: d8d8:	0045001b 	divu	zero,v0,a1 */
-
-    /* fragment 94: Arithmetic */
-    v0 = s8 + (uintptr_t)v0;
-
-    /* fragment 95: MemoryAccess */
-    a1 = *(uint8_t *)((char *)v0 + 120);
-
-    /* fragment 96: Branch */
-    v0 = 65536;
-    if (a1 == a0) { goto ispcore_interrupt_service_routine0x290; }
-
-    /* fragment 97: CallSetup */
-    *(uint8_t *)((char *)s8 + 156) = a1;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(int32_t *)isp_enable_dma_transfer_isra_0)(s8, a1); /* jalr target resolved by relocation */
-
-    /* fragment 98: Branch */
-    goto ispcore_interrupt_service_routine0x290;
-
-ispcore_interrupt_service_routine0x44c:
-    /* fragment 99: Arithmetic */
-    v0 = s7 + 336;
-
-    /* fragment 100: MemoryAccess */
-    v0 = *(uint32_t *)((char *)v0 + 24);
-
-    /* fragment 101: Branch */
-    v1 = (uintptr_t)&vic_cmd_buf;
-    if (v0 == 0) { goto ispcore_interrupt_service_routine0x464; }
-
-    /* fragment 102: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)tx_isp_release_device)(*(uint32_t *)((char *)((char *)&isr_param + 0x18))); /* jalr target resolved by relocation */
-
-ispcore_interrupt_service_routine0x464:
-    /* fragment 103: MemoryAccess */
-    s8 = *(uint32_t *)((char *)s0 + 340);
-    v0 = *(uint32_t *)((char *)s8 + 244);
-    a1 = *(uint32_t *)((char *)v0 + 20);
-    a1 = (uintptr_t)a1 & 32;
-
-    /* fragment 104: Branch */
-    s6 = s8 + 160;
-    if (a1 == 0) { goto ispcore_interrupt_service_routine0x4d0; }
-
-    /* fragment 105: MemoryAccess */
-    a1 = *(uint32_t *)((char *)s8 + 240);
-    a0 = 4;
-
-    /* fragment 106: Branch */
-    v0 = *(uint8_t *)((char *)(uintptr_t *) + 316);
-    if (a1 != a0) { goto ispcore_interrupt_service_routine0x4b0; }
-
-    /* fragment 107: Branch */
-    int _bc_v0_107 = v0 != 0;
-    v0 = 1;
-    if (_bc_v0_107) { goto ispcore_interrupt_service_routine0x6f8; }
-
-ispcore_interrupt_service_routine0x494:
-    /* fragment 108: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(int32_t *)isp_enable_dma_transfer_isra_0)(s6, 1); /* jalr target resolved by relocation */
-
-    /* fragment 109: Branch */
-    v0 = 1;
-    goto ispcore_interrupt_service_routine0x6f8;
-
-ispcore_interrupt_service_routine0x4b0:
-    /* fragment 110: Branch */
-    int _bc_v0_110 = v0 == 0;
-    v0 = 65536;
-    if (_bc_v0_110) { goto ispcore_interrupt_service_routine0x720; }
-
-ispcore_interrupt_service_routine0x4b8:
-    /* fragment 111: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(int32_t *)isp_enable_dma_transfer_isra_0)(s6, 0); /* jalr target resolved by relocation */
-
-    /* fragment 112: Branch */
-    *(uint8_t *)((char *)s8 + 316) = 0;
-    goto ispcore_interrupt_service_routine0x5a8;
-
-ispcore_interrupt_service_routine0x4d0:
-    /* fragment 113: MemoryAccess */
-    v0 = *(uint32_t *)((char *)s8 + 248);
-    a0 = *(uint32_t *)((char *)s8 + 172);
-    local_28 = v0;
-    v0 = 825360384;
-    v0 = v0 + 22094;
-
-    /* fragment 114: Branch */
-    int _bc_a0_114 = a0 == v0;
-    v0 = 842072064;
-    if (_bc_a0_114) { goto ispcore_interrupt_service_routine0x4f8; }
-
-    /* fragment 115: Arithmetic */
-    v0 = v0 + 22094;
-
-    /* fragment 116: Branch */
-    a2 = 0;
-    if (a0 != v0) { goto ispcore_interrupt_service_routine0x510; }
-
-ispcore_interrupt_service_routine0x4f8:
-    /* fragment 117: CallSetup */
-    v0 = (uintptr_t)((uintptr_t (*)(uintptr_t))(uintptr_t)APICAL_READ_32)(((*(uint32_t *)((char *)(uintptr_t *) + 236)) << 8) + 2980); /* jalr target resolved by relocation */
-
-    /* fragment 118: CallSetup */
-    a1 = v0;
-    a2 = 1;
-
-ispcore_interrupt_service_routine0x510:
-    /* fragment 119: CallSetup */
-    local_34 = a2;
-    local_2c = a1;
-    v0 = (uintptr_t)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)APICAL_READ_32)(((*(uint32_t *)((char *)(uintptr_t *) + 236)) << 8) + 2852, (uintptr_t)a1, a2); /* jalr target resolved by relocation */
-
-    /* fragment 120: StackAccess */
-    a2 = local_34;
-    s3 = (uintptr_t)v0 >> 8;
-    a1 = local_2c;
-
-    /* fragment 121: Branch */
-    s3 = (uintptr_t)s3 & 7;
-    if (a2 == 0) { goto ispcore_interrupt_service_routine0x5b8; }
-
-    /* fragment 122: Arithmetic */
-    a0 = (uintptr_t)a1 >> 8;
-    a0 = a0 & 7;
-
-    /* fragment 123: Branch */
-    if (s3 == a0) { goto ispcore_interrupt_service_routine0x5b8; }
-
-    /* fragment 124: MemoryAccess */
-    s3 = *(uint8_t *)((char *)s8 + 319);
-    v0 = 825360384;
-    a0 = *(uint32_t *)((char *)s8 + 172);
-    s3 = s3 - 1;
-    v0 = v0 + 22094;
-
-    /* fragment 125: Branch */
-    s3 = (uintptr_t)s3 | 8;
-    if (a0 == v0) { goto ispcore_interrupt_service_routine0x578; }
-
-    /* fragment 126: ConstantLoad */
-    v0 = 0x3231564e;
-
-    /* fragment 127: Branch */
-    if (a0 != v0) { goto ispcore_interrupt_service_routine0x58c; }
-
-ispcore_interrupt_service_routine0x578:
-    /* fragment 128: CallSetup */
-    v0 = (uintptr_t)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)APICAL_WRITE_32)(((*(uint32_t *)((char *)(uintptr_t *) + 236)) << 8) + 2972, (uintptr_t)s3); /* jalr target resolved by relocation */
-
-ispcore_interrupt_service_routine0x58c:
-    /* fragment 129: CallSetup */
-    v0 = (uintptr_t)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)APICAL_WRITE_32)(((*(uint32_t *)((char *)(uintptr_t *) + 236)) << 8) + 2844, (uintptr_t)s3); /* jalr target resolved by relocation */
-
-    /* fragment 130: CallSetup */
-    v0 = 1;
-    *(uint8_t *)((char *)s8 + 317) = v0;
-
-ispcore_interrupt_service_routine0x5a8:
-    /* fragment 131: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(int32_t *))(uintptr_t)isp_modify_dma_direction_isra_0)(s6); /* jalr target resolved by relocation */
-
-    /* fragment 132: Branch */
-    s3 = 7;
-    goto ispcore_interrupt_service_routine0xc0;
-
-ispcore_interrupt_service_routine0x5b8:
-    /* fragment 133: MemoryAccess */
-    a0 = *(uint8_t *)((char *)s8 + 317);
-    v1 = (uintptr_t)v0 | (uintptr_t)a1;
-
-    /* fragment 134: Branch */
-    local_2c = v1;
-    if (a0 == 0) { goto ispcore_interrupt_service_routine0x62c; }
-
-    /* fragment 135: MemoryAccess */
-    a1 = *(uint8_t *)((char *)s8 + 319);
-    a0 = 825360384;
-    a2 = *(uint32_t *)((char *)s8 + 172);
-    a0 = a0 + 22094;
-
-    /* fragment 136: Branch */
-    a1 = a1 - 1;
-    if (a2 == a0) { goto ispcore_interrupt_service_routine0x5f0; }
-
-    /* fragment 137: ConstantLoad */
-    a0 = 0x3231564e;
-
-    /* fragment 138: Branch */
-    if (a2 != a0) { goto ispcore_interrupt_service_routine0x610; }
-
-ispcore_interrupt_service_routine0x5f0:
-    /* fragment 139: CallSetup */
-    local_38 = v0;
-    local_34 = a1;
-    v0 = (uintptr_t)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)APICAL_WRITE_32)(((*(uint32_t *)((char *)(uintptr_t *) + 236)) << 8) + 2972, (uintptr_t)a1); /* jalr target resolved by relocation */
-
-    /* fragment 140: CallSetup */
-    v0 = local_38;
-    a1 = local_34;
-
-ispcore_interrupt_service_routine0x610:
-    /* fragment 141: CallSetup */
-    local_34 = v0;
-    v0 = (uintptr_t)((uintptr_t (*)(uintptr_t))(uintptr_t)APICAL_WRITE_32)(((*(uint32_t *)((char *)(uintptr_t *) + 236)) << 8) + 2844); /* jalr target resolved by relocation */
-
-    /* fragment 142: StackAccess */
-    v0 = local_34;
-    *(uint8_t *)((char *)s8 + 317) = 0;
-
-ispcore_interrupt_service_routine0x62c:
-    /* fragment 143: StackAccess */
-    v1 = local_2c;
-    a0 = 65536;
-    v0 = (uintptr_t)v0 >> 11;
-    a0 = v1 & a0;
-    v0 = (uintptr_t)v0 & 7;
-    a3 = (uint32_t *)&tx_isp_send_event_to_remote;
-    a0 = *(uint32_t *)((char *)s8 + 244);
-    t0 = s8 + (uintptr_t)v0;
-    a1 = *(uint8_t *)((char *)t0 + 280);
-
-    /* fragment 144: Branch */
-    a3 = (uint32_t *)&tx_isp_send_event_to_remote;
-    if (a1 == 0) { goto ispcore_interrupt_service_routine0x700; }
-
-    /* fragment 145: CallSetup */
-    local_18 = *(uint32_t *)((char *)(s8 + (((uintptr_t)v0 + 32) << 2)) + 164);
-    local_28 = t0;
-    local_1c = *(uint32_t *)((char *)(local_28) + 356);
-    v0 = (uintptr_t *)((uintptr_t (*)(int32_t *))(uintptr_t)tx_isp_send_event_to_remote)(a0); /* jalr target resolved by relocation */
-
-    /* fragment 146: StackAccess */
-    t0 = local_28;
-    *(uint8_t *)((char *)t0 + 280) = 0;
-    v0 = *(uint8_t *)((char *)s8 + 319);
-
-ispcore_interrupt_service_routine0x69c:
-    /* fragment 147: Arithmetic */
-    s3 = s3 + 1;
-
-    /* fragment 148: Unknown */
-    /* unmatched fragment 148 (Unknown): no deterministic matcher for Unknown */
-    /* asm: db5c:	0262001a 	div	zero,s3,v0 */
-
-    /* fragment 149: Arithmetic */
-    v0 = 1;
-    s3 = s8 + (uintptr_t)s3;
-
-    /* fragment 150: MemoryAccess */
-    a0 = *(uint8_t *)((char *)s3 + 280);
-
-    /* fragment 151: Branch */
-    if (a0 == v0) { goto ispcore_interrupt_service_routine0x5a8; }
-
-    /* fragment 152: CallSetup */
-    v0 = (uintptr_t)((uintptr_t (*)(uintptr_t))(uintptr_t)APICAL_READ_32)(((*(uint32_t *)((char *)(uintptr_t *) + 236)) << 8) + 2852); /* jalr target resolved by relocation */
-
-    /* fragment 153: MemoryAccess */
-    a1 = *(uint32_t *)((char *)s8 + 244);
-    a1 = *(uint32_t *)((char *)a1 + 20);
-    a1 = (uintptr_t)a1 & 32;
-
-    /* fragment 154: Branch */
-    a0 = *(uint8_t *)((char *)(s8) + 316);
-    if (a1 == 0) { goto ispcore_interrupt_service_routine0x728; }
-
-    /* fragment 155: MemoryAccess */
-    a1 = *(uint32_t *)((char *)s8 + 240);
-    v0 = 4;
-
-    /* fragment 156: Branch */
-    if (a1 != v0) { goto ispcore_interrupt_service_routine0x718; }
-
-    /* fragment 157: Branch */
-    v0 = 1;
-    if (a0 == 0) { goto ispcore_interrupt_service_routine0x494; }
-
-ispcore_interrupt_service_routine0x6f8:
-    /* fragment 158: Branch */
-    *(uint8_t *)((char *)s8 + 316) = v0;
-    goto ispcore_interrupt_service_routine0x5a8;
-
-ispcore_interrupt_service_routine0x700:
-    /* fragment 159: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(int32_t *))(uintptr_t)tx_isp_send_event_to_remote)(a0); /* jalr target resolved by relocation */
-
-    /* fragment 160: Branch */
-    v0 = *(uint8_t *)((char *)(uintptr_t *) + 319);
-    goto ispcore_interrupt_service_routine0x69c;
-
-ispcore_interrupt_service_routine0x718:
-    /* fragment 161: Branch */
-    v0 = 65536;
-    if (a0 != 0) { goto ispcore_interrupt_service_routine0x4b8; }
-
-ispcore_interrupt_service_routine0x720:
-    /* fragment 162: Branch */
-    *(uint8_t *)((char *)s8 + 316) = 0;
-    goto ispcore_interrupt_service_routine0x5a8;
-
-ispcore_interrupt_service_routine0x728:
-    /* fragment 163: Arithmetic */
-    v0 = (uintptr_t)v0 >> 8;
-
-    /* fragment 164: MemoryAccess */
-    a1 = *(uint8_t *)((char *)s8 + 319);
-    v0 = (uintptr_t)v0 & 7;
-    v0 = v0 + 1;
-
-    /* fragment 165: Unknown */
-    /* unmatched fragment 165 (Unknown): no deterministic matcher for Unknown */
-    /* asm: dbf4:	0045001b 	divu	zero,v0,a1 */
-
-    /* fragment 166: Arithmetic */
-    v0 = s8 + (uintptr_t)v0;
-
-    /* fragment 167: MemoryAccess */
-    a1 = *(uint8_t *)((char *)v0 + 280);
-
-    /* fragment 168: Branch */
-    v0 = 65536;
-    if (a1 == a0) { goto ispcore_interrupt_service_routine0x5a8; }
-
-    /* fragment 169: CallSetup */
-    *(uint8_t *)((char *)s8 + 316) = a1;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(int32_t *)isp_enable_dma_transfer_isra_0)(s6, a1); /* jalr target resolved by relocation */
-
-    /* fragment 170: Branch */
-    goto ispcore_interrupt_service_routine0x5a8;
-
-ispcore_interrupt_service_routine0x768:
-    /* fragment 171: Arithmetic */
-    v0 = s7 + 336;
-
-    /* fragment 172: MemoryAccess */
-    v0 = *(uint32_t *)((char *)v0 + 48);
-
-    /* fragment 173: Branch */
-    s3 = 13;
-    if (v0 == 0) { goto ispcore_interrupt_service_routine0xc0; }
-
-    /* fragment 174: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)tx_isp_release_device)(*(uint32_t *)((char *)((char *)&isr_param + 0x30))); /* jalr target resolved by relocation */
-
-    /* fragment 175: Branch */
-    v0 = local_20;
-    goto ispcore_interrupt_service_routine0xc4;
-
-ispcore_interrupt_service_routine0x78c:
-    /* fragment 176: MemoryAccess */
-    v1 = *(uint32_t *)((char *)s0 + 376);
-    v0 = 1;
-
-    /* fragment 177: Branch */
-    a0 = 64;
-    if (v1 != v0) { goto ispcore_interrupt_service_routine0x7cc; }
-
-    /* fragment 178: CallSetup */
-    *(uint32_t *)((char *)s0 + 376) = 0;
-    s8 = *(uint32_t *)((char *)(s0) + 372) < 1;
-    v0 = (uintptr_t *)((uintptr_t (*)(int32_t *))(uintptr_t)APICAL_READ_32)(a0); /* jalr target resolved by relocation */
-
-    /* fragment 179: CallSetup */
-    s4 = s4 ^ 1;
-    s4 = s4 & 255;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)APICAL_WRITE_32)(64, (s8 << 1) | ((uintptr_t)v0 & (-3))); /* jalr target resolved by relocation */
-
-ispcore_interrupt_service_routine0x7cc:
-    /* fragment 180: MemoryAccess */
-    v1 = *(uint32_t *)((char *)s0 + 368);
-    v0 = 1;
-
-    /* fragment 181: Branch */
-    int _bc_v1_181 = v1 != v0;
-    v0 = s4 ^ 2;
-    if (_bc_v1_181) { goto ispcore_interrupt_service_routine0x7f0; }
-
-    /* fragment 182: CallSetup */
-    v1 = *(uint32_t *)((char *)s0 + 284);
-    v0 = (uintptr_t)v0 & 255;
-    v1 = v1 ^ 1;
-    *(uint32_t *)((char *)s0 + 368) = 0;
-
-ispcore_interrupt_service_routine0x7f0:
-    /* fragment 183: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(int32_t *))(uintptr_t)APICAL_READ_32)(24); /* jalr target resolved by relocation */
-
-    /* fragment 184: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)APICAL_WRITE_32)(24, ((uintptr_t)v0 & (-4)) | s4); /* jalr target resolved by relocation */
-
-    /* fragment 185: CallSetup */
-    s8 = *(uint32_t *)((char *)(s0) + 340);
-    *(uint32_t *)((char *)s0 + 360) = 0;
-    v0 = (uintptr_t *)((uintptr_t (*)(int32_t *))(uintptr_t)isp_configure_base_addr_isra_0)(s0); /* jalr target resolved by relocation */
-
-    /* fragment 186: CallSetup */
-    v0 = (int32_t *)isp_modify_dma_direction_isra_0((void *)s0);
-
-    /* fragment 187: MemoryAccess */
-    a0 = *(uint8_t *)((char *)s8 + 156);
-    v0 = 1;
-
-    /* fragment 188: Branch */
-    if (a0 == v0) { goto ispcore_interrupt_service_routine0x894; }
-
-    /* fragment 189: CallSetup */
-    v0 = (uintptr_t)((uintptr_t (*)(uintptr_t))(uintptr_t)APICAL_READ_32)(((*(uint32_t *)((char *)(uintptr_t *) + 76)) << 8) + 2852); /* jalr target resolved by relocation */
-
-    /* fragment 190: MemoryAccess */
-    a1 = *(uint32_t *)((char *)s8 + 84);
-    a1 = *(uint32_t *)((char *)a1 + 20);
-    a1 = (uintptr_t)a1 & 32;
-
-    /* fragment 191: Branch */
-    a0 = *(uint8_t *)((char *)(s8) + 156);
-    if (a1 == 0) { goto ispcore_interrupt_service_routine0x97c; }
-
-    /* fragment 192: MemoryAccess */
-    a1 = *(uint32_t *)((char *)s8 + 80);
-    v0 = 4;
-
-    /* fragment 193: Branch */
-    if (a1 != v0) { goto ispcore_interrupt_service_routine0x95c; }
-
-    /* fragment 194: Branch */
-    v0 = 65536;
-    if (a0 != 0) { goto ispcore_interrupt_service_routine0x88c; }
-
-    /* fragment 195: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(int32_t *)isp_enable_dma_transfer_isra_0)(s8, 1); /* jalr target resolved by relocation */
-
-ispcore_interrupt_service_routine0x88c:
-    /* fragment 196: Arithmetic */
-    v0 = 1;
-
-    /* fragment 197: MemoryAccess */
-    *(uint8_t *)((char *)s8 + 156) = v0;
-
-ispcore_interrupt_service_routine0x894:
-    /* fragment 198: MemoryAccess */
-    a0 = *(uint32_t *)((char *)s0 + 416);
-
-ispcore_interrupt_service_routine0x898:
-    /* fragment 199: Branch */
-    a2 = 0;
-    if (a0 == 0) { goto ispcore_interrupt_service_routine0x8b0; }
-
-    /* fragment 200: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(int32_t *))(uintptr_t)tx_isp_release_device)(a0); /* jalr target resolved by relocation */
-
-ispcore_interrupt_service_routine0x8b0:
-    /* fragment 201: MemoryAccess */
-    v1 = *(uint32_t *)((char *)s0 + 380);
-    v0 = 1;
-
-    /* fragment 202: Branch */
-    if (v1 != v0) { goto ispcore_interrupt_service_routine0x8e0; }
-
-    /* fragment 203: MemoryAccess */
-    a0 = *(uint32_t *)((char *)s0 + 416);
-
-    /* fragment 204: Branch */
-    a2 = 0;
-    if (a0 == 0) { goto ispcore_interrupt_service_routine0x8dc; }
-
-    /* fragment 205: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(int32_t *))(uintptr_t)tx_isp_release_device)(a0); /* jalr target resolved by relocation */
-
-ispcore_interrupt_service_routine0x8dc:
-    /* fragment 206: CallSetup */
-    *(uint32_t *)((char *)s0 + 380) = 0;
-
-ispcore_interrupt_service_routine0x8e0:
-    /* fragment 207: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(int32_t *))(uintptr_t)tx_isp_sync_ldc)(a0); /* jalr target resolved by relocation */
-
-    /* fragment 208: Arithmetic */
-    v1 = (uintptr_t)&vic_cmd_buf;
-
-    /* fragment 209: MemoryAccess */
-    v0 = *(uint8_t *)((char *)((char *)&g_switch_lfb_off));
-
-    /* fragment 210: Branch */
-    int _bc_v0_210 = v0 == 0;
-    v0 = (uintptr_t *)&isp_lfb_ctrl_flb_enable;
-    if (_bc_v0_210) { goto ispcore_interrupt_service_routine0x918; }
-
-    /* fragment 211: CallSetup */
-    local_28 = v1;
-    v0 = (uintptr_t *)((uintptr_t (*)(int32_t *))(uintptr_t)isp_lfb_ctrl_flb_enable)(0); /* jalr target resolved by relocation */
-
-    /* fragment 212: StackAccess */
-    v1 = local_28;
-    *(uint8_t *)((char *)((char *)&g_switch_lfb_off)) = 0;
-
-ispcore_interrupt_service_routine0x918:
-    /* fragment 213: Arithmetic */
-    v1 = (uintptr_t)&vic_cmd_buf;
-
-    /* fragment 214: MemoryAccess */
-    v0 = *(uint8_t *)((char *)((char *)&g_switch_lfb_on));
-
-    /* fragment 215: Branch */
-    int _bc_v0_215 = v0 == 0;
-    v0 = (uintptr_t *)&isp_lfb_ctrl_flb_enable;
-    if (_bc_v0_215) { goto ispcore_interrupt_service_routine0x940; }
-
-    /* fragment 216: CallSetup */
-    local_28 = v1;
-    v0 = (uintptr_t *)((uintptr_t (*)(int32_t *))(uintptr_t)isp_lfb_ctrl_flb_enable)(1); /* jalr target resolved by relocation */
-
-    /* fragment 217: StackAccess */
-    v1 = local_28;
-    *(uint8_t *)((char *)((char *)&g_switch_lfb_on)) = 0;
-
-ispcore_interrupt_service_routine0x940:
-    /* fragment 218: Arithmetic */
-    v0 = s7 + 336;
-    v0 = v0 + s6;
-
-    /* fragment 219: MemoryAccess */
-    v1 = *(uint32_t *)((char *)v0 + 0);
-
-    /* fragment 220: Branch */
-    if (v1 != 0) { goto ispcore_interrupt_service_routine0x9bc; }
-
-    /* fragment 221: Branch */
-    s3 = s3 + 1;
-    goto ispcore_interrupt_service_routine0xc0;
-
-ispcore_interrupt_service_routine0x95c:
-    /* fragment 222: Branch */
-    v0 = 65536;
-    if (a0 == 0) { goto ispcore_interrupt_service_routine0x974; }
-
-    /* fragment 223: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(int32_t *)isp_enable_dma_transfer_isra_0)(s8, 0); /* jalr target resolved by relocation */
-
-ispcore_interrupt_service_routine0x974:
-    /* fragment 224: Branch */
-    *(uint8_t *)((char *)s8 + 156) = 0;
-    goto ispcore_interrupt_service_routine0x894;
-
-ispcore_interrupt_service_routine0x97c:
-    /* fragment 225: Arithmetic */
-    v0 = (uintptr_t)v0 >> 8;
-
-    /* fragment 226: MemoryAccess */
-    a1 = *(uint8_t *)((char *)s8 + 159);
-    v0 = (uintptr_t)v0 & 7;
-    v0 = v0 + 1;
-
-    /* fragment 227: Unknown */
-    /* unmatched fragment 227 (Unknown): no deterministic matcher for Unknown */
-    /* asm: de48:	0045001b 	divu	zero,v0,a1 */
-
-    /* fragment 228: Arithmetic */
-    v0 = s8 + (uintptr_t)v0;
-
-    /* fragment 229: MemoryAccess */
-    a1 = *(uint8_t *)((char *)v0 + 120);
-
-    /* fragment 230: Branch */
-    v0 = 65536;
-    if (a1 == a0) { goto ispcore_interrupt_service_routine0x894; }
-
-    /* fragment 231: CallSetup */
-    *(uint8_t *)((char *)s8 + 156) = a1;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(int32_t *)isp_enable_dma_transfer_isra_0)(s8, a1); /* jalr target resolved by relocation */
-
-    /* fragment 232: Branch */
-    a0 = *(uint32_t *)((char *)(s0) + 416);
-    goto ispcore_interrupt_service_routine0x898;
-
-ispcore_interrupt_service_routine0x9bc:
-    /* fragment 233: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)tx_isp_release_device)(*(uint32_t *)((char *)&vic_cmd_buf + s6 + 0)); /* jalr target resolved by relocation */
-
-    /* fragment 234: Branch */
-    s3 = s3 + 1;
-    goto ispcore_interrupt_service_routine0xc0;
-
-ispcore_interrupt_service_routine0x9d8:
-    /* fragment 235: CallSetup */
-    s6 = *(uint32_t *)((char *)(s0) + 340);
-    s3 = s6 + 160;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)isp_modify_dma_direction_isra_0)(s6 + 160); /* jalr target resolved by relocation */
-
-    /* fragment 236: MemoryAccess */
-    v1 = *(uint8_t *)((char *)s6 + 316);
-    v0 = 1;
-
-    /* fragment 237: Branch */
-    if (v1 == v0) { goto ispcore_interrupt_service_routine0xa4c; }
-
-    /* fragment 238: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)APICAL_READ_32)(((*(uint32_t *)((char *)(s6) + 236)) << 8) + 2852); /* jalr target resolved by relocation */
-
-    /* fragment 239: MemoryAccess */
-    a0 = *(uint32_t *)((char *)s6 + 244);
-    a0 = *(uint32_t *)((char *)a0 + 20);
-    a0 = a0 & 32;
-
-    /* fragment 240: Branch */
-    v1 = *(uint8_t *)((char *)(s6) + 316);
-    if (a0 == 0) { goto ispcore_interrupt_service_routine0xa74; }
-
-    /* fragment 241: MemoryAccess */
-    a0 = *(uint32_t *)((char *)s6 + 240);
-    v0 = 4;
-
-    /* fragment 242: Branch */
-    if (a0 != v0) { goto ispcore_interrupt_service_routine0xa54; }
-
-    /* fragment 243: Branch */
-    v0 = 65536;
-    if (v1 != 0) { goto ispcore_interrupt_service_routine0xa44; }
-
-    /* fragment 244: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(int32_t *)isp_enable_dma_transfer_isra_0)(s3, 1); /* jalr target resolved by relocation */
-
-ispcore_interrupt_service_routine0xa44:
-    /* fragment 245: Arithmetic */
-    v0 = 1;
-
-    /* fragment 246: MemoryAccess */
-    *(uint8_t *)((char *)s6 + 316) = v0;
-
-ispcore_interrupt_service_routine0xa4c:
-    /* fragment 247: Branch */
-    s3 = 14;
-    goto ispcore_interrupt_service_routine0xc0;
-
-ispcore_interrupt_service_routine0xa54:
-    /* fragment 248: Branch */
-    v0 = 65536;
-    if (v1 == 0) { goto ispcore_interrupt_service_routine0xa6c; }
-
-    /* fragment 249: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(int32_t *)isp_enable_dma_transfer_isra_0)(s3, 0); /* jalr target resolved by relocation */
-
-ispcore_interrupt_service_routine0xa6c:
-    /* fragment 250: Branch */
-    *(uint8_t *)((char *)s6 + 316) = 0;
-    goto ispcore_interrupt_service_routine0xa4c;
-
-ispcore_interrupt_service_routine0xa74:
-    /* fragment 251: Arithmetic */
-    v0 = (uintptr_t)v0 >> 8;
-
-    /* fragment 252: MemoryAccess */
-    a0 = *(uint8_t *)((char *)s6 + 319);
-    v0 = (uintptr_t)v0 & 7;
-    v0 = v0 + 1;
-
-    /* fragment 253: Unknown */
-    /* unmatched fragment 253 (Unknown): no deterministic matcher for Unknown */
-    /* asm: df40:	0044001b 	divu	zero,v0,a0 */
-
-    /* fragment 254: Arithmetic */
-    v0 = s6 + (uintptr_t)v0;
-
-    /* fragment 255: MemoryAccess */
-    a1 = *(uint8_t *)((char *)v0 + 280);
-
-    /* fragment 256: Branch */
-    v0 = 65536;
-    if (a1 == v1) { goto ispcore_interrupt_service_routine0xa4c; }
-
-    /* fragment 257: CallSetup */
-    *(uint8_t *)((char *)s6 + 316) = a1;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(int32_t *)isp_enable_dma_transfer_isra_0)(s3, a1); /* jalr target resolved by relocation */
-
-    /* fragment 258: Branch */
-    s3 = 14;
-    goto ispcore_interrupt_service_routine0xc0;
-
-ispcore_interrupt_service_routine0xab4:
-    /* fragment 259: Arithmetic */
-    s3 = s3 + 1;
-    v0 = 16;
-
-    /* fragment 260: Branch */
-    if (s3 != v0) { goto ispcore_interrupt_service_routine0xc0; }
-
-ispcore_interrupt_service_routine0xac4:
-    /* fragment 261: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    /* fragment 262: StackAccess */
-    v0 = local_24;
-    s8 = local_60;
-    s7 = local_5c;
-    s6 = local_58;
-    s5 = local_54;
-    s4 = local_50;
-    s3 = local_4c;
-    s2 = local_48;
-    s1 = local_44;
-    s0 = local_40;
-
-    /* fragment 263: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    return 0;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000000dfb4 origin=model_output original=ispcore_activate_module */
@@ -20728,82 +16185,69 @@ int32_t ispcore_core_ops_init(void *arg1, int32_t arg2)
 /* WHOLE_DRIVER_CANDIDATE fn_000000000000e688 origin=model_output original=ispcore_slake_module */
 int32_t ispcore_slake_module(void *arg1)
 {
-    int *i = 0;
-    int32_t ret = -22;
+	/*
+	 * SDK-built ko 0xe688..0xe828.  The lift had the IS_ERR tests inverted
+	 * (it only ran for an error pointer, so fd close never stopped the core
+	 * or released the sensor: a killed process left the sc4236 i2c client
+	 * registered, #2) and called the child slake as fn(0) (vendor 0xe780:
+	 * a0 = child subdev).
+	 */
+	char *sd = arg1;
+	char *core;
+	int32_t state, count, i;
+	void **child, **child_end;
+	struct clk **clks;
+	char *dev;
 
-    if (arg1 != NULL && (uintptr_t)arg1 >= 0xfffff001u) {
-        void *s0_1 = *(void **)((char *)arg1 + 0xd4);
+	if (sd == NULL || IS_ERR(sd))
+		return -EINVAL;
+	core = *(char **)(sd + 0xd4);
+	if (core == NULL || IS_ERR(core))
+		return -EINVAL;
+	state = *(int32_t *)(core + 0xe8);
+	if (state == 1)
+		return 0;
+	if (state >= 3)
+		ispcore_core_ops_init(sd, 0);
+	count = *(int32_t *)(core + 0x158);
+	for (i = 0; i < count; i++)
+		*(int32_t *)(*(char **)(core + 0x154) + i * 0xa0 + 0x50) = 1;
+	dev = *(char **)(core + 0x1a0);
+	if (dev != NULL && !IS_ERR(dev))
+		(*(void (**)(void *, uint32_t, uint32_t))(dev + 0x40d4))(dev, 0x4000001, 0);
+	*(int32_t *)(core + 0xe8) = 1;
 
-        if (s0_1 != NULL && (uintptr_t)s0_1 >= 0xfffff001u) {
-            int32_t state = *(int32_t *)((char *)s0_1 + 0xe8);
+	child = (void **)(core + 0x38);
+	child_end = (void **)(core + 0x78);
+	for (; child != child_end; child++) {
+		char *c = *child;
+		char *ops, *internal;
+		int32_t (*slake)(void *);
+		int32_t r;
 
-            if (state != 1) {
-                if (state >= 3)
-                    ispcore_core_ops_init(arg1, 0);
+		if (c == NULL || IS_ERR(c))
+			continue;
+		ops = *(char **)(c + 0xc4);
+		*(int32_t *)(c + 0x80) = 0;
+		if (ops == NULL || IS_ERR(ops))
+			continue;
+		internal = *(char **)(ops + 0x10);
+		if (internal == NULL)
+			continue;
+		slake = *(int32_t (**)(void *))(internal + 4);
+		if (slake == NULL)
+			continue;
+		r = slake(c);
+		if (r != 0 && r != -ENOIOCTLCMD) {
+			isp_printf(2, "Failed to slake %s\n", *(char **)(c + 8));
+			break;
+		}
+	}
 
-                int32_t i = 0;
-                int32_t count = *(int32_t *)((char *)s0_1 + 0x158);
-
-                while (i < count) {
-                    void *base = *(void **)((char *)s0_1 + 0x154);
-                    *(int32_t *)((uintptr_t)base + (uintptr_t)i * 0xa0 + 0x50) = 1;
-                    i++;
-                }
-
-                void *dev = *(void **)((char *)s0_1 + 0x1a0);
-                void (*release_fn)(void *, uint32_t, uint32_t) =
-                    *(void (**)(void *, uint32_t, uint32_t))((char *)dev + 0x40d4);
-                release_fn(dev, 0x4000001, 0);
-                *(int32_t *)((char *)s0_1 + 0xe8) = 1;
-
-                int32_t *s2_1 = (int32_t *)((char *)s0_1 + 0x38);
-                int32_t *s0_end = (int32_t *)((char *)s0_1 + 0x78);
-                int32_t s0_3 = 0;
-
-                while (1) {
-                    void *a0_1 = (void *)*s2_1;
-
-                    if (a0_1 != NULL && (uintptr_t)a0_1 >= 0xfffff001u) {
-                        void *v0_7 = *(void **)((char *)a0_1 + 0xc4);
-                        *(int32_t *)((char *)a0_1 + 0x80) = 0;
-                        void *v0_8 = *(void **)((char *)v0_7 + 0x10);
-
-                        if (v0_8 != NULL) {
-							int32_t (*fn)(int) = *(int32_t (**)(int))((char *)v0_8 + 4);
-
-                            if (fn != NULL) {
-                                int32_t r = fn(0);
-
-                                if (r != 0 && r != -515) {
-                                    isp_printf(2, "Failed to slake %s\n", *(char **)((char *)a0_1 + 8));
-                                    s0_3 = *(int32_t *)((char *)arg1 + 0xc0);
-                                    break;
-                                }
-                            }
-                        }
-                    }
-
-                    s2_1++;
-
-                    if (s2_1 == s0_end) {
-                        s0_3 = *(int32_t *)((char *)arg1 + 0xc0);
-                        break;
-                    }
-                }
-
-                void *clk_base = *(void **)((char *)arg1 + 0xbc);
-                int32_t i_1 = s0_3 - 1;
-
-                while (i_1 >= 0) {
-                    int32_t *clk_ptr = (int32_t *)((char *)clk_base + (i_1 << 2));
-                    i_1--;
-                    private_clk_disable(*(void **)clk_ptr);
-                }
-            }
-            ret = 0;
-        }
-    }
-    return ret;
+	clks = *(struct clk ***)(sd + 0xbc);
+	for (i = *(int32_t *)(sd + 0xc0) - 1; i >= 0; i--)
+		private_clk_disable(clks[i]);
+	return 0;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000000e82c origin=model_output original=tx_isp_core_probe */
@@ -21020,7 +16464,9 @@ int get_dynamic_calibrations(void *arg1)
 	*(void **)((char *)arg1 + 0x94) = &calibration_iridix_ev_lim_no_str_fs_hdr;
 	*(void **)((char *)arg1 + 0xa4) = &calibration_ae_correction_linear;
 	*(void **)((char *)arg1 + 0xa8) = &calibration_ae_correction_fs_hdr;
-	*(void **)((char *)arg1 + 0x338) = &ae_exposure_correction;
+	/* OEM .data 0x3204: the exposure-correction LUT (calibration 206, read by
+	 * ae_calculate_target), not the function ae_exposure_correction (#338) */
+	*(void **)((char *)arg1 + 0x338) = &calibration_ae_exposure_correction;
 	*(void **)((char *)arg1 + 0xb8) = &calibration_sinter_strength_linear;
 	*(void **)((char *)arg1 + 0xbc) = &calibration_sinter_strength_fs_hdr;
 	*(void **)((char *)arg1 + 0xcc) = &calibration_sinter_strength1_linear;
@@ -21184,12 +16630,6 @@ int32_t preview_set_supported(void)
     return 0;
 }
 
-/* WHOLE_DRIVER_CANDIDATE fn_000000000000f38c origin=fragment_seed original=get_current_set */
-int32_t get_current_set(void)
-{
-	return (int32_t)(uintptr_t)apicalCalibrations;
-}
-
 /* WHOLE_DRIVER_CANDIDATE fn_000000000000f398 origin=model_output original=_GET_LOOKUP_PTR */
 int32_t _GET_LOOKUP_PTR(int32_t arg1)
 {
@@ -21230,12 +16670,6 @@ int32_t _GET_UINT_PTR(int32_t arg1)
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000000f424 origin=model_output original=_GET_MOD_ENTRY16_PTR */
 int32_t _GET_MOD_ENTRY16_PTR(int32_t arg1)
-{
-	return _GET_LUT_PTR(arg1);
-}
-
-/* WHOLE_DRIVER_CANDIDATE fn_000000000000f434 origin=model_output original=_GET_MOD_ENTRY32_PTR */
-int32_t _GET_MOD_ENTRY32_PTR(int32_t arg1)
 {
 	return _GET_LUT_PTR(arg1);
 }
@@ -21345,620 +16779,6 @@ uint32_t free_tx_isp_priv_param_manage(void)
 		*manager_cursor = 0;
 	}
 	return 0;
-}
-
-/* WHOLE_DRIVER_CANDIDATE fn_000000000000f6a4 origin=fragment_seed original=load_tx_isp_parameters */
-int64_t load_tx_isp_parameters(uintptr_t a0)
-{
-    uint32_t *local_10 = 0;
-    uint32_t local_14 = 0;
-    uint32_t *local_18 = 0;
-    uint32_t local_58 = 0;
-    uint32_t local_5c = 0;
-    uint32_t local_60 = 0;
-    uint32_t local_64 = 0;
-    uint32_t local_68 = 0;
-    uint32_t local_6c = 0;
-    uint32_t local_70 = 0;
-    uint32_t local_74 = 0;
-    uint32_t local_78 = 0;
-    uint32_t local_7c = 0;
-    uint32_t local_80 = 0;
-    uint32_t local_84 = 0;
-    uint32_t local_88 = 0;
-    uint32_t local_8c = 0;
-    uintptr_t *a1 = 0;
-    uintptr_t a2 = 0;
-    uintptr_t *a3 = 0;
-    uint32_t at = 0;
-    uintptr_t gp = 0;
-    uint32_t ra = 0;
-    uintptr_t *s0 = 0;
-    uintptr_t *s1 = 0;
-    uintptr_t *s2 = 0;
-    uintptr_t *s3 = 0;
-    uint32_t s4 = 0;
-    uint32_t s5 = 0;
-    uintptr_t s6 = 0;
-    uintptr_t s7 = 0;
-    uint32_t s8 = 0;
-    uint32_t t0 = 0;
-    uint32_t t1 = 0;
-    uintptr_t *v0 = 0;
-    uintptr_t v1 = 0;
-
-    /* fragment 0: Prologue */
-    /* function prologue: stack frame and callee-saved register setup */
-
-    /* fragment 1: Branch */
-    s1 = a0;
-    if (a0 == 0) { goto load_tx_isp_parameters0x7c; }
-
-    /* fragment 2: Arithmetic */
-    s2 = (uint32_t *)&vic_cmd_buf;
-
-    /* fragment 3: MemoryAccess */
-    v0 = *(uint32_t *)((char *)((char *)&manager));
-
-    /* fragment 4: Branch */
-    a1 = 2;
-    if (v0 != 0) { goto load_tx_isp_parameters0x164; }
-
-    /* fragment 5: CallSetup */
-    v0 = (uintptr_t *)__get_free_pages(1048576 + 16592, a1); /* jalr target resolved by relocation */
-
-    /* fragment 6: Branch */
-    s0 = v0;
-    if (v0 != 0) { goto load_tx_isp_parameters0xb0; }
-
-    /* fragment 7: CallSetup */
-    *(uint32_t *)((char *)s2 + 6772) = 0;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))printk)((int32_t *)("%s"), (uintptr_t)(({ uintptr_t __regtrace_cstr = (uintptr_t)((const char *)(uintptr_t)&LC0); (const char *)(__regtrace_cstr ? __regtrace_cstr : (uintptr_t)"<null>"); }))); /* jalr target resolved by relocation */
-
-load_tx_isp_parameters0x78:
-    /* fragment 8: Arithmetic */
-    s1 = 0;
-
-load_tx_isp_parameters0x7c:
-    /* fragment 9: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    /* fragment 10: Arithmetic */
-    v0 = s1;
-
-    /* fragment 11: Epilogue */
-    /* function epilogue: restore registers and return */
-    return (int64_t)v0;
-
-load_tx_isp_parameters0xb0:
-    /* fragment 12: CallSetup */
-    v0 = (uintptr_t *)memset((void *)(int32_t *)v0, 0, 8928); /* jalr target resolved by relocation */
-
-    /* fragment 13: CallSetup */
-    v0 = (uintptr_t *)snprintf((const char *)(int32_t *)s0, 8, "%s", ({ uintptr_t __regtrace_cstr = (uintptr_t)((const char *)(uintptr_t)&LC2); (const char *)(__regtrace_cstr ? __regtrace_cstr : (uintptr_t)"<null>"); })); /* jalr target resolved by relocation */
-
-    /* fragment 14: CallSetup */
-    v0 = (uintptr_t *)snprintf((const char *)(int32_t *)(s0 + 8), 8, "%s", ({ uintptr_t __regtrace_cstr = (uintptr_t)((const char *)(uintptr_t)&LC3); (const char *)(__regtrace_cstr ? __regtrace_cstr : (uintptr_t)"<null>"); })); /* jalr target resolved by relocation */
-
-    /* fragment 15: CallSetup */
-    v0 = (uintptr_t *)snprintf((const char *)(int32_t *)(s0 + 24), 8, "%s", ({ uintptr_t __regtrace_cstr = (uintptr_t)((const char *)(uintptr_t)&LC3); (const char *)(__regtrace_cstr ? __regtrace_cstr : (uintptr_t)"<null>"); })); /* jalr target resolved by relocation */
-
-    /* fragment 16: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(int32_t *))(uintptr_t)get_dynamic_calibrations)((int32_t *)tmp_isp_param); /* jalr target resolved by relocation */
-
-    /* fragment 17: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(int32_t *))(uintptr_t)get_static_calibrations)((int32_t *)tmp_isp_param); /* jalr target resolved by relocation */
-
-    /* fragment 18: Arithmetic */
-    v1 = s0 + 2268;
-    v0 = s0 + 52;
-    a0 = s0 + 1160;
-
-load_tx_isp_parameters0x148:
-    /* fragment 19: Arithmetic */
-    a1 = v1 + 12;
-
-    /* fragment 20: MemoryAccess */
-    *(uint32_t *)((char *)v0 + 0) = v1;
-    *(uint32_t *)((char *)v0 + 1108) = a1;
-    v0 = v0 + 4;
-
-    /* fragment 21: Branch */
-    v1 = v1 + 24;
-    if (a0 != v0) { goto load_tx_isp_parameters0x148; }
-
-    /* fragment 22: CallSetup */
-    *(uint32_t *)((char *)((char *)&manager)) = s0;
-
-load_tx_isp_parameters0x164:
-    /* fragment 23: CallSetup */
-    v0 = (uintptr_t *)snprintf((const char *)(int32_t *)&local_18, 64, "%s", ({ uintptr_t __regtrace_cstr = (uintptr_t)((const char *)(uintptr_t)&LC4); (const char *)(__regtrace_cstr ? __regtrace_cstr : (uintptr_t)"<null>"); })); /* jalr target resolved by relocation */
-
-    /* fragment 24: CallSetup */
-    v0 = (uintptr_t *)filp_open((const char *)(int32_t *)&local_18, 0, 0); /* jalr target resolved by relocation */
-
-    /* fragment 25: Arithmetic */
-    s3 = v0;
-    v0 = v0 < -4095;
-
-    /* fragment 26: Branch */
-    s6 = *(uint32_t *)((char *)((char *)&manager));
-    if (v0 != 0) { goto load_tx_isp_parameters0x1cc; }
-
-    /* fragment 27: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))printk)((int32_t *)((const char *)(uintptr_t)&LC5), (uintptr_t)(&local_18)); /* jalr target resolved by relocation */
-
-    /* fragment 28: Branch */
-    s1 = 0;
-    goto load_tx_isp_parameters0x7c;
-
-load_tx_isp_parameters0x1cc:
-    /* fragment 29: MemoryAccess */
-    v0 = *(uint32_t *)((char *)s3 + 12);
-    s5 = 0;
-    v0 = *(uint32_t *)((char *)v0 + 40);
-    s4 = (uintptr_t)&filp_close;
-    s0 = *(uint32_t *)((char *)v0 + 48);
-    s7 = *(uint32_t *)((char *)v0 + 52);
-    (void)0;
-    v0 = *(uint32_t *)((char *)s6 + 40);
-
-    /* fragment 30: Branch */
-    s4 = (uintptr_t)&filp_close;
-    if (v0 != 0) { goto load_tx_isp_parameters0x268; }
-
-    /* fragment 31: CallSetup */
-    v0 = (uintptr_t *)__kmalloc(s0, 208); /* jalr target resolved by relocation */
-
-    /* fragment 32: MemoryAccess */
-    *(uint32_t *)((char *)s6 + 40) = v0;
-    s6 = *(uint32_t *)((char *)((char *)&manager));
-    v0 = *(uint32_t *)((char *)s6 + 40);
-
-    /* fragment 33: Branch */
-    int _bc_v0_33 = v0 != 0;
-    v0 = s7 << 22;
-    if (_bc_v0_33) { goto load_tx_isp_parameters0x264; }
-
-    /* fragment 34: CallSetup */
-    s0 = (uintptr_t)s0 >> 10;
-    s0 = (uintptr_t)v0 + (uintptr_t)s0;
-    s7 = (int32_t)s7 >> 10;
-    local_10 = s0;
-    local_14 = s7;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))printk)((int32_t *)((const char *)(uintptr_t)&LC6), (uintptr_t)(0 + 1856), (uintptr_t)(142)); /* jalr target resolved by relocation */
-
-    /* fragment 35: CallSetup */
-    a1 = 0;
-
-load_tx_isp_parameters0x254:
-    /* fragment 36: CallSetup */
-    v0 = (uintptr_t *)filp_close((void *)(int32_t *)s3, (void *)(uintptr_t)a1); /* jalr target resolved by relocation */
-
-    /* fragment 37: Branch */
-    (void)0;
-    goto load_tx_isp_parameters0x78;
-
-load_tx_isp_parameters0x264:
-    /* fragment 38: MemoryAccess */
-    *(uint32_t *)((char *)s6 + 44) = s0;
-
-load_tx_isp_parameters0x268:
-    /* fragment 39: MemoryAccess */
-    v0 = *(uint32_t *)((char *)s6 + 44);
-
-    /* fragment 40: Branch */
-    a3 = s3 + 40;
-    if (s7 > 0) { goto load_tx_isp_parameters0x284; }
-
-    /* fragment 41: Branch */
-    v0 = v0 < s0;
-    if (s7 != 0) { goto load_tx_isp_parameters0x2a0; }
-
-    /* fragment 42: Branch */
-    if (v0 == 0) { goto load_tx_isp_parameters0x2a0; }
-
-load_tx_isp_parameters0x284:
-    /* fragment 43: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))printk)((int32_t *)("%s"), (uintptr_t)(({ uintptr_t __regtrace_cstr = (uintptr_t)((const char *)(uintptr_t)&LC7); (const char *)(__regtrace_cstr ? __regtrace_cstr : (uintptr_t)"<null>"); }))); /* jalr target resolved by relocation */
-
-    /* fragment 44: Branch */
-    a1 = 0;
-    goto load_tx_isp_parameters0x254;
-
-load_tx_isp_parameters0x2a0:
-    /* fragment 45: CallSetup */
-    v0 = (uintptr_t *)vfs_read((void *)(uintptr_t)s3, (const char *)(uintptr_t)(*(uint32_t *)((char *)(s6) + 40)), s0, (void *)(uintptr_t)a3); /* jalr target resolved by relocation */
-
-    /* fragment 46: CallSetup */
-    v0 = (uintptr_t *)filp_close((void *)(int32_t *)s3, (void *)(uintptr_t)0); /* jalr target resolved by relocation */
-
-    /* fragment 47: MemoryAccess */
-    s0 = *(uint32_t *)((char *)((char *)&manager));
-    (void)0;
-    a0 = 8;
-    s6 = *(uint32_t *)((char *)s0 + 40);
-    v0 = s0;
-    v1 = s6;
-    a1 = a0;
-
-load_tx_isp_parameters0x2e0:
-    /* fragment 48: MemoryAccess */
-    a2 = *(uint8_t *)((char *)v0 + 0);
-    at = *(uint8_t *)((char *)v1 + 0);
-
-    /* fragment 49: Branch */
-    if (a1 == 0) { goto load_tx_isp_parameters0x300; }
-
-    /* fragment 50: Arithmetic */
-    a1 = a1 - 1;
-
-    /* fragment 51: Branch */
-    v0 = v0 + 1;
-    if (at != a2) { goto load_tx_isp_parameters0x304; }
-
-    /* fragment 52: Branch */
-    v1 = v1 + 1;
-    if (a2 != 0) { goto load_tx_isp_parameters0x2e0; }
-
-load_tx_isp_parameters0x300:
-    /* fragment 53: Arithmetic */
-    a2 = at;
-
-load_tx_isp_parameters0x304:
-    /* fragment 54: Arithmetic */
-    a2 = a2 - at;
-
-    /* fragment 55: Branch */
-    v0 = s0 + 8;
-    if (a2 == 0) { goto load_tx_isp_parameters0x360; }
-
-    /* fragment 56: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))printk)((int32_t *)("%s"), (uintptr_t)(({ uintptr_t __regtrace_cstr = (uintptr_t)((const char *)(uintptr_t)&LC8); (const char *)(__regtrace_cstr ? __regtrace_cstr : (uintptr_t)"<null>"); }))); /* jalr target resolved by relocation */
-
-    /* fragment 57: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))printk)((int32_t *)((const char *)(uintptr_t)&LC9), (uintptr_t)(*(uint32_t *)((char *)(s1) + 0))); /* jalr target resolved by relocation */
-
-    /* fragment 58: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))printk)((int32_t *)((const char *)(uintptr_t)&LC10), (uintptr_t)(*(uint32_t *)((char *)(s1) + 0)), (uintptr_t)(*(uint32_t *)((char *)((char *)&manager))), (uintptr_t)(s6)); /* jalr target resolved by relocation */
-
-    /* fragment 59: CallSetup */
-    a0 = s7;
-
-load_tx_isp_parameters0x350:
-    /* fragment 60: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))printk)((int32_t *)("%s"), (uintptr_t)(({ uintptr_t __regtrace_cstr = (uintptr_t)((const char *)(uintptr_t)a0); (const char *)(__regtrace_cstr ? __regtrace_cstr : (uintptr_t)"<null>"); }))); /* jalr target resolved by relocation */
-
-    /* fragment 61: Branch */
-    a1 = 0;
-    goto load_tx_isp_parameters0x254;
-
-load_tx_isp_parameters0x360:
-    /* fragment 62: Arithmetic */
-    v1 = s6 + 8;
-
-load_tx_isp_parameters0x364:
-    /* fragment 63: MemoryAccess */
-    a1 = *(uint8_t *)((char *)v0 + 0);
-    at = *(uint8_t *)((char *)v1 + 0);
-
-    /* fragment 64: Branch */
-    if (a0 == 0) { goto load_tx_isp_parameters0x384; }
-
-    /* fragment 65: Arithmetic */
-    a0 = a0 - 1;
-
-    /* fragment 66: Branch */
-    v0 = v0 + 1;
-    if (at != a1) { goto load_tx_isp_parameters0x388; }
-
-    /* fragment 67: Branch */
-    v1 = v1 + 1;
-    if (a1 != 0) { goto load_tx_isp_parameters0x364; }
-
-load_tx_isp_parameters0x384:
-    /* fragment 68: Arithmetic */
-    a1 = at;
-
-load_tx_isp_parameters0x388:
-    /* fragment 69: Arithmetic */
-    a1 = a1 - at;
-
-    /* fragment 70: Branch */
-    if (a1 == 0) { goto load_tx_isp_parameters0x3c4; }
-
-    /* fragment 71: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))printk)((int32_t *)("%s"), (uintptr_t)(({ uintptr_t __regtrace_cstr = (uintptr_t)((const char *)(uintptr_t)&LC8); (const char *)(__regtrace_cstr ? __regtrace_cstr : (uintptr_t)"<null>"); }))); /* jalr target resolved by relocation */
-
-    /* fragment 72: CallSetup */
-    a0 = (uintptr_t)&LC11;
-    a1 = *(uint32_t *)((char *)s1 + 0);
-    a0 = a0;
-
-load_tx_isp_parameters0x3b4:
-    /* fragment 73: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))printk)((int32_t *)("%s"), (uintptr_t)(({ uintptr_t __regtrace_cstr = (uintptr_t)((const char *)(uintptr_t)a0); (const char *)(__regtrace_cstr ? __regtrace_cstr : (uintptr_t)"<null>"); }))); /* jalr target resolved by relocation */
-
-    /* fragment 74: Branch */
-    a0 = (uintptr_t)&LC8;
-    goto load_tx_isp_parameters0x350;
-
-load_tx_isp_parameters0x3c4:
-    /* fragment 75: MemoryAccess */
-    a0 = *(uint32_t *)((char *)s6 + 16);
-    *(uint32_t *)((char *)s0 + 16) = a0;
-    v0 = *(uint32_t *)((char *)s6 + 20);
-    *(uint32_t *)((char *)s0 + 20) = v0;
-    v0 = *(uint32_t *)((char *)s0 + 48);
-
-    /* fragment 76: Branch */
-    int _bc_v0_76 = v0 != 0;
-    v0 = (uintptr_t *)&__kmalloc;
-    if (_bc_v0_76) { goto load_tx_isp_parameters0x430; }
-
-    /* fragment 77: CallSetup */
-    v0 = (uintptr_t *)__kmalloc(a0 >> 1, 208); /* jalr target resolved by relocation */
-
-    /* fragment 78: MemoryAccess */
-    *(uint32_t *)((char *)s0 + 48) = v0;
-    v0 = *(uint32_t *)((char *)((char *)&manager));
-    v0 = *(uint32_t *)((char *)v0 + 48);
-
-    /* fragment 79: Branch */
-    a1 = 0;
-    if (v0 != 0) { goto load_tx_isp_parameters0x430; }
-
-    /* fragment 80: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))printk)((int32_t *)((const char *)(uintptr_t)&LC12), (uintptr_t)((uintptr_t)a1 + 1856), (uintptr_t)(180), (uintptr_t)((*(uint32_t *)((char *)((uintptr_t)s0) + 16)) >> 11)); /* jalr target resolved by relocation */
-
-    /* fragment 81: Branch */
-    a1 = 0;
-    goto load_tx_isp_parameters0x254;
-
-load_tx_isp_parameters0x430:
-    /* fragment 82: MemoryAccess */
-    v0 = *(uint32_t *)((char *)s0 + 16);
-    a2 = 0;
-    v0 = (uintptr_t)v0 >> 2;
-    v0 = (uintptr_t)v0 << 2;
-    t0 = *(uint32_t *)((char *)s0 + 20);
-    v1 = s6 + 24;
-    a3 = s6;
-    v0 = s6 + (uintptr_t)v0;
-    a0 = 0;
-    a2 = a2 + 1880;
-
-load_tx_isp_parameters0x458:
-    /* fragment 83: Branch */
-    if (v0 != a3) { goto load_tx_isp_parameters0x5f4; }
-
-    /* fragment 84: Branch */
-    a2 = 187;
-    if (t0 != a0) { goto load_tx_isp_parameters0x684; }
-
-    /* fragment 85: MemoryAccess */
-    s0 = *(uint32_t *)((char *)((char *)&manager));
-    s7 = (uintptr_t)tmp_isp_param;
-    a3 = (uint32_t *)&memcpy;
-    s8 = *(uint32_t *)((char *)s0 + 48);
-    *(uint32_t *)((char *)s0 + 8916) = v1;
-    t1 = s7 + 1108;
-    s0 = s0 + 52;
-    a3 = a3;
-
-load_tx_isp_parameters0x48c:
-    /* fragment 86: MemoryAccess */
-    v0 = *(uint32_t *)((char *)s7 + 0);
-
-    /* fragment 87: Branch */
-    if (v0 == 0) { goto load_tx_isp_parameters0x588; }
-
-    /* fragment 88: MemoryAccess */
-    v0 = *(uint32_t *)((char *)v0 + 0);
-
-    /* fragment 89: Branch */
-    a0 = v1 + 12;
-    if (v0 == 0) { goto load_tx_isp_parameters0x588; }
-
-    /* fragment 90: MemoryAccess */
-    v0 = *(uint32_t *)((char *)s0 + 0);
-    local_64 = t1;
-    *(uint32_t *)((char *)v0 + 0) = a0;
-    v0 = *(uint32_t *)((char *)s0 + 0);
-    a0 = *(uint16_t *)((char *)v1 + 4);
-    *(uint16_t *)((char *)v0 + 4) = a0;
-    v0 = *(uint32_t *)((char *)s0 + 0);
-    a0 = *(uint16_t *)((char *)v1 + 6);
-    *(uint16_t *)((char *)v0 + 6) = a0;
-    v0 = *(uint32_t *)((char *)s0 + 0);
-    a0 = *(uint16_t *)((char *)v1 + 8);
-    *(uint16_t *)((char *)v0 + 8) = a0;
-    v0 = *(uint32_t *)((char *)s0 + 0);
-    a0 = *(uint16_t *)((char *)v0 + 6);
-    a2 = *(uint16_t *)((char *)v0 + 4);
-    v0 = *(uint16_t *)((char *)v0 + 8);
-    a2 = a2 * a0;
-    a2 = a2 * (uintptr_t)v0;
-    v0 = *(uint32_t *)((char *)s7 + 0);
-    *(uint32_t *)((char *)v0 + 0) = s8;
-    v0 = *(uint32_t *)((char *)s7 + 0);
-    a0 = *(uint16_t *)((char *)v1 + 4);
-    t0 = a2 + 12;
-    *(uint16_t *)((char *)v0 + 4) = a0;
-    v0 = *(uint32_t *)((char *)s7 + 0);
-    a0 = *(uint16_t *)((char *)v1 + 6);
-    s6 = v1 + t0;
-    *(uint16_t *)((char *)v0 + 6) = a0;
-    v0 = *(uint32_t *)((char *)s7 + 0);
-    v1 = *(uint16_t *)((char *)v1 + 8);
-
-    /* fragment 91: CallSetup */
-    local_60 = t0;
-    *(uint16_t *)((char *)v0 + 8) = v1;
-    local_5c = a2;
-    local_58 = a3;
-    v0 = (uintptr_t *)memcpy((void *)(int32_t *)(*(uint32_t *)((char *)(*(uint32_t *)((char *)(s7) + 0)) + 0)), (void *)(uintptr_t)(*(uint32_t *)((char *)(*(uint32_t *)((char *)(s0) + 0)) + 0)), a2); /* jalr target resolved by relocation */
-
-    /* fragment 92: MemoryAccess */
-    v0 = *(uint32_t *)((char *)s0 + 1108);
-    v1 = s6 + 12;
-    a2 = local_5c;
-    *(uint32_t *)((char *)v0 + 0) = v1;
-    v0 = *(uint32_t *)((char *)s0 + 1108);
-    v1 = *(uint16_t *)((char *)s6 + 4);
-    t0 = local_60;
-    *(uint16_t *)((char *)v0 + 4) = v1;
-    v0 = *(uint32_t *)((char *)s0 + 1108);
-    v1 = *(uint16_t *)((char *)s6 + 6);
-    t1 = local_64;
-    *(uint16_t *)((char *)v0 + 6) = v1;
-    v0 = *(uint32_t *)((char *)s0 + 1108);
-    v1 = *(uint16_t *)((char *)s6 + 8);
-    a3 = local_58;
-    *(uint16_t *)((char *)v0 + 8) = v1;
-    s8 = s8 + a2;
-    v1 = s6 + t0;
-
-load_tx_isp_parameters0x588:
-    /* fragment 93: Arithmetic */
-    s7 = s7 + 4;
-
-    /* fragment 94: Branch */
-    s0 = s0 + 4;
-    if (t1 != s7) { goto load_tx_isp_parameters0x48c; }
-
-    /* fragment 95: MemoryAccess */
-    a1 = *(uint32_t *)((char *)((char *)&manager));
-    a0 = v1;
-    v0 = a1 + 24;
-    a2 = 8;
-
-load_tx_isp_parameters0x5a4:
-    /* fragment 96: MemoryAccess */
-    a3 = *(uint8_t *)((char *)v0 + 0);
-    at = *(uint8_t *)((char *)a0 + 0);
-
-    /* fragment 97: Branch */
-    if (a2 == 0) { goto load_tx_isp_parameters0x5c4; }
-
-    /* fragment 98: Arithmetic */
-    a2 = a2 - 1;
-
-    /* fragment 99: Branch */
-    v0 = v0 + 1;
-    if (at != a3) { goto load_tx_isp_parameters0x5c8; }
-
-    /* fragment 100: Branch */
-    a0 = a0 + 1;
-    if (a3 != 0) { goto load_tx_isp_parameters0x5a4; }
-
-load_tx_isp_parameters0x5c4:
-    /* fragment 101: Arithmetic */
-    a3 = at;
-
-load_tx_isp_parameters0x5c8:
-    /* fragment 102: Arithmetic */
-    a3 = a3 - at;
-
-    /* fragment 103: Branch */
-    s0 = (uintptr_t *)&printk;
-    if (a3 == 0) { goto load_tx_isp_parameters0x618; }
-
-    /* fragment 104: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))printk)((int32_t *)("%s"), (uintptr_t)(({ uintptr_t __regtrace_cstr = (uintptr_t)((const char *)(uintptr_t)&LC8); (const char *)(__regtrace_cstr ? __regtrace_cstr : (uintptr_t)"<null>"); }))); /* jalr target resolved by relocation */
-
-    /* fragment 105: Arithmetic */
-    a0 = (uintptr_t)&LC14;
-
-    /* fragment 106: MemoryAccess */
-    a1 = *(uint32_t *)((char *)s1 + 0);
-
-    /* fragment 107: Branch */
-    a0 = (uintptr_t)&LC14;
-    goto load_tx_isp_parameters0x3b4;
-
-load_tx_isp_parameters0x5f4:
-    /* fragment 108: MemoryAccess */
-    a1 = *(uint32_t *)((char *)a3 + 24);
-    a3 = a3 + 4;
-    a0 = a0 ^ (uintptr_t)a1;
-    a1 = a0 & 7;
-    a1 = (uintptr_t)a1 << 2;
-    a1 = a1 + a2;
-    a1 = *(uint32_t *)((char *)a1 + 0);
-
-    /* fragment 109: Branch */
-    a0 = a0 ^ (uintptr_t)a1;
-    goto load_tx_isp_parameters0x458;
-
-load_tx_isp_parameters0x618:
-    /* fragment 110: MemoryAccess */
-    v0 = *(uint32_t *)((char *)v1 + 8);
-    *(uint32_t *)((char *)a1 + 32) = v0;
-    t0 = *(uint32_t *)((char *)v1 + 12);
-
-    /* fragment 111: Branch */
-    *(uint32_t *)((char *)a1 + 36) = t0;
-    if (v0 != 0) { goto load_tx_isp_parameters0x650; }
-
-    /* fragment 112: CallSetup */
-    *(uint32_t *)((char *)a1 + 8924) = 0;
-    *(uint32_t *)((char *)a1 + 8920) = 0;
-    a0 = 0;
-
-load_tx_isp_parameters0x638:
-    /* fragment 113: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(int32_t *))(uintptr_t)init_tx_isp_customer_parameter)(a0); /* jalr target resolved by relocation */
-
-    /* fragment 114: Branch */
-    s1 = *(uint32_t *)((char *)((char *)&manager));
-    goto load_tx_isp_parameters0x7c;
-
-load_tx_isp_parameters0x650:
-    /* fragment 115: Arithmetic */
-    v0 = (uintptr_t)v0 >> 2;
-    a0 = v1 + 16;
-    v0 = (uintptr_t)v0 << 2;
-    a3 = 0;
-
-    /* fragment 116: MemoryAccess */
-    *(uint32_t *)((char *)a1 + 8924) = a0;
-    *(uint32_t *)((char *)a1 + 8920) = a0;
-    v0 = v1 + (uintptr_t)v0;
-    a1 = 0;
-    a3 = a3 + 1880;
-
-load_tx_isp_parameters0x674:
-    /* fragment 117: Branch */
-    if (v0 != v1) { goto load_tx_isp_parameters0x6a8; }
-
-    /* fragment 118: Branch */
-    a2 = 244;
-    if (t0 == a1) { goto load_tx_isp_parameters0x638; }
-
-load_tx_isp_parameters0x684:
-    /* fragment 119: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))printk)((int32_t *)((const char *)(uintptr_t)&LC13), (uintptr_t)(0 + 1856)); /* jalr target resolved by relocation */
-
-    /* fragment 120: Branch */
-    a1 = 0;
-    goto load_tx_isp_parameters0x254;
-
-load_tx_isp_parameters0x6a8:
-    /* fragment 121: MemoryAccess */
-    a2 = *(uint32_t *)((char *)v1 + 16);
-    v1 = v1 + 4;
-    a1 = (uintptr_t)a1 ^ a2;
-    a2 = (uintptr_t)a1 & 7;
-    a2 = a2 << 2;
-    a2 = a2 + (uintptr_t)a3;
-    a2 = *(uint32_t *)((char *)a2 + 0);
-
-    /* fragment 122: Branch */
-    a1 = (uintptr_t)a1 ^ a2;
-    goto load_tx_isp_parameters0x674;
-
-    return ((int64_t)(uint32_t)v1 << 32) | (uint32_t)v0;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000000fd70 origin=fragment_seed original=apical_custom_initialization */
@@ -22543,12 +17363,6 @@ int32_t init_tx_isp_customer_parameter(uint32_t arg1)
     return (int32_t)(uintptr_t)&tx_isp_t30_customer;
 }
 
-/* WHOLE_DRIVER_CANDIDATE fn_00000000000106bc origin=fragment_seed original=apical_custom_sequence */
-int32_t apical_custom_sequence(void)
-{
-	return (int32_t)(uintptr_t)tx_isp_t30_isp_sequence;
-}
-
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000106d0 origin=model_output original=init_sensor_interface */
 int32_t init_sensor_interface(void)
 {
@@ -22696,51 +17510,6 @@ void system_timer_init(void)
     system_timer_init_state = 0;
 }
 
-/* WHOLE_DRIVER_CANDIDATE fn_0000000000010830 origin=fragment_seed original=system_uart_open */
-int32_t system_uart_open(void)
-{
-    uint32_t ra = 0;
-    uintptr_t *v0 = 0;
-
-    /* fragment 0: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    /* fragment 1: Arithmetic */
-    v0 = -1;
-
-    return 0;
-}
-
-/* WHOLE_DRIVER_CANDIDATE fn_0000000000010838 origin=fragment_seed original=system_uart_write */
-int32_t system_uart_write(void)
-{
-    uint32_t ra = 0;
-    uintptr_t *v0 = 0;
-
-    /* fragment 0: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    /* fragment 1: Arithmetic */
-    v0 = 0;
-
-    return 0;
-}
-
-/* WHOLE_DRIVER_CANDIDATE fn_0000000000010840 origin=fragment_seed original=system_uart_read */
-int32_t system_uart_read(void)
-{
-    uint32_t ra = 0;
-    uintptr_t *v0 = 0;
-
-    /* fragment 0: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    /* fragment 1: Arithmetic */
-    v0 = 0;
-
-    return 0;
-}
-
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000010850 origin=fragment_seed original=init_semaphore */
 int32_t* init_semaphore(uintptr_t a0)
 {
@@ -22776,16 +17545,6 @@ int32_t wait_semaphore(uintptr_t a0, uint32_t a1)
     if (!sem)
         return -EINVAL;
     return down_timeout(sem, msecs_to_jiffies(a1));
-}
-
-/* WHOLE_DRIVER_CANDIDATE fn_00000000000108f4 origin=fragment_seed original=destroy_semaphore */
-int32_t destroy_semaphore(uintptr_t a0)
-{
-    struct semaphore *sem = *(struct semaphore **)a0;
-
-    kfree(sem);
-    *(struct semaphore **)a0 = NULL;
-    return 0;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000010930 origin=model_output original=sensor_hw_reset_enable */
@@ -23326,243 +18085,6 @@ int32_t apical_sensor_early_init(uint32_t arg1)
     return 0;
 }
 
-/* WHOLE_DRIVER_CANDIDATE fn_0000000000010f10 origin=model_output original=isp_fops_write */
-int isp_fops_write(struct file *file, const char __user *buf, size_t count)
-{
-	int ret;
-	int copied;
-
-	ret = mutex_lock_interruptible(&isp_lock);
-	if (ret != 0)
-		return ret;
-
-	copied = __kfifo_from_user(&isp_kfifo_in, buf, count, &ret);
-	mutex_unlock(&isp_lock);
-
-	if (copied != 0)
-		return copied;
-
-	return ret;
-}
-
-/* WHOLE_DRIVER_CANDIDATE fn_0000000000010f94 origin=model_output original=isp_fops_read */
-int32_t isp_fops_read(struct file *filp, char __user *buf, size_t count)
-{
-	int32_t ret;
-	int32_t copied;
-	unsigned int copied_u;
-
-	ret = mutex_lock_interruptible(&isp_lock);
-	if (ret != 0)
-		return ret;
-
-	copied_u = 0;
-	copied = __kfifo_to_user(&isp_kfifo_out, buf, count, &copied_u);
-	mutex_unlock(&isp_lock);
-
-	if (copied != 0)
-		return copied;
-
-	return (int32_t)copied_u;
-}
-
-/* WHOLE_DRIVER_CANDIDATE fn_0000000000011018 origin=fragment_seed original=isp_fops_release */
-int32_t isp_fops_release(void)
-{
-    uint32_t *local_10 = 0;
-    uint32_t *local_18 = 0;
-    uint32_t local_1c = 0;
-    uint32_t a0 = 0;
-    uint32_t ra = 0;
-    uint32_t *s0 = 0;
-    uintptr_t *v0 = 0;
-    uintptr_t v1 = 0;
-
-    /* fragment 0: Prologue */
-    /* function prologue: stack frame and callee-saved register setup */
-
-    /* fragment 1: CallSetup */
-    v0 = (uintptr_t *)mutex_lock_interruptible((void *)(int32_t *)&tx_isp_platform_device); /* jalr target resolved by relocation */
-
-    /* fragment 2: Branch */
-    if (v0 != 0) { goto isp_fops_release0x4c; }
-
-    /* fragment 3: CallSetup */
-    *(uint32_t *)((char *)((char *)&isp_client_state_kernel + 0x4)) = 0;
-    local_10 = v0;
-    mutex_unlock((void *)(uintptr_t)&tx_isp_platform_device); /* jalr target resolved by relocation */
-
-    /* fragment 4: StackAccess */
-    v0 = local_10;
-    ra = local_1c;
-
-isp_fops_release0x4c:
-    /* fragment 5: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    return 0;
-}
-
-/* WHOLE_DRIVER_CANDIDATE fn_0000000000011070 origin=model_output original=isp_fops_open */
-int32_t isp_fops_open(void)
-{
-    int ret;
-    int state;
-    int count;
-
-    ret = mutex_lock_interruptible((void *)&isp_lock);
-    if (ret != 0)
-        return ret;
-
-    state = *(int *)((char *)&isp_client_state_kernel + 0x4);
-    if (state != 0) {
-        ret = -16;
-    } else {
-        count = *(int *)&isp_client_state_kernel;
-        count++;
-        *(int *)&isp_client_state_kernel = count;
-        *(int *)((char *)&isp_client_state_kernel + 0x4) = 1;
-        *(int *)&isp_kfifo_in = 0;
-        *(int *)((char *)&isp_kfifo_in + 0x4) = 0;
-        *(int *)&isp_kfifo_out = 0;
-        *(int *)((char *)&isp_kfifo_out + 0x4) = 0;
-        ret = 0;
-    }
-
-    mutex_unlock((void *)&isp_lock);
-    return ret;
-}
-
-/* WHOLE_DRIVER_CANDIDATE fn_000000000001110c origin=fragment_seed original=system_chardev_init */
-int32_t system_chardev_init(void)
-{
-    uint32_t local_14 = 0;
-    uint32_t a0 = 0;
-    uint32_t *a1 = 0;
-    uint32_t ra = 0;
-    uintptr_t *v0 = 0;
-    uint32_t v1 = 0;
-
-    /* fragment 0: Arithmetic */
-    v0 = (uintptr_t *)&vic_cmd_buf;
-    v1 = (uintptr_t)&vic_cmd_buf;
-
-    /* fragment 1: MemoryAccess */
-    *(uint32_t *)((char *)((char *)&isp_kfifo_in)) = 0;
-    v0 = v0 + 11204;
-    a1 = 4095;
-    a0 = 1;
-    v1 = v1 + 11224;
-    local_14 = ra;
-    *(uint32_t *)((char *)v0 + 12) = a0;
-    *(uint32_t *)((char *)v0 + 16) = v1;
-    *(uint32_t *)((char *)v0 + 4) = 0;
-    *(uint32_t *)((char *)v0 + 8) = a1;
-    v0 = (uintptr_t *)&vic_cmd_buf;
-    v1 = (uintptr_t)&vic_cmd_buf;
-    *(uint32_t *)((char *)((char *)&isp_kfifo_out)) = 0;
-    v0 = v0 + 7088;
-    v1 = v1 + 7108;
-    *(uint32_t *)((char *)v0 + 12) = a0;
-    *(uint32_t *)((char *)v0 + 4) = 0;
-    *(uint32_t *)((char *)v0 + 8) = a1;
-    *(uint32_t *)((char *)v0 + 16) = v1;
-    a0 = (uintptr_t)&tx_isp_platform_device;
-    v0 = (uintptr_t *)&misc_register;
-    v0 = v0;
-
-    /* fragment 2: CallSetup */
-    v0 = (uintptr_t *)misc_register((void *)(int32_t *)&tx_isp_platform_device); /* jalr target resolved by relocation */
-
-    /* fragment 3: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    /* fragment 4: Arithmetic */
-    v0 = 0 < v0;
-
-    /* fragment 5: Unknown */
-    /* unmatched fragment 5 (Unknown): no deterministic matcher for Unknown */
-    /* asm: 11180:	00021023 	negu	v0,v0 */
-
-    /* fragment 6: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    return 0;
-}
-
-/* WHOLE_DRIVER_CANDIDATE fn_000000000001118c origin=model_output original=system_chardev_read */
-int system_chardev_read(void *buf)
-{
-	int *result;
-	uint32_t kernel_state_lo;
-	uint32_t kernel_state_hi;
-	uint32_t fw_state_lo;
-	uint32_t fw_state_hi;
-
-	mutex_lock(&isp_lock);
-
-	kernel_state_lo = isp_client_state_kernel->in;
-	kernel_state_hi = isp_client_state_kernel->out;
-	fw_state_lo = isp_client_state_fw->in;
-	fw_state_hi = isp_client_state_fw->out;
-
-	if (fw_state_lo != kernel_state_lo || fw_state_hi != kernel_state_hi) {
-		isp_client_state_fw->in = kernel_state_lo;
-		isp_client_state_fw->out = kernel_state_hi;
-		result = -1;
-	} else {
-		result = __kfifo_out(&isp_kfifo_in, buf, 1);
-	}
-
-	mutex_unlock(&isp_lock);
-	return result;
-}
-
-/* WHOLE_DRIVER_CANDIDATE fn_0000000000011234 origin=model_output original=system_chardev_write */
-int system_chardev_write(int arg1)
-{
-	int *result;
-	uint32_t kernel_state_d;
-	uint32_t kernel_state_4;
-	uint32_t fw_state_d;
-	uint32_t fw_state_4;
-
-	mutex_lock(&isp_lock);
-	kernel_state_d = isp_client_state_kernel->d;
-	kernel_state_4 = isp_client_state_kernel->field_4;
-	fw_state_d = isp_client_state_fw->d;
-	fw_state_4 = isp_client_state_fw->field_4;
-
-	if (fw_state_d != kernel_state_d || fw_state_4 != kernel_state_4) {
-		isp_client_state_fw->d = kernel_state_d;
-		isp_client_state_fw->field_4 = kernel_state_4;
-		result = -1;
-	} else {
-		result = __kfifo_in(&isp_kfifo_out, &arg1, 1);
-	}
-
-	mutex_unlock(&isp_lock);
-	return result;
-}
-
-/* WHOLE_DRIVER_CANDIDATE fn_00000000000112dc origin=fragment_seed original=system_chardev_destroy */
-int32_t system_chardev_destroy(void)
-{
-    uint32_t a0 = 0;
-    uint32_t t9 = 0;
-
-    /* fragment 0: Arithmetic */
-    a0 = (uintptr_t)&tx_isp_platform_device;
-    t9 = (uintptr_t)&misc_deregister;
-    t9 = t9;
-
-    /* fragment 1: IndirectTailCall */
-    misc_deregister((struct miscdevice *)(uintptr_t)&misc_dev);
-    return 0;
-
-    return 0;
-}
-
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000112f0 origin=model_output original=private_math_exp2 */
 #ifndef TX_ISP_T30_SHARED_MATH
 uint32_t private_math_exp2(int32_t arg1, int32_t arg2, int32_t arg3)
@@ -23975,16 +18497,6 @@ struct resource *private_platform_get_resource(struct platform_device *pdev, uns
 }
 
 
-int private_dev_set_drvdata(struct device *dev, void *data)
-{
-    return dev_set_drvdata(dev, data);
-}
-
-
-void *private_dev_get_drvdata(const struct device *dev)
-{
-    return dev_get_drvdata(dev);
-}
 
 
 int private_platform_get_irq(struct platform_device *pdev, unsigned int num)
@@ -24047,11 +18559,6 @@ struct clk *private_clk_get(struct device *dev, const char *id)
 }
 
 
-int private_clk_is_enabled(struct clk *clk)
-{
-    return clk_is_enabled(clk);
-}
-
 
 unsigned long private_clk_get_rate(struct clk *clk)
 {
@@ -24071,11 +18578,6 @@ void private_i2c_put_adapter(struct i2c_adapter *adap)
 }
 
 
-int private_i2c_register_driver(struct module *owner, struct i2c_driver *driver)
-{
-    return i2c_register_driver(owner, driver);
-}
-
 
 struct i2c_client *private_i2c_new_device(struct i2c_adapter *adap, const struct i2c_board_info *info)
 {
@@ -24089,22 +18591,7 @@ void private_i2c_unregister_device(struct i2c_client *client)
 }
 
 
-int private_gpio_direction_input(unsigned int gpio)
-{
-    return gpio_direction_input(gpio);
-}
 
-
-int private_gpio_set_debounce(unsigned int gpio, unsigned int debounce)
-{
-    return gpio_set_debounce(gpio, debounce);
-}
-
-
-int private_jzgpio_ctrl_pull(int port, int enable_pull, unsigned long pins)
-{
-    return jzgpio_ctrl_pull(port, enable_pull, pins);
-}
 
 
 unsigned long long private_sched_clock(void)
@@ -24131,11 +18618,6 @@ void private_init_completion(struct completion *x)
 }
 
 
-void private_complete(struct completion *x)
-{
-    complete(x);
-}
-
 
 int private_wait_for_completion_interruptible(struct completion *x)
 {
@@ -24155,22 +18637,7 @@ int private_misc_deregister(struct miscdevice *mdev)
 }
 
 
-ssize_t private_seq_read(struct file *file, char __user *buf, size_t size, loff_t *ppos)
-{
-    return seq_read(file, buf, size, ppos);
-}
 
-
-loff_t private_seq_lseek(struct file *file, loff_t offset, int whence)
-{
-    return seq_lseek(file, offset, whence);
-}
-
-
-int private_single_release(struct inode *inode, struct file *file)
-{
-    return single_release(inode, file);
-}
 
 
 int private_single_open_size(struct file *file, int (*show)(struct seq_file *, void *), void *data, size_t size)
@@ -24178,11 +18645,6 @@ int private_single_open_size(struct file *file, int (*show)(struct seq_file *, v
     return single_open_size(file, show, data, size);
 }
 
-
-struct proc_dir_entry *private_jz_proc_mkdir(char *s)
-{
-    return jz_proc_mkdir(s);
-}
 
 
 void private_get_isp_priv_mem(unsigned int *phyaddr, unsigned int *size)
@@ -24451,7 +18913,20 @@ void tx_isp_enable_irq(struct tx_isp_t30_irq_device *irqdev)
 
 void tx_isp_disable_irq(struct tx_isp_t30_irq_device *irqdev)
 {
-	private_disable_irq(irqdev->irq);
+	/*
+	 * tx_vic_disable_irq() reaches this from the ISP ISR itself (frame end ->
+	 * apical_isp_raise_event -> system_hw_interrupts_disable with the VIC mask
+	 * at 0xffff only, i.e. before vic_core_ops_init set 0x5310000).  A
+	 * synchronous disable_irq() then spins in synchronize_irq() on its own
+	 * in-progress line with interrupts off: hard hang (QEMU T30 reload).
+	 * The same applies to process context under the VIC spinlock (irqs off,
+	 * threaded line: synchronize_irq() may sleep); tx_vic_disable_irq()
+	 * synchronizes after its unlock (openimp #250).
+	 */
+	if (in_interrupt() || irqs_disabled())
+		disable_irq_nosync(irqdev->irq);
+	else
+		private_disable_irq(irqdev->irq);
 }
 
 int tx_isp_request_irq(struct platform_device *pdev,
@@ -24583,7 +19058,7 @@ int tx_isp_ncu_show(struct seq_file *m)
 
 	flags = arch_local_irq_save();
 	{
-		*(uint32_t *)((char *)entry_gp + 0x14) += 1;
+		T30_GP_PREEMPT() += 1;	/* OEM gp+20 (#371) */
 	}
 
 	iter = *(void **)((char *)ncu + 0x194);
@@ -24871,50 +19346,6 @@ int32_t ncu_slake_module(void *arg1)
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000012d14 origin=model_output original=ncu_slake_module */
-/* Raw recovery retained for audit; the kernel build uses the typed OEM path. */
-static int32_t ncu_slake_module_raw(void *arg1)
-{
-	void *s1;
-	int32_t state;
-	unsigned long flags;
-	void *clk_array;
-	int32_t count;
-	int32_t *i;
-
-	if (arg1 == NULL)
-		return -EINVAL;
-
-	if ((unsigned long)arg1 >= 0xfffff001UL)
-		return -EINVAL;
-
-	s1 = *(void **)((char *)arg1 + 0xd4);
-	if (s1 == NULL)
-		return -EINVAL;
-
-	if ((unsigned long)s1 >= 0xfffff001UL)
-		return -EINVAL;
-
-	state = *(int32_t *)((char *)s1 + 0x174);
-	if (state == 1)
-		return 0;
-
-	if (state >= 3)
-		ncu_core_ops_init(arg1, 0);
-
-	flags = arch_local_irq_save();
-	*(int32_t *)(entry_gp + 0x14) += 1;
-	clk_array = *(void **)((char *)arg1 + 0xbc);
-	count = *(int32_t *)((char *)arg1 + 0xc0) - 1;
-
-	for (i = count; i >= 0; i--)
-		private_clk_disable(*(struct clk **)((uintptr_t)clk_array + ((uintptr_t)i << 2)));
-
-	*(int32_t *)((char *)s1 + 0x174) = 1;
-	private_spin_unlock_irqrestore((spinlock_t *)((char *)s1 + 0x1a8), flags);
-
-	return 0;
-}
-
 int ncu_activate_module(void *arg1)
 {
 	struct tx_isp_t30_subdev *sd = arg1;
@@ -24940,55 +19371,6 @@ int ncu_activate_module(void *arg1)
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000012e18 origin=model_output original=ncu_activate_module */
-/* Raw recovery retained for audit; the kernel build uses the typed OEM path. */
-static int ncu_activate_module_raw(void *arg1)
-{
-    void *s0;
-    void *s4;
-    unsigned long flags;
-    int *i;
-    int count;
-    int (*clk_enable_fn)(struct clk *);
-    void (*spin_unlock_fn)(spinlock_t *, unsigned long);
-
-    if (arg1 == NULL)
-        return -22;
-
-    if ((unsigned long)arg1 >= 0xfffff001UL)
-        return -22;
-
-    s0 = *(void **)((char *)arg1 + 0xd4);
-
-    if (s0 == NULL)
-        return -22;
-
-    if ((unsigned long)s0 >= 0xfffff001UL)
-        return -22;
-
-    if (*(int *)((char *)s0 + 0x174) != 1)
-        return 0;
-
-    flags = arch_local_irq_save();
-    *(int *)(entry_gp + 0x14) += 1;
-    s4 = *(void **)((char *)arg1 + 0xbc);
-    i = 0;
-    count = *(int *)((char *)arg1 + 0xc0);
-
-    while (i < count) {
-		struct clk *clk = *(struct clk **)((uintptr_t)s4 +
-						 ((uintptr_t)i << 2));
-        i++;
-        private_clk_enable(clk);
-    }
-
-    *(void **)((char *)s0 + 0x194) = (char *)s0 + 0x194;
-    *(void **)((char *)s0 + 0x198) = (char *)s0 + 0x194;
-    *(int *)((char *)s0 + 0x174) = 2;
-    private_spin_unlock_irqrestore((spinlock_t *)((char *)s0 + 0x1a8), flags);
-
-	return 0;
-}
-
 static int tx_isp_t30_ncu_get_format(struct tx_isp_t30_subdev_pad *pad,
 				     void *data)
 {
@@ -25197,8 +19579,8 @@ int64_t ncu_pad_event_handle(uintptr_t a0, uint32_t a1, uintptr_t a2)
     uint32_t *a3 = 0;
     uintptr_t gp = 0;
     uint32_t ra = 0;
-    uintptr_t *s0 = 0;
-    uintptr_t *s1 = 0;
+    uintptr_t s0 = 0;	/* #375: untyped MIPS register: OEM addiu v1,s0,404 is the list head (byte offset) */
+    uintptr_t s1 = 0;	/* #375: untyped MIPS register: OEM addiu v1,s0,404 is the list head (byte offset) */
     uint32_t *s2 = 0;
     uintptr_t *s3 = 0;
     uint32_t s4 = 0;
@@ -25262,7 +19644,7 @@ ncu_pad_event_handle0x70:
 ncu_pad_event_handle0x74:
     /* fragment 10: Epilogue */
     /* function epilogue: restore registers and return */
-    return (int64_t)v0;
+    return (int64_t)s2;	/* OEM 12f8c: move v0,s2, the lift returned the stale v0 (#371) */
 
 ncu_pad_event_handle0x78:
     /* fragment 11: Epilogue */
@@ -25556,26 +19938,26 @@ ncu_pad_event_handle0x388:
 ncu_pad_event_handle0x3c4:
     /* fragment 76: CallSetup */
     local_10 = 0;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(int32_t *)tx_isp_reg_set)(s0, 0, 0, 0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)(uintptr_t)tx_isp_reg_set((void *)(uintptr_t)s0, 0, 0, 0, (int)(uintptr_t)local_10); /* #365: the 5th argument (the value) is the o32 stack slot local_10 */
 
     /* fragment 77: CallSetup */
     local_10 = local_20;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(int32_t *)tx_isp_reg_set)(s0, 36, 0, 7); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)(uintptr_t)tx_isp_reg_set((void *)(uintptr_t)s0, 36, 0, 7, (int)(uintptr_t)local_10); /* #365: the 5th argument (the value) is the o32 stack slot local_10 */
 
     /* fragment 78: CallSetup */
     s7 = 1;
     *(uint32_t *)((char *)(*(uint32_t *)((char *)((uintptr_t)s0) + 184)) + 44) = (((*(uint32_t *)((char *)((uintptr_t)s0) + 300)) << 16) | (*(uint32_t *)((char *)((uintptr_t)s0) + 296)));
     local_10 = 0;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(int32_t *)tx_isp_reg_set)(s0, 8, 0, 0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)(uintptr_t)tx_isp_reg_set((void *)(uintptr_t)s0, 8, 0, 0, (int)(uintptr_t)local_10); /* #365: the 5th argument (the value) is the o32 stack slot local_10 */
 
     /* fragment 79: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(int32_t *)tx_isp_reg_set)(s0, 4, 1, 1); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)(uintptr_t)tx_isp_reg_set((void *)(uintptr_t)s0, 4, 1, 1, (int)(uintptr_t)local_10); /* #365: the 5th argument (the value) is the o32 stack slot local_10 */
 
     /* fragment 80: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(int32_t *)tx_isp_reg_set)(s0, 16, 0, 0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)(uintptr_t)tx_isp_reg_set((void *)(uintptr_t)s0, 16, 0, 0, (int)(uintptr_t)local_10); /* #365: the 5th argument (the value) is the o32 stack slot local_10 */
 
     /* fragment 81: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(int32_t *)tx_isp_reg_set)(s0, 12, 0, 0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)(uintptr_t)tx_isp_reg_set((void *)(uintptr_t)s0, 12, 0, 0, (int)(uintptr_t)local_10); /* #365: the 5th argument (the value) is the o32 stack slot local_10 */
 
     /* fragment 82: MemoryAccess */
     v0 = *(uint32_t *)((char *)s0 + 128);
@@ -25662,7 +20044,7 @@ ncu_pad_event_handle0x580:
     v0 = (uintptr_t *)arch_local_irq_save(); /* jalr target resolved by relocation */
 
     /* fragment 104: CallSetup */
-    *(uint32_t *)((char *)&sp_9007) = ((*(uint32_t *)((char *)(gp) + 20)) + 1);
+    T30_GP_PREEMPT() += 1;	/* OEM gp+20 (#371) */
     *(uint8_t *)((char *)s5 + 7) = 4;
     *(uint8_t *)((char *)s1 + 7) = 4;
     *(uint32_t *)((char *)s0 + 444) = 0;
@@ -25717,11 +20099,9 @@ ncu_pad_event_handle_dqueue_buffer:
     s1 = v0;
 
     /* fragment 116: MemoryAccess */
-    v0 = *(uint32_t *)((char *)&sp_9007);
-    v0 = v0 + 1;
+    T30_GP_PREEMPT() += 1;	/* OEM lw/addiu/sw 20(gp): preempt_count (#371) */
 
     /* fragment 117: Branch */
-    *(uint32_t *)((char *)&sp_9007) = v0;
     if (s3 == 0) { goto ncu_pad_event_handle0x698; }
 
     /* fragment 118: Branch */
@@ -25787,14 +20167,14 @@ ncu_pad_event_handle0x698:
     *(uint32_t *)((char *)(*(uint32_t *)((char *)(s0) + 184)) + 64) = ((*(uint32_t *)((char *)(v0) + 8)) + (*(uint32_t *)((char *)(s0) + 368)));
     *(uint32_t *)((char *)s0 + 412) = v0;
     local_10 = s2;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(int32_t *)tx_isp_reg_set)(s0, 4, 0, 0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)(uintptr_t)tx_isp_reg_set((void *)(uintptr_t)s0, 4, 0, 0, (int)(uintptr_t)local_10); /* #365: the 5th argument (the value) is the o32 stack slot local_10 */
 
     /* fragment 131: CallSetup */
     v0 = *(uint32_t *)((char *)s0 + 440);
     a0 = *(uint32_t *)((char *)s0 + 444);
-    v1 = v0 + 1;
-    v0 = v1 < v0;
-    v0 = v0 + a0;
+    v1 = (uintptr_t)v0 + 1;	/* OEM 64-bit frame count ++ (addiu/sltu/addu): byte math on the typed v0 (#371) */
+    v0 = (uintptr_t *)(uintptr_t)(v1 < (uintptr_t)v0);
+    v0 = (uintptr_t *)((uintptr_t)v0 + a0);
     *(uint32_t *)((char *)s0 + 416) = s2;
     *(uint32_t *)((char *)s0 + 440) = v1;
     *(uint32_t *)((char *)s0 + 444) = v0;
@@ -25810,10 +20190,8 @@ ncu_pad_event_handle0x774:
     arch_local_irq_restore(a0); /* jalr target resolved by relocation */
 
     /* fragment 134: MemoryAccess */
-    v0 = *(uint32_t *)((char *)&sp_9007);
-    v0 = v0 - 1;
-    *(uint32_t *)((char *)&sp_9007) = v0;
-    v0 = *(uint32_t *)((char *)&_qlock2);
+    T30_GP_PREEMPT() -= 1;	/* OEM lw/addiu/sw 20(gp): preempt_count (#371) */
+    v0 = T30_GP_FLAGS();
     v0 = (uintptr_t)v0 & 4;
 
     /* fragment 135: Branch */
@@ -25869,9 +20247,7 @@ ncu_pad_event_handle0x7e0:
     s2 = v0;
 
     /* fragment 150: MemoryAccess */
-    v0 = *(uint32_t *)((char *)&sp_9007);
-    v0 = v0 + 1;
-    *(uint32_t *)((char *)&sp_9007) = v0;
+    T30_GP_PREEMPT() += 1;	/* OEM lw/addiu/sw 20(gp): preempt_count (#371) */
     a2 = *(uint32_t *)((char *)s1 + 412);
 
     /* fragment 151: Branch */
@@ -25879,14 +20255,16 @@ ncu_pad_event_handle0x7e0:
     if (a2 == 0) { goto ncu_pad_event_handle0x854; }
 
     /* fragment 152: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tx_isp_send_event_to_remote)(s0, TX_ISP_FRAME_EVENT_QUEUE_BUFFER); /* jalr target resolved by relocation */
+    /* OEM 0x1372c lw a2,412(s1): the held buffer goes to the remote pad as the 3rd argument
+     * (the lift dropped it; ispcore's fifo handler list_add_tail()s it). Review M1, #365. */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tx_isp_send_event_to_remote)(s0, TX_ISP_FRAME_EVENT_QUEUE_BUFFER, a2); /* jalr target resolved by relocation */
 
     /* fragment 153: MemoryAccess */
     v0 = *(uint32_t *)((char *)s1 + 448);
     a0 = *(uint32_t *)((char *)s1 + 452);
-    v1 = v0 + 1;
-    v0 = v1 < v0;
-    v0 = v0 + a0;
+    v1 = (uintptr_t)v0 + 1;	/* OEM 64-bit frame count ++ (addiu/sltu/addu): byte math on the typed v0 (#371) */
+    v0 = (uintptr_t *)(uintptr_t)(v1 < (uintptr_t)v0);
+    v0 = (uintptr_t *)((uintptr_t)v0 + a0);
     *(uint32_t *)((char *)s1 + 412) = 0;
     *(uint32_t *)((char *)s1 + 448) = v1;
     *(uint32_t *)((char *)s1 + 452) = v0;
@@ -25937,14 +20315,14 @@ ncu_pad_event_handle0x854:
     *(uint32_t *)((char *)(*(uint32_t *)((char *)(s1) + 184)) + 64) = ((*(uint32_t *)((char *)(v0) + 8)) + (*(uint32_t *)((char *)(s1) + 368)));
     *(uint32_t *)((char *)s1 + 412) = v0;
     local_10 = s0;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(int32_t *)tx_isp_reg_set)(s1, 4, 0, 0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)(uintptr_t)tx_isp_reg_set((void *)(uintptr_t)s1, 4, 0, 0, (int)(uintptr_t)local_10); /* #365: the 5th argument (the value) is the o32 stack slot local_10 */
 
     /* fragment 163: MemoryAccess */
     v0 = *(uint32_t *)((char *)s1 + 440);
     a0 = *(uint32_t *)((char *)s1 + 444);
-    v1 = v0 + 1;
-    v0 = v1 < v0;
-    v0 = v0 + a0;
+    v1 = (uintptr_t)v0 + 1;	/* OEM 64-bit frame count ++ (addiu/sltu/addu): byte math on the typed v0 (#371) */
+    v0 = (uintptr_t *)(uintptr_t)(v1 < (uintptr_t)v0);
+    v0 = (uintptr_t *)((uintptr_t)v0 + a0);
     *(uint32_t *)((char *)s1 + 416) = s0;
     *(uint32_t *)((char *)s1 + 440) = v1;
     *(uint32_t *)((char *)s1 + 444) = v0;
@@ -25965,116 +20343,6 @@ ncu_pad_event_handle0x92c:
     /* fragment 167: Branch */
     s0 = 0;
     goto ncu_pad_event_handle0x7e0;
-
-    return ((int64_t)(uint32_t)v1 << 32) | (uint32_t)v0;
-}
-
-/* WHOLE_DRIVER_CANDIDATE fn_0000000000013850 origin=fragment_seed original=tx_isp_sync_ncu */
-int64_t tx_isp_sync_ncu(void)
-{
-    uint32_t *local_10 = 0;
-    uint32_t local_1c = 0;
-    uint32_t local_20 = 0;
-    uint32_t local_24 = 0;
-    uintptr_t a0 = 0;
-    uint32_t *a1 = 0;
-    uint32_t a2 = 0;
-    uintptr_t *a3 = 0;
-    uint32_t ra = 0;
-    uintptr_t *s0 = 0;
-    uint32_t *s1 = 0;
-    uintptr_t *v0 = 0;
-    uint32_t v1 = 0;
-
-    /* fragment 0: Prologue */
-    /* function prologue: stack frame and callee-saved register setup */
-
-    /* fragment 1: Arithmetic */
-    s0 = (uintptr_t *)&vic_cmd_buf;
-
-    /* fragment 2: StackAccess */
-    local_24 = ra;
-    v0 = *(uint32_t *)((char *)((char *)&g_ncu));
-
-    /* fragment 3: Branch */
-    if (v0 == 0) { goto tx_isp_sync_ncu0x64; }
-
-    /* fragment 4: MemoryAccess */
-    a0 = *(uint32_t *)((char *)v0 + 372);
-    v1 = 4;
-
-    /* fragment 5: Branch */
-    a3 = (uint32_t *)&vic_cmd_buf;
-    if (a0 != v1) { goto tx_isp_sync_ncu0x64; }
-
-    /* fragment 6: MemoryAccess */
-    v1 = *(uint32_t *)((char *)v0 + 440);
-    a2 = *(uint32_t *)((char *)((char *)&last_ncu_start_cnt));
-    a1 = *(uint32_t *)((char *)v0 + 444);
-
-    /* fragment 7: Branch */
-    a0 = (uintptr_t)&vic_cmd_buf;
-    if (a2 != v1) { goto tx_isp_sync_ncu0x5c; }
-
-    /* fragment 8: Branch */
-    if (a1 != 0) { goto tx_isp_sync_ncu0x5c; }
-
-    /* fragment 9: MemoryAccess */
-    a2 = *(uint32_t *)((char *)v0 + 448);
-
-    /* fragment 10: Branch */
-    a1 = *(uint32_t *)((char *)(v0) + 452);
-    if (v1 != a2) { goto tx_isp_sync_ncu0x78; }
-
-    /* fragment 11: Branch */
-    if (a1 != 0) { goto tx_isp_sync_ncu0x78; }
-
-tx_isp_sync_ncu0x5c:
-    /* fragment 12: MemoryAccess */
-    *(uint32_t *)((char *)((char *)&last_ncu_start_cnt)) = v1;
-    *(uint32_t *)((char *)((char *)&lost_cnt)) = 0;
-
-tx_isp_sync_ncu0x64:
-    /* fragment 13: Epilogue */
-    /* function epilogue: restore registers and return */
-    return (int64_t)v0;
-
-tx_isp_sync_ncu0x78:
-    /* fragment 14: MemoryAccess */
-    v1 = *(uint32_t *)((char *)((char *)&lost_cnt));
-    v1 = v1 + 1;
-    *(uint32_t *)((char *)((char *)&lost_cnt)) = v1;
-    v1 = v1 < 3;
-
-    /* fragment 15: Branch */
-    int _bc_v1_15 = v1 != 0;
-    v1 = 2;
-    if (_bc_v1_15) { goto tx_isp_sync_ncu0x64; }
-
-    /* fragment 16: CallSetup */
-    *(uint32_t *)((char *)v0 + 440) = a2;
-    *(uint32_t *)((char *)v0 + 444) = a1;
-    *(uint32_t *)((char *)3003842560 + 0) = v1;
-    s1 = 1;
-    local_10 = s1;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(int32_t *)tx_isp_reg_set)(*(uint32_t *)((char *)((char *)&g_ncu)), 4, 0, 0); /* jalr target resolved by relocation */
-
-    /* fragment 17: MemoryAccess */
-    v0 = *(uint32_t *)((char *)((char *)&g_ncu));
-    v1 = *(uint32_t *)((char *)v0 + 440);
-    a1 = *(uint32_t *)((char *)v0 + 444);
-    a0 = v1 + 1;
-    v1 = a0 < v1;
-    v1 = v1 + (uintptr_t)a1;
-    *(uint32_t *)((char *)v0 + 444) = v1;
-    v1 = *(uint32_t *)((char *)v0 + 456);
-    *(uint32_t *)((char *)v0 + 416) = s1;
-    v1 = v1 + 1;
-    *(uint32_t *)((char *)v0 + 440) = a0;
-
-    /* fragment 18: Branch */
-    *(uint32_t *)((char *)v0 + 456) = v1;
-    goto tx_isp_sync_ncu0x64;
 
     return ((int64_t)(uint32_t)v1 << 32) | (uint32_t)v0;
 }
@@ -26157,8 +20425,8 @@ int tx_isp_ldc_show(struct seq_file *m)
 		result = (void *)(uintptr_t)((uintptr_t)result + (seq_printf(m, "LDC is using default parameter!\n")));
 
 	flags = arch_local_irq_save();
-	entry = *(void **)((char *)current + 0x14);
-	*(uint32_t *)((uintptr_t)entry + 0x14) += 1;
+	/* #365: OEM spin_lock_irqsave (gp->preempt_count++); was a store through current + 0x14 */
+	T30_GP_PREEMPT() += 1;	/* OEM 0x13b64 lw/addiu/sw 20(gp): preempt_count (#365, review M2) */
 
 	list_head = *(void **)((char *)ldc + 0x1c4);
 	list_end = (char *)ldc + 0x1c4;
@@ -26217,7 +20485,7 @@ int ldc_frame_channel_streamoff(void *arg1)
 	if (s4_state == 4 && *(uint8_t *)((char *)arg1 + 7) == s4_state) {
 		((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))tx_isp_send_event_to_remote)((uintptr_t)(s4), (uintptr_t)(TX_ISP_T30_FRAME_EVENT_FREE_BUFFER), (uintptr_t)(0));
 		unsigned long flags = arch_local_irq_save();
-		*(uint32_t *)(entry_gp + 0x14) += 1;
+		T30_GP_PREEMPT() += 1;	/* OEM 0x13d70 lw/addiu/sw 20(gp): preempt_count (#365, review M2) */
 		*(uint32_t *)((char *)s0 + 0x178) = 3;
 		tx_isp_reg_set(s0, 0, 2, 2, 1);
 		private_spin_unlock_irqrestore((spinlock_t *)((char *)s0 + 0x1dc), flags);
@@ -26241,14 +20509,13 @@ int ldc_frame_channel_streamoff(void *arg1)
 
 		if (*(uint32_t *)((char *)s0 + 0x1c0) != 0) {
 			isp_free_buffer(*(int32_t *)((char *)s0 + 0x1bc));
-			int32_t *i = 0;
-			while (i < *(int32_t *)((char *)s0 + 0x1c0)) {
-				int32_t offset = (uintptr_t)i << 4;
-				uint32_t *entry = 0;
-				i = (void *)(uintptr_t)((uintptr_t)i + (1));
-				*entry = (uint32_t)entry;
-				((uint32_t *)entry)[1] = (uint32_t)entry;
-				*(uint32_t *)((char *)&_qlock2) = 0;
+			int32_t n;
+			/* #365: OEM 0x13ee4 resets entry n of the array at 0x1b8 (was a NULL store) */
+			for (n = 0; n < *(int32_t *)((char *)s0 + 0x1c0); n++) {
+				uint32_t *entry = (uint32_t *)(*(uintptr_t *)((char *)s0 + 0x1b8) + ((uintptr_t)n << 4));
+				entry[0] = (uint32_t)(uintptr_t)entry;
+				entry[1] = (uint32_t)(uintptr_t)entry;
+				entry[2] = 0;
 			}
 			*(uint32_t *)((char *)s0 + 0x1bc) = 0;
 		}
@@ -26260,10 +20527,11 @@ int ldc_frame_channel_streamoff(void *arg1)
 		tx_isp_reg_set(s0, 0, 3, 3, 0);
 
 		if (*(uint32_t *)((char *)s0 + 0x80) != 0)
-			(*(void (**)(void *))( *(uint32_t *)((char *)s0 + 0x88) ))((char *)s0 + 0x80);
+			/* #365: OEM lw v0,136(s0); jalr v0 (one load; was a second through the code) */
+			((void (*)(void *))(uintptr_t)*(uint32_t *)((char *)s0 + 0x88))((char *)s0 + 0x80);
 
 		unsigned long flags2 = arch_local_irq_save();
-		*(uint32_t *)(entry_gp + 0x14) += 1;
+		T30_GP_PREEMPT() += 1;	/* OEM 0x13e7c lw/addiu/sw 20(gp): preempt_count (#365, review M2) */
 		*(uint8_t *)((char *)s4 + 7) = 3;
 		*(uint8_t *)((char *)arg1 + 7) = 3;
 		private_spin_unlock_irqrestore((spinlock_t *)((char *)s0 + 0x1dc), flags2);
@@ -26618,6 +20886,8 @@ int tx_isp_ldc_probe(struct platform_device *pdev)
 	}
 
 	m1_bufs = isp_m1_bufs;
+	/* #365: OEM 0x143b4 keeps the count at 0x1c0 (STREAM_ON, BUFFER_DONE, streamoff) */
+	*(uint32_t *)((char *)ldc_dev + 0x1c0) = (uint32_t)m1_bufs;
 
 	if (m1_bufs != 0) {
 		bufs = __kmalloc(m1_bufs << 4, GFP_KERNEL);
@@ -26737,58 +21007,6 @@ int ldc_slake_module(void *arg1)
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000014594 origin=model_output original=ldc_slake_module */
-/* Raw recovery retained for audit; the kernel build uses the typed OEM path. */
-static int ldc_slake_module_raw(void *arg1)
-{
-	void *s0;
-	int state;
-	unsigned long flags;
-	void *clk_base;
-	int count;
-	int clk;
-	void *params;
-
-	if (arg1 == NULL)
-		return -22;
-
-	if ((unsigned long)arg1 < 0xfffff001UL) {
-		s0 = *(void **)((char *)arg1 + 0xd4);
-
-		if (s0 != NULL && (unsigned long)s0 >= 0xfffff001UL) {
-			state = *(int *)((char *)s0 + 0x178);
-
-			if (state != 1) {
-				if (state >= 3)
-					ldc_core_ops_init(arg1, 0);
-
-				flags = arch_local_irq_save();
-				*(int *)(entry_gp + 0x14) += 1;
-				clk_base = *(void **)((char *)arg1 + 0xbc);
-				count = *(int *)((char *)arg1 + 0xc0) - 1;
-
-				while (count >= 0) {
-					clk = *(int *)((uintptr_t)clk_base + (count << 2));
-					count -= 1;
-					private_clk_disable((struct clk *)clk);
-				}
-
-				*(int *)((char *)s0 + 0x178) = 1;
-				private_spin_unlock_irqrestore((spinlock_t *)((char *)s0 + 0x1dc), flags);
-				params = *(void **)((char *)s0 + 0x1fc);
-
-				if (params != NULL) {
-					kfree(params);
-					ldc_user_params = 0;
-					*(void **)((char *)s0 + 0x1fc) = NULL;
-					ldc_params_nums = 6;
-				}
-			}
-			return 0;
-		}
-	}
-	return -22;
-}
-
 int32_t ldc_activate_module(void *arg1)
 {
 	struct tx_isp_t30_subdev *sd = arg1;
@@ -26816,62 +21034,6 @@ int32_t ldc_activate_module(void *arg1)
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000146cc origin=model_output original=ldc_activate_module */
-/* Raw recovery retained for audit; the kernel build uses the typed OEM path. */
-static int32_t ldc_activate_module_raw(void *arg1)
-{
-    uint32_t *mod = (uint32_t *)arg1;
-    uint32_t *dev;
-    uint32_t *clk_array;
-    uint32_t count;
-    uint32_t *i;
-    uint32_t flags;
-
-    if (arg1 == 0)
-        return -22;
-
-    if ((uintptr_t)arg1 >= 0xfffff001u)
-        return -22;
-
-    dev = (uint32_t *)(mod[0xd4 / 4]);
-    if (dev == 0)
-        return -22;
-    if ((uintptr_t)dev >= 0xfffff001u)
-        return -22;
-
-    if (dev[0x178 / 4] != 1)
-        return 0;
-
-    flags = arch_local_irq_save();
-
-    {
-        uint32_t gp_val;
-        __asm__ volatile("move %0, $28" : "=r"(gp_val));
-        {
-            volatile uint32_t *counter = (volatile uint32_t *)(gp_val + 20);
-            *counter = *counter + 1;
-        }
-    }
-
-    clk_array = (uint32_t *)(mod[0xbc / 4]);
-    count = mod[0xc0 / 4];
-    i = 0;
-    while (i < count) {
-        uint32_t clk = clk_array[(uintptr_t)i];
-        i = (void *)(uintptr_t)((uintptr_t)i + (1));
-        private_clk_enable(clk);
-    }
-
-    ((void **)(uintptr_t)dev)[0x1d0 / 4] = (uint32_t)((uintptr_t)dev + 0x1d0 / 4);
-    ((void **)(uintptr_t)dev)[0x1d4 / 4] = (uint32_t)((uintptr_t)dev + 0x1d0 / 4);
-    ((void **)(uintptr_t)dev)[0x1c4 / 4] = (uint32_t)((uintptr_t)dev + 0x1c4 / 4);
-    ((void **)(uintptr_t)dev)[0x1c8 / 4] = (uint32_t)((uintptr_t)dev + 0x1c4 / 4);
-    ((void **)(uintptr_t)dev)[0x178 / 4] = 2;
-
-    private_spin_unlock_irqrestore((void *)((uintptr_t)dev + 0x1dc / 4), flags);
-
-    return 0;
-}
-
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000147dc origin=model_output original=ldc_restart_module */
 int32_t *ldc_restart_module(void *arg1)
 {
@@ -26910,16 +21072,17 @@ int32_t *ldc_restart_module(void *arg1)
 	if (ptr2 == (uint32_t *)((char *)arg1 + 0x1c4)) {
 		ptr2 = NULL;
 	} else {
-		next = *(uint32_t **)((char *)&_qlock1);
-		prev = *(uint32_t **)((char *)&frame_delay_10417);
+		/* #365: OEM 0x14860 unlinks the in-fifo head itself (was globals) */
+		next = *(uint32_t **)((char *)ptr2 + 4);
+		prev = *(uint32_t **)((char *)ptr2 + 0);
 		*(uint32_t *)((char *)prev + 4) = (uint32_t)next;
 		*(uint32_t *)((char *)next + 0) = (uint32_t)prev;
-		*(uint32_t *)((char *)&frame_delay_10417) = 0x100100;
-		*(uint32_t *)((char *)&_qlock1) = 0x200200;
+		*(uint32_t *)((char *)ptr2 + 0) = 0x100100;
+		*(uint32_t *)((char *)ptr2 + 4) = 0x200200;
 	}
 
 	reg_base = *(uint32_t **)((char *)arg1 + 0xb8);
-	val = *(uint32_t *)((char *)&_qlock2);
+	val = *(uint32_t *)((char *)ptr2 + 8);
 	*(uint32_t *)((char *)reg_base + 0x2c) = val;
 	offset = *(uint32_t *)((char *)arg1 + 0x170);
 	*(uint32_t *)((char *)reg_base + 0x30) = val + offset;
@@ -27018,7 +21181,7 @@ ldc_core_interrupt_service_routine0x88:
 ldc_core_interrupt_service_routine0xbc:
     /* fragment 13: CallSetup */
     local_10 = 1;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(int32_t *)tx_isp_reg_set)(s0, 4, 0, 0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)(uintptr_t)tx_isp_reg_set((void *)(uintptr_t)s0, 4, 0, 0, (int)(uintptr_t)local_10); /* #365: the 5th argument (the value) is the o32 stack slot local_10 */
 
     /* fragment 14: Epilogue */
     /* function epilogue: restore registers and return */
@@ -27029,7 +21192,8 @@ ldc_core_interrupt_service_routine0xbc:
     /* fragment 16: Epilogue */
     /* function epilogue: restore registers and return */
 
-    return 0;
+    /* #365: the OEM returns v0 = 1 (IRQ_HANDLED) */
+    return 1;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000014a08 origin=model_output original=ldc_pad_event_handle */
@@ -27075,7 +21239,8 @@ int32_t ldc_pad_event_handle(int32_t *arg1, int32_t arg2, int32_t *arg3)
                 break;
             }
             idx++;
-            params = (void *)(uintptr_t)((uintptr_t)params + (0x114 / 4));
+            /* #365: OEM addiu v0,v0,1104: one entry is 0x450 bytes (was 0x45, only 1280x720 matched) */
+            params = (int32_t *)((char *)params + 0x450);
         }
         if (found == 0 || (uint32_t)found >= 0xfffff001) {
             isp_printf(2, "The module of %s couldn't support the resolution(%d*%d)\n",
@@ -27089,7 +21254,8 @@ int32_t ldc_pad_event_handle(int32_t *arg1, int32_t arg2, int32_t *arg3)
                        arg3[1], arg3[2], max_w, max_h);
             return -22;
         }
-        int32_t r = ((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))tx_isp_send_event_to_remote)((uintptr_t)(*(uint32_t *)((char *)arg1 + 0xd0)), (uintptr_t)(TX_ISP_FRAME_EVENT_SET_FORMAT), (uintptr_t)(arg3));
+        /* #365: OEM 0x14af4/0x14c34: the subdev's (pad->sd) sink pad at 0xd0, not pad + 0xd0 */
+        int32_t r = tx_isp_send_event_to_remote(*(void **)(*(char **)arg1 + 0xd0), TX_ISP_FRAME_EVENT_SET_FORMAT, arg3);
         if (r != 0 && r != -515)
             return r;
         memcpy((char *)dev + 0x124, arg3, 0x4c);
@@ -27126,436 +21292,203 @@ int32_t ldc_pad_event_handle(int32_t *arg1, int32_t arg2, int32_t *arg3)
         *(int32_t *)((char *)reg + 0x44) = base;
         *(int32_t *)((char *)reg + 0x48) = base;
         int32_t ddr_flag = *(int32_t *)((uintptr_t)remote + 0x14) & 0x10;
-        if (ddr_flag == 0) {
-            int32_t *f = fmt;
-            *(int32_t *)((uintptr_t)reg + 0xc) = (*(int32_t *)((uintptr_t)f + 0x14) << 16) | *(int32_t *)((uintptr_t)f + 0x10);
-            *(int32_t *)((uintptr_t)reg + 0x10) = (*(int32_t *)((uintptr_t)f + 0x1c) << 16) | *(int32_t *)((uintptr_t)f + 0x18);
-            *(int32_t *)((char *)reg + 0x14) = *(int32_t *)((char *)f + 0x4c);
-            *(int32_t *)((uintptr_t)reg + 0x18) = (*(int32_t *)((uintptr_t)f + 0x30) << 8) | (*(int32_t *)((uintptr_t)f + 0x34) << 16) | *(int32_t *)((uintptr_t)f + 0x2c) | (*(int32_t *)((uintptr_t)f + 0x38) << 24);
-            *(int32_t *)((uintptr_t)reg + 0x1c) = (*(int32_t *)((uintptr_t)f + 0x24) << 16) | *(int32_t *)((uintptr_t)f + 0x20);
-            *(int32_t *)((char *)reg + 0x20) = *(int32_t *)((char *)f + 0x28);
-            *(int32_t *)((uintptr_t)reg + 0x24) = (*(int32_t *)((uintptr_t)f + 0x40) << 8) | (*(int32_t *)((uintptr_t)f + 0x3c) << 16) | *(int32_t *)((uintptr_t)f + 0x44);
-            int16_t *src = (int16_t *)((char *)f + 0x50);
-            int32_t *i;
-            for (i = 0x100; (uintptr_t)i != 0x500; i = (uintptr_t)i + 4) {
-                *(int32_t *)((uintptr_t)reg + (uintptr_t)i) = *(int16_t *)(uintptr_t)src;
-                src++;
-            }
-            int16_t *src2 = (int16_t *)((char *)f + 0x250);
-            do {
-                *(int32_t *)((uintptr_t)reg + (uintptr_t)i) = *(int16_t *)(uintptr_t)src2;
-                src2++;
-                i = (void *)(uintptr_t)((uintptr_t)i + (4));
-            } while (i != 0x900);
-            *(int32_t *)((uintptr_t)reg + 8) = (*(int32_t *)((uintptr_t)dev + 0x12c) << 16) | *(int32_t *)((uintptr_t)dev + 0x128);
-            *reg = 0x38;
-            *(int32_t *)((char *)dev + 0x190) = *reg;
-            *(int32_t *)((char *)dev + 0x194) = *(int32_t *)((char *)reg + 8);
-            *(int32_t *)((char *)dev + 0x198) = *(int32_t *)((char *)reg + 0xc);
-            *(int32_t *)((char *)dev + 0x19c) = *(int32_t *)((char *)reg + 0x10);
-            *(int32_t *)((char *)dev + 0x1a0) = *(int32_t *)((char *)reg + 0x14);
-            *(int32_t *)((char *)dev + 0x1a4) = *(int32_t *)((char *)reg + 0x18);
-            *(int32_t *)((char *)dev + 0x1a8) = *(int32_t *)((char *)reg + 0x1c);
-            *(int32_t *)((char *)dev + 0x1ac) = *(int32_t *)((char *)reg + 0x20);
-            *(int32_t *)((char *)dev + 0x1b0) = *(int32_t *)((char *)reg + 0x24);
-            *(int32_t *)((char *)dev + 0x1b4) = *(int32_t *)((char *)dev + 0x128);
-            if (*(int32_t *)((char *)dev + 0x80) != 0)
-                (*(void (**)(void *))(*(int32_t *)((char *)dev + 0x84)))((void *)((char *)dev + 0x80));
-            unsigned long flags = arch_local_irq_save();
-            *(int32_t *)(entry_gp + 0x14) += 1;
-            *(uint8_t *)((char *)remote + 7) = 4;
-            *(uint8_t *)((char *)arg1 + 7) = 4;
-            *(int32_t *)((char *)dev + 0x178) = 4;
-            memset((char *)dev + 0x1e8, 0, 0x14);
-            *(int32_t *)((char *)dev + 0x1d8) = 0;
-            *(int32_t *)((char *)dev + 0x1cc) = 0;
-            private_spin_unlock_irqrestore((spinlock_t *)((char *)dev + 0x1dc), flags);
-            int32_t r = ((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))tx_isp_send_event_to_remote)((uintptr_t)(remote), (uintptr_t)(TX_ISP_FRAME_EVENT_STREAM_ON), (uintptr_t)(0));
-            if (r == 0 || r == -515) {
+        int32_t buf = 0;
+        /*
+         * #365: a DDR source (OEM 0x14da0..0x14f1c) first gets the m1 buffers
+         * queued and the bank count, then the job is programmed like the
+         * direct one (the translation returned before programming, queued
+         * NULL entries and never sent SET_BANKS).
+         */
+        if (ddr_flag != 0) {
+            int32_t buf_count = *(int32_t *)((char *)dev + 0x1c0);
+            int32_t buf_size = *(int32_t *)((char *)dev + 0x13c);
+            int32_t j;
+            int32_t r = 0;
+
+            if (buf_count == 0) {
+                isp_printf(2, "Please config isp_m1_bufs when insmod driver!\n", 0);
                 private_mutex_unlock((struct mutex *)((char *)dev + 0x1dc));
                 return 0;
             }
-            if (*(int32_t *)((char *)dev + 0x80) != 0)
-                (*(void (**)(void *))(*(int32_t *)((char *)dev + 0x88)))((void *)((char *)dev + 0x80));
-            if (*(int32_t *)((char *)dev + 0x1c0) != 0) {
-                ((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))tx_isp_send_event_to_remote)((uintptr_t)(remote), (uintptr_t)(TX_ISP_T30_FRAME_EVENT_FREE_BUFFER), (uintptr_t)(0));
-                isp_free_buffer(ddr_flag);
-            }
-            private_mutex_unlock((struct mutex *)((char *)dev + 0x1dc));
-            return r;
-        }
-        int32_t buf_count = *(int32_t *)((char *)dev + 0x1c0);
-        if (buf_count != 0) {
-            int32_t buf_size = *(int32_t *)((char *)dev + 0x13c);
-            int32_t buf = isp_malloc_buffer(buf_count * buf_size);
-            if (buf != 0) {
-                int32_t j = 0;
-                while (j < buf_count) {
-                    int32_t off = j << 4;
-                    int32_t *entry = 0;
-                    *entry = (int32_t)entry;
-                    ((uint32_t *)entry)[1] = (int32_t)entry;
-                    *(int32_t *)(uintptr_t)&_qlock2 = j * buf_size + buf;
-                    int32_t r = ((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))tx_isp_send_event_to_remote)((uintptr_t)(remote), (uintptr_t)(TX_ISP_FRAME_EVENT_QUEUE_BUFFER), (uintptr_t)(0));
-                    if (r != 0 && r != -515)
-                        break;
-                    j++;
-                }
-                if (j < buf_count) {
-                    if (*(int32_t *)((char *)dev + 0x80) != 0)
-                        (*(void (**)(void *))(*(int32_t *)((char *)dev + 0x88)))((void *)((char *)dev + 0x80));
-                    if (*(int32_t *)((char *)dev + 0x1c0) != 0) {
-                        ((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))tx_isp_send_event_to_remote)((uintptr_t)(remote), (uintptr_t)(TX_ISP_T30_FRAME_EVENT_FREE_BUFFER), (uintptr_t)(0));
-                        isp_free_buffer(ddr_flag);
-                    }
-                    private_mutex_unlock((struct mutex *)((char *)dev + 0x1dc));
-                    return -1;
-                }
-                *(int32_t *)((char *)dev + 0x1bc) = buf;
-            } else {
+            buf = isp_malloc_buffer(buf_count * buf_size);
+            if (buf == 0) {
                 isp_printf(2, "ispmem isn't enough!\n", 0);
-                ret = 0;
+                private_mutex_unlock((struct mutex *)((char *)dev + 0x1dc));
+                return 0;
             }
-        } else {
-            isp_printf(2, "Please config isp_m1_bufs when insmod driver!\n", 0);
+            for (j = 0; j < *(int32_t *)((char *)dev + 0x1c0); j++) {
+                uint32_t *entry = (uint32_t *)(*(uintptr_t *)((char *)dev + 0x1b8) + ((uintptr_t)j << 4));
+
+                entry[0] = (uint32_t)(uintptr_t)entry;
+                entry[1] = (uint32_t)(uintptr_t)entry;
+                entry[2] = (uint32_t)(j * buf_size + buf);
+                r = tx_isp_send_event_to_remote(remote, TX_ISP_FRAME_EVENT_QUEUE_BUFFER, entry);
+                if (r != 0 && r != -515)
+                    break;
+                r = 0;
+            }
+            if (r == 0) {
+                r = tx_isp_send_event_to_remote(remote, TX_ISP_T30_FRAME_EVENT_SET_BANKS, (char *)dev + 0x1c0);
+                if (r != 0 && r != -515)
+                    isp_printf(2, "streamon: driver refused to start streaming\n", 0);
+                else
+                    r = 0;
+            }
+            if (r != 0) {
+                if (*(int32_t *)((char *)dev + 0x1c0) != 0) {
+                    tx_isp_send_event_to_remote(remote, TX_ISP_T30_FRAME_EVENT_FREE_BUFFER, 0);
+                    isp_free_buffer(buf);
+                }
+                private_mutex_unlock((struct mutex *)((char *)dev + 0x1dc));
+                return r;
+            }
+            *(int32_t *)((char *)dev + 0x1bc) = buf;
+        }
+        {
+        int32_t *f = fmt;
+        *(int32_t *)((uintptr_t)reg + 0xc) = (*(int32_t *)((uintptr_t)f + 0x14) << 16) | *(int32_t *)((uintptr_t)f + 0x10);
+        *(int32_t *)((uintptr_t)reg + 0x10) = (*(int32_t *)((uintptr_t)f + 0x1c) << 16) | *(int32_t *)((uintptr_t)f + 0x18);
+        *(int32_t *)((char *)reg + 0x14) = *(int32_t *)((char *)f + 0x4c);
+        *(int32_t *)((uintptr_t)reg + 0x18) = (*(int32_t *)((uintptr_t)f + 0x30) << 8) | (*(int32_t *)((uintptr_t)f + 0x34) << 16) | *(int32_t *)((uintptr_t)f + 0x2c) | (*(int32_t *)((uintptr_t)f + 0x38) << 24);
+        *(int32_t *)((uintptr_t)reg + 0x1c) = (*(int32_t *)((uintptr_t)f + 0x24) << 16) | *(int32_t *)((uintptr_t)f + 0x20);
+        *(int32_t *)((char *)reg + 0x20) = *(int32_t *)((char *)f + 0x28);
+        *(int32_t *)((uintptr_t)reg + 0x24) = (*(int32_t *)((uintptr_t)f + 0x40) << 8) | (*(int32_t *)((uintptr_t)f + 0x3c) << 16) | *(int32_t *)((uintptr_t)f + 0x44);
+        int16_t *src = (int16_t *)((char *)f + 0x50);
+        int32_t *i;
+        for (i = 0x100; (uintptr_t)i != 0x500; i = (uintptr_t)i + 4) {
+            *(int32_t *)((uintptr_t)reg + (uintptr_t)i) = *(int16_t *)(uintptr_t)src;
+            src++;
+        }
+        int16_t *src2 = (int16_t *)((char *)f + 0x250);
+        do {
+            *(int32_t *)((uintptr_t)reg + (uintptr_t)i) = *(int16_t *)(uintptr_t)src2;
+            src2++;
+            i = (void *)(uintptr_t)((uintptr_t)i + (4));
+        } while (i != 0x900);
+        *(int32_t *)((uintptr_t)reg + 8) = (*(int32_t *)((uintptr_t)dev + 0x12c) << 16) | *(int32_t *)((uintptr_t)dev + 0x128);
+        *reg = 0x38;
+        *(int32_t *)((char *)dev + 0x190) = *reg;
+        *(int32_t *)((char *)dev + 0x194) = *(int32_t *)((char *)reg + 8);
+        *(int32_t *)((char *)dev + 0x198) = *(int32_t *)((char *)reg + 0xc);
+        *(int32_t *)((char *)dev + 0x19c) = *(int32_t *)((char *)reg + 0x10);
+        *(int32_t *)((char *)dev + 0x1a0) = *(int32_t *)((char *)reg + 0x14);
+        *(int32_t *)((char *)dev + 0x1a4) = *(int32_t *)((char *)reg + 0x18);
+        *(int32_t *)((char *)dev + 0x1a8) = *(int32_t *)((char *)reg + 0x1c);
+        *(int32_t *)((char *)dev + 0x1ac) = *(int32_t *)((char *)reg + 0x20);
+        *(int32_t *)((char *)dev + 0x1b0) = *(int32_t *)((char *)reg + 0x24);
+        *(int32_t *)((char *)dev + 0x1b4) = *(int32_t *)((char *)dev + 0x128);
+        if (*(int32_t *)((char *)dev + 0x80) != 0)
+            /* #365: OEM lw v0,132(s0); jalr v0 (one load; the second one jumped into the code) */
+            ((void (*)(void *))(uintptr_t)*(uint32_t *)((char *)dev + 0x84))((void *)((char *)dev + 0x80));
+        unsigned long flags = arch_local_irq_save();
+        T30_GP_PREEMPT() += 1;	/* OEM 0x150c8 lw/addiu/sw 20(gp): preempt_count (#365, review M2) */
+        *(uint8_t *)((char *)remote + 7) = 4;
+        *(uint8_t *)((char *)arg1 + 7) = 4;
+        *(int32_t *)((char *)dev + 0x178) = 4;
+        memset((char *)dev + 0x1e8, 0, 0x14);
+        *(int32_t *)((char *)dev + 0x1d8) = 0;
+        *(int32_t *)((char *)dev + 0x1cc) = 0;
+        private_spin_unlock_irqrestore((spinlock_t *)((char *)dev + 0x1dc), flags);
+        int32_t r = ((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))tx_isp_send_event_to_remote)((uintptr_t)(remote), (uintptr_t)(TX_ISP_FRAME_EVENT_STREAM_ON), (uintptr_t)(0));
+        if (r == 0 || r == -515) {
+            private_mutex_unlock((struct mutex *)((char *)dev + 0x1dc));
+            return 0;
+        }
+        if (*(int32_t *)((char *)dev + 0x80) != 0)
+            ((void (*)(void *))(uintptr_t)*(uint32_t *)((char *)dev + 0x88))((void *)((char *)dev + 0x80));
+        if (*(int32_t *)((char *)dev + 0x1c0) != 0) {
+            ((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))tx_isp_send_event_to_remote)((uintptr_t)(remote), (uintptr_t)(TX_ISP_T30_FRAME_EVENT_FREE_BUFFER), (uintptr_t)(0));
+            isp_free_buffer(buf);
         }
         private_mutex_unlock((struct mutex *)((char *)dev + 0x1dc));
-        return ret;
+        return r;
+        }
     }
     case TX_ISP_FRAME_EVENT_STREAM_OFF:
         return ldc_frame_channel_streamoff(arg1);
-    case TX_ISP_FRAME_EVENT_QUEUE_BUFFER: {
-        if (*(int32_t *)((char *)arg1 + 0x14) & 0x20)
-            return 0;
-        int32_t *dev = *(int32_t **)((char *)arg1 + 0x20);
-        unsigned long flags = arch_local_irq_save();
-        *(int32_t *)(entry_gp + 0x14) += 1;
-        if (arg3 != 0 && dev != 0) {
-            int32_t **prev = *(int32_t ***)((char *)dev + 0x1d4);
-            *(int32_t **)((char *)dev + 0x1d4) = (int32_t **)arg3;
-            *arg3 = (int32_t)(dev + 0x1d0);
-            ((uint32_t *)arg3)[1] = (int32_t)prev;
-            *prev = (int32_t *)arg3;
-        }
-        if (*(int32_t *)((char *)dev + 0x178) == 4 &&
-            ((*(int32_t **)((uintptr_t)dev + 0xb8))[1] & 6) != 2 &&
-            *(int32_t *)((char *)dev + 0x188) == 0)
-            ldc_restart_module(dev);
-        arch_local_irq_restore(flags);
-        *(int32_t *)(entry_gp + 0x14) -= 1;
-        if (*(int32_t *)(entry_gp + 8) & 4)
-            preempt_schedule();
-        return 0;
-    }
+    /*
+     * #365: QUEUE_BUFFER, BUFFER_DONE and FREE_BUFFER as the OEM (0x152dc,
+     * 0x151c0, 0x15380). The translation took the fifo heads as an int32_t *
+     * plus 0x1d0/0x1c4 (four times the byte offset) and walked the entry
+     * array through a NULL pointer.
+     */
+    case TX_ISP_FRAME_EVENT_QUEUE_BUFFER:
     case TX_ISP_FRAME_EVENT_BUFFER_DONE: {
+        char *dev;
+        unsigned long flags;
+        uint32_t *node = (uint32_t *)arg3;
+
         if (*(int32_t *)((char *)arg1 + 0x14) & 0x20)
             return 0;
-        int32_t *dev = *(int32_t **)((char *)arg1 + 0x20);
-        unsigned long flags = arch_local_irq_save();
-        *(int32_t *)(entry_gp + 0x14) += 1;
-        int32_t state;
-        if (arg3 == 0) {
-            state = *(int32_t *)((char *)dev + 0x178);
-        } else {
-            int32_t target = arg3[2];
-            int32_t *i = 0;
-            int32_t *found = 0;
-            while (i < *(int32_t *)((char *)dev + 0x1c0)) {
-                int32_t *entry = 0;
-                i++;
-                if (target == entry[2]) {
-                    found = entry;
-                    break;
-                }
-            }
-            if (found == 0) {
-                isp_printf(2, "Can't find the addr(0x%08x) in bufs\n", target);
-                state = *(int32_t *)((char *)dev + 0x178);
+        dev = *(char **)((char *)arg1 + 0x20);
+        flags = arch_local_irq_save();
+        T30_GP_PREEMPT() += 1;	/* OEM 0x151e4 (BUFFER_DONE) / 0x15300 (QUEUE_BUFFER) 20(gp)++ (#365, review M2) */
+        if (node != 0 && dev != 0) {
+            uint32_t *head;
+
+            if (arg2 == TX_ISP_FRAME_EVENT_QUEUE_BUFFER) {
+                head = (uint32_t *)(dev + 0x1d0);       /* out fifo */
             } else {
-                int32_t **prev = *(int32_t ***)((char *)dev + 0x1c8);
-                *(int32_t **)((char *)dev + 0x1c8) = (int32_t **)found;
-                *found = (int32_t)(dev + 0x1c4);
-                ((uint32_t *)found)[1] = (int32_t)prev;
-                *prev = (int32_t *)found;
-                state = *(int32_t *)((char *)dev + 0x178);
+                uint32_t target = node[2];
+                int32_t n;
+
+                head = (uint32_t *)(dev + 0x1c4);       /* in fifo */
+                node = 0;
+                for (n = 0; n < *(int32_t *)(dev + 0x1c0); n++) {
+                    uint32_t *e = (uint32_t *)(*(uintptr_t *)(dev + 0x1b8) + ((uintptr_t)n << 4));
+
+                    if (e[2] == target) {
+                        node = e;
+                        break;
+                    }
+                }
+                if (node == 0)
+                    isp_printf(2, "Can't find the addr(0x%08x) in bufs\n", target);
+            }
+            if (node != 0) {
+                uint32_t *prev = (uint32_t *)(uintptr_t)head[1];
+
+                head[1] = (uint32_t)(uintptr_t)node;
+                node[0] = (uint32_t)(uintptr_t)head;
+                node[1] = (uint32_t)(uintptr_t)prev;
+                prev[0] = (uint32_t)(uintptr_t)node;
             }
         }
-        if (state == 4 &&
-            ((*(int32_t **)((uintptr_t)dev + 0xb8))[1] & 6) != 2 &&
-            *(int32_t *)((char *)dev + 0x188) == 0)
+        if (dev != 0 && *(int32_t *)(dev + 0x178) == 4 &&
+            ((*(int32_t **)(dev + 0xb8))[1] & 6) != 2 &&
+            *(int32_t *)(dev + 0x188) == 0)
             ldc_restart_module(dev);
         arch_local_irq_restore(flags);
-        *(int32_t *)(entry_gp + 0x14) -= 1;
-        if (*(int32_t *)(entry_gp + 8) & 4)
+        T30_GP_PREEMPT() -= 1;	/* OEM 0x152ac 20(gp)--, 0x152b8 8(gp) & TIF_NEED_RESCHED -> preempt_schedule (#365, review M2) */
+        if (T30_GP_FLAGS() & 4)
             preempt_schedule();
         return 0;
     }
     case TX_ISP_T30_FRAME_EVENT_FREE_BUFFER: {
-        int32_t *dev = *(int32_t **)((char *)arg1 + 0x20);
+        char *dev = *(char **)((char *)arg1 + 0x20);
+
         if (dev != 0) {
             unsigned long flags = arch_local_irq_save();
-            *(int32_t *)(entry_gp + 0x14) += 1;
-            int32_t *node = *(int32_t **)((char *)dev + 0x1d0);
-            while ((int32_t)(dev + 0x1d0) != (int32_t)node) {
-                int32_t *next = node[1];
-                int32_t *prev = *node;
-                *(int32_t *)((char *)prev + 4) = (int32_t)next;
-                *next = prev;
-                *node = 0x100100;
-                ((uint32_t *)node)[1] = 0x200200;
-                node = *(int32_t **)((char *)dev + 0x1d0);
+            uint32_t *head = (uint32_t *)(dev + 0x1d0);
+            uint32_t *node;
+
+            T30_GP_PREEMPT() += 1;	/* OEM 0x15398 lw/addiu/sw 20(gp): preempt_count (#365, review M2) */
+            while ((node = (uint32_t *)(uintptr_t)head[0]) != head) {
+                uint32_t *next = (uint32_t *)(uintptr_t)node[1];
+                uint32_t *prev = (uint32_t *)(uintptr_t)node[0];
+
+                prev[1] = (uint32_t)(uintptr_t)next;
+                next[0] = (uint32_t)(uintptr_t)prev;
+                node[0] = 0x100100;
+                node[1] = 0x200200;
             }
-            private_spin_unlock_irqrestore((spinlock_t *)((char *)dev + 0x1dc), flags);
+            private_spin_unlock_irqrestore((spinlock_t *)(dev + 0x1dc), flags);
         }
         return 0;
     }
     default:
         return 0;
     }
-}
-
-/* WHOLE_DRIVER_CANDIDATE fn_00000000000153fc origin=fragment_seed original=tx_isp_sync_ldc */
-char* tx_isp_sync_ldc(void)
-{
-    uint32_t *local_10 = 0;
-    uint32_t *local_18 = 0;
-    uint32_t local_20 = 0;
-    uint32_t local_24 = 0;
-    uint32_t local_28 = 0;
-    uint32_t local_2c = 0;
-    uint32_t local_30 = 0;
-    uint32_t local_34 = 0;
-    uintptr_t a0 = 0;
-    uint32_t *a1 = 0;
-    uintptr_t a2 = 0;
-    uint32_t *a3 = 0;
-    uint32_t ra = 0;
-    uint32_t *s0 = 0;
-    uint32_t *s1 = 0;
-    uint32_t *s2 = 0;
-    uint32_t *s3 = 0;
-    uint32_t s4 = 0;
-    uint32_t t9 = 0;
-    uintptr_t *v0 = 0;
-    uintptr_t v1 = 0;
-
-    /* fragment 0: Arithmetic */
-    v0 = (uintptr_t *)&vic_cmd_buf;
-
-    /* fragment 1: MemoryAccess */
-    a0 = *(uint32_t *)((char *)((char *)&g_ldc));
-
-    /* fragment 2: Branch */
-    if (a0 == 0) { goto tx_isp_sync_ldc0x200; }
-
-    /* fragment 3: MemoryAccess */
-    v1 = *(uint32_t *)((char *)a0 + 376);
-    v0 = 4;
-
-    /* fragment 4: Branch */
-    if (v1 != v0) { goto tx_isp_sync_ldc0x200; }
-
-    /* fragment 5: Arithmetic */
-    v0 = (uintptr_t *)&vic_cmd_buf;
-
-    /* fragment 6: MemoryAccess */
-    a1 = *(uint32_t *)((char *)a0 + 496);
-    a3 = *(uint32_t *)((char *)((char *)&tx_isp_last_done));
-    v1 = *(uint32_t *)((char *)a0 + 500);
-
-    /* fragment 7: Branch */
-    a2 = (uintptr_t)&vic_cmd_buf;
-    if (a3 != a1) { goto tx_isp_sync_ldc0x5c; }
-
-    /* fragment 8: MemoryAccess */
-    a3 = *(uint32_t *)((char *)((char *)&tx_isp_last_done + 0x4));
-
-    /* fragment 9: Branch */
-    if (a3 != v1) { goto tx_isp_sync_ldc0x5c; }
-
-    /* fragment 10: MemoryAccess */
-    a3 = *(uint32_t *)((char *)a0 + 488);
-
-    /* fragment 11: Branch */
-    if (a3 != a1) { goto tx_isp_sync_ldc0x74; }
-
-    /* fragment 12: MemoryAccess */
-    a3 = *(uint32_t *)((char *)a0 + 492);
-
-    /* fragment 13: Branch */
-    if (a3 != v1) { goto tx_isp_sync_ldc0x74; }
-
-tx_isp_sync_ldc0x5c:
-    /* fragment 14: MemoryAccess */
-    *(uint32_t *)((char *)((char *)&tx_isp_last_done)) = a1;
-    *(uint32_t *)((char *)((char *)&tx_isp_last_done + 0x4)) = v1;
-    *(uint32_t *)((char *)((char *)&lost_cnt)) = 0;
-
-tx_isp_sync_ldc0x68:
-    /* fragment 15: Arithmetic */
-    t9 = (uintptr_t)&tx_isp_sync_ncu;
-
-    /* fragment 16: Branch */
-    t9 = (uintptr_t)&tx_isp_sync_ncu;
-    goto tx_isp_sync_ldc0x1f8;
-
-tx_isp_sync_ldc0x74:
-    /* fragment 17: MemoryAccess */
-    v0 = *(uint32_t *)((char *)((char *)&lost_cnt));
-    v0 = v0 + 1;
-    *(uint32_t *)((char *)((char *)&lost_cnt)) = v0;
-    v0 = v0 < 3;
-
-    /* fragment 18: Branch */
-    a3 = 1;
-    if (v0 != 0) { goto tx_isp_sync_ldc0x68; }
-
-    /* fragment 19: Prologue */
-    /* function prologue: stack frame and callee-saved register setup */
-
-    /* fragment 20: CallSetup */
-    s0 = 1;
-    s4 = *(uint32_t *)((char *)(*(uint32_t *)((char *)(a0) + 184)) + 52);
-    s3 = *(uint32_t *)((char *)(*(uint32_t *)((char *)(a0) + 184)) + 56);
-    s2 = *(uint32_t *)((char *)(*(uint32_t *)((char *)(a0) + 184)) + 44);
-    s1 = *(uint32_t *)((char *)(*(uint32_t *)((char *)(a0) + 184)) + 48);
-    *(uint32_t *)((char *)a0 + 488) = a1;
-    *(uint32_t *)((char *)a0 + 492) = v1;
-    local_10 = s0;
-    local_18 = a0;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(int32_t *)tx_isp_reg_set)(a0, 0, 1); /* jalr target resolved by relocation */
-
-    /* fragment 21: StackAccess */
-    a0 = local_18;
-    t9 = (uintptr_t)&tx_isp_sync_ncu;
-    t9 = t9;
-    v0 = *(uint32_t *)((char *)a0 + 184);
-    v1 = *(uint32_t *)((char *)a0 + 404);
-    *(uint32_t *)((char *)v0 + 8) = v1;
-    v0 = *(uint32_t *)((char *)a0 + 184);
-    v1 = *(uint32_t *)((char *)a0 + 408);
-    *(uint32_t *)((char *)v0 + 12) = v1;
-    v0 = *(uint32_t *)((char *)a0 + 184);
-    v1 = *(uint32_t *)((char *)a0 + 412);
-    *(uint32_t *)((char *)v0 + 16) = v1;
-    v0 = *(uint32_t *)((char *)a0 + 184);
-    v1 = *(uint32_t *)((char *)a0 + 416);
-    *(uint32_t *)((char *)v0 + 20) = v1;
-    v0 = *(uint32_t *)((char *)a0 + 184);
-    v1 = *(uint32_t *)((char *)a0 + 420);
-    *(uint32_t *)((char *)v0 + 24) = v1;
-    v0 = *(uint32_t *)((char *)a0 + 184);
-    v1 = *(uint32_t *)((char *)a0 + 424);
-    *(uint32_t *)((char *)v0 + 28) = v1;
-    v0 = *(uint32_t *)((char *)a0 + 184);
-    v1 = *(uint32_t *)((char *)a0 + 428);
-    *(uint32_t *)((char *)v0 + 32) = v1;
-    v0 = *(uint32_t *)((char *)a0 + 184);
-    v1 = *(uint32_t *)((char *)a0 + 432);
-    *(uint32_t *)((char *)v0 + 36) = v1;
-    v0 = *(uint32_t *)((char *)a0 + 184);
-    v1 = *(uint32_t *)((char *)a0 + 436);
-    *(uint32_t *)((char *)v0 + 60) = v1;
-
-    /* fragment 22: MemoryAccess */
-    v0 = *(uint32_t *)((char *)a0 + 184);
-    v1 = *(uint32_t *)((char *)a0 + 436);
-    *(uint32_t *)((char *)v0 + 64) = v1;
-    v1 = *(uint32_t *)((char *)a0 + 436);
-    v0 = *(uint32_t *)((char *)a0 + 184);
-    *(uint32_t *)((char *)v0 + 68) = v1;
-    v0 = *(uint32_t *)((char *)a0 + 184);
-    v1 = *(uint32_t *)((char *)a0 + 436);
-    *(uint32_t *)((char *)v0 + 72) = v1;
-    v0 = *(uint32_t *)((char *)a0 + 184);
-    *(uint32_t *)((char *)v0 + 52) = s4;
-    v0 = *(uint32_t *)((char *)a0 + 184);
-    *(uint32_t *)((char *)v0 + 56) = s3;
-    v0 = *(uint32_t *)((char *)a0 + 184);
-    *(uint32_t *)((char *)v0 + 44) = s2;
-    v0 = *(uint32_t *)((char *)a0 + 184);
-    *(uint32_t *)((char *)v0 + 48) = s1;
-    v0 = *(uint32_t *)((char *)a0 + 400);
-    v1 = *(uint32_t *)((char *)a0 + 184);
-    v0 = (uintptr_t)v0 | 1;
-    *(uint32_t *)((char *)v1 + 0) = v0;
-    v0 = *(uint32_t *)((char *)a0 + 488);
-    a1 = *(uint32_t *)((char *)a0 + 492);
-    v1 = v0 + 1;
-    v0 = v1 < v0;
-    v0 = (uintptr_t)(uintptr_t)v0 + (uintptr_t)a1;
-    *(uint32_t *)((char *)a0 + 492) = v0;
-    v0 = *(uint32_t *)((char *)a0 + 504);
-    *(uint32_t *)((char *)a0 + 392) = s0;
-    v0 = v0 + 1;
-
-    /* fragment 23: MemoryAccess */
-    *(uint32_t *)((char *)a0 + 488) = v1;
-    *(uint32_t *)((char *)a0 + 504) = v0;
-    ra = local_34;
-    s4 = local_30;
-    s3 = local_2c;
-    s2 = local_28;
-    s1 = local_24;
-    s0 = local_20;
-
-tx_isp_sync_ldc0x1f8:
-    /* fragment 24: IndirectTailCall */
-    return tx_isp_sync_ncu();
-
-tx_isp_sync_ldc0x200:
-    /* fragment 25: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    /* fragment 26: Unknown */
-    /* unmatched fragment 26 (Unknown): no deterministic matcher for Unknown */
-    /* asm: 15600:	00000000 	nop */
-
-    return (char*)v0;
-}
-
-/* WHOLE_DRIVER_CANDIDATE fn_0000000000015610 origin=model_output original=configure_channel_dma_addr */
-int32_t *configure_channel_dma_addr(void *arg1)
-{
-	uint32_t dma_addr_lo = 0x100100;
-	uint32_t dma_addr_hi = 0x200200;
-	uint32_t ch_id_1 = 0x3132564e;
-	uint32_t ch_id_2 = 0x3231564e;
-	uint32_t *ch = (uint32_t *)arg1;
-	uint32_t *ch_base = (uint32_t *)((uint32_t)arg1 + 124);
-	uint32_t *a1 = (uint32_t *)(*(uint32_t *)((uint32_t)arg1 + 100));
-	uint32_t v1 = *(uint32_t *)((uint32_t)arg1 + 76);
-
-	while (1) {
-		uint32_t *v0 = (uint32_t *)(a1[0xb8 / 4] + (v1 << 8));
-		uint32_t status = v0[368 / 4] & 2;
-		if (status)
-			return (int32_t *)status;
-
-		uint32_t *result = (uint32_t *)ch[124 / 4];
-		if (result == ch_base)
-			return (int32_t *)result;
-
-		uint32_t *next = (uint32_t *)result[1];
-		uint32_t *prev = (uint32_t *)result[0];
-		*(uint32_t *)((uint32_t)prev + 4) = (uint32_t)next;
-		*(uint32_t *)next = (uint32_t)prev;
-		((void **)result)[0] = dma_addr_lo;
-		if (!result)
-			return (int32_t *)result;
-		((void **)result)[1] = dma_addr_hi;
-
-		uint32_t ch_id = ch[12 / 4];
-		if (ch_id == ch_id_1 || ch_id == ch_id_2) {
-			uint32_t val = ((ch[8 / 4] + 15) & 0xfffffff0) * ch[4 / 4] + result[2];
-			uint32_t *dst = (uint32_t *)(a1[0xb8 / 4] + (v1 << 8));
-			((void **)dst)[388 / 4] = val;
-		}
-
-		uint32_t *dst2 = (uint32_t *)(a1[0xb8 / 4] + (v1 << 8));
-		((void **)dst2)[364 / 4] = result[2];
-		v1 = ch[76 / 4];
-	}
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000156f0 origin=model_output original=mscaler_core_ops_ioctl */
@@ -27750,67 +21683,6 @@ unlock:
 	return ret;
 }
 
-/* WHOLE_DRIVER_CANDIDATE fn_0000000000015b90 origin=model_output original=channel_dma_buffer_done */
-int32_t channel_dma_buffer_done(void *arg1)
-{
-	uint32_t *base = (uint32_t *)arg1;
-	uint32_t *s3 = (uint32_t *)(*(uint32_t *)((char *)arg1 + 0x64));
-	uint32_t v1;
-	uint32_t offset;
-	uint32_t *a1;
-	uint32_t a0;
-	uint32_t val_174;
-	uint32_t val_178;
-	uint32_t event_data;
-	uint32_t counter;
-
-	while (1) {
-		v1 = s3[0xb8 / 4];
-		offset = (*(uint32_t *)((char *)arg1 + 0x4c)) << 8;
-		a0 = *(uint32_t *)((char *)(v1 + offset) + 0x17c);
-		if (a0 & 1)
-			break;
-
-		a1 = *(uint32_t *)((char *)arg1 + 0xc);
-		if (a1 == 0x3132564e) {
-			a0 = v1 + offset;
-		} else if (a1 == 0x3231564e) {
-			a0 = v1 + offset;
-		} else {
-			a0 = v1 + offset;
-		}
-
-		val_174 = *(uint32_t *)((char *)a0 + 0x174);
-		val_178 = *(uint32_t *)((char *)(v1 + offset) + 0x178);
-		event_data = val_174;
-		((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))tx_isp_send_event_to_remote)((uintptr_t)(*(void **)((char *)arg1 + 0x60)), (uintptr_t)(TX_ISP_FRAME_EVENT_BUFFER_DONE), (uintptr_t)(&event_data));
-		counter = *(uint32_t *)((char *)arg1 + 0x8c);
-		*(uint32_t *)((char *)arg1 + 0x8c) = counter + 1;
-	}
-
-	return offset;
-}
-
-/* WHOLE_DRIVER_CANDIDATE fn_0000000000015c5c origin=model_output original=msclaer_notify_front_module */
-void *msclaer_notify_front_module(void *arg1, int arg2)
-{
-    unsigned int *p = (unsigned int *)arg1;
-    unsigned int *v0 = (unsigned int *)(p[0xb8 / 4]);
-    unsigned int *a3 = (unsigned int *)(p[0x144 / 4]);
-    unsigned int v1 = v0[8 / 4] & 7u;
-    unsigned int a1 = (1u << (arg2 & 0x1f)) | chan_done_state;
-    unsigned int *result;
-
-    chan_done_state = (uintptr_t (*)())(uintptr_t)a1;
-    if ((a1 & v1) == v1) {
-        result = ((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))tx_isp_send_event_to_remote)((int32_t *)(a3[0x54 / 4]), (uintptr_t)(TX_ISP_FRAME_EVENT_QUEUE_BUFFER), (uintptr_t)(0u));
-        chan_done_state = 0;
-    } else {
-        result = a1;
-    }
-    return (void *)result;
-}
-
 static void tx_isp_t30_mscaler_channel_done(
 	struct tx_isp_t30_mscaler_output *chan)
 {
@@ -27883,250 +21755,6 @@ irqreturn_t mscaler_core_interrupt_service_routine(
 		tx_isp_t30_mscaler_notify_input(mscaler, channel);
 	}
 	return IRQ_HANDLED;
-}
-
-/* WHOLE_DRIVER_CANDIDATE fn_0000000000015cc8 origin=fragment_seed original=mscaler_core_interrupt_service_routine */
-static int32_t mscaler_core_interrupt_service_routine_raw(uintptr_t a0)
-{
-    uint32_t *local_10 = 0;
-    uint32_t local_14 = 0;
-    uint32_t *local_18 = 0;
-    uint32_t local_24 = 0;
-    uint32_t local_28 = 0;
-    uint32_t local_2c = 0;
-    uint32_t local_30 = 0;
-    uint32_t local_34 = 0;
-    uint32_t *a1 = 0;
-    uint32_t ra = 0;
-    uintptr_t *s0 = 0;
-    uint32_t *s1 = 0;
-    uint32_t *s2 = 0;
-    uint32_t *s3 = 0;
-    uintptr_t *v0 = 0;
-    uintptr_t v1 = 0;
-
-    /* fragment 0: Prologue */
-    /* function prologue: stack frame and callee-saved register setup */
-
-    /* fragment 1: MemoryAccess */
-    s0 = *(uint32_t *)((char *)a0 + 212);
-    s1 = 65536;
-    s2 = 65536;
-    v1 = *(uint32_t *)((char *)s0 + 184);
-    s1 = s1 + 23440;
-    s2 = s2 + 22032;
-    v0 = *(uint32_t *)((char *)v1 + 12);
-    s3 = 65536;
-    local_14 = v0;
-    v0 = *(uint32_t *)((char *)v1 + 16);
-    local_10 = v0;
-    v0 = local_10;
-    a0 = local_14;
-    v0 = ~(0 | (uintptr_t)v0);
-    v0 = (uintptr_t)v0 & a0;
-    local_18 = v0;
-    v0 = local_14;
-    *(uint32_t *)((char *)v1 + 20) = v0;
-    v0 = 0;
-
-mscaler_core_interrupt_service_routine0x64:
-    /* fragment 2: StackAccess */
-    a1 = local_18;
-    a0 = 1;
-    v1 = a0 << (uintptr_t)v0;
-    v1 = v1 & (uintptr_t)a1;
-
-    /* fragment 3: Branch */
-    if (v1 == 0) { goto mscaler_core_interrupt_service_routine0x94; }
-
-    /* fragment 4: Branch */
-    v1 = 2;
-    if (v0 == a0) { goto mscaler_core_interrupt_service_routine0xf0; }
-
-    /* fragment 5: Branch */
-    if (v0 == v1) { goto mscaler_core_interrupt_service_routine0xc0; }
-
-    /* fragment 6: Branch */
-    if (v0 == 0) { goto mscaler_core_interrupt_service_routine0x120; }
-
-mscaler_core_interrupt_service_routine0x94:
-    /* fragment 7: Arithmetic */
-    v0 = v0 + 1;
-    v1 = 9;
-
-    /* fragment 8: Branch */
-    if (v0 != v1) { goto mscaler_core_interrupt_service_routine0x64; }
-
-    /* fragment 9: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    /* fragment 10: Arithmetic */
-    v0 = 1;
-
-    /* fragment 11: Epilogue */
-    /* function epilogue: restore registers and return */
-    return (int32_t)v0;
-
-mscaler_core_interrupt_service_routine0xc0:
-    /* fragment 12: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)channel_dma_buffer_done)((*(uint32_t *)((char *)(s0) + 312)) + 288); /* jalr target resolved by relocation */
-
-    /* fragment 13: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)configure_channel_dma_addr)((*(uint32_t *)((char *)(s0) + 312)) + 288); /* jalr target resolved by relocation */
-
-    /* fragment 14: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(int32_t *)msclaer_notify_front_module)(s0, 2); /* jalr target resolved by relocation */
-
-    /* fragment 15: Branch */
-    v0 = 3;
-    goto mscaler_core_interrupt_service_routine0x64;
-
-mscaler_core_interrupt_service_routine0xf0:
-    /* fragment 16: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)channel_dma_buffer_done)((*(uint32_t *)((char *)(s0) + 312)) + 144); /* jalr target resolved by relocation */
-
-    /* fragment 17: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)configure_channel_dma_addr)((*(uint32_t *)((char *)(s0) + 312)) + 144); /* jalr target resolved by relocation */
-
-    /* fragment 18: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(int32_t *)msclaer_notify_front_module)(s0, 1); /* jalr target resolved by relocation */
-
-    /* fragment 19: Branch */
-    v0 = 2;
-    goto mscaler_core_interrupt_service_routine0x64;
-
-mscaler_core_interrupt_service_routine0x120:
-    /* fragment 20: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)channel_dma_buffer_done)(*(uint32_t *)((char *)(s0) + 312)); /* jalr target resolved by relocation */
-
-    /* fragment 21: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)configure_channel_dma_addr)(*(uint32_t *)((char *)(s0) + 312)); /* jalr target resolved by relocation */
-
-    /* fragment 22: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(int32_t *)msclaer_notify_front_module)(s0, 0); /* jalr target resolved by relocation */
-
-    /* fragment 23: Branch */
-    v0 = 1;
-    goto mscaler_core_interrupt_service_routine0x64;
-
-    return 0;
-}
-
-/* WHOLE_DRIVER_CANDIDATE fn_0000000000015e10 origin=fragment_seed original=dump_isp_mscaler_open */
-int32_t dump_isp_mscaler_open(uint32_t a0, uint32_t a1)
-{
-    uint32_t *local_10 = 0;
-    uint32_t local_14 = 0;
-    uint32_t a2 = 0;
-    uint32_t *a3 = 0;
-    uint32_t ra = 0;
-    uint32_t *s0 = 0;
-    uint32_t t9 = 0;
-    uint32_t *v0 = 0;
-
-    /* fragment 0: Prologue */
-    /* function prologue: stack frame and callee-saved register setup */
-
-    /* fragment 1: CallSetup */
-    s0 = a1;
-    v0 = (uintptr_t *)PDE_DATA((void *)(int32_t *)a0); /* jalr target resolved by relocation */
-
-    /* fragment 2: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    /* fragment 3: Arithmetic */
-    a1 = 65536;
-    a0 = s0;
-    t9 = (uintptr_t)&private_single_open_size;
-
-    /* fragment 4: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    /* fragment 5: Arithmetic */
-    a3 = 2048;
-    a2 = v0;
-    a1 = a1 + 24152;
-    t9 = t9;
-
-    /* fragment 6: IndirectTailCall */
-    return private_single_open_size(a0, a1, a2, a3);
-
-    return 0;
-}
-
-/* WHOLE_DRIVER_CANDIDATE fn_0000000000015e58 origin=model_output original=isp_mscaler_show */
-int32_t isp_mscaler_show(struct seq_file *m)
-{
-    void *dev = *(void **)((char *)m + 0x3c);
-    void *mscaler;
-    int32_t *i;
-    int32_t *result;
-    void *chan;
-    const char *status_str;
-    const char *scaler_str;
-    const char *crop_str;
-    int32_t r1, r2, r3, r4, r5, r6, r7, r8;
-
-    if (dev == NULL || (unsigned long)dev >= 0xfffff001UL) {
-        isp_printf(2, "The parameter is invalid!\n", 0);
-        return 0;
-    }
-
-    mscaler = *(void **)((char *)dev + 0xd4);
-    if (mscaler == NULL || (unsigned long)mscaler >= 0xfffff001UL) {
-        isp_printf(2, "The parameter is invalid!\n", 0);
-        return 0;
-    }
-
-    i = 0;
-    result = 0;
-    for (; (uintptr_t)i < *(int32_t *)((uintptr_t)mscaler + 0x13c); i = (uintptr_t)i + 1) {
-        result = (void *)(uintptr_t)((uintptr_t)result + (((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))seq_printf)((uintptr_t)(m), (uintptr_t)("############## (uintptr_t)chan %d ###############\n"), (uintptr_t)((uintptr_t)i))));
-        chan = (void *)((char *)*(void **)((uintptr_t)mscaler + 0x138) + (uintptr_t)i * 0x90);
-
-        status_str = "stop";
-        if (*(int32_t *)((char *)chan + 0x50) == 4)
-            status_str = "running";
-        result = (void *)(uintptr_t)((uintptr_t)result + (((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))seq_printf)((uintptr_t)(m), (uintptr_t)("(uintptr_t)chan status: %s\n"), (uintptr_t)((uintptr_t)status_str))));
-
-        if (*(int32_t *)((char *)chan + 0x50) == 4) {
-            r1 = ((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))seq_printf)((uintptr_t)(m), (uintptr_t)("output frames: %d\n"), (uintptr_t)(*(int32_t *)((char *)chan + 0x8c)));
-            r2 = seq_printf(m, "output pixformat: %c%c%c%c\n",
-                            *(char *)((char *)chan + 0xc),
-                            *(char *)((char *)chan + 0xd),
-                            *(char *)((char *)chan + 0xe),
-                            *(char *)((char *)chan + 0xf));
-            r3 = seq_printf(m, "output resolution: %d * %d\n",
-                            *(int32_t *)((char *)chan + 4),
-                            *(int32_t *)((char *)chan + 8));
-            result = (void *)(uintptr_t)((uintptr_t)result + (r1 + r2 + r3));
-
-            scaler_str = "enable";
-            if (*(int8_t *)((char *)chan + 0x38) == 0)
-                scaler_str = "disable";
-            result = (void *)(uintptr_t)((uintptr_t)result + (((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))seq_printf)((uintptr_t)(m), (uintptr_t)("scaler : %s\n"), (uintptr_t)((uintptr_t)scaler_str))));
-
-            if (*(int8_t *)((char *)chan + 0x38) != 0) {
-                r4 = ((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))seq_printf)((uintptr_t)(m), (uintptr_t)("scaler width: %d\n"), (uintptr_t)(*(int32_t *)((char *)chan + 0x3c)));
-                r5 = ((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))seq_printf)((uintptr_t)(m), (uintptr_t)("scaler height: %d\n"), (uintptr_t)(*(int32_t *)((char *)chan + 0x40)));
-                result = (void *)(uintptr_t)((uintptr_t)result + (r4 + r5));
-            }
-
-            crop_str = "enable";
-            if (*(int8_t *)((char *)chan + 0x24) == 0)
-                crop_str = "disable";
-            result = (void *)(uintptr_t)((uintptr_t)result + (((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))seq_printf)((uintptr_t)(m), (uintptr_t)("crop : %s\n"), (uintptr_t)((uintptr_t)crop_str))));
-
-            if (*(int8_t *)((char *)chan + 0x24) != 0) {
-                r6 = ((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))seq_printf)((uintptr_t)(m), (uintptr_t)("crop top: %d\n"), (uintptr_t)(*(int32_t *)((char *)chan + 0x28)));
-                r7 = ((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))seq_printf)((uintptr_t)(m), (uintptr_t)("crop left: %d\n"), (uintptr_t)(*(int32_t *)((char *)chan + 0x2c)));
-                r8 = ((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))seq_printf)((uintptr_t)(m), (uintptr_t)("crop width: %d\n"), (uintptr_t)(*(int32_t *)((char *)chan + 0x30)));
-                result = (void *)(uintptr_t)((uintptr_t)result + (r6 + r7 + r8));
-                result = (void *)(uintptr_t)((uintptr_t)result + (((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))seq_printf)((uintptr_t)(m), (uintptr_t)("crop height: %d\n"), (uintptr_t)(*(int32_t *)((char *)(uintptr_t)chan + 0x34)))));
-            }
-        }
-    }
-    return result;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000160f0 origin=oem_source original=mscaler_sync_sensor_attr */
@@ -28240,374 +21868,6 @@ int32_t mscaler_sync_sensor_attr(void *subdev, void *video_in)
  * zeroing semantics, leaving sd->num_{in,out}pads dependent on stale slab
  * contents.
  */
-#if 0
-/* WHOLE_DRIVER_CANDIDATE fn_0000000000016378 origin=fragment_seed original=tx_isp_mscaler_probe */
-static int tx_isp_mscaler_probe_raw(struct platform_device *pdev)
-{
-    uintptr_t a0 = (uintptr_t)pdev;
-
-    uint32_t *local_10 = 0;
-    uint32_t local_14 = 0;
-    uint32_t *local_18 = 0;
-    uint32_t local_1c = 0;
-    uint32_t local_20 = 0;
-    uint32_t local_24 = 0;
-    uint32_t local_28 = 0;
-    uint32_t local_2c = 0;
-    uint32_t local_30 = 0;
-    uint32_t local_34 = 0;
-    uint32_t local_38 = 0;
-    uint32_t local_3c = 0;
-    uintptr_t *a1 = 0;
-    uint32_t a2 = 0;
-    uintptr_t *a3 = 0;
-    uint32_t ra = 0;
-    char *s0 = 0;
-    char *s1 = 0;
-    uint32_t *s2 = 0;
-    uintptr_t *s3 = 0;
-    uint32_t s4 = 0;
-    uint32_t s5 = 0;
-    uint32_t s6 = 0;
-    uint32_t s7 = 0;
-    uint32_t s8 = 0;
-    uint32_t t0 = 0;
-    char *v0 = 0;
-    uintptr_t v1 = 0;
-
-    /* fragment 0: Prologue */
-    /* function prologue: stack frame and callee-saved register setup */
-
-    /* fragment 1: CallSetup */
-    s3 = a0;
-    v0 = (uintptr_t *)kmem_cache_alloc((void *)(int32_t *)(*(uint32_t *)((char *)&kmalloc_caches + 36)), 32976); /* jalr target resolved by relocation */
-
-    /* fragment 2: Branch */
-    a2 = (uintptr_t)&tx_isp_platform_device;
-    if (v0 != 0) { goto tx_isp_mscaler_probe0xa0; }
-
-    /* fragment 3: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(int32_t *)isp_printf)(2, &LC28); /* jalr target resolved by relocation */
-
-    /* fragment 4: Arithmetic */
-    s4 = -12;
-
-tx_isp_mscaler_probe0x6c:
-    /* fragment 5: Epilogue */
-    /* function epilogue: restore registers and return */
-    return (int)v0;
-
-tx_isp_mscaler_probe0x70:
-    /* fragment 6: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    /* fragment 7: Arithmetic */
-    v0 = s4;
-
-    /* fragment 8: Epilogue */
-    /* function epilogue: restore registers and return */
-    return (int)v0;
-
-tx_isp_mscaler_probe0xa0:
-    /* fragment 9: CallSetup */
-    s0 = v0;
-    s1 = *(uint32_t *)((char *)(s3) + 88);
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(int32_t *)tx_isp_subdev_init)(s3, v0, &mscaler_subdev_ops); /* OEM tx-isp-mscaler.c */
-
-    /* fragment 10: Branch */
-    s4 = v0;
-    if (v0 == 0) { goto tx_isp_mscaler_probe0x100; }
-
-    /* fragment 11: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(2, &LC29, *(uint8_t *)((char *)(s1) + 2), *(uint8_t *)((char *)(s1) + 3)); /* jalr target resolved by relocation */
-
-    /* fragment 12: CallSetup */
-    v0 = (uintptr_t *)&kfree;
-
-tx_isp_mscaler_probe0xec:
-    /* fragment 13: CallSetup */
-    kfree((void *)(uintptr_t)s0); /* jalr target resolved by relocation */
-
-    /* fragment 14: Branch */
-    s4 = -12;
-    goto tx_isp_mscaler_probe0x6c;
-
-tx_isp_mscaler_probe0x100:
-    /* fragment 15: CallSetup */
-    *(uint32_t *)((char *)s0 + 316) = (*(uint16_t *)((char *)(s0) + 200));
-    v0 = (uintptr_t *)__kmalloc((*(uint16_t *)((char *)((uintptr_t)s0) + 200)) * 144, 32976); /* jalr target resolved by relocation */
-
-    /* fragment 16: Branch */
-    s7 = (uintptr_t)&private_init_completion;
-    if (v0 == 0) { goto tx_isp_mscaler_probe0x240; }
-
-    /* fragment 17: Arithmetic */
-    s8 = 65536;
-    s1 = v0 + 124;
-    s2 = 0;
-    a1 = 36;
-    s7 = s7;
-    s8 = s8 + 27804;
-
-tx_isp_mscaler_probe0x140:
-    /* fragment 18: MemoryAccess */
-    v1 = *(uint32_t *)((char *)s0 + 316);
-    v1 = s2 < v1;
-
-    /* fragment 19: Branch */
-    s6 = (uintptr_t)s2 * (uintptr_t)a1;
-    if (v1 != 0) { goto tx_isp_mscaler_probe0x280; }
-
-    /* fragment 20: CallSetup */
-    *(uint32_t *)((char *)s0 + 312) = v0;
-    *(uint32_t *)((char *)s0 + 328) = (*(uint16_t *)((char *)(s0) + 202));
-    v0 = (uintptr_t *)__kmalloc((*(uint16_t *)((char *)((uintptr_t)s0) + 202)) * 92, 32976); /* jalr target resolved by relocation */
-
-    /* fragment 21: Branch */
-    a2 = 65536;
-    if (v0 == 0) { goto tx_isp_mscaler_probe0x36c; }
-
-    /* fragment 22: Arithmetic */
-    v1 = v0;
-    a0 = 0;
-    t0 = 36;
-    a2 = a2 + 27804;
-
-tx_isp_mscaler_probe0x184:
-    /* fragment 23: MemoryAccess */
-    a1 = *(uint32_t *)((char *)s0 + 328);
-    a1 = a0 < a1;
-
-    /* fragment 24: Branch */
-    int _bc_a1_24 = a1 != 0;
-    a1 = (uint32_t *)&LC33;
-    if (_bc_a1_24) { goto tx_isp_mscaler_probe0x3ac; }
-
-    /* fragment 25: CallSetup */
-    *(uint32_t *)((char *)s0 + 324) = v0;
-    __mutex_init((void *)(uintptr_t)(s0 + 220), (const char *)(uintptr_t)&LC33, (void *)(uintptr_t)0); /* jalr target resolved by relocation */
-
-    /* fragment 26: CallSetup */
-    s1 = 1;
-    *(uint32_t *)((char *)s0 + 308) = (*(uint32_t *)((char *)(s3) + 88));
-    *(uint32_t *)((char *)s0 + 232) = s1;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(int32_t *)private_platform_set_drvdata)(s3, s0); /* jalr target resolved by relocation */
-
-    /* fragment 27: ConstantLoad */
-    v0 = ((char *)&isp_mscaler_fops);
-
-    /* fragment 28: MemoryAccess */
-    *(uint32_t *)((char *)s0 + 52) = v0;
-    v0 = (uintptr_t *)&ispw;
-    *(uint32_t *)((char *)s0 + 212) = s0;
-    v1 = *(uint32_t *)((char *)((char *)&ispw));
-    v0 = (uintptr_t *)&isph;
-    v0 = *(uint32_t *)((char *)((char *)&isph));
-    a0 = v1 | (uintptr_t)v0;
-
-    /* fragment 29: Branch */
-    if (a0 == 0) { goto tx_isp_mscaler_probe0x70; }
-
-    /* fragment 30: Arithmetic */
-    v1 = v1 << 16;
-    v1 = v1 | (uintptr_t)v0;
-    v0 = (uintptr_t *)&ispcropwh;
-    a0 = (uintptr_t)&ispcrop;
-
-    /* fragment 31: MemoryAccess */
-    *(uint32_t *)((char *)((char *)&ispcropwh)) = v1;
-    v0 = (uintptr_t *)&isptop;
-    v1 = (uintptr_t)&ispleft;
-    v0 = *(uint32_t *)((char *)((char *)&isptop));
-    v1 = *(uint32_t *)((char *)((char *)&ispleft));
-    v0 = (uintptr_t)v0 << 16;
-    v0 = (uintptr_t)v0 | v1;
-    v1 = (uintptr_t)&ispcroptl;
-    *(uint32_t *)((char *)((char *)&ispcrop)) = s1;
-
-    /* fragment 32: Branch */
-    *(uint32_t *)((char *)v1 + 0) = v0;
-    goto tx_isp_mscaler_probe0x6c;
-
-tx_isp_mscaler_probe0x240:
-    /* fragment 33: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(int32_t *)isp_printf)(2, &LC30); /* jalr target resolved by relocation */
-
-    /* fragment 34: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(int32_t *)isp_printf)(2, &LC31); /* jalr target resolved by relocation */
-
-tx_isp_mscaler_probe0x268:
-    /* fragment 35: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(int32_t *))(uintptr_t)tx_isp_subdev_deinit)(s0); /* jalr target resolved by relocation */
-
-    /* fragment 36: Branch */
-    v0 = (uintptr_t *)&kfree;
-    goto tx_isp_mscaler_probe0xec;
-
-tx_isp_mscaler_probe0x280:
-    /* fragment 37: MemoryAccess */
-    *(uint32_t *)((char *)s1 + -48) = s2;
-    v1 = *(uint32_t *)((char *)s0 + 204);
-    v1 = v1 + s6;
-    *(uint32_t *)((char *)s1 + -28) = v1;
-    v1 = *(uint32_t *)((char *)s0 + 204);
-    v1 = v1 + s6;
-    v1 = *(uint8_t *)((char *)v1 + 5);
-
-    /* fragment 38: Branch */
-    if (v1 != 0) { goto tx_isp_mscaler_probe0x2b4; }
-
-    /* fragment 39: MemoryAccess */
-    *(uint32_t *)((char *)s1 + -44) = 0;
-
-tx_isp_mscaler_probe0x2a8:
-    /* fragment 40: Arithmetic */
-    s2 = s2 + 1;
-
-    /* fragment 41: Branch */
-    s1 = s1 + 144;
-    goto tx_isp_mscaler_probe0x140;
-
-tx_isp_mscaler_probe0x2b4:
-    /* fragment 42: Arithmetic */
-    v1 = 1;
-
-    /* fragment 43: Branch */
-    a2 = s1 - 124;
-    if (s2 == v1) { goto tx_isp_mscaler_probe0x2ec; }
-
-    /* fragment 44: Arithmetic */
-    a0 = 2;
-
-    /* fragment 45: Branch */
-    if (s2 == a0) { goto tx_isp_mscaler_probe0x35c; }
-
-    /* fragment 46: Branch */
-    a0 = 2592;
-    if (s2 != 0) { goto tx_isp_mscaler_probe0x308; }
-
-    /* fragment 47: MemoryAccess */
-    *(uint32_t *)((char *)s1 + -20) = a0;
-    a0 = 2048;
-
-tx_isp_mscaler_probe0x2dc:
-    /* fragment 48: MemoryAccess */
-    *(uint32_t *)((char *)s1 + -16) = a0;
-    *(uint8_t *)((char *)s1 + -4) = v1;
-
-    /* fragment 49: Branch */
-    *(uint8_t *)((char *)s1 + -3) = v1;
-    goto tx_isp_mscaler_probe0x304;
-
-tx_isp_mscaler_probe0x2ec:
-    /* fragment 50: CallSetup */
-    v1 = 1920;
-    *(uint32_t *)((char *)s1 + -20) = v1;
-    v1 = 1080;
-    *(uint32_t *)((char *)s1 + -16) = v1;
-    *(uint8_t *)((char *)s1 + -4) = s2;
-    *(uint8_t *)((char *)s1 + -3) = s2;
-
-tx_isp_mscaler_probe0x304:
-    /* fragment 51: CallSetup */
-    v1 = 1;
-
-tx_isp_mscaler_probe0x308:
-    /* fragment 52: CallSetup */
-    *(uint32_t *)((char *)s1 + -44) = v1;
-    *(uint32_t *)((char *)s1 + -12) = 128;
-    *(uint32_t *)((char *)s1 + -8) = 128;
-    *(uint32_t *)((char *)s1 + 0) = s1;
-    *(uint32_t *)((char *)s1 + 4) = s1;
-    local_14 = v0;
-    local_10 = a2;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_init_completion)(s1 - 40); /* jalr target resolved by relocation */
-
-    /* fragment 53: MemoryAccess */
-    *(uint32_t *)((char *)s1 + -24) = s0;
-    v1 = *(uint32_t *)((char *)s0 + 204);
-    a2 = local_10;
-    v1 = v1 + s6;
-    v0 = local_14;
-    *(uint32_t *)((char *)v1 + 28) =
-	(uint32_t)(uintptr_t)&mscaler_pad_event_handle;
-    v1 = *(uint32_t *)((char *)s0 + 204);
-    a1 = 36;
-    v1 = v1 + s6;
-
-    /* fragment 54: Branch */
-    *(uint32_t *)((char *)v1 + 32) = a2;
-    goto tx_isp_mscaler_probe0x2a8;
-
-tx_isp_mscaler_probe0x35c:
-    /* fragment 55: Arithmetic */
-    a0 = 1920;
-
-    /* fragment 56: MemoryAccess */
-    *(uint32_t *)((char *)s1 + -20) = a0;
-
-    /* fragment 57: Branch */
-    a0 = 1080;
-    goto tx_isp_mscaler_probe0x2dc;
-
-tx_isp_mscaler_probe0x36c:
-    /* fragment 58: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(int32_t *)isp_printf)(2, &LC32); /* jalr target resolved by relocation */
-
-    /* fragment 59: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(int32_t *)isp_printf)(2, &LC31); /* jalr target resolved by relocation */
-
-    /* fragment 60: CallSetup */
-    kfree((void *)(uintptr_t)(*(uint32_t *)((char *)(s0) + 312))); /* jalr target resolved by relocation */
-
-    /* fragment 61: Branch */
-    *(uint32_t *)((char *)s0 + 312) = 0;
-    goto tx_isp_mscaler_probe0x268;
-
-tx_isp_mscaler_probe0x3ac:
-    /* fragment 62: Arithmetic */
-    a1 = a0 * t0;
-
-    /* fragment 63: MemoryAccess */
-    *(uint32_t *)((char *)v1 + 76) = a0;
-    a3 = *(uint32_t *)((char *)s0 + 208);
-    a3 = (uintptr_t)a3 + (uintptr_t)a1;
-    *(uint32_t *)((char *)v1 + 84) = a3;
-    a3 = *(uint32_t *)((char *)s0 + 208);
-    a3 = (uintptr_t)a3 + (uintptr_t)a1;
-    a3 = *(uint8_t *)((char *)a3 + 5);
-
-    /* fragment 64: Branch */
-    if (a3 != 0) { goto tx_isp_mscaler_probe0x3e4; }
-
-    /* fragment 65: MemoryAccess */
-    *(uint32_t *)((char *)v1 + 80) = 0;
-
-tx_isp_mscaler_probe0x3d8:
-    /* fragment 66: Arithmetic */
-    a0 = a0 + 1;
-
-    /* fragment 67: Branch */
-    v1 = v1 + 92;
-    goto tx_isp_mscaler_probe0x184;
-
-tx_isp_mscaler_probe0x3e4:
-    /* fragment 68: MemoryAccess */
-    *(uint32_t *)((char *)v1 + 88) = s0;
-    a3 = *(uint32_t *)((char *)s0 + 208);
-    a3 = (uintptr_t)a3 + (uintptr_t)a1;
-    *(uint32_t *)((char *)a3 + 28) =
-	(uint32_t)(uintptr_t)&mscaler_pad_event_handle;
-    a3 = *(uint32_t *)((char *)s0 + 208);
-    a1 = (uintptr_t)a3 + (uintptr_t)a1;
-
-    /* fragment 69: Branch */
-    *(uint32_t *)((char *)a1 + 32) = v1;
-    goto tx_isp_mscaler_probe0x3d8;
-
-    return ((int64_t)(uint32_t)v1 << 32) | (uint32_t)v0;
-}
-#endif
 
 static int tx_isp_t30_mscaler_output_channels_init(
 	struct tx_isp_t30_mscaler_device *mscaler)
@@ -28804,9 +22064,7 @@ int32_t mscaler_frame_channel_streamoff_isra_0(uintptr_t a0)
     s4 = v0;
 
     /* fragment 6: MemoryAccess */
-    v0 = *(uint32_t *)((char *)&sp_9007);
-    v0 = v0 + 1;
-    *(uint32_t *)((char *)&sp_9007) = v0;
+    T30_GP_PREEMPT() += 1;	/* OEM lw/addiu/sw 20(gp): preempt_count (#371) */
     v0 = *(uint32_t *)((char *)s0 + 80);
     s1 = (uintptr_t *)&arch_local_irq_restore;
 
@@ -28818,10 +22076,8 @@ int32_t mscaler_frame_channel_streamoff_isra_0(uintptr_t a0)
     arch_local_irq_restore(s4); /* jalr target resolved by relocation */
 
     /* fragment 9: MemoryAccess */
-    v0 = *(uint32_t *)((char *)&sp_9007);
-    v0 = v0 - 1;
-    *(uint32_t *)((char *)&sp_9007) = v0;
-    v0 = *(uint32_t *)((char *)&_qlock2);
+    T30_GP_PREEMPT() -= 1;	/* OEM lw/addiu/sw 20(gp): preempt_count (#371) */
+    v0 = T30_GP_FLAGS();
     v0 = (uintptr_t)v0 & 4;
 
     /* fragment 10: Branch */
@@ -28840,17 +22096,15 @@ int32_t mscaler_frame_channel_streamoff_isra_0(uintptr_t a0)
 mscaler_frame_channel_streamoff_isra_00xc0:
     /* fragment 14: CallSetup */
     local_10 = 0;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tx_isp_reg_set)(s2, 4, *(uint32_t *)((char *)(s0) + 76), *(uint32_t *)((char *)(s0) + 76)); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)(uintptr_t)tx_isp_reg_set((void *)(uintptr_t)s2, 4, *(uint32_t *)((char *)(s0) + 76), *(uint32_t *)((char *)(s0) + 76), (int)(uintptr_t)local_10); /* #365: the 5th argument (the value) is the o32 stack slot local_10 */
 
     /* fragment 15: CallSetup */
     *(uint32_t *)((char *)s0 + 80) = 3;
     arch_local_irq_restore(s4); /* jalr target resolved by relocation */
 
     /* fragment 16: MemoryAccess */
-    v0 = *(uint32_t *)((char *)&sp_9007);
-    v0 = v0 - 1;
-    *(uint32_t *)((char *)&sp_9007) = v0;
-    v0 = *(uint32_t *)((char *)&_qlock2);
+    T30_GP_PREEMPT() -= 1;	/* OEM lw/addiu/sw 20(gp): preempt_count (#371) */
+    v0 = T30_GP_FLAGS();
     v0 = (uintptr_t)v0 & 4;
 
     /* fragment 17: Branch */
@@ -28893,12 +22147,10 @@ mscaler_frame_channel_streamoff_isra_00x150:
     a0 = v0;
 
     /* fragment 27: MemoryAccess */
-    v0 = *(uint32_t *)((char *)&sp_9007);
-    v0 = v0 + 1;
-    *(uint32_t *)((char *)&sp_9007) = v0;
+    T30_GP_PREEMPT() += 1;	/* OEM lw/addiu/sw 20(gp): preempt_count (#371) */
     v0 = 877789184;
     v1 = *(uint32_t *)((char *)s0 + 12);
-    v0 = v0 + 18242;
+    v0 = (uintptr_t *)(uintptr_t)0x34524742;	/* OEM 168ec: lui 0x3452 + 18242 (the typed v0 scaled it, #371) */
 
     /* fragment 28: Branch */
     int _bc_v1_28 = v1 == v0;
@@ -28906,7 +22158,7 @@ mscaler_frame_channel_streamoff_isra_00x150:
     if (_bc_v1_28) { goto mscaler_frame_channel_streamoff_isra_00x188; }
 
     /* fragment 29: Arithmetic */
-    v0 = v0 + 18258;
+    v0 = (uintptr_t *)(uintptr_t)0x50424752;	/* OEM 168f8 */
 
     /* fragment 30: Branch */
     int _bc_v1_30 = v1 != v0;
@@ -28921,11 +22173,11 @@ mscaler_frame_channel_streamoff_isra_00x188:
 mscaler_frame_channel_streamoff_isra_00x190:
     /* fragment 32: MemoryAccess */
     *(uint8_t *)((char *)s3 + 7) = v0;
-    a1 = 2097152;
-    v0 = 1048576;
-    t0 = s0 + 124;
-    v0 = v0 + 256;
-    a1 = a1 + 512;
+    /* OEM 16910..16920: LIST_POISON1/2 = 0x00100100 / 0x00200200; on the typed
+     * pointers v0/a1 the lift's "+ 256" / "+ 512" scaled to 0x100400 / 0x200800 (#371) */
+    a1 = (uint32_t *)(uintptr_t)0x00200200;
+    v0 = (uintptr_t *)(uintptr_t)0x00100100;
+    t0 = (uintptr_t)s0 + 124;	/* OEM 16918 addiu t0,s0,124: byte offset of the list head (#371) */
 
 mscaler_frame_channel_streamoff_isra_00x1a8:
     /* fragment 33: MemoryAccess */
@@ -28940,10 +22192,8 @@ mscaler_frame_channel_streamoff_isra_00x1a8:
     arch_local_irq_restore(a0); /* jalr target resolved by relocation */
 
     /* fragment 36: MemoryAccess */
-    v0 = *(uint32_t *)((char *)&sp_9007);
-    v0 = v0 - 1;
-    *(uint32_t *)((char *)&sp_9007) = v0;
-    v0 = *(uint32_t *)((char *)&_qlock2);
+    T30_GP_PREEMPT() -= 1;	/* OEM lw/addiu/sw 20(gp): preempt_count (#371) */
+    v0 = T30_GP_FLAGS();
     v0 = (uintptr_t)v0 & 4;
 
     /* fragment 37: Branch */
@@ -28952,9 +22202,8 @@ mscaler_frame_channel_streamoff_isra_00x1a8:
     /* fragment 38: CallSetup */
     preempt_schedule(); /* jalr target resolved by relocation */
 
-    /* fragment 39: Epilogue */
-    /* function epilogue: restore registers and return */
-    return (int32_t)v0;
+    /* fragment 39: OEM 16984..16990 falls through into the memset tail call
+     * after preempt_schedule; the lift returned here and skipped it (#371) */
 
 mscaler_frame_channel_streamoff_isra_00x214:
     /* fragment 40: Epilogue */
@@ -29409,304 +22658,6 @@ int32_t mscaler_pad_event_handle(void *pad_pointer, int32_t event,
 	}
 }
 
-/* WHOLE_DRIVER_CANDIDATE fn_0000000000016c9c origin=model_output original=mscaler_pad_event_handle */
-static int32_t mscaler_pad_event_handle_raw(void *arg1, int32_t arg2,
-					   void **arg3)
-{
-	uint32_t pad_type = *(uint8_t *)((char *)arg1 + 5);
-	uint32_t pad_state = *(uint8_t *)((char *)arg1 + 7);
-	void *chan = *(void **)((char *)arg1 + 0x20);
-	void *dev = (void *)((uintptr_t)chan ? *(void **)((char *)(uintptr_t)chan + 0x64) : 0);
-	uint32_t ch_id = chan ? *(uint32_t *)((char *)chan + 0x4c) : 0;
-	uint32_t ret = 0;
-
-	if (pad_type == 0)
-		goto out;
-
-	if ((uint32_t)(arg2 - TX_ISP_FRAME_EVENT_GET_FORMAT) >= 7)
-		goto out;
-
-	switch (arg2) {
-	case TX_ISP_FRAME_EVENT_GET_FORMAT:
-		if (pad_type == 2 && arg3 != 0 && chan != 0)
-			memcpy(arg3, chan, 0x4c);
-		ret = 0;
-		break;
-
-	case TX_ISP_FRAME_EVENT_SET_FORMAT: {
-		uint8_t crop_en = *(uint8_t *)((char *)arg3 + 0x24);
-		uint8_t scale_en = *(uint8_t *)((char *)arg3 + 0x38);
-		uint32_t in_w = *(uint32_t *)((char *)chan + 0x68);
-		uint32_t in_h = *(uint32_t *)((char *)chan + 0x6c);
-		uint32_t out_w, out_h;
-
-		if (pad_type != 2)
-			return 0;
-
-		if (crop_en == 0 || *(uint8_t *)((char *)chan + 0x78) != 0) {
-			isp_printf(2, "Chan%d can't be cropped!\n", ch_id);
-			return -22;
-		}
-		if (scale_en == 0 || *(uint8_t *)((char *)chan + 0x79) != 0) {
-			isp_printf(2, "Chan%d can't be scaler!\n", ch_id);
-			return -22;
-		}
-
-		if (scale_en == 0) {
-			void *reg_base = *(void **)((char *)dev + 0x144);
-			uint32_t max_w = *(uint32_t *)((char *)reg_base + 4);
-			uint32_t max_h = *(uint32_t *)((char *)reg_base + 8);
-			out_w = in_w;
-			out_h = in_h;
-			if ((uint32_t)in_w > (uint32_t)max_w)
-				out_w = in_w;
-			if ((uint32_t)in_h > (uint32_t)max_h)
-				out_h = in_h;
-		} else {
-			out_w = *(uint32_t *)((char *)arg3 + 0x3c);
-			out_h = *(uint32_t *)((char *)arg3 + 0x40);
-			if ((uint32_t)in_w > (uint32_t)out_w || (uint32_t)in_h > (uint32_t)out_h) {
-				isp_printf(2, "The chan%d in-scaler %d*%d out-scaler %d*%d!\n",
-				           ch_id, in_w, in_h, out_w, out_h);
-				return -22;
-			}
-		}
-
-		if (crop_en != 0) {
-			uint32_t crop_x = *(uint32_t *)((char *)arg3 + 0x28);
-			uint32_t crop_y = *(uint32_t *)((char *)arg3 + 0x2c);
-			uint32_t crop_w = *(uint32_t *)((char *)arg3 + 0x30);
-			uint32_t crop_h = *(uint32_t *)((char *)arg3 + 0x34);
-
-			if ((uint32_t)out_h < (uint32_t)(crop_y + crop_h)) {
-				isp_printf(2, "The chan%d crop %d*%d, %d*%d!\n",
-				           ch_id, crop_x, crop_y, crop_w, crop_h);
-				return -22;
-			}
-
-			if ((uint32_t)out_w < (uint32_t)(crop_x + crop_w)) {
-				isp_printf(2, "The chan%d crop %d*%d, %d*%d!\n",
-				           ch_id, crop_x, crop_y, crop_w, crop_h);
-				return -22;
-			}
-
-			out_w = crop_w;
-			out_h = crop_h;
-		}
-
-		if ((uint32_t)out_w < *(uint32_t *)((char *)chan + 0x70) ||
-		    (uint32_t)out_h < *(uint32_t *)((char *)chan + 0x74)) {
-			((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t, uintptr_t))isp_printf)((uintptr_t)(2), (uintptr_t)("The chan%d Can't output %d*%d!\n"), (uintptr_t)(ch_id), (uintptr_t)(out_w), (uintptr_t)(out_h));
-			return -22;
-		}
-
-		if (out_w == *(uint32_t *)((char *)arg3 + 4) &&
-		    out_h == *(uint32_t *)((char *)arg3 + 8)) {
-			char *fmt_ptr = "YUV 4:2:0 semi planar, Y/CbCr";
-			uint32_t fmt_code = *(uint32_t *)((char *)arg3 + 0xc);
-			uint32_t found = 0;
-
-			while (1) {
-				uint32_t entry_fmt = *(uint32_t *)((char *)fmt_ptr + 0x20);
-				if (entry_fmt == 0) {
-					isp_printf(2, "OUTPUT can't support the fmt(%c%c%c%c)\n",
-					           *(uint8_t *)((char *)arg3 + 0xc),
-					           *(uint8_t *)((char *)arg3 + 0xd),
-					           *(uint8_t *)((char *)arg3 + 0xe),
-					           *(uint8_t *)((char *)arg3 + 0xf));
-					return -22;
-				}
-				if (fmt_code == entry_fmt) {
-					found = 1;
-					break;
-				}
-				fmt_ptr += 0x2c;
-			}
-
-			if (!found) {
-				((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t, uintptr_t))isp_printf)((uintptr_t)(2), (uintptr_t)("The chan%d output %d*%d error!\n"), (uintptr_t)(ch_id), (uintptr_t)(out_w), (uintptr_t)(out_h));
-				return -22;
-			}
-
-			private_mutex_lock((struct mutex *)((char *)dev + 0xdc));
-
-			if (fmt_code == 0x50424752 || fmt_code == 0x34524742) {
-				if (*(uint32_t *)((char *)dev + 0x140) != 0) {
-					isp_printf(2, "ms output RGB format only one channel!\n", 0);
-					private_mutex_unlock((struct mutex *)((char *)dev + 0xdc));
-					return -1;
-				}
-				*(uint32_t *)((char *)dev + 0x140) = 1;
-			}
-
-			private_mutex_unlock((struct mutex *)((char *)dev + 0xdc));
-
-			uint32_t width = *(uint32_t *)((char *)arg3 + 4);
-			uint32_t height = *(uint32_t *)((char *)arg3 + 8);
-			uint32_t bpp = *(uint32_t *)((char *)fmt_ptr + 0x24);
-			uint32_t stride = (width * bpp) >> 3;
-			uint32_t aligned_h = (height + 0xf) & 0xfffffff0;
-
-			*(void **)((char *)arg3 + 0x20) = fmt_ptr;
-			*(uint32_t *)((char *)arg3 + 0x14) = stride;
-			*(uint32_t *)((char *)arg3 + 0x18) = aligned_h * stride;
-			*(uint32_t *)((uintptr_t)chan + 0x84) = (bpp >> 3) * width;
-
-			void *reg_base2 = *(void **)((char *)dev + 0x144);
-			uint32_t src_w = *(uint32_t *)((char *)reg_base2 + 4);
-			uint32_t src_h = *(uint32_t *)((char *)reg_base2 + 8);
-			uint32_t dst_w, dst_h;
-
-			if (*(uint8_t *)((char *)arg3 + 0x38) == 0) {
-				dst_w = 0x200;
-				dst_h = 0x200;
-			} else {
-				dst_w = (src_w << 9) / *(uint32_t *)((char *)arg3 + 0x3c);
-				dst_h = (src_h << 9) / *(uint32_t *)((char *)arg3 + 0x40);
-			}
-
-			uint32_t *ch_regs = (void *)(*(uint32_t **)((uintptr_t)dev + 0xb8) + (ch_id << 8));
-			*(uint32_t *)((char *)(uintptr_t)ch_regs + 0x104) = (dst_w << 0x10) | dst_h;
-			*(uint32_t *)((char *)(uintptr_t)ch_regs + 0x100) = (*(uint32_t *)((char *)arg3 + 0x3c) << 0x10) |
-			                          (*(uint32_t *)((char *)arg3 + 0x40));
-
-			if (*(uint8_t *)((char *)arg3 + 0x24) == 0) {
-				*(uint32_t *)((char *)ch_regs + 0x128) = 0;
-			} else {
-				*(uint32_t *)((char *)(uintptr_t)ch_regs + 0x128) = (*(uint32_t *)((char *)arg3 + 0x2c) << 0x10) |
-			                         (*(uint32_t *)((char *)arg3 + 0x28));
-			}
-
-			*(uint32_t *)((char *)(uintptr_t)ch_regs + 0x12c) = (*(uint32_t *)((char *)arg3 + 0x30) << 0x10) |
-			                         (*(uint32_t *)((char *)arg3 + 0x34));
-
-			uint32_t field = *(uint32_t *)((char *)arg3 + 0x44);
-			if (field >= 0x20)
-				field = 0x1f;
-			uint32_t interlace = *(uint32_t *)((char *)arg3 + 0x48);
-			if (interlace == 0)
-				interlace = 1;
-
-			*(uint32_t *)((char *)arg3 + 0x44) = field;
-			*(uint32_t *)((char *)arg3 + 0x48) = interlace;
-			*(uint32_t *)((char *)ch_regs + 0x130) = field;
-			*(uint32_t *)((char *)ch_regs + 0x134) = interlace;
-			*(uint32_t *)((char *)ch_regs + 0x168) = *(uint32_t *)((char *)fmt_ptr + 0x28);
-
-			memcpy(chan, arg3, 0x4c);
-			ret = 0;
-		} else {
-			((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t, uintptr_t))isp_printf)((uintptr_t)(2), (uintptr_t)("The chan%d output %d*%d error!\n"), (uintptr_t)(ch_id), (uintptr_t)(out_w), (uintptr_t)(out_h));
-			return -22;
-		}
-		break;
-	}
-
-	case TX_ISP_FRAME_EVENT_STREAM_ON: {
-		if (pad_state != 3)
-			return 0;
-
-		uint32_t flags = arch_local_irq_save();
-		*(uint32_t *)(entry_gp + 0x14) += 1;
-
-		if (*(uint32_t *)((char *)chan + 0x50) != 4) {
-			uint32_t *ch_regs = (void *)(*(uint32_t **)((uintptr_t)dev + 0xb8) + (ch_id << 8));
-			uint32_t dma_val = *(uint32_t *)((char *)chan + 0x84);
-			*(uint32_t *)((char *)ch_regs + 0x180) = dma_val;
-			*(uint32_t *)((char *)ch_regs + 0x198) = dma_val;
-			configure_channel_dma_addr(chan);
-			tx_isp_reg_set(dev, 4, ch_id, ch_id, 1);
-			*(uint32_t *)((char *)chan + 0x8c) = 0;
-			*(uint32_t *)((char *)chan + 0x50) = 4;
-			*(uint8_t *)((char *)arg1 + 7) = 4;
-		}
-
-		arch_local_irq_restore(flags);
-		*(uint32_t *)(entry_gp + 0x14) -= 1;
-
-		if ((*(uint32_t *)(entry_gp + 8) & 4) == 0)
-			return 0;
-		preempt_schedule();
-		ret = 0;
-		break;
-	}
-
-	case TX_ISP_FRAME_EVENT_STREAM_OFF:
-		mscaler_frame_channel_streamoff_isra_0(arg1);
-		ret = 0;
-		break;
-
-	case TX_ISP_FRAME_EVENT_QUEUE_BUFFER: {
-		if (pad_type != 2) {
-			isp_printf(2, "The type of pad isn't OUTPUT!\n", 0);
-			return -22;
-		}
-		if (arg3 == 0 || chan == 0)
-			return 0;
-
-		uint32_t flags = arch_local_irq_save();
-		*(uint32_t *)(entry_gp + 0x14) += 1;
-
-		void **list_head = *(void ***)((char *)chan + 0x80);
-		*(void **)((char *)chan + 0x80) = arg3;
-		*(void **)arg3[0] = (char *)chan + 0x7c;
-		((void **)arg3)[1] = list_head;
-		*(void **)list_head[0] = arg3;
-
-		configure_channel_dma_addr(chan);
-		arch_local_irq_restore(flags);
-		*(uint32_t *)(entry_gp + 0x14) -= 1;
-
-		if ((*(uint32_t *)(entry_gp + 8) & 4) == 0)
-			return 0;
-		preempt_schedule();
-		ret = 0;
-		break;
-	}
-
-	case TX_ISP_T30_FRAME_EVENT_FREE_BUFFER: {
-		if (pad_type != 2) {
-			isp_printf(2, "The type of pad isn't OUTPUT!\n", 0);
-			return -22;
-		}
-		if (chan == 0)
-			return 0;
-
-		uint32_t flags = arch_local_irq_save();
-		*(uint32_t *)(entry_gp + 0x14) += 1;
-
-		uint32_t *list = *(uint32_t **)((char *)chan + 0x7c);
-		uint32_t *self = (uint32_t *)((char *)chan + 0x7c);
-
-		while (list != self) {
-			uint32_t *next = (void *)(*(uint32_t **)((uintptr_t)list + 1));
-			uint32_t *prev = *(uint32_t **)list;
-			*(uint32_t *)(prev + 4) = (uint32_t)next;
-			*(uint32_t *)next = (uint32_t)prev;
-			*list = 0x100100;
-			*(list + 1) = 0x200200;
-			list = *(uint32_t **)((char *)chan + 0x7c);
-		}
-
-		private_spin_unlock_irqrestore((spinlock_t *)((char *)chan + 0x84), flags);
-		*(uint32_t *)(entry_gp + 0x14) -= 1;
-
-		if ((*(uint32_t *)(entry_gp + 8) & 4) == 0)
-			return 0;
-		preempt_schedule();
-		ret = 0;
-		break;
-	}
-
-	default:
-		ret = 0;
-		break;
-	}
-
-out:
-	return ret;
-}
-
 int mscaler_slake_module(void *arg1)
 {
 	struct tx_isp_t30_subdev *sd = arg1;
@@ -29750,68 +22701,6 @@ int mscaler_slake_module(void *arg1)
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000173d0 origin=model_output original=mscaler_slake_module */
-/* Raw recovery retained for audit; the kernel build uses the typed OEM path. */
-static int mscaler_slake_module_raw(void *arg1)
-{
-	void *s0;
-	int state;
-	unsigned long flags;
-	int *i;
-	void *ch_base;
-	int ch_count;
-	void *vid_base;
-	int vid_count;
-	void *clk_array;
-	int clk_count;
-	int j;
-	void *clk;
-
-	if (arg1 == NULL)
-		return -22;
-
-	if ((unsigned long)arg1 >= 0xfffff001UL)
-		return -22;
-
-	s0 = *(void **)((char *)arg1 + 0xd4);
-	if (s0 == NULL)
-		return -22;
-
-	if ((unsigned long)s0 >= 0xfffff001UL)
-		return -22;
-
-	state = *(int *)((char *)s0 + 0xe8);
-	if (state == 1)
-		return 0;
-
-	if (state >= 3)
-		mscaler_core_ops_init(arg1, 0);
-
-	*(int **)((char *)s0 + 0xb8) = (uintptr_t)2;
-	flags = arch_local_irq_save();
-	*(int *)(entry_gp + 0x14) += 1;
-	*(int *)((char *)s0 + 0xe8) = 1;
-
-	ch_base = *(void **)((char *)s0 + 0x138);
-	ch_count = *(int *)((char *)s0 + 0x13c);
-	for (i = 0; i < ch_count; i++)
-		*(int *)((uintptr_t)ch_base + (uintptr_t)i * 0x90 + 0x50) = 1;
-
-	vid_base = *(void **)((char *)s0 + 0x144);
-	vid_count = *(int *)((char *)s0 + 0x148);
-	for (i = 0; i < vid_count; i++)
-		*(int *)((uintptr_t)vid_base + (uintptr_t)i * 0x5c + 0x50) = 1;
-
-	clk_array = *(void **)((char *)arg1 + 0xbc);
-	clk_count = *(int *)((char *)arg1 + 0xc0);
-	for (j = clk_count - 1; j >= 0; j--) {
-		clk = *(void **)((uintptr_t)clk_array + j * 4);
-		((uintptr_t (*)(uintptr_t, uintptr_t))private_clk_disable)((uintptr_t)(clk), (uintptr_t)(flags));
-	}
-
-	private_spin_unlock_irqrestore((spinlock_t *)((char *)s0 + 0xdc), flags);
-	return 0;
-}
-
 int mscaler_activate_module(void *arg1)
 {
 	struct tx_isp_t30_subdev *sd = arg1;
@@ -29852,50 +22741,6 @@ int mscaler_activate_module(void *arg1)
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000017540 origin=model_output original=mscaler_activate_module */
-/* Raw recovery retained for audit; the kernel build uses the typed OEM path. */
-static int mscaler_activate_module_raw(void *arg1)
-{
-    int *i = 0;
-    if (arg1 == NULL)
-        return -22;
-
-    if ((unsigned long)arg1 < 0xfffff001UL) {
-        void *s0 = *(void **)((char *)arg1 + 0xd4);
-
-        if (s0 != NULL && (unsigned long)s0 < 0xfffff001UL) {
-            if (*(int *)((char *)s0 + 0xe8) == 1) {
-                void *s4 = *(void **)((char *)arg1 + 0xbc);
-                int *i = 0;
-
-                while (i < *(int *)((char *)arg1 + 0xc0)) {
-                    private_clk_enable(*(struct clk **)((uintptr_t)s4 + ((uintptr_t)i << 2)));
-                    i++;
-                }
-
-                *(int **)((char *)s0 + 0xb8)[0] = 0;
-                unsigned long flags = arch_local_irq_save();
-                *(int *)((char *)s0 + 0xe8) = 2;
-
-                int j = 0;
-                while (j < *(int *)((char *)s0 + 0x13c)) {
-                    *(int *)((char *)*(void **)((uintptr_t)s0 + 0x138) + j * 0x90 + 0x50) = 2;
-                    j++;
-                }
-
-                int k = 0;
-                while (k < *(int *)((char *)s0 + 0x148)) {
-                    *(int *)((char *)*(void **)((uintptr_t)s0 + 0x144) + k * 0x5c + 0x50) = 2;
-                    k++;
-                }
-
-                private_spin_unlock_irqrestore((spinlock_t *)((char *)s0 + 0xdc), flags);
-            }
-            return 0;
-        }
-    }
-    return -22;
-}
-
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000176a0 origin=model_output original=__vb2_queue_free */
 void *__vb2_queue_free(void *arg1, int32_t arg2)
 {
@@ -29920,172 +22765,6 @@ void *__vb2_queue_free(void *arg1, int32_t arg2)
 	INIT_LIST_HEAD(&queue->queued_list);
 
 	return &queue->queued_list;
-}
-
-/* WHOLE_DRIVER_CANDIDATE fn_0000000000017730 origin=fragment_seed original=dump_isp_framesource_open */
-int32_t dump_isp_framesource_open(uint32_t a0, uint32_t a1)
-{
-    uint32_t *local_10 = 0;
-    uint32_t local_14 = 0;
-    uint32_t a2 = 0;
-    uint32_t *a3 = 0;
-    uint32_t ra = 0;
-    uint32_t *s0 = 0;
-    uint32_t t9 = 0;
-    uint32_t *v0 = 0;
-
-    /* fragment 0: Prologue */
-    /* function prologue: stack frame and callee-saved register setup */
-
-    /* fragment 1: CallSetup */
-    s0 = a1;
-    v0 = (uintptr_t *)PDE_DATA((void *)(int32_t *)a0); /* jalr target resolved by relocation */
-
-    /* fragment 2: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    /* fragment 3: Arithmetic */
-    a1 = 65536;
-    a0 = s0;
-    t9 = (uintptr_t)&private_single_open_size;
-
-    /* fragment 4: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    /* fragment 5: Arithmetic */
-    a3 = 2048;
-    a2 = v0;
-    a1 = a1 + 30584;
-    t9 = t9;
-
-    /* fragment 6: IndirectTailCall */
-    return private_single_open_size(a0, a1, a2, a3);
-
-    return 0;
-}
-
-/* WHOLE_DRIVER_CANDIDATE fn_0000000000017778 origin=model_output original=isp_framesource_show */
-int32_t isp_framesource_show(struct seq_file *m)
-{
-	void *dev = *(void **)((char *)m + 0x3c);
-	void *fs;
-	int32_t *i;
-	int32_t *result;
-	void *chan;
-	const char *status_str;
-	int32_t pix0, pix1, pix2, pix3;
-	int32_t res_w, res_h;
-	int32_t *s1;
-	const char *scaler_str;
-	int32_t scaler_w, scaler_h;
-	const char *crop_str;
-	int32_t crop_top, crop_left, crop_w, crop_h;
-	unsigned long flags;
-	void *queue_head, *queue_end, *queue_cur;
-	void *done_head, *done_end, *done_cur;
-	int32_t out_bufs, lost_bufs;
-
-	if (dev == NULL || (unsigned long)dev >= 0xfffff001UL) {
-		isp_printf(2, "The parameter is invalid!\n", 0);
-		return 0;
-	}
-
-	fs = *(void **)((char *)dev + 0xd4);
-	if (fs == NULL || (unsigned long)fs >= 0xfffff001UL) {
-		isp_printf(2, "The parameter is invalid!\n", 0);
-		return 0;
-	}
-
-	i = 0;
-	result = 0;
-
-	for (; (uintptr_t)i < *(int32_t *)((uintptr_t)fs + 0xe0); i = (uintptr_t)i + 1) {
-		result = (void *)(uintptr_t)((uintptr_t)result + (((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))seq_printf)((uintptr_t)(m), (uintptr_t)("############## framesource %d ###############\n"), (uintptr_t)((uintptr_t)i))));
-		chan = (void *)((char *)*(void **)((uintptr_t)fs + 0xdc) + (uintptr_t)i * 0x2c0);
-
-		status_str = "stop";
-		if (*(int32_t *)((char *)chan + 0x2a4) == 4)
-			status_str = "running";
-
-		result = (void *)(uintptr_t)((uintptr_t)result + (((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))seq_printf)((uintptr_t)(m), (uintptr_t)("(uintptr_t)chan status: %s\n"), (uintptr_t)((uintptr_t)status_str))));
-
-		if (*(int32_t *)((char *)chan + 0x2a4) == 4) {
-			pix0 = *(int8_t *)((char *)chan + 0x240);
-			pix1 = *(int8_t *)((char *)chan + 0x241);
-			pix2 = *(int8_t *)((char *)chan + 0x242);
-			pix3 = *(int8_t *)((char *)chan + 0x243);
-			s1 = ((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t, uintptr_t, uintptr_t))seq_printf)((uintptr_t *)(m), (uintptr_t)("output pixformat: %c%c%c%c\n"), (uintptr_t)(pix0), (uintptr_t)(pix1), (uintptr_t)(pix2), (uintptr_t)(pix3));
-
-			res_w = *(int32_t *)((char *)chan + 0x238);
-			res_h = *(int32_t *)((char *)chan + 0x23c);
-			s1 = (void *)(uintptr_t)((uintptr_t)s1 + (((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))seq_printf)((uintptr_t)(m), (uintptr_t)("output resolution: %d * %d\n"), (uintptr_t)(res_w), (uintptr_t)(res_h))));
-
-			scaler_str = "enable";
-			if (*(uint8_t *)((char *)chan + 0x26c) == 0)
-				scaler_str = "disable";
-
-			s1 = (void *)(uintptr_t)((uintptr_t)s1 + (((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))seq_printf)((uintptr_t)(m), (uintptr_t)("scaler : %s\n"), (uintptr_t)((uintptr_t)scaler_str))));
-
-			if (*(uint8_t *)((char *)chan + 0x26c) != 0) {
-				scaler_w = *(int32_t *)((char *)chan + 0x270);
-				scaler_h = *(int32_t *)((char *)chan + 0x274);
-				s1 = (void *)(uintptr_t)((uintptr_t)s1 + (((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))seq_printf)((uintptr_t)(m), (uintptr_t)("scaler width: %d\n"), (uintptr_t)(scaler_w))));
-				s1 = (void *)(uintptr_t)((uintptr_t)s1 + (((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))seq_printf)((uintptr_t)(m), (uintptr_t)("scaler height: %d\n"), (uintptr_t)(scaler_h))));
-			}
-
-			crop_str = "enable";
-			if (*(uint8_t *)((char *)chan + 0x258) == 0)
-				crop_str = "disable";
-
-			s1 = (void *)(uintptr_t)((uintptr_t)s1 + (((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))seq_printf)((uintptr_t)(m), (uintptr_t)("crop : %s\n"), (uintptr_t)((uintptr_t)crop_str))));
-
-			if (*(uint8_t *)((char *)chan + 0x258) != 0) {
-				crop_top = *(int32_t *)((char *)chan + 0x25c);
-				crop_left = *(int32_t *)((char *)chan + 0x260);
-				crop_w = *(int32_t *)((char *)chan + 0x264);
-				crop_h = *(int32_t *)((char *)chan + 0x268);
-				s1 = (void *)(uintptr_t)((uintptr_t)s1 + (((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))seq_printf)((uintptr_t)(m), (uintptr_t)("crop top: %d\n"), (uintptr_t)(crop_top))));
-				s1 = (void *)(uintptr_t)((uintptr_t)s1 + (((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))seq_printf)((uintptr_t)(m), (uintptr_t)("crop left: %d\n"), (uintptr_t)(crop_left))));
-				s1 = (void *)(uintptr_t)((uintptr_t)s1 + (((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))seq_printf)((uintptr_t)(m), (uintptr_t)("crop width: %d\n"), (uintptr_t)(crop_w))));
-				s1 = (void *)(uintptr_t)((uintptr_t)s1 + (((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))seq_printf)((uintptr_t)(m), (uintptr_t)("crop height: %d\n"), (uintptr_t)(crop_h))));
-			}
-
-			s1 = (void *)(uintptr_t)((uintptr_t)s1 + (seq_printf(m, "the state of buffers:\n")));
-			flags = arch_local_irq_save();
-			*(int32_t *)(entry_gp + 0x14) += 1;
-			s1 = (void *)(uintptr_t)((uintptr_t)s1 + (((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))seq_printf)((uintptr_t)(m), (uintptr_t)("queue count: %d\n"), (uintptr_t)(*(int32_t *)((char *)(uintptr_t)chan + 0x218)))));
-
-			queue_head = *(void **)((char *)chan + 0x210);
-			queue_end = (void *)((char *)queue_head - 0x4c);
-			queue_cur = (void *)((char *)chan + 0x210);
-
-			while (queue_cur != (void *)((char *)queue_end + 0x4c)) {
-				s1 = (void *)(uintptr_t)((uintptr_t)s1 + (((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))seq_printf)((uintptr_t)(m), (uintptr_t)("queue addr: 0x%08lx\n"), (uintptr_t)((unsigned long)*(void **)((char *)queue_cur + 0x34)))));
-				queue_end = (void *)((char *)*(void **)((char *)queue_end + 0x4c) - 0x4c);
-			}
-
-			s1 = (void *)(uintptr_t)((uintptr_t)s1 + (((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))seq_printf)((uintptr_t)(m), (uintptr_t)("done count: %d\n"), (uintptr_t)(*(int32_t *)((char *)(uintptr_t)chan + 0x224)))));
-
-			done_head = *(void **)((char *)chan + 0x21c);
-			done_end = (void *)((char *)done_head - 0x54);
-			done_cur = (void *)((char *)chan + 0x21c);
-
-			while (done_cur != (void *)((char *)done_end + 0x54)) {
-				s1 = (void *)(uintptr_t)((uintptr_t)s1 + (((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))seq_printf)((uintptr_t)(m), (uintptr_t)("done addr: 0x%08lx\n"), (uintptr_t)((unsigned long)*(void **)((char *)done_cur + 0x34)))));
-				done_end = (void *)((char *)*(void **)((char *)done_end + 0x54) - 0x54);
-			}
-
-			private_spin_unlock_irqrestore((spinlock_t *)((char *)chan + 0x298), flags);
-
-			out_bufs = *(int32_t *)((char *)chan + 0x2b4);
-			lost_bufs = *(int32_t *)((char *)chan + 0x2b8);
-			result = (void *)(uintptr_t)((uintptr_t)result + (((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))seq_printf)((uintptr_t)(m), (uintptr_t)("the output buffers is: %d\n"), (uintptr_t)(out_bufs))));
-			result = (void *)(uintptr_t)((uintptr_t)result + (((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))seq_printf)((uintptr_t)(m), (uintptr_t)("the losted buffers is: %d\n"), (uintptr_t)(lost_bufs))));
-			result = (void *)(uintptr_t)((uintptr_t)result + ((uintptr_t)s1));
-		}
-	}
-
-	return result;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000017b3c origin=model_output original=frame_channel_open */
@@ -30195,29 +22874,6 @@ int32_t fs_activate_module(void *arg1)
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000017ce0 origin=model_output original=fs_activate_module */
-/* Raw recovery retained for audit; the kernel build uses the typed OEM path. */
-static int32_t fs_activate_module_raw(void *arg1)
-{
-    int i = 0;
-    if (arg1 == NULL || (uintptr_t)arg1 >= 0xfffff001u)
-        return -22;
-
-    if (*(int32_t *)((char *)arg1 + 0xe4) == 1) {
-        i = 0;
-        while (i < *(int32_t *)((char *)arg1 + 0xe0)) {
-            void *ch = (void *)(i * 0x2c0 + *(int32_t *)((char *)arg1 + 0xdc));
-            if (*(int32_t *)((char *)ch + 0x2a4) != 1) {
-                isp_printf(2, "The state of channel%d is invalid when be activated!\n", i);
-                return -1;
-            }
-            *(int32_t *)((char *)ch + 0x2a4) = 2;
-            i++;
-        }
-        *(int32_t *)((char *)arg1 + 0xe4) = 2;
-    }
-    return 0;
-}
-
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000017d90 origin=model_output original=__vb2_queue_cancel */
 void __vb2_queue_cancel(void *arg1)
 {
@@ -30326,38 +22982,6 @@ int32_t fs_slake_module(void *arg1)
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000017f90 origin=model_output original=fs_slake_module */
-/* Raw recovery retained for audit; the kernel build uses the typed OEM path. */
-static int32_t fs_slake_module_raw(void *arg1)
-{
-    int32_t *i;
-    void *entry;
-    int32_t state;
-    int32_t count;
-    int32_t *base;
-    int32_t ret;
-
-    if (arg1 == NULL)
-        return -22;
-
-    if ((unsigned int)arg1 >= 0xfffff001u)
-        return -22;
-
-    if (*(int32_t *)((char *)arg1 + 0xe4) != 1) {
-        for (i = 0; i < *(int32_t *)((char *)arg1 + 0xe0); i++) {
-            entry = (void *)((uintptr_t)i * 0x2c0 + *(int32_t *)((char *)arg1 + 0xdc));
-            state = *(int32_t *)((char *)entry + 0x2a4);
-            if (state == 4) {
-                __frame_channel_vb2_streamoff(entry, *(int32_t *)((char *)entry + 0x24), 0);
-                __vb2_queue_free((char *)entry + 0x24, *(int32_t *)((char *)entry + 0x20c));
-            }
-            *(int32_t *)((char *)entry + 0x2a4) = 1;
-        }
-        *(int32_t *)((char *)arg1 + 0xe4) = 1;
-    }
-
-    return 0;
-}
-
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000018074 origin=model_output original=tx_isp_frame_chan_deinit */
 int32_t tx_isp_frame_chan_deinit(void *arg1)
 {
@@ -30375,311 +22999,6 @@ int32_t tx_isp_frame_chan_deinit(void *arg1)
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000180e8 origin=fragment_seed original=tx_isp_fs_probe */
-/* Raw recovery retained for audit; the active wrapper checks OEM invariants. */
-static int tx_isp_fs_probe_raw(struct platform_device *pdev)
-{
-    uintptr_t a0 = (uintptr_t)pdev;
-
-    uint32_t *local_10 = 0;
-    uint32_t *local_18 = 0;
-    uint32_t local_1c = 0;
-    uint32_t local_20 = 0;
-    uint32_t local_24 = 0;
-    uint32_t local_28 = 0;
-    uint32_t local_2c = 0;
-    uint32_t local_30 = 0;
-    uint32_t local_34 = 0;
-    uint32_t local_38 = 0;
-    uint32_t local_3c = 0;
-    uint32_t *a1 = 0;
-    uint32_t a2 = 0;
-    uint32_t *a3 = 0;
-    uint32_t ra = 0;
-    uintptr_t *s0 = 0;
-    uintptr_t *s1 = 0;
-    uint32_t *s2 = 0;
-    uint32_t *s3 = 0;
-    uintptr_t s4 = 0;
-    uintptr_t s5 = 0;
-    uint32_t s6 = 0;
-    uint32_t s7 = 0;
-    uint32_t s8 = 0;
-    uintptr_t *v0 = 0;
-    uint32_t v1 = 0;
-
-    /* fragment 0: Prologue */
-    /* function prologue: stack frame and callee-saved register setup */
-
-    /* fragment 1: CallSetup */
-    s5 = a0;
-    v0 = (uintptr_t *)kmem_cache_alloc((void *)(int32_t *)(*(uint32_t *)((char *)&kmalloc_caches + 32)), 32976); /* jalr target resolved by relocation */
-
-    /* fragment 2: Branch */
-    a2 = (uintptr_t)&tx_isp_platform_device;
-    if (v0 != 0) { goto tx_isp_fs_probe0xa0; }
-
-    /* fragment 3: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(int32_t *)isp_printf)(2, &LC28); /* jalr target resolved by relocation */
-
-    /* fragment 4: Arithmetic */
-    s3 = -12;
-
-tx_isp_fs_probe0x6c:
-    /* fragment 5: Epilogue */
-    /* function epilogue: restore registers and return */
-    return (int)v0;
-
-tx_isp_fs_probe0x70:
-    /* fragment 6: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    /* fragment 7: Arithmetic */
-    v0 = s3;
-
-    /* fragment 8: Epilogue */
-    /* function epilogue: restore registers and return */
-    return (int)v0;
-
-tx_isp_fs_probe0xa0:
-    /* fragment 9: CallSetup */
-    s1 = v0;
-    s0 = *(uint32_t *)((char *)(s5) + 88);
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(int32_t *)tx_isp_subdev_init)(s5, v0, &fs_subdev_ops); /* OEM tx-isp-frame-channel.c */
-
-    /* fragment 10: Branch */
-    s3 = v0;
-    if (v0 == 0) { goto tx_isp_fs_probe0x104; }
-
-    /* fragment 11: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(2, &LC29, *(uint8_t *)((char *)(s0) + 2), *(uint8_t *)((char *)(s0) + 3)); /* jalr target resolved by relocation */
-
-    /* fragment 12: CallSetup */
-    s3 = -12;
-
-tx_isp_fs_probe0xec:
-    /* fragment 13: CallSetup */
-    kfree((void *)(uintptr_t)s1); /* jalr target resolved by relocation */
-
-    /* fragment 14: Branch */
-    goto tx_isp_fs_probe0x70;
-
-tx_isp_fs_probe0x104:
-    /* fragment 15: MemoryAccess */
-    v0 = *(uint16_t *)((char *)s1 + 200);
-
-    /* fragment 16: Branch */
-    int _bc_v0_16 = v0 == 0;
-    *(uint32_t *)((char *)s1 + 224) = v0;
-    if (_bc_v0_16) { goto tx_isp_fs_probe0x154; }
-
-    /* fragment 17: CallSetup */
-    s6 = (uintptr_t)&sprintf;
-    v0 = (uintptr_t *)__kmalloc((uintptr_t)v0 * 704, 32976); /* jalr target resolved by relocation */
-
-    /* fragment 18: Arithmetic */
-    s7 = (uintptr_t)&tx_isp_platform_device;
-
-    /* fragment 19: MemoryAccess */
-    *(uint32_t *)((char *)s1 + 220) = v0;
-    s2 = 0;
-    s8 = (uintptr_t)&LC30;
-    s6 = s6;
-    s7 = s7 - 9988;
-
-tx_isp_fs_probe0x144:
-    /* fragment 20: MemoryAccess */
-    v0 = *(uint32_t *)((char *)s1 + 224);
-    v0 = s2 < v0;
-
-    /* fragment 21: Branch */
-    v1 = 704;
-    if (v0 != 0) { goto tx_isp_fs_probe0x184; }
-
-tx_isp_fs_probe0x154:
-    /* fragment 22: CallSetup */
-    *(uint32_t *)((char *)s1 + 228) = 1;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(int32_t *)private_platform_set_drvdata)(s5, s1); /* jalr target resolved by relocation */
-
-    /* fragment 23: ConstantLoad */
-    v0 = ((char *)&isp_framesource_fops);
-
-    /* fragment 24: MemoryAccess */
-    *(uint32_t *)((char *)s1 + 52) = v0;
-
-    /* fragment 25: Branch */
-    *(uint32_t *)((char *)s1 + 212) = s1;
-    goto tx_isp_fs_probe0x6c;
-
-tx_isp_fs_probe0x184:
-    /* fragment 26: Arithmetic */
-    a0 = (uintptr_t)s2 * v1;
-
-    /* fragment 27: MemoryAccess */
-    v0 = *(uint32_t *)((char *)s1 + 220);
-    s0 = a0 + (uintptr_t)v0;
-
-    /* fragment 28: Branch */
-    v0 = s0 < -4095;
-    if (s0 == 0) { goto tx_isp_fs_probe0x358; }
-
-    /* fragment 29: Branch */
-    v1 = 36;
-    if (v0 == 0) { goto tx_isp_fs_probe0x358; }
-
-    /* fragment 30: Arithmetic */
-    a0 = (uintptr_t)s2 * v1;
-
-    /* fragment 31: MemoryAccess */
-    v0 = *(uint32_t *)((char *)s1 + 204);
-    s4 = a0 + (uintptr_t)v0;
-
-    /* fragment 32: Branch */
-    v0 = s4 < -4095;
-    if (s4 == 0) { goto tx_isp_fs_probe0x358; }
-
-    /* fragment 33: Branch */
-    if (v0 == 0) { goto tx_isp_fs_probe0x358; }
-
-    /* fragment 34: MemoryAccess */
-    a2 = *(uint8_t *)((char *)s4 + 4);
-    *(uint32_t *)((char *)s0 + 656) = s4;
-    *(uint32_t *)((char *)s0 + 660) = a2;
-    v1 = *(uint8_t *)((char *)s4 + 5);
-	/* All T30 frame-source pads are OEM DDR outputs.  Preserve that
-	 * descriptor invariant before the inlined channel initializer decides
-	 * whether this channel is defined. */
-	if (v1 == 0) {
-		printk(KERN_WARNING
-		       "tx-isp: frame channel %u lost its output pad type; restoring OEM descriptor\n",
-		       s2);
-		*(uint8_t *)((char *)s4 + 5) = 2;
-		*(uint8_t *)((char *)s4 + 6) = 0x10;
-		v1 = 2;
-	}
-
-    /* fragment 35: Branch */
-    v0 = 0;
-    if (v1 == 0) { goto tx_isp_fs_probe0x33c; }
-
-    /* fragment 36: CallSetup */
-    local_10 = s0 + 640;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))sprintf)((int32_t *)((const char *)(uintptr_t)(s0 + 640)), (uintptr_t)("%s"), (uintptr_t)(({ uintptr_t __regtrace_cstr = (uintptr_t)((const char *)(uintptr_t)&LC30); (const char *)(__regtrace_cstr ? __regtrace_cstr : (uintptr_t)"<null>"); }))); /* jalr target resolved by relocation */
-
-    /* fragment 37: CallSetup */
-    *(uint32_t *)((char *)s0 + 0) = 255;
-    *(uint32_t *)((char *)s0 + 4) = local_10;
-    *(uint32_t *)((char *)s0 + 8) = s7;
-    v0 = (uintptr_t *)((uintptr_t (*)(int32_t *))(uintptr_t)private_misc_register)(s0); /* jalr target resolved by relocation */
-
-    /* fragment 38: Branch */
-    a1 = (uint32_t *)&LC31;
-    if (v0 >= 0) { goto tx_isp_fs_probe0x258; }
-
-    /* fragment 39: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(2, &LC31, *(uint32_t *)((char *)(s0) + 660)); /* jalr target resolved by relocation */
-
-    /* fragment 40: Arithmetic */
-    s3 = -2;
-
-tx_isp_fs_probe0x22c:
-    /* fragment 41: ConstantLoad */
-    s0 = 0x18074;
-
-tx_isp_fs_probe0x238:
-    /* fragment 42: Branch */
-    v0 = 704;
-    if (s2 == 0) { goto tx_isp_fs_probe0xec; }
-
-    /* fragment 43: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)tx_isp_frame_chan_deinit)(((uintptr_t)s2 * (uintptr_t)v0) + (*(uint32_t *)((char *)((uintptr_t)s1) + 220))); /* jalr target resolved by relocation */
-
-    /* fragment 44: Branch */
-    s2 = s2 - 1;
-    goto tx_isp_fs_probe0x238;
-
-tx_isp_fs_probe0x258:
-    /* fragment 45: Arithmetic */
-    a0 = s0 + 36;
-
-    /* fragment 46: Branch */
-    v0 = a0 < -4095;
-    if (a0 == 0) { goto tx_isp_fs_probe0x348; }
-
-    /* fragment 47: Branch */
-    int _bc_v0_47 = v0 == 0;
-    v0 = (uintptr_t *)&memset;
-    if (_bc_v0_47) { goto tx_isp_fs_probe0x348; }
-
-    /* fragment 48: CallSetup */
-    v0 = (uintptr_t *)memset((void *)(int32_t *)a0, 0, 528); /* jalr target resolved by relocation */
-
-    /* fragment 49: Arithmetic */
-    v0 = 1;
-
-    /* fragment 50: MemoryAccess */
-    *(uint32_t *)((char *)s0 + 36) = v0;
-    v0 = 2;
-    *(uint32_t *)((char *)s0 + 60) = v0;
-    v0 = 108;
-    *(uint32_t *)((char *)s0 + 52) = v0;
-    v0 = 8192;
-    *(uint32_t *)((char *)s0 + 56) = v0;
-    v0 = s0 + 528;
-    *(uint32_t *)((char *)s0 + 528) = v0;
-    *(uint32_t *)((char *)s0 + 532) = v0;
-    v0 = s0 + 540;
-    *(uint32_t *)((char *)s0 + 540) = v0;
-    *(uint32_t *)((char *)s0 + 544) = v0;
-    a2 = 0;
-    a1 = (uint32_t *)&LC32;
-    v0 = (uintptr_t *)&__mutex_init;
-    v0 = v0;
-    a2 = a2;
-    a1 = a1;
-    a0 = s0 + 40;
-
-    /* fragment 51: CallSetup */
-    local_10 = v0;
-    __mutex_init((void *)(uintptr_t)a0, (const char *)(uintptr_t)a1, (void *)(uintptr_t)a2); /* jalr target resolved by relocation */
-
-    /* fragment 52: CallSetup */
-    *(uint32_t *)((char *)s0 + 536) = 0;
-    *(uint32_t *)((char *)s0 + 548) = 0;
-    __init_waitqueue_head((void *)(uintptr_t)(s0 + 552), (const char *)(uintptr_t)&LC33, (void *)(uintptr_t)0); /* jalr target resolved by relocation */
-
-    /* fragment 53: CallSetup */
-    __mutex_init((void *)(uintptr_t)(s0 + 664), (const char *)(uintptr_t)&LC34, (void *)(uintptr_t)0); /* jalr target resolved by relocation */
-
-    /* fragment 54: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_init_completion)(s0 + 680); /* jalr target resolved by relocation */
-
-    /* fragment 55: ConstantLoad */
-    v0 = 0x193bc;
-
-    /* fragment 56: MemoryAccess */
-    *(uint32_t *)((char *)s4 + 28) = v0;
-    v0 = 1;
-
-tx_isp_fs_probe0x33c:
-    /* fragment 57: MemoryAccess */
-    *(uint32_t *)((char *)s0 + 676) = v0;
-
-    /* fragment 58: Branch */
-    s2 = s2 + 1;
-    goto tx_isp_fs_probe0x144;
-
-tx_isp_fs_probe0x348:
-    /* fragment 59: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(int32_t *))(uintptr_t)private_misc_deregister)(s0); /* jalr target resolved by relocation */
-
-tx_isp_fs_probe0x358:
-    /* fragment 60: Branch */
-    s3 = -22;
-    goto tx_isp_fs_probe0x22c;
-
-    return ((int64_t)(uint32_t)v1 << 32) | (uint32_t)v0;
-}
-
 int tx_isp_fs_probe(struct platform_device *pdev)
 {
 	struct tx_isp_t30_subdev *sd;
@@ -30812,6 +23131,13 @@ int32_t __enqueue_in_driver_isra_0(void *arg1)
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000184f4 origin=fragment_seed original=frame_channel_unlocked_ioctl */
+/*
+ * Lu-Fi/openimp#274 lift check: nine loads of this function had lost their
+ * base register ("(char *)(uintptr_t *) + off" = absolute address off); the
+ * OEM (SDK ko 0x184f4 +0x104/0x1cc/0x37c/0x464/0x714/0x91c/0x9d0/0xaa4/
+ * 0xb48) reads all of them from s8 (the frame channel): +52 buffer size,
+ * +532 irq flags, +560 state byte, +656 subdev, +660 channel index.
+ */
 static long frame_channel_unlocked_ioctl_raw(struct file *a0_file,
 					     unsigned int a1,
 					     unsigned long a2)
@@ -30881,7 +23207,7 @@ static long frame_channel_unlocked_ioctl_raw(struct file *a0_file,
     s1 = a2;
 
     /* fragment 3: Branch */
-    a0 = v0 + 22213;
+    a0 = (uintptr_t)v0 + 22213;	/* OEM byte arithmetic on the lui value; the typed v0 scaled it x4 (#381) */
     if (s8 == 0) { goto frame_channel_unlocked_ioctl0x4c; }
 
     /* fragment 4: Arithmetic */
@@ -30896,16 +23222,16 @@ frame_channel_unlocked_ioctl0x4c:
     if (a1 == a0) { goto frame_channel_unlocked_ioctl0x650; }
 
     /* fragment 7: Arithmetic */
-    v1 = v0 + 22214;
+    v1 = (uintptr_t)v0 + 22214;	/* OEM byte arithmetic on the lui value; the typed v0 scaled it x4 (#381) */
     v1 = a1 < v1;
 
     /* fragment 8: Branch */
     int _bc_v1_8 = v1 == 0;
-    v1 = v0 + 22034;
+    v1 = (uintptr_t)v0 + 22034;	/* OEM byte arithmetic on the lui value; the typed v0 scaled it x4 (#381) */
     if (_bc_v1_8) { goto frame_channel_unlocked_ioctl0xc84; }
 
     /* fragment 9: Branch */
-    v0 = v0 + 22035;
+    v0 = (uintptr_t *)((uintptr_t)v0 + 22035);	/* OEM byte arithmetic on the lui value; the typed v0 scaled it x4 (#381) */
     if (a1 == v1) { goto frame_channel_unlocked_ioctl0x650; }
 
     /* fragment 10: Arithmetic */
@@ -30923,7 +23249,7 @@ frame_channel_unlocked_ioctl0x4c:
     if (_bc_a1_13) { goto frame_channel_unlocked_ioctl0xbfc; }
 
     /* fragment 14: Arithmetic */
-    v0 = v0 + 22212;
+    v0 = (uintptr_t *)((uintptr_t)v0 + 22212);	/* OEM byte arithmetic on the lui value; the typed v0 scaled it x4 (#381) */
 
     /* fragment 15: Branch */
     s0 = -22;
@@ -30947,7 +23273,7 @@ frame_channel_unlocked_ioctl0x9c:
 
 frame_channel_unlocked_ioctl0xac:
     /* fragment 20: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(int32_t *))(uintptr_t)isp_printf)(2); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)isp_printf)(2, (uintptr_t)a1);	/* #369 fmt in a1 */ /* jalr target resolved by relocation */
 
     /* fragment 21: Branch */
     s0 = -22;
@@ -30994,7 +23320,7 @@ frame_channel_unlocked_ioctl0xf4:
 
 frame_channel_unlocked_ioctl0x104:
     /* fragment 32: CallSetup */
-    v0 = (uintptr_t)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tx_isp_send_event_to_remote)(*(uint32_t *)((char *)(uintptr_t *) + 656), a1 + 2, &local_10); /* jalr target resolved by relocation */
+    v0 = (uintptr_t)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tx_isp_send_event_to_remote)(*(uint32_t *)((char *)s8 + 656), a1 + 2, &local_10); /* jalr target resolved by relocation */
 
     /* fragment 33: Branch */
     s0 = v0;
@@ -31019,12 +23345,12 @@ frame_channel_unlocked_ioctl0x138:
 
 frame_channel_unlocked_ioctl0x144:
     /* fragment 38: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(int32_t *))(uintptr_t)isp_printf)(a0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(a0, (uintptr_t)a1, (uintptr_t)a2);	/* #369 fmt a1, arg a2 */ /* jalr target resolved by relocation */
 
 frame_channel_unlocked_ioctl0x14c:
     /* fragment 39: Epilogue */
     /* function epilogue: restore registers and return */
-    return (int64_t)v0;
+    return (int64_t)s0;	/* OEM 18640: move v0,s0, the lift returned the stale v0 (#371) */
 
 frame_channel_unlocked_ioctl0x150:
     /* fragment 40: Epilogue */
@@ -31039,7 +23365,7 @@ frame_channel_unlocked_ioctl0x150:
 
 frame_channel_unlocked_ioctl0x180:
     /* fragment 43: MemoryAccess */
-    v0 = 0;
+    v0 = T30_GP_ADDR_LIMIT();	/* OEM lw v0,24(gp): addr_limit (#371) */
     s2 = (uintptr_t)s2 & (uintptr_t)v0;
 
     /* fragment 44: Branch */
@@ -31054,10 +23380,10 @@ frame_channel_unlocked_ioctl0x180:
 
 frame_channel_unlocked_ioctl0x1a0:
     /* fragment 47: CallSetup */
-    v0 = (uintptr_t *)__copy_user((void *)(int32_t *)a0, (void *)(uintptr_t)&local_10, 76); /* jalr target resolved by relocation */
+    a2 = __copy_to_user((void __user *)(uintptr_t)a0, &local_10, 76);	/* OEM inlined access_ok + __copy_user: a2 = bytes not copied (#381) */
 
     /* fragment 48: Branch */
-    s0 = a2;
+    s0 = (uintptr_t *)(uintptr_t)a2;	/* OEM 186b0 move s0,a2 */
     if (a2 == 0) { goto frame_channel_unlocked_ioctl0x258; }
 
 frame_channel_unlocked_ioctl0x1c0:
@@ -31071,7 +23397,7 @@ frame_channel_unlocked_ioctl0x1c4:
 
 frame_channel_unlocked_ioctl0x1cc:
     /* fragment 51: CallSetup */
-    v0 = (uintptr_t)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tx_isp_send_event_to_remote)(*(uint32_t *)((char *)(uintptr_t *) + 656), TX_ISP_FRAME_EVENT_GET_FORMAT, &local_10); /* jalr target resolved by relocation */
+    v0 = (uintptr_t)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tx_isp_send_event_to_remote)(*(uint32_t *)((char *)s8 + 656), TX_ISP_FRAME_EVENT_GET_FORMAT, &local_10); /* jalr target resolved by relocation */
 
     /* fragment 52: Branch */
     s0 = v0;
@@ -31101,7 +23427,7 @@ frame_channel_unlocked_ioctl0x208:
     local_20 = v0;
     v0 = 1;
     local_10 = v0;
-    a0 = 0;
+    a0 = T30_GP_ADDR_LIMIT();	/* OEM lw a0,24(gp): addr_limit (#371) */
     v0 = s1 + 76;
     v0 = (uintptr_t)v0 | (uintptr_t)s1;
     v0 = (uintptr_t)v0 & a0;
@@ -31143,7 +23469,7 @@ frame_channel_unlocked_ioctl0x288:
 
 frame_channel_unlocked_ioctl0x294:
     /* fragment 68: MemoryAccess */
-    s2 = 0;
+    s2 = T30_GP_ADDR_LIMIT();	/* OEM lw s2,24(gp): addr_limit (#371) */
     s4 = s4 | (uintptr_t)s1;
     s2 = s4 & (uintptr_t)s2;
 
@@ -31158,7 +23484,7 @@ frame_channel_unlocked_ioctl0x294:
     v0 = (uintptr_t *)copy_from_user((void *)(int32_t *)&local_10, (const void __user *)(uintptr_t)((void *)(uintptr_t)s1), 20); /* jalr target resolved by relocation */
 
     /* fragment 72: Branch */
-    s0 = a2;
+    s0 = v0;	/* OEM 187d4 move s0,a2 = bytes not copied; the lift took the ioctl arg a2, so REQBUFS(0) etc. returned the user pointer (#381) */
     if (v0 != 0) { goto frame_channel_unlocked_ioctl0xea8; }
 
     /* fragment 73: MemoryAccess */
@@ -31174,7 +23500,7 @@ frame_channel_unlocked_ioctl0x294:
 
 frame_channel_unlocked_ioctl0x2f8:
     /* fragment 76: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(int32_t *))(uintptr_t)isp_printf)(2); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)isp_printf)(2, (uintptr_t)a1);	/* #369 fmt in a1 */ /* jalr target resolved by relocation */
 
     /* fragment 77: Branch */
     s0 = -16;
@@ -31201,7 +23527,7 @@ frame_channel_unlocked_ioctl0x310:
 
 frame_channel_unlocked_ioctl0x334:
     /* fragment 83: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(int32_t *))(uintptr_t)__vb2_queue_free)(s6); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)__vb2_queue_free)(s6, a1);	/* #369 OEM 0x18814 lw a1,524(s8) is the count */ /* jalr target resolved by relocation */
 
     /* fragment 84: StackAccess */
     v0 = local_10;
@@ -31224,15 +23550,16 @@ frame_channel_unlocked_ioctl0x334:
 
 frame_channel_unlocked_ioctl0x364:
     /* fragment 89: CallSetup */
-    a1 = v0 < 65;
+    a1 = (uintptr_t)v0 < 65;
     a0 = 64;
+    if (a1 != 0) { a0 = (uintptr_t)v0; }	/* #369 OEM 0x18860 movn a0,v0,a1: count = min(req, 64) */
     s3 = (int32_t *)&__kmalloc;
     s3 = s3;
     s0 = a0;
 
 frame_channel_unlocked_ioctl0x37c:
     /* fragment 90: CallSetup */
-    v0 = (uintptr_t)__kmalloc(*(uint32_t *)((char *)(uintptr_t *) + 52), 32976); /* jalr target resolved by relocation */
+    v0 = (uintptr_t)__kmalloc(*(uint32_t *)((char *)s8 + 52), 32976); /* jalr target resolved by relocation */
 
     /* fragment 91: Branch */
     a1 = (uint32_t *)&LC47;
@@ -31258,7 +23585,7 @@ frame_channel_unlocked_ioctl0x3a8:
 
 frame_channel_unlocked_ioctl0x3d0:
     /* fragment 97: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(int32_t *))(uintptr_t)isp_printf)(2); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)isp_printf)(2, (uintptr_t)a1);	/* #369 fmt in a1 */ /* jalr target resolved by relocation */
 
     /* fragment 98: Branch */
     s0 = -12;
@@ -31307,7 +23634,7 @@ frame_channel_unlocked_ioctl0x42c:
 frame_channel_unlocked_ioctl0x464:
     /* fragment 106: CallSetup */
     *(uint32_t *)((char *)s8 + 524) = s2;
-    v0 = (uintptr_t)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tx_isp_send_event_to_remote)(*(uint32_t *)((char *)(uintptr_t *) + 656), TX_ISP_T30_FRAME_EVENT_SET_BANKS, &local_5c); /* jalr target resolved by relocation */
+    v0 = (uintptr_t)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tx_isp_send_event_to_remote)(*(uint32_t *)((char *)s8 + 656), TX_ISP_T30_FRAME_EVENT_SET_BANKS, &local_5c); /* jalr target resolved by relocation */
 
     /* fragment 107: Branch */
     s0 = v0;
@@ -31328,7 +23655,7 @@ frame_channel_unlocked_ioctl0x464:
 
 frame_channel_unlocked_ioctl0x4b0:
     /* fragment 112: MemoryAccess */
-    v0 = 0;
+    v0 = T30_GP_ADDR_LIMIT();	/* OEM lw v0,24(gp): addr_limit (#371) */
     s4 = s4 & (uintptr_t)v0;
 
     /* fragment 113: Branch */
@@ -31339,10 +23666,10 @@ frame_channel_unlocked_ioctl0x4b0:
     __might_sleep((const char *)(uintptr_t)a0, 201, 0); /* jalr target resolved by relocation */
 
     /* fragment 115: CallSetup */
-    v0 = (uintptr_t *)__copy_user((void *)(int32_t *)s1, (void *)(uintptr_t)&local_10, 20); /* jalr target resolved by relocation */
+    a2 = __copy_to_user((void __user *)(uintptr_t)s1, &local_10, 20);	/* OEM inlined access_ok + __copy_user: a2 = bytes not copied (#381) */
 
     /* fragment 116: Branch */
-    s0 = a2;
+    s0 = (uintptr_t *)(uintptr_t)a2;	/* OEM 189e0 move s0,a2 */
     if (a2 == 0) { goto frame_channel_unlocked_ioctl0x4fc; }
 
 frame_channel_unlocked_ioctl0x4f0:
@@ -31412,7 +23739,7 @@ frame_channel_unlocked_ioctl0x568:
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)__fill_v4l2_buffer)(*(uint32_t *)((char *)(s8 + ((uintptr_t)v0 << 2)) + 36), &local_10); /* jalr target resolved by relocation */
 
     /* fragment 134: MemoryAccess */
-    v0 = 0;
+    v0 = T30_GP_ADDR_LIMIT();	/* OEM lw v0,24(gp): addr_limit (#371) */
     s0 = (uintptr_t)s0 & (uintptr_t)v0;
 
     /* fragment 135: Branch */
@@ -31441,7 +23768,7 @@ frame_channel_unlocked_ioctl0x5ac:
     if (v0 == 0) { goto frame_channel_unlocked_ioctl0x288; }
 
     /* fragment 141: MemoryAccess */
-    v0 = 0;
+    v0 = T30_GP_ADDR_LIMIT();	/* OEM lw v0,24(gp): addr_limit (#371) */
     s2 = (uintptr_t)s2 | (uintptr_t)s1;
     v0 = (uintptr_t)s2 & (uintptr_t)v0;
 
@@ -31487,7 +23814,7 @@ frame_channel_unlocked_ioctl0x620:
 
 frame_channel_unlocked_ioctl0x640:
     /* fragment 152: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(int32_t *))(uintptr_t)isp_printf)(2); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(2, (uintptr_t)a1, (uintptr_t)a2, (uintptr_t)a3);	/* #369 fmt a1, args a2/a3 */ /* jalr target resolved by relocation */
 
 frame_channel_unlocked_ioctl0x650:
     /* fragment 153: Branch */
@@ -31596,14 +23923,14 @@ frame_channel_unlocked_ioctl0x714:
     v0 = (uintptr_t *)arch_local_irq_save(); /* jalr target resolved by relocation */
 
     /* fragment 175: CallSetup */
-    *(uint32_t *)((char *)&sp_9007) = ((*(uint32_t *)((char *)(gp) + 20)) + 1);
+    T30_GP_PREEMPT() += 1;	/* OEM gp+20 (#371) */
     *(uint32_t *)((char *)s8 + 532) = (s0 + 76);
     *(uint32_t *)((char *)s0 + 76) = (s8 + 528);
     *(uint32_t *)((char *)s0 + 80) = (*(uint32_t *)((char *)(s8) + 532));
     *(uint32_t *)((char *)(*(uint32_t *)((char *)(s8) + 532)) + 0) = (s0 + 76);
     *(uint32_t *)((char *)s0 + 72) = 1;
     *(uint32_t *)((char *)s8 + 536) = ((*(uint32_t *)((char *)(s8) + 536)) + 1);
-    v0 = (uintptr_t)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_spin_unlock_irqrestore)(s8 + 664, v0, *(uint32_t *)((char *)(uintptr_t *) + 532)); /* jalr target resolved by relocation */
+    v0 = (uintptr_t)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_spin_unlock_irqrestore)(s8 + 664, v0, *(uint32_t *)((char *)s8 + 532)); /* jalr target resolved by relocation */
 
     /* fragment 176: MemoryAccess */
     v0 = *(uint8_t *)((char *)s8 + 560);
@@ -31622,7 +23949,7 @@ frame_channel_unlocked_ioctl0x7a4:
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(int32_t *)__fill_v4l2_buffer)(s0, &local_10); /* jalr target resolved by relocation */
 
     /* fragment 180: MemoryAccess */
-    v0 = 0;
+    v0 = T30_GP_ADDR_LIMIT();	/* OEM lw v0,24(gp): addr_limit (#371) */
     s2 = (uintptr_t)s2 & (uintptr_t)v0;
 
     /* fragment 181: Branch */
@@ -31637,10 +23964,10 @@ frame_channel_unlocked_ioctl0x7a4:
 
 frame_channel_unlocked_ioctl0x7d8:
     /* fragment 184: CallSetup */
-    v0 = (uintptr_t *)__copy_user((void *)(int32_t *)a0, (void *)(uintptr_t)&local_10, 68); /* jalr target resolved by relocation */
+    a2 = __copy_to_user((void __user *)(uintptr_t)a0, &local_10, 68);	/* OEM inlined access_ok + __copy_user: a2 = bytes not copied (#381) */
 
     /* fragment 185: Branch */
-    s0 = a2;
+    s0 = (uintptr_t *)(uintptr_t)a2;	/* OEM 18ce8 move s0,a2 */
     if (a2 == 0) { goto frame_channel_unlocked_ioctl0x14c; }
 
     /* fragment 186: Branch */
@@ -31657,7 +23984,7 @@ frame_channel_unlocked_ioctl0x800:
     if (v0 == 0) { goto frame_channel_unlocked_ioctl0x288; }
 
     /* fragment 189: MemoryAccess */
-    v0 = 0;
+    v0 = T30_GP_ADDR_LIMIT();	/* OEM lw v0,24(gp): addr_limit (#371) */
     s0 = (uintptr_t)s0 | (uintptr_t)s1;
     v0 = (uintptr_t)s0 & (uintptr_t)v0;
 
@@ -31713,7 +24040,7 @@ frame_channel_unlocked_ioctl0x894:
 
     /* fragment 204: CallSetup */
     local_5c = 0;
-    v0 = *(uint32_t *)((char *)&frame_delay_10417);
+    v0 = T30_GP_TASK();
     local_60 = v0;
     v0 = (uintptr_t *)&local_68;
     local_68 = v0;
@@ -31743,7 +24070,7 @@ frame_channel_unlocked_ioctl0x8cc:
     if (v0 == 0) { goto frame_channel_unlocked_ioctl0x91c; }
 
     /* fragment 210: MemoryAccess */
-    v0 = *(uint32_t *)((char *)&frame_delay_10417);
+    v0 = T30_GP_TASK();
     v0 = *(uint32_t *)((char *)v0 + 4);
     v0 = *(uint32_t *)((char *)v0 + 8);
     v0 = (uintptr_t)v0 & 2;
@@ -31763,7 +24090,7 @@ frame_channel_unlocked_ioctl0x91c:
     finish_wait((void *)(uintptr_t)a0, (void *)(uintptr_t)&local_5c); /* jalr target resolved by relocation */
 
     /* fragment 215: Branch */
-    v0 = *(uint8_t *)((char *)(uintptr_t *) + 560);
+    v0 = *(uint8_t *)((char *)s8 + 560);
     goto frame_channel_unlocked_ioctl0x87c;
 
 frame_channel_unlocked_ioctl0x934:
@@ -31771,9 +24098,7 @@ frame_channel_unlocked_ioctl0x934:
     v0 = (uintptr_t *)arch_local_irq_save(); /* jalr target resolved by relocation */
 
     /* fragment 217: MemoryAccess */
-    a0 = *(uint32_t *)((char *)&sp_9007);
-    a0 = a0 + 1;
-    *(uint32_t *)((char *)&sp_9007) = a0;
+    T30_GP_PREEMPT() += 1;	/* OEM lw/addiu/sw 20(gp): preempt_count (#371) */
     s3 = *(uint32_t *)((char *)s8 + 540);
     a1 = v0;
     v0 = (uintptr_t *)&private_spin_unlock_irqrestore;
@@ -31793,14 +24118,14 @@ frame_channel_unlocked_ioctl0x934:
     *(uint32_t *)((char *)s8 + 548) = a0;
 
     /* fragment 218: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_spin_unlock_irqrestore)(s8 + 548); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)private_spin_unlock_irqrestore)(s8 + 548, a1);	/* OEM 18e48 move a1,v0 = flags (#371) */ /* jalr target resolved by relocation */
 
     /* fragment 219: CallSetup */
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)__fill_v4l2_buffer)(s3 - 84, &local_10); /* jalr target resolved by relocation */
 
     /* fragment 220: MemoryAccess */
     *(uint32_t *)((char *)s3 + -12) = 0;
-    v0 = 0;
+    v0 = T30_GP_ADDR_LIMIT();	/* OEM lw v0,24(gp): addr_limit (#371) */
     s0 = (uintptr_t)s0 & (uintptr_t)v0;
 
     /* fragment 221: Branch */
@@ -31824,7 +24149,7 @@ frame_channel_unlocked_ioctl0x9d0:
     if (a3 == v0) { goto frame_channel_unlocked_ioctl0xa00; }
 
     /* fragment 226: CallSetup */
-    v0 = (uintptr_t)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(2, &LC61, *(uint32_t *)((char *)(uintptr_t *) + 660)); /* jalr target resolved by relocation */
+    v0 = (uintptr_t)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(2, &LC61, *(uint32_t *)((char *)s8 + 660)); /* jalr target resolved by relocation */
 
     /* fragment 227: Branch */
     s0 = -1;
@@ -31841,7 +24166,7 @@ frame_channel_unlocked_ioctl0xa00:
     if (_bc_v0_229) { goto frame_channel_unlocked_ioctl0x288; }
 
     /* fragment 230: MemoryAccess */
-    a0 = 0;
+    a0 = T30_GP_ADDR_LIMIT();	/* OEM lw a0,24(gp): addr_limit (#371) */
     v0 = (uintptr_t)v0 | (uintptr_t)s1;
     v0 = (uintptr_t)v0 & a0;
 
@@ -31856,7 +24181,7 @@ frame_channel_unlocked_ioctl0xa00:
     v0 = (uintptr_t *)copy_from_user((void *)(int32_t *)&local_10, (const void __user *)(uintptr_t)((void *)(uintptr_t)s1), 4); /* jalr target resolved by relocation */
 
     /* fragment 234: Branch */
-    s0 = a2;
+    s0 = v0;	/* OEM 18f50 move s0,a2 = bytes not copied; the lift took the ioctl arg a2, so REQBUFS(0) etc. returned the user pointer (#381) */
     if (v0 != 0) { goto frame_channel_unlocked_ioctl0xea8; }
 
     /* fragment 235: MemoryAccess */
@@ -31903,7 +24228,7 @@ frame_channel_unlocked_ioctl0xaa4:
     if (s3 != v0) { goto frame_channel_unlocked_ioctl0xb08; }
 
     /* fragment 245: CallSetup */
-    v0 = (uintptr_t)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tx_isp_send_event_to_remote)(*(uint32_t *)((char *)(uintptr_t *) + 656), a1 + 3, 0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tx_isp_send_event_to_remote)(*(uint32_t *)((char *)s8 + 656), a1 + 3, 0); /* jalr target resolved by relocation */
 
     /* fragment 246: Arithmetic */
     s1 = v0;
@@ -31961,7 +24286,7 @@ frame_channel_unlocked_ioctl0xb48:
     if (v0 == 0) { goto frame_channel_unlocked_ioctl0x288; }
 
     /* fragment 260: MemoryAccess */
-    a0 = 0;
+    a0 = T30_GP_ADDR_LIMIT();	/* OEM lw a0,24(gp): addr_limit (#371) */
     v0 = s1 + 4;
     v0 = (uintptr_t)v0 | (uintptr_t)s1;
     v0 = (uintptr_t)v0 & a0;
@@ -31977,11 +24302,11 @@ frame_channel_unlocked_ioctl0xb48:
     v0 = (uintptr_t *)copy_from_user((void *)(int32_t *)&local_10, (const void __user *)(uintptr_t)((void *)(uintptr_t)s1), 4); /* jalr target resolved by relocation */
 
     /* fragment 264: Branch */
-    s0 = a2;
+    s0 = v0;	/* OEM 1909c move s0,a2 = bytes not copied; the lift took the ioctl arg a2, so REQBUFS(0) etc. returned the user pointer (#381) */
     if (v0 != 0) { goto frame_channel_unlocked_ioctl0xea8; }
 
     /* fragment 265: CallSetup */
-    v0 = (uintptr_t)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tx_isp_send_event_to_remote)(*(uint32_t *)((char *)(uintptr_t *) + 656), TX_ISP_T30_FRAME_EVENT_SET_BANKS, &local_10); /* jalr target resolved by relocation */
+    v0 = (uintptr_t)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tx_isp_send_event_to_remote)(*(uint32_t *)((char *)s8 + 656), TX_ISP_T30_FRAME_EVENT_SET_BANKS, &local_10); /* jalr target resolved by relocation */
 
     /* fragment 266: Branch */
     s1 = v0;
@@ -32020,7 +24345,7 @@ frame_channel_unlocked_ioctl0xc00:
 frame_channel_unlocked_ioctl0xc24:
     /* fragment 275: StackAccess */
     local_10 = v0;
-    v1 = 0;
+    v1 = T30_GP_ADDR_LIMIT();	/* OEM lw v1,24(gp): addr_limit (#371) */
     v0 = s1 + 4;
     v0 = (uintptr_t)v0 | (uintptr_t)s1;
     v0 = (uintptr_t)v0 & v1;
@@ -32044,11 +24369,12 @@ frame_channel_unlocked_ioctl0xc24:
 
 frame_channel_unlocked_ioctl0xc84:
     /* fragment 281: ConstantLoad */
-    v0 = 0xc044560f;
+    v0 = (uintptr_t *)(uintptr_t)0xc0440000;	/* OEM 19178 lui v0,0xc044; the lift folded addiu v1,v0,22031 into v0 (#381) */
+    v1 = 0xc044560f;
 
     /* fragment 282: Branch */
     int _bc_a1_282 = a1 == v1;
-    v1 = v0 + 22032;
+    v1 = 0xc0445610;	/* OEM addiu v1,v0,22032 (#381) */
     if (_bc_a1_282) { goto frame_channel_unlocked_ioctl0x650; }
 
     /* fragment 283: Arithmetic */
@@ -32063,7 +24389,7 @@ frame_channel_unlocked_ioctl0xc84:
     v1 = v1 + 22024;
 
     /* fragment 286: Branch */
-    v0 = v0 + 22025;
+    v0 = (uintptr_t *)((uintptr_t)v0 + 22025);	/* OEM byte arithmetic on the lui value; the typed v0 scaled it x4 (#381) */
     if (a1 == v1) { goto frame_channel_unlocked_ioctl0x650; }
 
 frame_channel_unlocked_ioctl0xcac:
@@ -32077,7 +24403,7 @@ frame_channel_unlocked_ioctl0xcac:
 
 frame_channel_unlocked_ioctl0xcbc:
     /* fragment 289: Arithmetic */
-    v0 = v0 + 22033;
+    v0 = (uintptr_t *)((uintptr_t)v0 + 22033);	/* OEM byte arithmetic on the lui value; the typed v0 scaled it x4 (#381) */
 
     /* fragment 290: Branch */
     int _bc_a1_290 = a1 == v0;
@@ -32085,13 +24411,13 @@ frame_channel_unlocked_ioctl0xcbc:
     if (_bc_a1_290) { goto frame_channel_unlocked_ioctl0x650; }
 
     /* fragment 291: Branch */
-    v0 = v0 + 22211;
+    v0 = (uintptr_t *)((uintptr_t)v0 + 22211);	/* OEM byte arithmetic on the lui value; the typed v0 scaled it x4 (#381) */
     goto frame_channel_unlocked_ioctl0xcac;
 
 frame_channel_unlocked_ioctl0xcd0:
     /* fragment 292: Branch */
     int _bc_a1_292 = a1 == a0;
-    a0 = v0 + 22214;
+    a0 = (uintptr_t)v0 + 22214;	/* OEM byte arithmetic on the lui value; the typed v0 scaled it x4 (#381) */
     if (_bc_a1_292) { goto frame_channel_unlocked_ioctl0xb48; }
 
     /* fragment 293: Arithmetic */
@@ -32127,10 +24453,10 @@ frame_channel_unlocked_ioctl0xcd0:
 
 frame_channel_unlocked_ioctl0xd14:
     /* fragment 302: Arithmetic */
-    a0 = v0 + 22034;
+    a0 = (uintptr_t)v0 + 22034;	/* OEM byte arithmetic on the lui value; the typed v0 scaled it x4 (#381) */
 
     /* fragment 303: Branch */
-    v0 = v0 + 22035;
+    v0 = (uintptr_t *)((uintptr_t)v0 + 22035);	/* OEM byte arithmetic on the lui value; the typed v0 scaled it x4 (#381) */
     if (a1 == a0) { goto frame_channel_unlocked_ioctl0x9d0; }
 
     /* fragment 304: Branch */
@@ -32147,7 +24473,7 @@ frame_channel_unlocked_ioctl0xd14:
     if (_bc_v0_306) { goto frame_channel_unlocked_ioctl0x288; }
 
     /* fragment 307: MemoryAccess */
-    a0 = 0;
+    a0 = T30_GP_ADDR_LIMIT();	/* OEM lw a0,24(gp): addr_limit (#371) */
     v0 = (uintptr_t)v0 | (uintptr_t)s1;
     v0 = (uintptr_t)v0 & a0;
 
@@ -32174,11 +24500,12 @@ frame_channel_unlocked_ioctl0xd14:
 
 frame_channel_unlocked_ioctl0xd9c:
     /* fragment 314: ConstantLoad */
-    v0 = 0xc044560f;
+    v0 = (uintptr_t *)(uintptr_t)0xc0440000;	/* OEM 19290 lui v0,0xc044; the lift folded addiu a0,v0,22031 into v0 (#381) */
+    a0 = 0xc044560f;
 
     /* fragment 315: Branch */
     int _bc_a1_315 = a1 == a0;
-    a0 = v0 + 22032;
+    a0 = 0xc0445610;	/* OEM addiu a0,v0,22032 (#381) */
     if (_bc_a1_315) { goto frame_channel_unlocked_ioctl0x5ac; }
 
     /* fragment 316: Arithmetic */
@@ -32193,7 +24520,7 @@ frame_channel_unlocked_ioctl0xd9c:
     a0 = a0 + 22024;
 
     /* fragment 319: Branch */
-    v0 = v0 + 22025;
+    v0 = (uintptr_t *)((uintptr_t)v0 + 22025);	/* OEM byte arithmetic on the lui value; the typed v0 scaled it x4 (#381) */
     if (a1 == a0) { goto frame_channel_unlocked_ioctl0x278; }
 
     /* fragment 320: Branch */
@@ -32209,7 +24536,7 @@ frame_channel_unlocked_ioctl0xd9c:
     if (v0 == 0) { goto frame_channel_unlocked_ioctl0x288; }
 
     /* fragment 323: MemoryAccess */
-    v0 = 0;
+    v0 = T30_GP_ADDR_LIMIT();	/* OEM lw v0,24(gp): addr_limit (#371) */
     s0 = (uintptr_t)s0 | (uintptr_t)s1;
     v0 = (uintptr_t)s0 & (uintptr_t)v0;
 
@@ -32245,7 +24572,7 @@ frame_channel_unlocked_ioctl0xe34:
 
 frame_channel_unlocked_ioctl0xe40:
     /* fragment 332: Arithmetic */
-    v0 = v0 + 22033;
+    v0 = (uintptr_t *)((uintptr_t)v0 + 22033);	/* OEM byte arithmetic on the lui value; the typed v0 scaled it x4 (#381) */
 
     /* fragment 333: Branch */
     int _bc_a1_333 = a1 == v0;
@@ -32253,14 +24580,14 @@ frame_channel_unlocked_ioctl0xe40:
     if (_bc_a1_333) { goto frame_channel_unlocked_ioctl0x800; }
 
     /* fragment 334: Arithmetic */
-    v0 = v0 + 22211;
+    v0 = (uintptr_t *)((uintptr_t)v0 + 22211);	/* OEM byte arithmetic on the lui value; the typed v0 scaled it x4 (#381) */
 
     /* fragment 335: Branch */
     s2 = s1 + 76;
     if (a1 != v0) { goto frame_channel_unlocked_ioctl0x94; }
 
     /* fragment 336: MemoryAccess */
-    v0 = 0;
+    v0 = T30_GP_ADDR_LIMIT();	/* OEM lw v0,24(gp): addr_limit (#371) */
     s2 = (uintptr_t)s2 | (uintptr_t)s1;
     v0 = (uintptr_t)s2 & (uintptr_t)v0;
 
@@ -32285,7 +24612,7 @@ frame_channel_unlocked_ioctl0xea8:
 
 frame_channel_unlocked_ioctl0xeb0:
     /* fragment 342: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(int32_t *))(uintptr_t)isp_printf)(2); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)isp_printf)(2, (uintptr_t)a1);	/* #369 fmt in a1 */ /* jalr target resolved by relocation */
 
     /* fragment 343: Branch */
     s0 = -12;
@@ -33057,217 +25384,6 @@ int32_t frame_chan_event(uintptr_t pad_address, uint32_t event,
 					    (void *)data_address);
 }
 
-/* WHOLE_DRIVER_CANDIDATE fn_00000000000193bc origin=fragment_seed original=frame_chan_event */
-static int32_t frame_chan_event_raw(uintptr_t a0, uint32_t a1, uintptr_t a2)
-{
-    uint32_t *local_10 = 0;
-    uint32_t *local_18 = 0;
-    uint32_t local_1c = 0;
-    uint32_t local_20 = 0;
-    uint32_t local_24 = 0;
-    uint32_t local_28 = 0;
-    uint32_t local_2c = 0;
-    uint32_t local_30 = 0;
-    uint32_t local_34 = 0;
-    uint32_t *a3 = 0;
-    uintptr_t gp = 0;
-    uint32_t ra = 0;
-    uintptr_t *s0 = 0;
-    uintptr_t *s1 = 0;
-    uintptr_t *s2 = 0;
-    uint32_t *s3 = 0;
-    uint32_t s4 = 0;
-    uintptr_t *v0 = 0;
-    uintptr_t v1 = 0;
-
-    /* fragment 0: Branch */
-    if (a0 == 0) { goto frame_chan_event0x220; }
-
-    /* fragment 1: Arithmetic */
-    v0 = a0 < -4095;
-
-    /* fragment 2: Branch */
-    if (v0 == 0) { goto frame_chan_event0x220; }
-
-    /* fragment 3: ConstantLoad */
-    v0 = TX_ISP_FRAME_EVENT_BUFFER_DONE;
-
-    /* fragment 4: Branch */
-    if (a1 != v0) { goto frame_chan_event0x228; }
-
-    /* fragment 5: Prologue */
-    /* function prologue: stack frame and callee-saved register setup */
-
-    /* fragment 6: Branch */
-    s2 = a2;
-    if (a2 == 0) { goto frame_chan_event0x1d0; }
-
-    /* fragment 7: CallSetup */
-    s1 = *(uint8_t *)((char *)(a0) + 4);
-    s1 = ((uintptr_t)s1 * 704) + (*(uint32_t *)((char *)(*(uint32_t *)((char *)(a0) + 0)) + 220));
-    v0 = (uintptr_t *)arch_local_irq_save(); /* jalr target resolved by relocation */
-
-    /* fragment 8: MemoryAccess */
-    v1 = *(uint32_t *)((char *)&sp_9007);
-    v1 = v1 + 1;
-    *(uint32_t *)((char *)&sp_9007) = v1;
-    s0 = *(uint32_t *)((char *)s1 + 528);
-    a0 = s1 + 528;
-    s0 = s0 - 76;
-
-frame_chan_event0x84:
-    /* fragment 9: Arithmetic */
-    v1 = s0 + 76;
-
-    /* fragment 10: Branch */
-    s3 = (int32_t *)&private_spin_unlock_irqrestore;
-    if (a0 != v1) { goto frame_chan_event0x1f4; }
-
-    /* fragment 11: CallSetup */
-    s0 = 0;
-
-frame_chan_event0x94:
-    /* fragment 12: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)private_spin_unlock_irqrestore)(s1 + 664, v0); /* jalr target resolved by relocation */
-
-    /* fragment 13: Branch */
-    v0 = 3;
-    if (s0 == 0) { goto frame_chan_event0x210; }
-
-    /* fragment 14: MemoryAccess */
-    v1 = *(uint32_t *)((char *)s0 + 72);
-
-    /* fragment 15: Branch */
-    int _bc_v1_15 = v1 != v0;
-    v0 = (uintptr_t *)&getrawmonotonic;
-    if (_bc_v1_15) { goto frame_chan_event0x210; }
-
-    /* fragment 16: CallSetup */
-    getrawmonotonic((void *)(uintptr_t)&local_18); /* jalr target resolved by relocation */
-
-    /* fragment 17: CallSetup */
-    *(uint32_t *)((char *)s0 + 20) = local_18;
-    *(uint32_t *)((char *)s0 + 24) = local_1c;
-    *(uint32_t *)((char *)s0 + 44) = (*(uint32_t *)((char *)(s2) + 12));
-    v0 = (uintptr_t *)arch_local_irq_save(); /* jalr target resolved by relocation */
-
-    /* fragment 18: MemoryAccess */
-    v1 = *(uint32_t *)((char *)&sp_9007);
-    v1 = v1 + 1;
-    *(uint32_t *)((char *)&sp_9007) = v1;
-    v1 = 4;
-    *(uint32_t *)((char *)s0 + 72) = v1;
-    v1 = *(uint32_t *)((char *)s1 + 544);
-    a0 = s0 + 84;
-    a1 = s1 + 540;
-    *(uint32_t *)((char *)s1 + 544) = a0;
-    *(uint32_t *)((char *)s0 + 84) = a1;
-    *(uint32_t *)((char *)s0 + 88) = v1;
-    *(uint32_t *)((char *)v1 + 0) = a0;
-    v1 = *(uint32_t *)((char *)s1 + 548);
-    a1 = v0;
-    v1 = v1 + 1;
-    *(uint32_t *)((char *)s1 + 548) = v1;
-    v1 = *(uint32_t *)((char *)s0 + 80);
-    a0 = *(uint32_t *)((char *)s0 + 76);
-    *(uint32_t *)((char *)a0 + 4) = v1;
-    *(uint32_t *)((char *)v1 + 0) = a0;
-    v1 = 1048576;
-    v1 = v1 + 256;
-    *(uint32_t *)((char *)s0 + 76) = v1;
-    v1 = 2097152;
-    v1 = v1 + 512;
-    *(uint32_t *)((char *)s0 + 80) = v1;
-    v1 = *(uint32_t *)((char *)s1 + 536);
-    a0 = s1 + 548;
-    v1 = v1 - 1;
-
-    /* fragment 19: CallSetup */
-    *(uint32_t *)((char *)s1 + 536) = v1;
-    v0 = (uintptr_t *)((uintptr_t (*)(int32_t *))(uintptr_t)private_spin_unlock_irqrestore)(a0); /* jalr target resolved by relocation */
-
-    /* fragment 20: CallSetup */
-    __wake_up((void *)(uintptr_t)(s1 + 552), 3, 1, (void *)(uintptr_t)0); /* jalr target resolved by relocation */
-
-    /* fragment 21: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_complete)(s1 + 680); /* jalr target resolved by relocation */
-
-    /* fragment 22: MemoryAccess */
-    v0 = *(uint32_t *)((char *)s1 + 692);
-
-    /* fragment 23: Branch */
-    int _bc_v0_23 = v0 == 0;
-    v0 = v0 + 1;
-    if (_bc_v0_23) { goto frame_chan_event0x1c8; }
-
-    /* fragment 24: MemoryAccess */
-    a3 = *(uint32_t *)((char *)s2 + 12);
-
-    /* fragment 25: Branch */
-    a1 = (uint32_t *)&LC64;
-    if (a3 == v0) { goto frame_chan_event0x1c8; }
-
-    /* fragment 26: CallSetup */
-    local_10 = v0;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(0, &LC64, *(uint32_t *)((char *)(s1) + 660)); /* jalr target resolved by relocation */
-
-frame_chan_event0x1c8:
-    /* fragment 27: MemoryAccess */
-    v0 = *(uint32_t *)((char *)s2 + 12);
-    *(uint32_t *)((char *)s1 + 692) = v0;
-
-frame_chan_event0x1d0:
-    /* fragment 28: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    /* fragment 29: Arithmetic */
-    v0 = 0;
-
-    /* fragment 30: Epilogue */
-    /* function epilogue: restore registers and return */
-    return (int32_t)v0;
-
-frame_chan_event0x1f4:
-    /* fragment 31: MemoryAccess */
-    a1 = *(uint32_t *)((char *)s0 + 52);
-    v1 = *(uint32_t *)((char *)s2 + 8);
-
-    /* fragment 32: Branch */
-    if (a1 == v1) { goto frame_chan_event0x94; }
-
-    /* fragment 33: MemoryAccess */
-    s0 = *(uint32_t *)((char *)s0 + 76);
-
-    /* fragment 34: Branch */
-    s0 = s0 - 76;
-    goto frame_chan_event0x84;
-
-frame_chan_event0x210:
-    /* fragment 35: MemoryAccess */
-    v0 = *(uint32_t *)((char *)s1 + 696);
-    v0 = v0 + 1;
-
-    /* fragment 36: Branch */
-    *(uint32_t *)((char *)s1 + 696) = v0;
-    goto frame_chan_event0x1d0;
-
-frame_chan_event0x220:
-    /* fragment 37: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    /* fragment 38: Arithmetic */
-    v0 = -22;
-
-frame_chan_event0x228:
-    /* fragment 39: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    /* fragment 40: Arithmetic */
-    v0 = 0;
-
-    return 0;
-}
-
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000195f0 origin=model_output original=tx_isp_video_s_stream */
 int32_t tx_isp_video_s_stream(void *arg1, int32_t arg2)
 {
@@ -33375,118 +25491,6 @@ int32_t tx_isp_video_link_stream(void *arg1, int32_t arg2)
 
 	return 0;
 }
-
-#if 0 /* Retained for recovery provenance; replaced by the typed OEM path below. */
-/* WHOLE_DRIVER_CANDIDATE fn_00000000000197e8 origin=fragment_seed original=tx_isp_open */
-int64_t tx_isp_open(uint32_t a0, uintptr_t a1)
-{
-    uint32_t local_14 = 0;
-    uint32_t *local_18 = 0;
-    uint32_t local_1c = 0;
-    uint32_t local_20 = 0;
-    uint32_t local_24 = 0;
-    uint32_t ra = 0;
-    uint32_t *s0 = 0;
-    uint32_t *s1 = 0;
-    uintptr_t *s2 = 0;
-    uint32_t *s3 = 0;
-    uintptr_t *v0 = 0;
-    uint32_t v1 = 0;
-
-    /* fragment 0: Prologue */
-    /* function prologue: stack frame and callee-saved register setup */
-
-    /* fragment 1: MemoryAccess */
-    v0 = *(uint32_t *)((char *)a1 + 112);
-    local_24 = ra;
-    local_20 = s3;
-    local_1c = s2;
-    local_18 = s1;
-    local_14 = s0;
-    s0 = *(uint32_t *)((char *)v0 + 264);
-
-    /* fragment 2: Branch */
-    v1 = -1;
-    if (s0 == 0) { goto tx_isp_open0x54; }
-
-    /* fragment 3: Arithmetic */
-    s0 = s0 + 1;
-
-    /* fragment 4: MemoryAccess */
-    *(uint32_t *)((char *)v0 + 264) = s0;
-    s0 = 0;
-
-tx_isp_open0x34:
-    /* fragment 5: Epilogue */
-    /* function epilogue: restore registers and return */
-    return (int64_t)v0;
-
-tx_isp_open0x3c:
-    /* fragment 6: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    /* fragment 7: Arithmetic */
-    v0 = s0;
-
-    /* fragment 8: Epilogue */
-    /* function epilogue: restore registers and return */
-    return (int64_t)v0;
-
-tx_isp_open0x54:
-    /* fragment 9: MemoryAccess */
-    *(uint32_t *)((char *)v0 + 268) = v1;
-    s2 = v0 + 44;
-    s1 = v0 + 108;
-    s3 = -515;
-
-tx_isp_open0x64:
-    /* fragment 10: MemoryAccess */
-    a0 = *(uint32_t *)((char *)s2 + 0);
-
-    /* fragment 11: Branch */
-    if (a0 == 0) { goto tx_isp_open0xa4; }
-
-    /* fragment 12: MemoryAccess */
-    v0 = *(uint32_t *)((char *)a0 + 196);
-    v0 = *(uint32_t *)((char *)v0 + 16);
-
-    /* fragment 13: Branch */
-    if (v0 == 0) { goto tx_isp_open0xa4; }
-
-    /* fragment 14: MemoryAccess */
-    v0 = *(uint32_t *)((char *)v0 + 0);
-
-    /* fragment 15: Branch */
-    if (v0 == 0) { goto tx_isp_open0xa4; }
-
-    /* fragment 16: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(int32_t *))(uintptr_t)tx_isp_release_device)(a0); /* jalr target resolved by relocation */
-
-    /* fragment 17: Branch */
-    if (v0 == 0) { goto tx_isp_open0xa4; }
-
-    /* fragment 18: Branch */
-    if (v0 != s3) { goto tx_isp_open0xb8; }
-
-tx_isp_open0xa4:
-    /* fragment 19: Arithmetic */
-    s2 = s2 + 4;
-
-    /* fragment 20: Branch */
-    if (s2 != s1) { goto tx_isp_open0x64; }
-
-    /* fragment 21: Branch */
-    s3 = local_20;
-    goto tx_isp_open0x3c;
-
-tx_isp_open0xb8:
-    /* fragment 22: Branch */
-    s0 = v0;
-    goto tx_isp_open0x34;
-
-    return ((int64_t)(uint32_t)v1 << 32) | (uint32_t)v0;
-}
-#endif
 
 int tx_isp_open(struct inode *inode, struct file *file)
 {
@@ -33985,116 +25989,6 @@ int32_t tx_isp_video_link_destroy_isra_0(void *arg1)
 	*(int32_t *)((char *)arg1 + 0x118) = -1;
 	return 0;
 }
-
-#if 0 /* Retained for recovery provenance; replaced by the typed OEM path below. */
-/* WHOLE_DRIVER_CANDIDATE fn_0000000000019e64 origin=fragment_seed original=tx_isp_release */
-int32_t tx_isp_release(uint32_t a0, uintptr_t a1)
-{
-    uint32_t local_14 = 0;
-    uint32_t *local_18 = 0;
-    uint32_t local_1c = 0;
-    uint32_t local_20 = 0;
-    uint32_t local_24 = 0;
-    uint32_t ra = 0;
-    uintptr_t *s0 = 0;
-    uintptr_t *s1 = 0;
-    uint32_t *s2 = 0;
-    uint32_t *s3 = 0;
-    uintptr_t *v0 = 0;
-
-    /* fragment 0: Prologue */
-    /* function prologue: stack frame and callee-saved register setup */
-
-    /* fragment 1: MemoryAccess */
-    s0 = *(uint32_t *)((char *)a1 + 112);
-    local_24 = ra;
-    local_20 = s3;
-    local_1c = s2;
-    local_18 = s1;
-    v0 = *(uint32_t *)((char *)s0 + 264);
-
-    /* fragment 2: Branch */
-    int _bc_v0_2 = v0 == 0;
-    v0 = v0 - 1;
-    if (_bc_v0_2) { goto tx_isp_release0x4c; }
-
-    /* fragment 3: MemoryAccess */
-    *(uint32_t *)((char *)s0 + 264) = v0;
-
-tx_isp_release0x2c:
-    /* fragment 4: Arithmetic */
-    v0 = 0;
-
-tx_isp_release0x30:
-    /* fragment 5: Epilogue */
-    /* function epilogue: restore registers and return */
-    return (int32_t)v0;
-
-tx_isp_release0x34:
-    /* fragment 6: Epilogue */
-    /* function epilogue: restore registers and return */
-    return (int32_t)v0;
-
-tx_isp_release0x4c:
-    /* fragment 7: Arithmetic */
-    s1 = s0 + 104;
-    s2 = s0 + 40;
-    s3 = -515;
-
-tx_isp_release0x58:
-    /* fragment 8: MemoryAccess */
-    a0 = *(uint32_t *)((char *)s1 + 0);
-
-    /* fragment 9: Branch */
-    if (a0 == 0) { goto tx_isp_release0x98; }
-
-    /* fragment 10: MemoryAccess */
-    v0 = *(uint32_t *)((char *)a0 + 196);
-    v0 = *(uint32_t *)((char *)v0 + 16);
-
-    /* fragment 11: Branch */
-    if (v0 == 0) { goto tx_isp_release0x98; }
-
-    /* fragment 12: MemoryAccess */
-    v0 = *(uint32_t *)((char *)v0 + 4);
-
-    /* fragment 13: Branch */
-    if (v0 == 0) { goto tx_isp_release0x98; }
-
-    /* fragment 14: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(int32_t *))(uintptr_t)tx_isp_release_device)(a0); /* jalr target resolved by relocation */
-
-    /* fragment 15: Branch */
-    if (v0 == 0) { goto tx_isp_release0x98; }
-
-    /* fragment 16: Branch */
-    if (v0 != s3) { goto tx_isp_release0x34; }
-
-tx_isp_release0x98:
-    /* fragment 17: Arithmetic */
-    s1 = s1 - 4;
-
-    /* fragment 18: Branch */
-    if (s1 != s2) { goto tx_isp_release0x58; }
-
-    /* fragment 19: MemoryAccess */
-    v0 = *(uint32_t *)((char *)s0 + 268);
-
-    /* fragment 20: Branch */
-    int _bc_v0_20 = v0 < 0;
-    v0 = 131072;
-    if (_bc_v0_20) { goto tx_isp_release0x2c; }
-
-    /* fragment 21: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)tx_isp_video_link_destroy_isra_0)(s0 - 12); /* jalr target resolved by relocation */
-
-    /* fragment 22: Branch */
-    v0 = 0;
-    goto tx_isp_release0x30;
-
-    return 0;
-}
-#endif
 
 int tx_isp_release(struct inode *inode, struct file *file)
 {
@@ -34623,7 +26517,7 @@ tx_isp_unlocked_ioctl0xac:
     if (_bc_a1_27) { goto tx_isp_unlocked_ioctl0x88; }
 
     /* fragment 28: MemoryAccess */
-    v1 = 0;
+    v1 = T30_GP_ADDR_LIMIT();	/* OEM lw v1,24(gp): addr_limit (#371) */
     v0 = (uintptr_t)v0 | a2;
     v0 = (uintptr_t)v0 & v1;
 
@@ -34667,7 +26561,7 @@ tx_isp_unlocked_ioctl0x148:
     if (a1 != v0) { goto tx_isp_unlocked_ioctl0x88; }
 
     /* fragment 39: MemoryAccess */
-    v0 = 0;
+    v0 = T30_GP_ADDR_LIMIT();	/* OEM lw v0,24(gp): addr_limit (#371) */
     s2 = (uintptr_t)s2 | a2;
     v0 = (uintptr_t)s2 & (uintptr_t)v0;
 
@@ -34730,7 +26624,7 @@ tx_isp_unlocked_ioctl0x204:
     if (s4 != s0) { goto tx_isp_unlocked_ioctl0x1c4; }
 
     /* fragment 57: MemoryAccess */
-    v0 = 0;
+    v0 = T30_GP_ADDR_LIMIT();	/* OEM lw v0,24(gp): addr_limit (#371) */
     s2 = (uintptr_t)s2 & (uintptr_t)v0;
 
     /* fragment 58: Branch */
@@ -34760,7 +26654,7 @@ tx_isp_unlocked_ioctl0x25c:
 
 tx_isp_unlocked_ioctl0x264:
     /* fragment 64: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(int32_t *))(uintptr_t)isp_printf)(2); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(2, (uintptr_t)a1, (uintptr_t)a2, (uintptr_t)a3);	/* #369 fmt a1, args a2/a3 */ /* jalr target resolved by relocation */
 
     /* fragment 65: Branch */
     s8 = -14;
@@ -34824,7 +26718,7 @@ tx_isp_unlocked_ioctl0x2e4:
     if (s2 != s0) { goto tx_isp_unlocked_ioctl0x2a4; }
 
     /* fragment 81: MemoryAccess */
-    v1 = 0;
+    v1 = T30_GP_ADDR_LIMIT();	/* OEM lw v1,24(gp): addr_limit (#371) */
     v0 = (uintptr_t)v0 | (uintptr_t)s1;
     v0 = (uintptr_t)v0 & v1;
 
@@ -34853,7 +26747,7 @@ tx_isp_unlocked_ioctl0x340:
 
 tx_isp_unlocked_ioctl0x350:
     /* fragment 88: MemoryAccess */
-    v0 = 0;
+    v0 = T30_GP_ADDR_LIMIT();	/* OEM lw v0,24(gp): addr_limit (#371) */
     s2 = a2 + 4;
     s2 = (uintptr_t)s2 | a2;
     v0 = (uintptr_t)s2 & (uintptr_t)v0;
@@ -34917,7 +26811,7 @@ tx_isp_unlocked_ioctl0x3f4:
     if (s0 != s3) { goto tx_isp_unlocked_ioctl0x3b4; }
 
     /* fragment 106: MemoryAccess */
-    v0 = 0;
+    v0 = T30_GP_ADDR_LIMIT();	/* OEM lw v0,24(gp): addr_limit (#371) */
     s2 = (uintptr_t)s2 & (uintptr_t)v0;
 
     /* fragment 107: Branch */
@@ -34954,7 +26848,7 @@ tx_isp_unlocked_ioctl0x450:
 
 tx_isp_unlocked_ioctl0x460:
     /* fragment 115: MemoryAccess */
-    v1 = 0;
+    v1 = T30_GP_ADDR_LIMIT();	/* OEM lw v1,24(gp): addr_limit (#371) */
     v0 = a2 + 80;
     v0 = (uintptr_t)v0 | a2;
     v0 = (uintptr_t)v0 & v1;
@@ -35030,7 +26924,7 @@ tx_isp_unlocked_ioctl0x50c:
 
 tx_isp_unlocked_ioctl0x520:
     /* fragment 135: MemoryAccess */
-    v1 = 0;
+    v1 = T30_GP_ADDR_LIMIT();	/* OEM lw v1,24(gp): addr_limit (#371) */
     v0 = a2 + 80;
     v0 = (uintptr_t)v0 | a2;
     v0 = (uintptr_t)v0 & v1;
@@ -35139,7 +27033,7 @@ tx_isp_unlocked_ioctl0x630:
     /* fragment 162: StackAccess */
     local_78 = v0;
     local_10 = 0;
-    v0 = 0;
+    v0 = T30_GP_ADDR_LIMIT();	/* OEM lw v0,24(gp): addr_limit (#371) */
     v1 = local_78;
     v0 = v1 & (uintptr_t)v0;
 
@@ -35179,15 +27073,16 @@ tx_isp_unlocked_ioctl0x6a8:
     if (v0 != 0) { goto tx_isp_unlocked_ioctl0x704; }
 
     /* fragment 171: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(int32_t *)isp_printf)(2, &LC7); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(int32_t *)isp_printf)(2, &LC7, (uintptr_t)a2);	/* #369 "%u" arg a2 = local_60 */ /* jalr target resolved by relocation */
 
     /* fragment 172: Arithmetic */
     s8 = -22;
 
 tx_isp_unlocked_ioctl0x6d0:
     /* fragment 173: Epilogue */
-    /* function epilogue: restore registers and return */
-    return (int32_t)v0;
+    /* OEM 0x1a5f8..0x1a618 returns s8 (move v0,s8) like 0x6d4; the lift returned the
+     * stale v0, e.g. the cmd constant 0x40055898 for unknown commands (#371) */
+    return (int32_t)s8;
 
 tx_isp_unlocked_ioctl0x6d4:
     /* fragment 174: Epilogue */
@@ -35360,7 +27255,7 @@ tx_isp_unlocked_ioctl0x868:
     v0 = (uintptr_t)v0 << 16;
     v0 = (uintptr_t)v0 | v1;
     local_10 = v0;
-    v0 = 0;
+    v0 = T30_GP_ADDR_LIMIT();	/* OEM lw v0,24(gp): addr_limit (#371) */
     v1 = local_78;
     v0 = v1 & (uintptr_t)v0;
 
@@ -35467,7 +27362,7 @@ tx_isp_unlocked_ioctl0x98c:
 
 tx_isp_unlocked_ioctl0x9a0:
     /* fragment 235: MemoryAccess */
-    v0 = 0;
+    v0 = T30_GP_ADDR_LIMIT();	/* OEM lw v0,24(gp): addr_limit (#371) */
     s2 = a2 + 56;
     s2 = (uintptr_t)s2 | a2;
     v0 = (uintptr_t)s2 & (uintptr_t)v0;
@@ -35556,7 +27451,7 @@ tx_isp_unlocked_ioctl0xa6c:
     v0 = local_64;
     local_44 = v1;
     local_34 = v0;
-    v0 = 0;
+    v0 = T30_GP_ADDR_LIMIT();	/* OEM lw v0,24(gp): addr_limit (#371) */
     s2 = (uintptr_t)s2 & (uintptr_t)v0;
 
     /* fragment 256: Branch */
@@ -35952,260 +27847,6 @@ void tx_isp_subdev_deinit(void *subdev)
 	tx_isp_module_deinit((uint32_t)(uintptr_t)&sd->module);
 	sd->ops = NULL;
 }
-
-#if 0 /* Retained for recovery provenance; replaced by the typed OEM path below. */
-/* WHOLE_DRIVER_CANDIDATE fn_000000000001b2b4 origin=fragment_seed original=tx_isp_create_graph_and_nodes */
-int64_t tx_isp_create_graph_and_nodes(uintptr_t a0)
-{
-    uint32_t *local_10 = 0;
-    uint32_t local_1c = 0;
-    uint32_t local_20 = 0;
-    uint32_t local_24 = 0;
-    uint32_t local_28 = 0;
-    uint32_t local_2c = 0;
-    uint32_t local_30 = 0;
-    uint32_t local_34 = 0;
-    uint32_t *a1 = 0;
-    uint32_t a2 = 0;
-    uint32_t *a3 = 0;
-    uint32_t ra = 0;
-    uintptr_t *s0 = 0;
-    uintptr_t *s1 = 0;
-    uintptr_t *s2 = 0;
-    uintptr_t *s3 = 0;
-    uint32_t s4 = 0;
-    uintptr_t s5 = 0;
-    uintptr_t *v0 = 0;
-    uintptr_t v1 = 0;
-
-    /* fragment 0: Prologue */
-    /* function prologue: stack frame and callee-saved register setup */
-
-    /* fragment 1: Arithmetic */
-    s2 = a0 + 132;
-    s0 = (uintptr_t *)&private_platform_get_drvdata;
-
-    /* fragment 2: StackAccess */
-    local_30 = s5;
-    local_2c = s4;
-    local_28 = s3;
-    local_20 = s1;
-    local_34 = ra;
-    s1 = a0;
-    s5 = s2;
-    s4 = 0;
-    s0 = s0;
-    s3 = 1;
-
-tx_isp_create_graph_and_nodes0x3c:
-    /* fragment 3: MemoryAccess */
-    v0 = *(uint32_t *)((char *)s1 + 128);
-    v0 = s4 < v0;
-
-    /* fragment 4: Branch */
-    if (v0 != 0) { goto tx_isp_create_graph_and_nodes0x100; }
-
-    /* fragment 5: Arithmetic */
-    s4 = (uintptr_t)&private_platform_get_drvdata;
-    s3 = s2;
-    s0 = 0;
-    s4 = s4;
-    s5 = 2;
-
-tx_isp_create_graph_and_nodes0x60:
-    /* fragment 6: MemoryAccess */
-    v0 = *(uint32_t *)((char *)s1 + 128);
-    v0 = s0 < v0;
-
-    /* fragment 7: Branch */
-    if (v0 == 0) { goto tx_isp_create_graph_and_nodes0xbc; }
-
-    /* fragment 8: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_platform_get_drvdata)(*(uint32_t *)((char *)(s3) + 0)); /* jalr target resolved by relocation */
-
-    /* fragment 9: MemoryAccess */
-    v1 = *(uint8_t *)((char *)v0 + 0);
-
-    /* fragment 10: Branch */
-    if (v1 != s5) { goto tx_isp_create_graph_and_nodes0x178; }
-
-    /* fragment 11: MemoryAccess */
-    a2 = *(uint8_t *)((char *)v0 + 2);
-    v1 = a2 & 15;
-    v1 = v1 + 14;
-    v1 = v1 << 2;
-    v1 = s1 + v1;
-    v1 = *(uint32_t *)((char *)v1 + 0);
-
-    /* fragment 12: Branch */
-    a3 = *(uint8_t *)((char *)(v0) + 3);
-    if (v1 != 0) { goto tx_isp_create_graph_and_nodes0x164; }
-
-    /* fragment 13: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(int32_t *)isp_printf)(2, &LC22); /* jalr target resolved by relocation */
-
-tx_isp_create_graph_and_nodes0xbc:
-    /* fragment 14: Arithmetic */
-    s4 = (uintptr_t)&private_platform_get_drvdata;
-    s5 = (uintptr_t)&private_misc_register;
-    s3 = 0;
-    s4 = s4;
-    s5 = s5;
-
-tx_isp_create_graph_and_nodes0xd0:
-    /* fragment 15: MemoryAccess */
-    v0 = *(uint32_t *)((char *)s1 + 128);
-    v0 = s3 < v0;
-
-    /* fragment 16: Branch */
-    if (v0 != 0) { goto tx_isp_create_graph_and_nodes0x184; }
-
-tx_isp_create_graph_and_nodes0xe0:
-    /* fragment 17: Epilogue */
-    /* function epilogue: restore registers and return */
-    return (int64_t)v0;
-
-tx_isp_create_graph_and_nodes0x100:
-    /* fragment 18: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_platform_get_drvdata)(*(uint32_t *)((char *)(s5) + 0)); /* jalr target resolved by relocation */
-
-    /* fragment 19: Branch */
-    v1 = v0 < -4095;
-    if (v0 == 0) { goto tx_isp_create_graph_and_nodes0x140; }
-
-    /* fragment 20: Branch */
-    if (v1 == 0) { goto tx_isp_create_graph_and_nodes0x140; }
-
-    /* fragment 21: MemoryAccess */
-    v1 = *(uint8_t *)((char *)v0 + 0);
-
-    /* fragment 22: Branch */
-    if (v1 != s3) { goto tx_isp_create_graph_and_nodes0x158; }
-
-    /* fragment 23: MemoryAccess */
-    v1 = *(uint8_t *)((char *)v0 + 3);
-    v1 = v1 & 15;
-    v1 = v1 + 14;
-    v1 = v1 << 2;
-    v1 = s1 + v1;
-
-    /* fragment 24: Branch */
-    *(uint32_t *)((char *)v1 + 0) = v0;
-    goto tx_isp_create_graph_and_nodes0x158;
-
-tx_isp_create_graph_and_nodes0x140:
-    /* fragment 25: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))printk)((int32_t *)((const char *)(uintptr_t)&LC21), (uintptr_t)(s4)); /* jalr target resolved by relocation */
-
-tx_isp_create_graph_and_nodes0x158:
-    /* fragment 26: Arithmetic */
-    s4 = s4 + 1;
-
-    /* fragment 27: Branch */
-    s5 = s5 + 8;
-    goto tx_isp_create_graph_and_nodes0x3c;
-
-tx_isp_create_graph_and_nodes0x164:
-    /* fragment 28: Arithmetic */
-    a3 = (uintptr_t)a3 & 15;
-    a3 = a3 + 14;
-    a3 = (uintptr_t)a3 << 2;
-    v1 = v1 + (uintptr_t)a3;
-
-    /* fragment 29: MemoryAccess */
-    *(uint32_t *)((char *)v1 + 0) = v0;
-
-tx_isp_create_graph_and_nodes0x178:
-    /* fragment 30: Arithmetic */
-    s0 = s0 + 1;
-
-    /* fragment 31: Branch */
-    s3 = s3 + 8;
-    goto tx_isp_create_graph_and_nodes0x60;
-
-tx_isp_create_graph_and_nodes0x184:
-    /* fragment 32: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_platform_get_drvdata)(*(uint32_t *)((char *)(s2) + 0)); /* jalr target resolved by relocation */
-
-    /* fragment 33: Arithmetic */
-    s0 = v0;
-
-    /* fragment 34: MemoryAccess */
-    v0 = *(uint32_t *)((char *)v0 + 48);
-
-    /* fragment 35: Branch */
-    v1 = 255;
-    if (v0 == 0) { goto tx_isp_create_graph_and_nodes0x1f8; }
-
-    /* fragment 36: CallSetup */
-    *(uint32_t *)((char *)s0 + 12) = v1;
-    *(uint32_t *)((char *)s0 + 20) = v0;
-    *(uint32_t *)((char *)s0 + 16) = (*(uint32_t *)((char *)(s0) + 8));
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_misc_register)(s0 + 12); /* jalr target resolved by relocation */
-
-    /* fragment 37: Branch */
-    a1 = (uint32_t *)&LC23;
-    if (v0 >= 0) { goto tx_isp_create_graph_and_nodes0x1f8; }
-
-    /* fragment 38: CallSetup */
-    s0 = (uintptr_t *)&private_misc_deregister;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(2, &LC23, *(uint8_t *)((char *)(s0) + 2), *(uint8_t *)((char *)(s0) + 3)); /* jalr target resolved by relocation */
-
-    /* fragment 39: Arithmetic */
-    s2 = -1;
-    s0 = s0;
-
-tx_isp_create_graph_and_nodes0x1e4:
-    /* fragment 40: Arithmetic */
-    s3 = s3 - 1;
-
-tx_isp_create_graph_and_nodes0x1e8:
-    /* fragment 41: Branch */
-    v0 = -2;
-    if (s3 != s2) { goto tx_isp_create_graph_and_nodes0x228; }
-
-    /* fragment 42: Branch */
-    goto tx_isp_create_graph_and_nodes0xe0;
-
-tx_isp_create_graph_and_nodes0x1f8:
-    /* fragment 43: MemoryAccess */
-    a3 = *(uint32_t *)((char *)s0 + 52);
-
-    /* fragment 44: Branch */
-    v0 = (uintptr_t *)&private_proc_create_data;
-    if (a3 == 0) { goto tx_isp_create_graph_and_nodes0x21c; }
-
-    /* fragment 45: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_proc_create_data)(*(uint32_t *)((char *)(s0) + 8), 292, *(uint32_t *)((char *)(s1) + 284)); /* jalr target resolved by relocation */
-
-tx_isp_create_graph_and_nodes0x21c:
-    /* fragment 46: Arithmetic */
-    s3 = s3 + 1;
-
-    /* fragment 47: Branch */
-    s2 = s2 + 8;
-    goto tx_isp_create_graph_and_nodes0xd0;
-
-tx_isp_create_graph_and_nodes0x228:
-    /* fragment 48: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_platform_get_drvdata)(*(uint32_t *)((char *)((uintptr_t)s1 + ((uintptr_t)s3 << 3)) + 132)); /* jalr target resolved by relocation */
-
-    /* fragment 49: MemoryAccess */
-    v1 = *(uint32_t *)((char *)v0 + 48);
-
-    /* fragment 50: Branch */
-    if (v1 == 0) { goto tx_isp_create_graph_and_nodes0x1e4; }
-
-    /* fragment 51: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_misc_deregister)(v0 + 12); /* jalr target resolved by relocation */
-
-    /* fragment 52: Branch */
-    s3 = s3 - 1;
-    goto tx_isp_create_graph_and_nodes0x1e8;
-
-    return ((int64_t)(uint32_t)v1 << 32) | (uint32_t)v0;
-}
-#endif
 
 /*
  * Build the same hierarchy as the OEM T30 tx-isp-device.c.  This must stay
@@ -36740,7 +28381,7 @@ tx_isp_sinfo_sensor_bind0x14c:
     /* fragment 32: CallSetup */
     *(uint16_t *)((char *)((a1 * 160) + a2) + 12) = v1;
     *(uint32_t *)((char *)((a1 * 160) + a2) + 16) = (uintptr_t)s0;
-    v0 = (uintptr_t *)((uintptr_t (*)(int32_t *))(uintptr_t)sinfo_slot_publish)(a0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)sinfo_slot_publish)(a0, a1);	/* #369 slot index a1 (as tx_isp_sinfo_driver_add) */ /* jalr target resolved by relocation */
 
     /* fragment 33: Branch */
     v0 = (uintptr_t *)&mutex_unlock;
@@ -37006,7 +28647,13 @@ int32_t disable_all_frame_buffers(void)
 
 	v = APICAL_READ_32(0x2c0);
 	APICAL_WRITE_32(0x2c0, v & 0xfffffffe);
-	v = APICAL_READ_32(0x2c0);
+	/*
+	 * #236: read-modify-write of 0xa00 itself (vendor ko 0x1b880:
+	 * `li a0,2560` before the read).  The lift re-read 0x2c0 here and
+	 * wrote 0x2c0 & ~1 (= 0x2) into the Temper frame-buffer format, which
+	 * replaced the sequence packing mode 5 with mode 2 and broke 3DNR.
+	 */
+	v = APICAL_READ_32(0xa00);
 	return APICAL_WRITE_32(0xa00, v & 0xfffeffff);
 }
 
@@ -37105,205 +28752,6 @@ int32_t apical_init(void)
 	init_stab();
 	pr_err("tx-isp-t30 apical-init: stabilization initialized\n");
 	return apical_custom_initialization();
-}
-
-/* WHOLE_DRIVER_CANDIDATE fn_000000000001c384 origin=model_output original=apical_frame_buffer_configure_temper */
-int32_t apical_frame_buffer_configure_temper(uint32_t arg1)
-{
-	uint32_t v;
-
-	APICAL_WRITE_32(0xa18, arg1);
-	APICAL_WRITE_32(0xa1c, arg1);
-	APICAL_WRITE_32(0xa24, line_offset(APICAL_READ_32(0x10) & 0xffff, 4));
-	APICAL_WRITE_32(0x2c0, APICAL_READ_32(0x2c0) | 1);
-	APICAL_WRITE_32(0xa28, APICAL_READ_32(0xa28) | 1);
-	v = APICAL_READ_32(0xa00);
-	return APICAL_WRITE_32(0xa00, (v & 0xfffeffff) | 0x10000);
-}
-
-/* WHOLE_DRIVER_CANDIDATE fn_000000000001c448 origin=fragment_seed original=apical_frame_buffer_configure_all */
-int32_t apical_frame_buffer_configure_all(uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3, uint32_t arg4)
-{
-    uint32_t *local_10 = 0;
-    uint32_t local_14 = 0;
-    uint32_t *local_18 = 0;
-    uint32_t local_1c = 0;
-    uint32_t local_20 = 0;
-    uint32_t local_24 = 0;
-    uint32_t local_28 = 0;
-    uint32_t local_2c = 0;
-    uint32_t local_44 = 0;
-    uint32_t local_50 = 0;
-    uint32_t ra = 0;
-    uint32_t *s0 = 0;
-    uint32_t *s1 = 0;
-    uint32_t *s2 = 0;
-    uint32_t *s3 = 0;
-    uint32_t s4 = 0;
-    uint32_t s5 = 0;
-    uint32_t s6 = 0;
-    uint32_t t9 = 0;
-    uintptr_t *v0 = 0;
-
-    /* fragment 0: Prologue */
-    /* function prologue: stack frame and callee-saved register setup */
-
-    /* fragment 1: CallSetup */
-    s0 = a0;
-    s6 = a2;
-    s5 = local_44;
-    s4 = local_50;
-    v0 = (uintptr_t *)((uintptr_t (*)(int32_t *))(uintptr_t)APICAL_READ_32)(16); /* jalr target resolved by relocation */
-
-    /* fragment 2: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)line_offset)((uintptr_t)v0 & 65535, 4); /* jalr target resolved by relocation */
-
-    /* fragment 3: CallSetup */
-    s2 = v0;
-    v0 = (uintptr_t *)((uintptr_t (*)(int32_t *))(uintptr_t)APICAL_READ_32)(20); /* jalr target resolved by relocation */
-
-    /* fragment 4: CallSetup */
-    s3 = ((uintptr_t)v0 & 65535) * (uintptr_t)s2;
-    s3 = (uintptr_t)s3 + (uintptr_t)s0;
-    s0 = (uintptr_t *)&APICAL_WRITE_32;
-    v0 = (uintptr_t *)((uintptr_t (*)(int32_t *))(uintptr_t)apical_frame_buffer_configure_temper)(s0); /* jalr target resolved by relocation */
-
-    /* fragment 5: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(int32_t *)APICAL_WRITE_32)(2648, s3); /* jalr target resolved by relocation */
-
-    /* fragment 6: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(int32_t *)APICAL_WRITE_32)(2652, s3); /* jalr target resolved by relocation */
-
-    /* fragment 7: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(int32_t *)APICAL_WRITE_32)(2660, s2); /* jalr target resolved by relocation */
-
-    /* fragment 8: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(int32_t *))(uintptr_t)APICAL_READ_32)(2664); /* jalr target resolved by relocation */
-
-    /* fragment 9: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)APICAL_WRITE_32)(2664, (uintptr_t)v0 | 1); /* jalr target resolved by relocation */
-
-    /* fragment 10: ConstantLoad */
-    v0 = ((char *)&__fw);
-
-    /* fragment 11: MemoryAccess */
-    *(uint16_t *)((char *)v0 + 4068) = s6;
-    *(uint16_t *)((char *)v0 + 4070) = s5;
-    *(uint16_t *)((char *)v0 + 4072) = s4;
-    ra = local_2c;
-    s6 = local_28;
-    s5 = local_24;
-    s4 = local_20;
-    s3 = local_1c;
-    s2 = local_18;
-    s1 = local_14;
-    s0 = local_10;
-    a0 = (uintptr_t)&vic_cmd_buf;
-    t9 = (uintptr_t)&matrix_yuv_coefft_write_to_hardware;
-    a0 = a0 + 28204;
-    t9 = t9;
-
-    /* fragment 12: IndirectTailCall */
-    return ((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))matrix_yuv_coefft_write_to_hardware)((uintptr_t)(a0), (uintptr_t)(a1), (uintptr_t)(a2), (uintptr_t)(a3));
-
-    return 0;
-}
-
-/* WHOLE_DRIVER_CANDIDATE fn_000000000001c554 origin=model_output original=apical_change_resolution */
-int32_t apical_change_resolution(uint32_t arg1)
-{
-	int32_t log2_val;
-	int32_t reg_130;
-	int32_t reg_10;
-	int32_t reg_14;
-	int32_t reg_110;
-	int32_t reg_118;
-	int32_t reg_124;
-	uint16_t field_6a;
-	uint16_t field_6c;
-	int32_t field_90;
-	unsigned int i;
-	int32_t *exposure_ptr;
-	int32_t exposure_val;
-	int32_t exposure_target;
-	int32_t exposure_param;
-	int32_t ret;
-
-	log2_val = log2_fixed_to_fixed(arg1, 0x10, 0x10);
-
-	reg_130 = APICAL_READ_32(0x130);
-	APICAL_WRITE_32(0x130, (reg_130 & 0xfffffff8) | 2);
-
-	system_hw_interrupts_disable();
-
-	*(int32_t *)TX_ISP_T30_FW_PTR(TX_ISP_T30_FW_BUSY) = 1;
-
-	disable_all_frame_buffers();
-
-	(*(int32_t (**)(void *, int32_t, void *))
-	 TX_ISP_T30_FW_PTR(TX_ISP_T30_FW_FSM_INIT))(
-		TX_ISP_T30_FW_PTR(TX_ISP_T30_FW_FSM_CONTEXT), 0,
-		TX_ISP_T30_FW_PTR(TX_ISP_T30_FW_FSM_CONFIG));
-	(*(int32_t (**)(void *))
-	 TX_ISP_T30_FW_PTR(TX_ISP_T30_FW_FSM_START))(
-		TX_ISP_T30_FW_PTR(TX_ISP_T30_FW_FSM_CONTEXT));
-
-	field_6a = *(uint16_t *)TX_ISP_T30_FW_PTR(
-		TX_ISP_T30_FW_SENSOR_WIDTH);
-	field_6c = *(uint16_t *)TX_ISP_T30_FW_PTR(
-		TX_ISP_T30_FW_SENSOR_HEIGHT);
-
-	reg_10 = APICAL_READ_32(0x10);
-	APICAL_WRITE_32(0x10, (reg_10 & 0xffff0000) | field_6a);
-
-	reg_14 = APICAL_READ_32(0x14);
-	APICAL_WRITE_32(0x14, (reg_14 & 0xffff0000) | field_6c);
-
-	reg_110 = APICAL_READ_32(0x110);
-	APICAL_WRITE_32(0x110, (reg_110 & 0xffff0000) | field_6a);
-
-	reg_118 = APICAL_READ_32(0x118);
-	APICAL_WRITE_32(0x118, (reg_118 & 0xffff0000) | field_6a);
-
-	reg_124 = APICAL_READ_32(0x124);
-	APICAL_WRITE_32(0x124, (reg_124 & 0xffff0000) | field_6c);
-
-	field_90 = *(int32_t *)TX_ISP_T30_FW_PTR(
-		TX_ISP_T30_FW_STAB_EXPOSURE);
-	*(uint16_t *)((char *)&stab + 0x1a) = (uint16_t)field_90;
-
-	for (i = 0; i != 8; i++) {
-		exposure_ptr = cmos_get_frame_exposure_set(
-			TX_ISP_T30_FW_PTR(TX_ISP_T30_FW_EXPOSURE_SET), i);
-		exposure_val = log2_val + *exposure_ptr;
-		if (exposure_val < 0)
-			exposure_val = 0;
-		*exposure_ptr = exposure_val;
-	}
-
-	exposure_target = log2_val + *(int32_t *)TX_ISP_T30_FW_PTR(
-		TX_ISP_T30_FW_EXPOSURE_TARGET);
-	*(int32_t *)TX_ISP_T30_FW_PTR(TX_ISP_T30_FW_EXPOSURE_TARGET) =
-		exposure_target;
-	exposure_param = *(int32_t *)TX_ISP_T30_FW_PTR(
-		TX_ISP_T30_FW_EXPOSURE_PARAM);
-
-	cmos_set_exposure_target(
-		(int32_t *)TX_ISP_T30_FW_PTR(TX_ISP_T30_FW_EXPOSURE_SET),
-		exposure_target, exposure_param);
-
-	apical_fw_raise_event((void *)&__fw, 8);
-
-	crop_resolution_changed(
-		(int32_t *)TX_ISP_T30_FW_PTR(TX_ISP_T30_FW_CROP));
-
-	*(int32_t *)TX_ISP_T30_FW_PTR(TX_ISP_T30_FW_BUSY) = 0;
-
-	reg_130 = APICAL_READ_32(0x130);
-	APICAL_WRITE_32(0x130, (reg_130 & 0xfffffff8) | 1);
-
-	ret = system_hw_interrupts_enable();
-	return ret;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000001c7a0 origin=model_output original=apical_interrupt_frame_start */
@@ -37529,13 +28977,6 @@ int32_t apical_program_interrupt_event_part_0(int32_t arg1, int32_t arg2)
     return APICAL_WRITE_32(addr, (uint32_t)reg_val | (uint32_t)val);
 }
 
-/* WHOLE_DRIVER_CANDIDATE fn_000000000001ccd8 origin=model_output original=apical_get_current_isp_index */
-int32_t apical_get_current_isp_index(void)
-{
-    void *fw = apical_get_fw();
-    return *(int32_t *)fw;
-}
-
 /* WHOLE_DRIVER_CANDIDATE fn_000000000001cd00 origin=model_output original=load_isp_sequence */
 static u16 tx_isp_t30_sequence_u16(const u8 *data)
 {
@@ -37716,6 +29157,8 @@ char *load_isp_sequence(uint32_t arg1)
 	}
 	pr_err("tx-isp-t30: ISP sequence %u applied (%u bytes written)\n",
 	       arg1 & 0xff, writes);
+	if ((arg1 & 0xff) == 2)
+		tx_isp_t30_trace_seq_regs("after_seq2");
 	return (char *)tx_isp_t30_isp_sequence;
 }
 
@@ -38547,91 +29990,25 @@ int32_t line_offset(uint32_t a0, uint32_t a1)
 }
 #endif
 
-/* WHOLE_DRIVER_CANDIDATE fn_000000000001dde4 origin=model_output original=apical_cosine */
-int32_t apical_cosine(int32_t arg1)
-{
-    uint32_t q = (uint32_t)arg1 / 0x6488;
-    int32_t r = arg1 - (int32_t)((q & 0xffff) * 0x6488);
-
-    if ((uint32_t)r < 0x1922) {
-        uint32_t idx = (uint32_t)r / 0x47;
-        return (int32_t)cos_table[idx];
-    }
-
-    if ((uint32_t)r < 0x3244) {
-        uint32_t idx = (uint32_t)(r - 0x1922) / 0x47;
-        uint32_t off = (0x5a - idx) << 1;
-        return (int32_t)(-(uint32_t)(uint16_t)cos_table[off] << 16 >> 16);
-    }
-
-    if ((uint32_t)r < 0x4b66) {
-        uint32_t idx = (uint32_t)(r - 0x3244) / 0x47;
-        return (int32_t)(-(uint32_t)(uint16_t)cos_table[idx << 1] << 16 >> 16);
-    }
-
-    if ((uint32_t)r >= 0x6488) {
-        return 0;
-    }
-
-    uint32_t idx = (uint32_t)(r - 0x4b66) / 0x47;
-    uint32_t off = (0x5a - idx) << 1;
-    return (int32_t)cos_table[off];
-}
-
-/* WHOLE_DRIVER_CANDIDATE fn_000000000001def4 origin=model_output original=apical_sine */
-int32_t apical_sine(int32_t arg1)
-{
-    uint32_t q = (uint32_t)arg1 / 0x6488;
-    int32_t r = arg1 - (int32_t)(q & 0xffff) * 0x6488;
-    uint32_t idx;
-    int32_t *result;
-
-    if ((uint32_t)r >= 0x1922) {
-        if ((uint32_t)r >= 0x3244) {
-            if ((uint32_t)r >= 0x4b66) {
-                if ((uint32_t)r >= 0x6488) {
-                    return 0;
-                }
-                idx = (uint32_t)(r - 0x4b66) / 0x47;
-                result = (int32_t *)(-(int32_t)(uint16_t)cos_table[idx * 2]);
-            } else {
-                idx = (uint32_t)(0x5a - (uint32_t)(r - 0x3244) / 0x47) * 2;
-                result = (int32_t *)(-(int32_t)(uint16_t)cos_table[idx]);
-            }
-        } else {
-            idx = (uint32_t)(r - 0x1922) / 0x47;
-            result = (uintptr_t)cos_table[idx * 2];
-        }
-    } else {
-        idx = (uint32_t)(0x5a - (uint32_t)r / 0x47) * 2;
-        result = (int32_t *)cos_table[idx];
-    }
-    return result;
-}
-
 /* WHOLE_DRIVER_CANDIDATE fn_000000000001e010 origin=model_output original=apical_event_queue_push */
 uint32_t apical_event_queue_push(int32_t *arg1, char arg2)
 {
-    int32_t *qlock = (int32_t *)((char *)&_qlock1);
-    int32_t head = arg1[0];
-    int32_t tail = arg1[1];
-    int32_t size = arg1[3];
+    /*
+     * OEM apical_event_queue_push (SDK ko 0x1d730): _qlock1 (.sbss+4) ++,
+     * write the event byte at the loop buffer head, store the new head unless
+     * the buffer is full (new head == tail), _qlock1 --.  Both OEM branches
+     * on head/size/tail call the same write.  The lift counted in the word
+     * after _qlock1 (qlock[1], treating &_qlock1 as the .sbss base), i.e. in
+     * an unrelated variable.
+     */
     int32_t ret;
 
-    qlock[1]++;
-
-    if (head >= 0 && head < size && tail >= 0) {
-        ret = apical_loop_buffer_write_u8(arg1, 0, arg2);
-        if (ret != arg1[1])
-            ((void **)arg1)[0] = ret;
-    } else {
-        ret = apical_loop_buffer_write_u8(arg1, 0, arg2);
-        if (ret != arg1[1])
-            ((void **)arg1)[0] = ret;
-    }
-
-    qlock[1]--;
-    return (uint32_t)qlock[1];
+    _qlock1++;
+    ret = apical_loop_buffer_write_u8(arg1, 0, (uint8_t)arg2);   /* OEM andi a2,0xff */
+    if (ret != arg1[1])
+        arg1[0] = ret;
+    _qlock1--;
+    return (uint32_t)_qlock1;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000001e0a8 origin=model_output original=apical_event_queue_pop */
@@ -38692,7 +30069,7 @@ uint32_t apical_loop_buffer_read_u8(void *arg1, int32_t arg2)
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000001e1ac origin=model_output original=apical_loop_buffer_write_u8 */
-int32_t apical_loop_buffer_write_u8(int32_t *buf, int32_t offset, char val)
+int32_t apical_loop_buffer_write_u8(int32_t *buf, int32_t offset, uint8_t val)
 {
     int32_t pos = offset + buf[0];
     int32_t size = buf[3];
@@ -38710,78 +30087,6 @@ int32_t apical_loop_buffer_write_u8(int32_t *buf, int32_t offset, char val)
     return pos;
 }
 
-/* WHOLE_DRIVER_CANDIDATE fn_000000000001e1f0 origin=model_output original=isp_io_write_sample */
-int32_t isp_io_write_sample(int32_t arg1, int32_t arg2, int32_t arg3, char arg4)
-{
-	uint32_t sample = (uint32_t)arg4 & 0xff;
-	int32_t addr;
-	int32_t val;
-	int32_t shift;
-	uint32_t *mask;
-	int32_t read_val;
-
-	if (sample == 2) {
-		if ((arg2 & 1) == 0) {
-			addr = arg2 & 0xfffffffc;
-			read_val = APICAL_READ_32(addr);
-			shift = (arg2 & 2) << 3;
-			mask = 0xffff;
-		} else {
-			return arg2 & 1;
-		}
-	} else if (sample == 4) {
-		if ((arg2 & 3) == 0) {
-			addr = arg2;
-			val = arg3;
-			return APICAL_WRITE_32(addr, val);
-		}
-		return arg2 & 3;
-	} else if (sample == 1) {
-		addr = arg2 & 0xfffffffc;
-		read_val = APICAL_READ_32(addr);
-		shift = (arg2 & 3) << 3;
-		mask = 0xff;
-	} else if (sample == 2) {
-		addr = arg2 & 0xfffffffc;
-		read_val = APICAL_READ_32(addr);
-		shift = (arg2 & 2) << 3;
-		mask = 0xffff;
-	} else {
-		addr = arg2;
-		val = arg3;
-		return APICAL_WRITE_32(addr, val);
-	}
-
-	val = (read_val & ~((uintptr_t)mask << (shift & 0x1f))) | (arg3 << (shift & 0x1f));
-	return APICAL_WRITE_32(addr, val);
-}
-
-/* WHOLE_DRIVER_CANDIDATE fn_000000000001e2fc origin=model_output original=isp_io_read_sample */
-uint32_t isp_io_read_sample(int32_t arg1, int32_t arg2, char arg3)
-{
-    uint32_t size = (uint32_t)arg3 & 0xff;
-
-    if (size == 2) {
-        if (arg2 & 1)
-            return 0xffffffff;
-        return APICAL_READ_16(arg2);
-    }
-
-    if (size == 4) {
-        if (arg2 & 3)
-            return 0xffffffff;
-        return APICAL_READ_32(arg2);
-    }
-
-    if (size == 1)
-        return APICAL_READ_8(arg2);
-
-    if (size == 2)
-        return APICAL_READ_16(arg2);
-
-    return 0;
-}
-
 /* WHOLE_DRIVER_CANDIDATE fn_000000000001e398 origin=model_output original=apical_sbus_isp_init */
 int32_t apical_sbus_isp_init(void *arg1)
 {
@@ -38790,211 +30095,12 @@ int32_t apical_sbus_isp_init(void *arg1)
     return 0x1e1f0;
 }
 
-/* WHOLE_DRIVER_CANDIDATE fn_000000000001e3c0 origin=model_output original=i2c_io_read_sample */
-int32_t i2c_io_read_sample(int32_t *arg1, uint32_t arg2, char arg3)
-{
-	int32_t flags = *arg1;
-	uint32_t count = arg3 & 0xff;
-	uint32_t addr = arg1[1];
-	int32_t *dev = (int32_t *)arg1[3];
-	int32_t n;
-	uint8_t buf[8];
-	int32_t ret;
-	uint32_t *i;
-	int32_t *result;
-
-	if (!(flags & 0x1000)) {
-		n = 2;
-		if (!(flags & 0x10)) {
-			n = 4;
-			if (!(flags & 0x20))
-				n = 1;
-		}
-	} else {
-		n = 0;
-	}
-
-	for (i = 0; i < (uint32_t)n; i++) {
-		((void **)buf)[(uintptr_t)i] = (uint8_t)arg2;
-		arg2 >>= 8;
-	}
-
-	if (dev != 0 && dev[1] == 0)
-		system_hw_interrupts_disable();
-
-	if (n != 0) {
-		ret = I2C_write(addr, buf, n);
-		if (ret != 0)
-			ret = I2C_read(addr, buf, count);
-	} else {
-		ret = I2C_read(addr, buf, count);
-	}
-
-	if (dev != 0 && dev[1] == 0) {
-		int32_t tmp = system_hw_interrupts_enable();
-		ret = tmp;
-	}
-	if (ret == 0)
-		return 0;
-
-	result = 0;
-	for (i = count; (uintptr_t)i != 0xff; i = ((uintptr_t)i - 1) & 0xff)
-		result = ((uintptr_t)result << 8) + buf[(uintptr_t)i];
-
-	return result;
-}
-
-/* WHOLE_DRIVER_CANDIDATE fn_000000000001e510 origin=fragment_seed original=i2c_io_write_sample */
-int32_t i2c_io_write_sample(uintptr_t a0, uint32_t a1, uint32_t a2, uint32_t a3)
-{
-    uint32_t *local_10 = 0;
-    uint32_t *local_18 = 0;
-    uint32_t local_1c = 0;
-    uint32_t local_20 = 0;
-    uint32_t local_24 = 0;
-    uint32_t ra = 0;
-    uintptr_t *s0 = 0;
-    uintptr_t *s1 = 0;
-    uint32_t *s2 = 0;
-    uint32_t t0 = 0;
-    uintptr_t *v0 = 0;
-    uint32_t v1 = 0;
-
-    /* fragment 0: MemoryAccess */
-    v1 = *(uint32_t *)((char *)a0 + 0);
-    local_1c = s1;
-    local_18 = s0;
-    s1 = a0;
-    s0 = *(uint32_t *)((char *)a0 + 12);
-    a0 = v1 & 4096;
-    local_24 = ra;
-    local_20 = s2;
-    a3 = a3 & 255;
-
-    /* fragment 1: Branch */
-    v0 = 0;
-    if (a0 != 0) { goto i2c_io_write_sample0x6c; }
-
-    /* fragment 2: Arithmetic */
-    a0 = v1 & 16;
-
-    /* fragment 3: Branch */
-    v0 = 2;
-    if (a0 != 0) { goto i2c_io_write_sample0x4c; }
-
-    /* fragment 4: Arithmetic */
-    v1 = v1 & 32;
-    v0 = 4;
-    a0 = 1;
-    if (v1 == 0) { v0 = a0; }
-
-i2c_io_write_sample0x4c:
-    /* fragment 5: Arithmetic */
-    v1 = 0;
-    t0 = (uintptr_t)&local_10;
-
-i2c_io_write_sample0x54:
-    /* fragment 6: Arithmetic */
-    a0 = t0 + v1;
-    v1 = v1 + 1;
-
-    /* fragment 7: MemoryAccess */
-    *(uint8_t *)((char *)a0 + 0) = a1;
-    a0 = v1 < v0;
-
-    /* fragment 8: Branch */
-    a1 = a1 >> 8;
-    if (a0 != 0) { goto i2c_io_write_sample0x54; }
-
-i2c_io_write_sample0x6c:
-    /* fragment 9: Arithmetic */
-    a0 = (uintptr_t)&local_10;
-    v1 = 0;
-
-    /* fragment 10: Branch */
-    a1 = a0 + (uintptr_t)v0;
-    goto i2c_io_write_sample0x88;
-
-    /* fragment 11: MemoryAccess */
-    *(uint8_t *)((char *)a0 + 0) = a2;
-    v1 = v1 + 1;
-    a2 = a2 >> 8;
-
-i2c_io_write_sample0x88:
-    /* fragment 12: Arithmetic */
-    a0 = v1 & 255;
-
-    /* fragment 13: Unknown */
-    /* unmatched fragment 13 (Unknown): no deterministic matcher for Unknown */
-    /* asm: 1e59c:	54e4fffb 	bnel	a3,a0,1e58c <i2c_io_write_sample+0x7c> */
-
-    /* fragment 14: Arithmetic */
-    a0 = a1 + v1;
-
-    /* fragment 15: Branch */
-    s2 = v0 + a3;
-    if (s0 == 0) { goto i2c_io_write_sample0xb8; }
-
-    /* fragment 16: MemoryAccess */
-    v0 = *(uint32_t *)((char *)s0 + 4);
-
-    /* fragment 17: Branch */
-    int _bc_v0_17 = v0 != 0;
-    v0 = (uintptr_t *)&I2C_write;
-    if (_bc_v0_17) { goto i2c_io_write_sample0xbc; }
-
-    /* fragment 18: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(int32_t *))(uintptr_t)system_hw_interrupts_disable)(a0); /* jalr target resolved by relocation */
-
-i2c_io_write_sample0xb8:
-    /* fragment 19: CallSetup */
-    v0 = (uintptr_t *)&I2C_write;
-
-i2c_io_write_sample0xbc:
-    /* fragment 20: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)I2C_write)(*(uint8_t *)((char *)(s1) + 4), &local_10, s2); /* jalr target resolved by relocation */
-
-    /* fragment 21: Branch */
-    if (s0 == 0) { goto i2c_io_write_sample0xf8; }
-
-    /* fragment 22: MemoryAccess */
-    v0 = *(uint32_t *)((char *)s0 + 4);
-
-    /* fragment 23: Branch */
-    s2 = local_20;
-    if (v0 != 0) { goto i2c_io_write_sample0xfc; }
-
-    /* fragment 24: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(int32_t *))(uintptr_t)system_hw_interrupts_enable)(a0); /* jalr target resolved by relocation */
-
-    /* fragment 25: Epilogue */
-    /* function epilogue: restore registers and return */
-    return (int32_t)v0;
-
-i2c_io_write_sample0xf8:
-    /* fragment 26: Epilogue */
-    /* function epilogue: restore registers and return */
-    return (int32_t)v0;
-
-i2c_io_write_sample0xfc:
-    /* fragment 27: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    return 0;
-}
-
 /* WHOLE_DRIVER_CANDIDATE fn_000000000001e61c origin=model_output original=apical_sbus_i2c_init */
 int32_t apical_sbus_i2c_init(void *arg1)
 {
     *(uint32_t *)((char *)arg1 + 0x10) = 0x1e3c0;
     *(uint32_t *)((char *)arg1 + 0x14) = 0x1e510;
     return 0x1e510;
-}
-
-/* WHOLE_DRIVER_CANDIDATE fn_000000000001e638 origin=model_output original=i2c_init_access */
-int32_t i2c_init_access(void)
-{
-	return I2C_init();
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000001e650 origin=fragment_seed original=spi_io_write_sample */
@@ -39316,361 +30422,6 @@ int32_t apical_sbus_spi_init(void *arg1)
 	return spi_init_access();
 }
 
-/* WHOLE_DRIVER_CANDIDATE fn_000000000001eb40 origin=model_output original=sensor_write_data */
-void sensor_write_data(int32_t *dev, int32_t reg, char *buf, int32_t count)
-{
-    int *i = 0;
-	int32_t offset = reg - (int32_t)(uintptr_t)buf;
-	int32_t remaining = count;
-	char *ptr = buf;
-	int32_t addr = (int32_t)(uintptr_t)ptr + offset;
-
-	while (remaining != 0) {
-		if ((addr & 1) == 0) {
-			int32_t u32_count = remaining >> 2;
-			char *p = ptr;
-			int32_t *i;
-
-			for (i = 0; i < u32_count; i++) {
-				uint32_t val = (uint32_t)(uint8_t)p[3] << 24 |
-					(uint32_t)(uint8_t)p[2] << 16 |
-					(uint32_t)(uint8_t)p[1] << 8 |
-					(uint32_t)(uint8_t)p[0];
-				apical_sbus_write_u32(dev, offset + (int32_t)(uintptr_t)p, val);
-				p = (void *)(uintptr_t)((uintptr_t)p + (4));
-			}
-
-			if (u32_count < 0)
-				u32_count = 0;
-
-			int32_t u32_bytes = u32_count << 2;
-			ptr = (void *)(uintptr_t)((uintptr_t)ptr + (u32_bytes));
-			addr += u32_bytes;
-			remaining -= u32_bytes;
-
-			int32_t u16_count = remaining >> 1;
-			char *p16 = ptr;
-			int32_t j;
-
-			for (j = 0; j < u16_count; j++) {
-				uint16_t val = (uint16_t)((uint16_t)(uint8_t)p16[1] << 8 |
-					(uint16_t)(uint8_t)p16[0]);
-				apical_sbus_write_u16(dev, offset + (int32_t)(uintptr_t)p16, val);
-				p16 = (void *)(uintptr_t)((uintptr_t)p16 + (2));
-			}
-
-			if (u16_count < 0)
-				u16_count = 0;
-
-			int32_t u16_bytes = u16_count << 1;
-			addr += u16_bytes;
-			ptr = (void *)(uintptr_t)((uintptr_t)ptr + (u16_bytes));
-			remaining -= u16_bytes;
-
-			int32_t k;
-			for (k = 0; k < remaining; k++) {
-				apical_sbus_write_u8(dev, addr + k, (uint8_t)ptr[k]);
-			}
-			return;
-		}
-
-		apical_sbus_write_u8(dev, addr, (uint8_t)*ptr);
-		ptr++;
-		remaining--;
-	}
-}
-
-/* WHOLE_DRIVER_CANDIDATE fn_000000000001ece8 origin=fragment_seed original=sequence_read_u16 */
-int64_t sequence_read_u16(uintptr_t a0)
-{
-    uint32_t ra = 0;
-    uintptr_t *v0 = 0;
-    uint32_t v1 = 0;
-
-    /* fragment 0: MemoryAccess */
-    v1 = *(uint8_t *)((char *)a0 + 1);
-    v0 = *(uint8_t *)((char *)a0 + 0);
-    v1 = v1 << 8;
-
-    /* fragment 1: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    /* fragment 2: Arithmetic */
-    v0 = v1 | (uintptr_t)v0;
-
-    return ((int64_t)(uint32_t)v1 << 32) | (uint32_t)v0;
-}
-
-/* WHOLE_DRIVER_CANDIDATE fn_000000000001ecfc origin=fragment_seed original=sequence_read_u32 */
-int64_t sequence_read_u32(uintptr_t a0)
-{
-    uint32_t ra = 0;
-    uintptr_t *v0 = 0;
-    uint32_t v1 = 0;
-
-    /* fragment 0: MemoryAccess */
-    v1 = *(uint8_t *)((char *)a0 + 3);
-    v0 = *(uint8_t *)((char *)a0 + 2);
-    v1 = v1 << 8;
-    v1 = v1 | (uintptr_t)v0;
-    v0 = *(uint8_t *)((char *)a0 + 1);
-    a0 = *(uint8_t *)((char *)a0 + 0);
-    v0 = (uintptr_t)v0 << 8;
-    v1 = v1 << 16;
-    v0 = (uintptr_t)v0 | a0;
-
-    /* fragment 1: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    /* fragment 2: Arithmetic */
-    v0 = v1 | (uintptr_t)v0;
-
-    return ((int64_t)(uint32_t)v1 << 32) | (uint32_t)v0;
-}
-
-/* WHOLE_DRIVER_CANDIDATE fn_000000000001ed28 origin=fragment_seed original=sequence_write_u16 */
-uint8_t sequence_write_u16(uintptr_t a0, uint32_t a1)
-{
-    uint32_t ra = 0;
-    uint32_t *v0 = 0;
-
-    /* fragment 0: Arithmetic */
-    a1 = a1 & 65535;
-    v0 = a1 >> 8;
-
-    /* fragment 1: MemoryAccess */
-    *(uint8_t *)((char *)a0 + 1) = v0;
-
-    /* fragment 2: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    /* fragment 3: MemoryAccess */
-    *(uint8_t *)((char *)a0 + 0) = a1;
-
-    return (uint8_t)v0;
-}
-
-/* WHOLE_DRIVER_CANDIDATE fn_000000000001ed3c origin=fragment_seed original=sequence_write_u32 */
-uint8_t sequence_write_u32(uintptr_t a0, uint32_t a1)
-{
-    uint32_t ra = 0;
-    uintptr_t *v0 = 0;
-
-    /* fragment 0: Arithmetic */
-    v0 = a1 >> 24;
-
-    /* fragment 1: MemoryAccess */
-    *(uint8_t *)((char *)a0 + 3) = v0;
-    v0 = a1 >> 16;
-    *(uint8_t *)((char *)a0 + 2) = v0;
-    v0 = a1 >> 8;
-    *(uint8_t *)((char *)a0 + 1) = v0;
-
-    /* fragment 2: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    /* fragment 3: MemoryAccess */
-    *(uint8_t *)((char *)a0 + 0) = a1;
-
-    return (uint8_t)v0;
-}
-
-/* WHOLE_DRIVER_CANDIDATE fn_000000000001ed5c origin=model_output original=sensor_load_binary_sequence */
-char *sensor_load_binary_sequence(int32_t *dev, void *base, int32_t idx)
-{
-	uint8_t *result;
-	uint32_t offset = 0;
-	uint8_t *buf;
-	uint32_t len;
-	uint32_t *reg;
-	uint32_t *i;
-	uint32_t u32_count;
-	uint32_t u16_count;
-	uint32_t u8_count;
-	uint32_t val;
-	uint32_t *mask;
-	uint32_t data;
-	uint8_t *p;
-	uint8_t *pmask;
-	uint16_t val16;
-	uint16_t mask16;
-	uint8_t val8;
-	uint8_t mask8;
-
-	result = (uintptr_t)base + (idx << 1);
-	result = (uintptr_t)base + ((uintptr_t)result[1] << 8 | (uint32_t)result[0]);
-
-	while (1) {
-		uint32_t op = (uint32_t)*result;
-
-		if (op == 0x10) {
-			offset += (uint32_t)result[1];
-			result = (void *)(uintptr_t)((uintptr_t)result + (2));
-			continue;
-		}
-
-		if (op >= 0x11) {
-			if (op == 0xe0) {
-				uint32_t us = (uint32_t)result[1];
-				usleep_range(us, us + 100);
-				result = (void *)(uintptr_t)((uintptr_t)result + (2));
-				continue;
-			} else if (op >= 0xe1) {
-				if (op == 0xe1) {
-					uint32_t us = (uint32_t)result[2] << 8 | (uint32_t)result[1];
-					usleep_range(us, us + 100);
-					result = (void *)(uintptr_t)((uintptr_t)result + (3));
-					continue;
-				}
-				if (op == 0xe2) {
-					uint32_t us = (uint32_t)result[4] << 24 | (uint32_t)result[3] << 16 |
-						(uint32_t)result[2] << 8 | (uint32_t)result[1];
-					usleep_range(us, us + 100);
-					result = (void *)(uintptr_t)((uintptr_t)result + (5));
-					continue;
-				}
-				goto handle_high;
-			} else {
-				if (op == 0x11) {
-					offset -= (uint32_t)result[1];
-					result = (void *)(uintptr_t)((uintptr_t)result + (2));
-					continue;
-				}
-				goto handle_high;
-			}
-		} else if (op == 1) {
-			offset = (uint32_t)result[2] << 8 | (uint32_t)result[1];
-			result = (void *)(uintptr_t)((uintptr_t)result + (3));
-			continue;
-		} else {
-			if (op == 0)
-				break;
-			if (op != 2)
-				goto handle_high;
-			offset = (uint32_t)result[4] << 24 | (uint32_t)result[3] << 16 |
-				(uint32_t)result[2] << 8 | (uint32_t)result[1];
-			result = (void *)(uintptr_t)((uintptr_t)result + (5));
-			continue;
-		}
-
-	handle_high:
-		{
-			uint32_t hi = op >> 4;
-
-			if (hi == 3) {
-				len = (op & 0xf) + 1;
-				reg = (uintptr_t)result[1] + offset;
-				buf = (uintptr_t)result + 2;
-
-				if (len >= 5) {
-					uint8_t local_buf[16];
-					uint32_t total_bytes = len << 1;
-					uint32_t data_ptr;
-					uint32_t mask_ptr;
-					uint32_t byte_off;
-
-					memcpy(local_buf, buf, total_bytes);
-					data_ptr = (uint32_t)(uintptr_t)local_buf;
-					mask_ptr = data_ptr + len;
-					byte_off = 0;
-
-					u32_count = len >> 2;
-					for (i = 0; i < u32_count; i++) {
-						uint32_t daddr = reg + byte_off;
-						uint32_t dval = apical_sbus_read_u32(dev, daddr);
-						uint32_t mval = (uint32_t)local_buf[mask_ptr + byte_off + 4] << 24 |
-							(uint32_t)local_buf[mask_ptr + byte_off + 3] << 16 |
-							(uint32_t)local_buf[mask_ptr + byte_off + 2] << 8 |
-							(uint32_t)local_buf[mask_ptr + byte_off + 1];
-						uint32_t cval = (uint32_t)local_buf[data_ptr + byte_off + 3] << 24 |
-							(uint32_t)local_buf[data_ptr + byte_off + 2] << 16 |
-							(uint32_t)local_buf[data_ptr + byte_off + 1] << 8 |
-							(uint32_t)local_buf[data_ptr + byte_off];
-						uint32_t rval = (dval & ~mval) | (mval & cval);
-						((void **)local_buf)[data_ptr + byte_off + 3] = (rval >> 24) & 0xff;
-						((void **)local_buf)[data_ptr + byte_off + 2] = (rval >> 16) & 0xff;
-						((void **)local_buf)[data_ptr + byte_off + 1] = (rval >> 8) & 0xff;
-						((void **)local_buf)[data_ptr + byte_off] = rval & 0xff;
-						byte_off += 4;
-					}
-
-					u16_count = (len - byte_off) >> 1;
-					for (i = 0; i < u16_count; i++) {
-						uint32_t daddr = reg + byte_off;
-						uint16_t dval = apical_sbus_read_u16(dev, daddr);
-						uint16_t mval = (uint16_t)((uint32_t)local_buf[mask_ptr + byte_off] << 8 |
-							(uint32_t)local_buf[mask_ptr + byte_off - 1]);
-						uint16_t cval = (uint16_t)((uint32_t)local_buf[data_ptr + byte_off + 1] << 8 |
-							(uint32_t)local_buf[data_ptr + byte_off]);
-						uint16_t rval = (uint16_t)((dval & ~mval) | (mval & cval));
-						((void **)local_buf)[data_ptr + byte_off + 1] = (rval >> 8) & 0xff;
-						((void **)local_buf)[data_ptr + byte_off] = rval & 0xff;
-						byte_off += 2;
-					}
-
-					u8_count = len - byte_off;
-					for (i = 0; i < u8_count; i++) {
-						uint32_t daddr = reg + byte_off;
-						uint8_t dval = apical_sbus_read_u8(dev, daddr);
-						uint8_t mval = local_buf[mask_ptr + byte_off];
-						uint8_t cval = local_buf[data_ptr + byte_off];
-						((void **)local_buf)[data_ptr + byte_off] = (dval & ~mval) | (mval & cval);
-						byte_off += 1;
-					}
-
-					sensor_write_data(dev, reg, local_buf, len);
-				}
-
-				result = (void *)(uintptr_t)((uintptr_t)result + (2 + (len << 1)));
-			} else if (hi == 0xf) {
-				sensor_load_binary_sequence(dev, base, op & 0xf);
-				result = (void *)(uintptr_t)((uintptr_t)result + (1));
-			} else if (hi != 2) {
-				result = (void *)(uintptr_t)((uintptr_t)result + (1));
-			} else {
-				len = (op & 0xf) + 1;
-				reg = (uintptr_t)result[1] + offset;
-				sensor_write_data(dev, reg, (char *)result + 2, len);
-				result = (void *)(uintptr_t)((uintptr_t)result + (len + 2));
-			}
-		}
-	}
-
-	return (char *)result;
-}
-
-/* WHOLE_DRIVER_CANDIDATE fn_000000000001f21c origin=model_output original=sensor_load_array_sequence */
-int32_t sensor_load_array_sequence(int32_t *arg1, void *arg2, int32_t arg3)
-{
-	uint16_t *ptr = (uint16_t *)((char *)arg2 + (arg3 << 2));
-	int32_t *i;
-	uint16_t val;
-	uint16_t data;
-
-	ptr = (uint16_t *)(*(uint32_t *)((char *)arg2 + (arg3 << 2)));
-
-	do {
-		val = ptr[0];
-		data = ptr[1];
-		i = 1;
-
-		if (val != 0) {
-			if (val != 0xffff) {
-				sensor_write_data(arg1, val, (char *)&data, 1);
-				i = 0;
-			} else {
-				uint32_t delay = (uint32_t)data * 1000;
-				usleep_range(delay, delay + 100);
-				i = 0;
-			}
-		}
-
-		ptr = (uint16_t *)((char *)ptr + 4);
-	} while (i == 0);
-
-	return i;
-}
-
 /* WHOLE_DRIVER_CANDIDATE fn_000000000001f2e0 origin=model_output original=APICAL_READ_32 */
 int32_t APICAL_READ_32(int32_t arg1)
 {
@@ -39688,22 +30439,6 @@ int32_t APICAL_READ_32(int32_t arg1)
 	       ((uint32_t)apical_ext_sytem_mem[off + 1] << 8) |
 	       ((uint32_t)apical_ext_sytem_mem[off + 2] << 16) |
 	       ((uint32_t)apical_ext_sytem_mem[off + 3] << 24);
-}
-
-/* WHOLE_DRIVER_CANDIDATE fn_000000000001f360 origin=model_output original=APICAL_READ_16 */
-uint32_t APICAL_READ_16(uint32_t addr)
-{
-	uint32_t off;
-
-	if (addr < 0x1ffffu)
-		return system_isp_read_16(addr);
-
-	off = addr - 0x40100u;
-	if (off > sizeof(apical_ext_sytem_mem) - sizeof(uint16_t))
-		return 0;
-
-	return (uint32_t)apical_ext_sytem_mem[off] |
-	       ((uint32_t)apical_ext_sytem_mem[off + 1] << 8);
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000001f3d0 origin=model_output original=APICAL_READ_8 */
@@ -39904,437 +30639,67 @@ finish:
 		apical_api_buffer_data_size = 0;
 	return 0;
 
-#if 0 /* Superseded collapsed model output retained for audit provenance. */
-	uint32_t cmd;
-	uint32_t api_cmd_buffer[1024];
-	uint8_t *api;
-	uint8_t api_cmd;
-	uint8_t api_cmd2;
-	uint32_t api_data;
-	uint32_t api_data_size;
-	uint32_t ret;
-	uint32_t val;
-	uint32_t idx;
-	uint32_t limit;
-	uint32_t write_val;
-	uint32_t read_val;
-	uint32_t func_ret;
-	uint32_t buf_val;
-	uint32_t cmd_val;
-	uint32_t cmd_val2;
-	uint32_t cmd_val3;
-	uint32_t cmd_val4;
-	uint32_t cmd_val5;
-	uint32_t cmd_val6;
-	uint32_t cmd_val7;
-	uint32_t cmd_val8;
-	uint32_t cmd_val9;
-	uint32_t cmd_val10;
-	uint32_t cmd_val11;
-	uint32_t cmd_val12;
-	uint32_t cmd_val13;
-	uint32_t cmd_val14;
-	uint32_t cmd_val15;
-	uint32_t cmd_val16;
-	uint32_t cmd_val17;
-	uint32_t cmd_val18;
-	uint32_t cmd_val19;
-	uint32_t cmd_val20;
-	uint32_t cmd_val21;
-	uint32_t cmd_val22;
-	uint32_t cmd_val23;
-	uint32_t cmd_val24;
-	uint32_t cmd_val25;
-	uint32_t cmd_val26;
-	uint32_t cmd_val27;
-	uint32_t cmd_val28;
-	uint32_t cmd_val29;
-	uint32_t cmd_val30;
-	uint32_t cmd_val31;
-	uint32_t cmd_val32;
-	uint32_t cmd_val33;
-	uint32_t cmd_val34;
-	uint32_t cmd_val35;
-	uint32_t cmd_val36;
-	uint32_t cmd_val37;
-	uint32_t cmd_val38;
-	uint32_t cmd_val39;
-	uint32_t cmd_val40;
-	uint32_t cmd_val41;
-	uint32_t cmd_val42;
-	uint32_t cmd_val43;
-	uint32_t cmd_val44;
-	uint32_t cmd_val45;
-	uint32_t cmd_val46;
-	uint32_t cmd_val47;
-	uint32_t cmd_val48;
-	uint32_t cmd_val49;
-	uint32_t cmd_val50;
-	uint32_t cmd_val51;
-	uint32_t cmd_val52;
-	uint32_t cmd_val53;
-	uint32_t cmd_val54;
-	uint32_t cmd_val55;
-	uint32_t cmd_val56;
-	uint32_t cmd_val57;
-	uint32_t cmd_val58;
-	uint32_t cmd_val59;
-	uint32_t cmd_val60;
-	uint32_t cmd_val61;
-	uint32_t cmd_val62;
-	uint32_t cmd_val63;
-	uint32_t cmd_val64;
-	uint32_t cmd_val65;
-	uint32_t cmd_val66;
-	uint32_t cmd_val67;
-	uint32_t cmd_val68;
-	uint32_t cmd_val69;
-	uint32_t cmd_val70;
-	uint32_t cmd_val71;
-	uint32_t cmd_val72;
-	uint32_t cmd_val73;
-	uint32_t cmd_val74;
-	uint32_t cmd_val75;
-	uint32_t cmd_val76;
-	uint32_t cmd_val77;
-	uint32_t cmd_val78;
-	uint32_t cmd_val79;
-	uint32_t cmd_val80;
-	uint32_t cmd_val81;
-	uint32_t cmd_val82;
-	uint32_t cmd_val83;
-	uint32_t cmd_val84;
-	uint32_t cmd_val85;
-	uint32_t cmd_val86;
-	uint32_t cmd_val87;
-	uint32_t cmd_val88;
-	uint32_t cmd_val89;
-	uint32_t cmd_val90;
-	uint32_t cmd_val91;
-	uint32_t cmd_val92;
-	uint32_t cmd_val93;
-	uint32_t cmd_val94;
-	uint32_t cmd_val95;
-	uint32_t cmd_val96;
-	uint32_t cmd_val97;
-	uint32_t cmd_val98;
-	uint32_t cmd_val99;
-	uint32_t cmd_val100;
-	uint32_t cmd_val101;
-	uint32_t cmd_val102;
-	uint32_t cmd_val103;
-	uint32_t cmd_val104;
-	uint32_t cmd_val105;
-	uint32_t cmd_val106;
-	uint32_t cmd_val107;
-	uint32_t cmd_val108;
-	uint32_t cmd_val109;
-	uint32_t cmd_val110;
-	uint32_t cmd_val111;
-	uint32_t cmd_val112;
-	uint32_t cmd_val113;
-	uint32_t cmd_val114;
-	uint32_t cmd_val115;
-	uint32_t cmd_val116;
-	uint32_t cmd_val117;
-	uint32_t cmd_val118;
-	uint32_t cmd_val119;
-	uint32_t cmd_val120;
-	uint32_t cmd_val121;
-	uint32_t cmd_val122;
-	uint32_t cmd_val123;
-	uint32_t cmd_val124;
-	uint32_t cmd_val125;
-	uint32_t cmd_val126;
-	uint32_t cmd_val127;
-	uint32_t cmd_val128;
-	uint32_t cmd_val129;
-	uint32_t cmd_val130;
-	uint32_t cmd_val131;
-	uint32_t cmd_val132;
-	uint32_t cmd_val133;
-	uint32_t cmd_val134;
-	uint32_t cmd_val135;
-	uint32_t cmd_val136;
-	uint32_t cmd_val137;
-	uint32_t cmd_val138;
-	uint32_t cmd_val139;
-	uint32_t cmd_val140;
-	uint32_t cmd_val141;
-	uint32_t cmd_val142;
-	uint32_t cmd_val143;
-	uint32_t cmd_val144;
-	uint32_t cmd_val145;
-	uint32_t cmd_val146;
-	uint32_t cmd_val147;
-	uint32_t cmd_val148;
-	uint32_t cmd_val149;
-	uint32_t cmd_val150;
-	uint32_t cmd_val151;
-	uint32_t cmd_val152;
-	uint32_t cmd_val153;
-	uint32_t cmd_val154;
-	uint32_t cmd_val155;
-	uint32_t cmd_val156;
-	uint32_t cmd_val157;
-	uint32_t cmd_val158;
-	uint32_t cmd_val159;
-	uint32_t cmd_val160;
-	uint32_t cmd_val161;
-	uint32_t cmd_val162;
-	uint32_t cmd_val163;
-	uint32_t cmd_val164;
-	uint32_t cmd_val165;
-	uint32_t cmd_val166;
-	uint32_t cmd_val167;
-	uint32_t cmd_val168;
-	uint32_t cmd_val169;
-	uint32_t cmd_val170;
-	uint32_t cmd_val171;
-	uint32_t cmd_val172;
-	uint32_t cmd_val173;
-	uint32_t cmd_val174;
-	uint32_t cmd_val175;
-	uint32_t cmd_val176;
-	uint32_t cmd_val177;
-	uint32_t cmd_val178;
-	uint32_t cmd_val179;
-	uint32_t cmd_val180;
-	uint32_t cmd_val181;
-	uint32_t cmd_val182;
-	uint32_t cmd_val183;
-	uint32_t cmd_val184;
-	uint32_t cmd_val185;
-	uint32_t cmd_val186;
-	uint32_t cmd_val187;
-	uint32_t cmd_val188;
-	uint32_t cmd_val189;
-	uint32_t cmd_val190;
-	uint32_t cmd_val191;
-	uint32_t cmd_val192;
-	uint32_t cmd_val193;
-	uint32_t cmd_val194;
-	uint32_t cmd_val195;
-	uint32_t cmd_val196;
-	uint32_t cmd_val197;
-	uint32_t cmd_val198;
-	uint32_t cmd_val199;
-	uint32_t cmd_val200;
-	uint32_t cmd_val201;
-	uint32_t cmd_val202;
-	uint32_t cmd_val203;
-	uint32_t cmd_val204;
-	uint32_t cmd_val205;
-	uint32_t cmd_val206;
-	uint32_t cmd_val207;
-	uint32_t cmd_val208;
-	uint32_t cmd_val209;
-	uint32_t cmd_val210;
-	uint32_t cmd_val211;
-	uint32_t cmd_val212;
-	uint32_t cmd_val213;
-	uint32_t cmd_val214;
-	uint32_t cmd_val215;
-	uint32_t cmd_val216;
-	uint32_t cmd_val217;
-	uint32_t cmd_val218;
-	uint32_t cmd_val219;
-	uint32_t cmd_val220;
-	uint32_t cmd_val221;
-	uint32_t cmd_val222;
-	uint32_t cmd_val223;
-	uint32_t cmd_val224;
-	uint32_t cmd_val225;
-	uint32_t cmd_val226;
-	uint32_t cmd_val227;
-	uint32_t cmd_val228;
-	uint32_t cmd_val229;
-	uint32_t cmd_val230;
-	uint32_t cmd_val231;
-	uint32_t cmd_val232;
-	uint32_t cmd_val233;
-	uint32_t cmd_val234;
-	uint32_t cmd_val235;
-	uint32_t cmd_val236;
-	uint32_t cmd_val237;
-	uint32_t cmd_val238;
-	uint32_t cmd_val239;
-	uint32_t cmd_val240;
-	uint32_t cmd_val241;
-	uint32_t cmd_val242;
-	uint32_t cmd_val243;
-	uint32_t cmd_val244;
-	uint32_t cmd_val245;
-	uint32_t cmd_val246;
-	uint32_t cmd_val247;
-	uint32_t cmd_val248;
-	uint32_t cmd_val249;
-	uint32_t cmd_val250;
-	uint32_t cmd_val251;
-	uint32_t cmd_val252;
-	uint32_t cmd_val253;
-	uint32_t cmd_val254;
-	uint32_t cmd_val255;
-	uint32_t cmd_val256;
-	uint32_t cmd_val257;
-	uint32_t cmd_val258;
-	uint32_t cmd_val259;
-	uint32_t cmd_val260;
-	uint32_t cmd_val261;
-	uint32_t cmd_val262;
-	uint32_t cmd_val263;
-	uint32_t cmd_val264;
-	uint32_t cmd_val265;
-	uint32_t cmd_val266;
-	uint32_t cmd_val267;
-	uint32_t cmd_val268;
-	uint32_t cmd_val269;
-	uint32_t cmd_val270;
-	uint32_t cmd_val271;
-	uint32_t cmd_val272;
-	uint32_t cmd_val273;
-	uint32_t cmd_val274;
-	uint32_t cmd_val275;
-	uint32_t cmd_val276;
-#endif
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000001fac0 origin=model_output original=ae_roi.part.1 */
 #ifndef REGTRACE_KERNEL_TREE_BUILD
 int32_t ae_roi_part_1(void *arg1, int32_t arg2, int32_t *arg3) __asm__("ae_roi.part.1");
 #endif
+/*
+ * #375: OEM ae_roi.part.1 (vendor 4ea12e1f 0x1f1e0) / awb_roi.part.2 (0x1f470).  arg2 = x0 << 24 | y0 << 16 |
+ * x1 << 8 | y1 (zone units 0..255); the zone weight bytes (rows = reg >> 8 & 0xff, cols = reg & 0xff, stride 15)
+ * get 0xf inside the window and 0 outside, mirrored by the flip bytes +0x12 / +0x14 of the context at api +4.
+ * The lift kept the column counter in a `uint32_t *` (stepped 4 per zone), read the flip bytes from the API
+ * block itself and mixed the row / column bounds.
+ */
+static int32_t t30_roi_zone_write(void *api, uint32_t arg2, int32_t *status, uint32_t save_off,
+				  uint32_t size_reg, uint32_t mem_base)
+{
+	uint32_t x0 = arg2 >> 24, x1 = (arg2 >> 8) & 0xff, y0 = (arg2 >> 16) & 0xff, y1 = arg2 & 0xff;
+	uint32_t cols, rows, r, c, t, addr, word, sh, v;
+	uint8_t *flip;
+
+	if (!(x0 < x1) || !(y0 < y1)) {
+		*status = 1;
+		return 5;
+	}
+	*(uint32_t *)((char *)api + save_off) = arg2;
+	flip = *(uint8_t **)((char *)api + 4);
+	if (flip[0x12]) {
+		t = ~x0;
+		x0 = ~x1 & 0xff;
+		x1 = t & 0xff;
+	}
+	if (flip[0x14]) {
+		t = ~y0;
+		y0 = ~y1 & 0xff;
+		y1 = t & 0xff;
+	}
+	cols = APICAL_READ_32(size_reg) & 0xff;
+	rows = (APICAL_READ_32(size_reg) & 0xff00) >> 8;
+	for (r = 0;; r++) {
+		uint32_t rr = r & 0xffff;
+
+		if (rows <= rr)
+			return 0;
+		c = 0;
+		do {
+			addr = c + r * 15 + mem_base;
+			word = addr & ~3u;
+			sh = (addr & 3) << 3;
+			v = APICAL_READ_32(word) & ~(0xffu << sh);
+			if (!(rr < (y0 * rows) / 0xff || (y1 * rows) / 0xff < rr ||
+			      c < (x0 * cols) / 0xff || (x1 * cols) / 0xff < c))
+				v |= 0xfu << sh;
+			APICAL_WRITE_32(word, v);
+			c = (c + 1) & 0xffff;
+		} while (c <= cols);
+	}
+}
+
 int32_t ae_roi_part_1(void *arg1, int32_t arg2, int32_t *arg3)
 {
-	uint32_t s1 = (arg2 >> 8) & 0xff;
-	uint32_t s4 = (arg2 >> 24) & 0xff;
-	uint32_t s3 = (arg2 >> 16) & 0xff;
-	uint32_t s0 = arg2 & 0xff;
-	uint32_t s5;
-	uint32_t s7;
-	uint32_t s8;
-	uint32_t a0;
-	uint32_t *a1;
-	uint32_t *a3;
-	uint32_t *i;
-	uint32_t *row;
-	uint32_t *mask;
-	uint32_t val;
-	uint32_t addr;
-	uint32_t shift;
-	uint32_t lo_mask;
-	uint32_t hi_mask;
-	uint32_t read_val, write_val, write_addr;
-	uint32_t inner_cond, outer_cond;
-	uint32_t row_limit, col_limit, col_start, col_end;
-	uint32_t row_start, row_end, pixel_addr, byte_off, bit_shift;
-	uint32_t low_mask, high_mask, read_data, write_data, write_addr2;
-	uint32_t inner_flag, outer_flag, row_max, col_max;
-	uint32_t col_begin, col_finish, row_begin, row_finish;
-	uint32_t px_addr, b_off, b_shift, l_mask, h_mask;
-	uint32_t r_data, w_data, w_addr, in_flag, out_flag;
-	uint32_t r_max, c_max, c_start, c_end, r_start, r_end;
-	uint32_t p_addr, p_off, p_shift, p_lmask, p_hmask;
-	uint32_t p_rdata, p_wdata, p_waddr, p_inflag, p_outflag;
-	uint32_t p_rmax, p_cmax, p_cstart, p_cend, p_rstart, p_rend;
-	uint32_t p_paddr, p_poff, p_pshift, p_plmask, p_phmask;
-	uint32_t p_prdata, p_pwdata, p_pwaddr, p_pinflag, p_poutflag;
-	uint32_t p_prmax, p_pcmax, p_pcstart, p_pcend, p_prstart, p_prend;
-	uint32_t p_ppaddr, p_ppoff, p_ppshift, p_pplmask, p_pphmask;
-	uint32_t p_pprdata, p_ppwdata, p_ppwaddr, p_ppinflag, p_ppoutflag;
-	uint32_t p_pprmax, p_ppcmax, p_ppcstart, p_ppcend, p_pprstart, p_pprend;
-	uint32_t p_pppaddr, p_pppoff, p_pppshift, p_ppplmask, p_ppphmask;
-	uint32_t p_ppprdata, p_pppwdata, p_pppwaddr, p_pppinflag, p_pppoutflag;
-	uint32_t p_ppprmax, p_pppcmax, p_pppcstart, p_pppcend, p_ppprstart, p_ppprend;
-	uint32_t p_ppppaddr, p_ppppoff, p_ppppshift, p_pppplmask, p_pppphmask;
-	uint32_t p_pppprdata, p_ppppwdata, p_ppppwaddr, p_ppppinflag, p_ppppoutflag;
-	uint32_t p_pppprmax, p_ppppcmax, p_ppppcstart, p_ppppcend, p_pppprstart, p_pppprend;
-	uint32_t p_pppppaddr, p_pppppoff, p_pppppshift, p_ppppplmask, p_ppppphmask;
-	uint32_t p_ppppprdata, p_pppppwdata, p_pppppwaddr, p_pppppinflag, p_pppppoutflag;
-	uint32_t p_ppppprmax, p_pppppcmax, p_pppppcstart, p_pppppcend, p_ppppprstart, p_ppppprend;
-	uint32_t p_ppppppaddr, p_ppppppoff, p_ppppppshift, p_pppppplmask, p_pppppphmask;
-	uint32_t p_pppppprdata, p_ppppppwdata, p_ppppppwaddr, p_ppppppinflag, p_ppppppoutflag;
-	uint32_t p_pppppprmax, p_ppppppcmax, p_ppppppcstart, p_ppppppcend, p_pppppprstart, p_pppppprend;
-	uint32_t p_pppppppaddr, p_pppppppoff, p_pppppppshift, p_ppppppplmask, p_ppppppphmask;
-	uint32_t p_ppppppprdata, p_pppppppwdata, p_pppppppwaddr, p_pppppppinflag, p_pppppppoutflag;
-	uint32_t p_ppppppprmax, p_pppppppcmax, p_pppppppcstart, p_pppppppcend, p_ppppppprstart, p_ppppppprend;
-	uint32_t p_ppppppppaddr, p_ppppppppoff, p_ppppppppshift, p_pppppppplmask, p_pppppppphmask;
-	uint32_t p_pppppppprdata, p_ppppppppwdata, p_ppppppppwaddr, p_ppppppppinflag, p_ppppppppoutflag;
-	uint32_t p_pppppppprmax;
-	uint32_t *base;
-	uint32_t v1_2;
-
-	if (s4 < s1) {
-		if (s3 < s0) {
-			base = (uint32_t *)arg1;
-			((void **)(uintptr_t)base)[0x73c / 4] = (uint32_t)arg2;
-			if (*(uint8_t *)((char *)base + 0x12) != 0) {
-				v1_2 = (uint8_t)(~s4);
-				s4 = (uint8_t)(~s1);
-				s1 = v1_2;
-			}
-			if (*(uint8_t *)((char *)base + 0x14) != 0) {
-				v1_2 = (uint8_t)(~s3);
-				s3 = ~s0;
-				s0 = v1_2;
-			}
-			s5 = APICAL_READ_32(0x830);
-			s5 &= 0xff;
-			a0 = (APICAL_READ_32(0x830) & 0xff00) >> 8;
-			s7 = 0;
-			while (1) {
-				if ((s7 & 0xffff) >= (a0 & 0xffff))
-					break;
-				inner_cond = ((s7 & 0xffff) < ((s3 * a0) / 0xff)) ? 1 : 0;
-				i = 0;
-				outer_cond = inner_cond;
-				do {
-					if (outer_cond != 0) {
-						a1 = (uintptr_t)i + s7 * 0xf + 0x1e00;
-						a3 = (uintptr_t)a1 & 0xfffffffc;
-						a0 = a3;
-						read_val = APICAL_READ_32(a3);
-						write_val = read_val & ~(0xff << (((uintptr_t)a1 << 3) & 0x1f));
-					} else {
-						a1 = (uintptr_t)i + s7 * 0xf + 0x1e00;
-						if ((((uintptr_t)s0 * a0) / 0xff) < (s7 & 0xffff)) {
-							a3 = (uintptr_t)a1 & 0xfffffffc;
-							a0 = a3;
-							read_val = APICAL_READ_32(a3);
-							write_val = read_val & ~(0xff << (((uintptr_t)a1 << 3) & 0x1f));
-						} else {
-							if ((uintptr_t)i < ((s4 * s5) / 0xff)) {
-								a3 = (uintptr_t)a1 & 0xfffffffc;
-								a0 = a3;
-								read_val = APICAL_READ_32(a3);
-								write_val = read_val & ~(0xff << (((uintptr_t)a1 << 3) & 0x1f));
-							} else {
-								if (((s1 * s5) / 0xff) < (uintptr_t)i) {
-									a3 = (uintptr_t)a1 & 0xfffffffc;
-									a0 = a3;
-									read_val = APICAL_READ_32(a3);
-									write_val = read_val & ~(0xff << (((uintptr_t)a1 << 3) & 0x1f));
-								} else {
-									a1 = (uintptr_t)i + s7 * 0xf + 0x1e00;
-									a3 = (uintptr_t)a1 & 0xfffffffc;
-									shift = ((uintptr_t)a1 & 3) << 3;
-									read_val = APICAL_READ_32(a3);
-									write_val = (read_val & ~(0xff << (shift & 0x1f))) | (0xf << (shift & 0x1f));
-									a0 = a3;
-								}
-							}
-						}
-					}
-					APICAL_WRITE_32(a0, write_val);
-					i = i + 1;
-					outer_cond = inner_cond;
-				} while (s5 >= i);
-				s7 += 1;
-			}
-			return 0;
-		}
-	}
-	*arg3 = 1;
-	return 5;
+	return t30_roi_zone_write(arg1, (uint32_t)arg2, arg3, 0x73c, 0x830, 0x1e00);
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000001fd50 origin=model_output original=awb_roi.part.2 */
@@ -40343,144 +30708,16 @@ int32_t awb_roi_part_2(void *arg1, int32_t arg2, int32_t *arg3) __asm__("awb_roi
 #endif
 int32_t awb_roi_part_2(void *arg1, int32_t arg2, int32_t *arg3)
 {
-	uint32_t s1 = (arg2 >> 8) & 0xff;
-	uint32_t s4 = (arg2 >> 24) & 0xff;
-	uint32_t s3;
-	uint32_t s0;
-	uint32_t *v0;
-	uint32_t v1;
-	uint32_t s5;
-	uint32_t s7;
-	uint32_t s6;
-	uint32_t s8;
-	uint32_t a0;
-	uint32_t *a1;
-	uint32_t *a3;
-	uint32_t *i;
-	uint32_t cond1;
-	uint32_t cond2;
-	uint32_t row_limit;
-	uint32_t col_limit;
-	uint32_t val;
-	uint32_t *mask;
-	uint32_t shift;
-	uint32_t read_val;
-	uint32_t write_addr;
-	uint32_t write_val;
-	uint32_t base_addr;
-	uint32_t tmp;
-
-	if (s4 < s1) {
-		s3 = (arg2 >> 16) & 0xff;
-		s0 = arg2 & 0xff;
-		if (s3 < s0) {
-			v0 = *(uint32_t *)((char *)arg1 + 4);
-			*(uint32_t *)((char *)arg1 + 0xedc) = arg2;
-
-			v1 = *(uint8_t *)((char *)v0 + 0x12);
-			if (v1 != 0) {
-				tmp = ~s4;
-				s4 = (~s1) & 0xff;
-				s1 = tmp & 0xff;
-			}
-
-			v0 = *(uint8_t *)((char *)v0 + 0x14);
-			if (v0 != 0) {
-				tmp = ~s3;
-				s3 = (~(uintptr_t)s0) & 0xff;
-				s0 = tmp & 0xff;
-			}
-
-			s5 = APICAL_READ_32(0x870) & 0xff;
-			v1 = APICAL_READ_32(0x870);
-			a0 = (v1 & 0xff00) >> 8;
-			row_limit = a0 & 0xffff;
-			col_limit = (s4 * s5) / 255;
-			s7 = 0;
-			s8 = ((uintptr_t)s3 * a0) / 255;
-			s6 = (s1 * s5) / 255;
-			s3 = ((uintptr_t)s0 * a0) / 255;
-
-			while (1) {
-				if ((s7 & 0xffff) >= row_limit)
-					break;
-
-				cond1 = (s7 & 0xffff) < s6;
-				cond2 = (uintptr_t)s3 < (s7 & 0xffff);
-				i = 0;
-
-				do {
-					base_addr = (uintptr_t)i + s7 * 15 + 0x1f00;
-
-					if (cond1) {
-						write_addr = base_addr & 0xfffffffc;
-						read_val = APICAL_READ_32(write_addr);
-						shift = (base_addr & 3) << 3;
-						mask = ~(0xff << (shift & 0x1f));
-						write_val = read_val & (uintptr_t)mask;
-					} else {
-						if (cond2) {
-							write_addr = base_addr & 0xfffffffc;
-							read_val = APICAL_READ_32(write_addr);
-							shift = (base_addr & 3) << 3;
-							mask = ~(0xff << (shift & 0x1f));
-							write_val = read_val & (uintptr_t)mask;
-						} else {
-							if (i < s8) {
-								write_addr = base_addr & 0xfffffffc;
-								read_val = APICAL_READ_32(write_addr);
-								shift = (base_addr & 3) << 3;
-								mask = ~(0xff << (shift & 0x1f));
-								write_val = read_val & (uintptr_t)mask;
-							} else {
-								if (s6 < i) {
-									write_addr = base_addr & 0xfffffffc;
-									read_val = APICAL_READ_32(write_addr);
-									shift = (base_addr & 3) << 3;
-									mask = ~(0xff << (shift & 0x1f));
-									write_val = read_val & (uintptr_t)mask;
-								} else {
-									write_addr = base_addr & 0xfffffffc;
-									read_val = APICAL_READ_32(write_addr);
-									shift = (base_addr & 3) << 3;
-									mask = ~(0xff << (shift & 0x1f));
-									write_val = (read_val & (uintptr_t)mask) | (0xf << (shift & 0x1f));
-								}
-							}
-						}
-					}
-
-					APICAL_WRITE_32(write_addr, write_val);
-					i = i + 1;
-				} while (s5 >= i);
-
-				s7 += 1;
-			}
-
-			return 0;
-		}
-	}
-
-	*arg3 = 1;
-	return 5;
+	/* #375: vendor 4ea12e1f 0x1f470, same body as ae_roi.part.1 on the AWB zone block */
+	return t30_roi_zone_write(arg1, (uint32_t)arg2, arg3, 0xedc, 0x870, 0x1f00);
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000001ffe0 origin=fragment_seed original=get_apical_api_buffer */
 int32_t get_apical_api_buffer(void)
 {
-    uint32_t ra = 0;
-    uintptr_t *v0 = 0;
-
-    /* fragment 0: Arithmetic */
-    v0 = (uintptr_t *)&vic_cmd_buf;
-
-    /* fragment 1: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    /* fragment 2: Arithmetic */
-    v0 = v0 - 32636;
-
-    return 0;
+	/* #375: vendor 4ea12e1f 0x1f700 returns &apical_api_buffer; the lift returned 0 (NULL), so a full
+	 * histogram request (ae_read_full_histogram_data, +0x438 set) copied 1 KiB to address 0. */
+	return (int32_t)(uintptr_t)apical_api_buffer;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000001ffec origin=model_output original=selftest_sensor_id */
@@ -40983,24 +31220,6 @@ int32_t isp_system_state(void *arg1, int32_t arg2, char arg3, int32_t *arg4)
 	return result;
 }
 
-/* WHOLE_DRIVER_CANDIDATE fn_0000000000020f58 origin=fragment_seed original=system_sensor_select */
-int32_t system_sensor_select(uint32_t a0, uint32_t a1, uint32_t a2, uintptr_t a3)
-{
-    uint32_t ra = 0;
-    uintptr_t *v0 = 0;
-
-    /* fragment 0: MemoryAccess */
-    *(uint32_t *)((char *)a3 + 0) = 0;
-
-    /* fragment 1: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    /* fragment 2: Arithmetic */
-    v0 = 1;
-
-    return 0;
-}
-
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000020f64 origin=model_output original=test_pattern_enable */
 int32_t test_pattern_enable(int32_t arg1, int32_t arg2, char arg3, int32_t *arg4)
 {
@@ -41157,21 +31376,6 @@ int32_t ds2_pipe_status(int32_t arg1, int32_t arg2, char arg3, int32_t *arg4)
 	}
 
 	return 0;
-}
-
-/* WHOLE_DRIVER_CANDIDATE fn_0000000000021354 origin=fragment_seed original=system_frame_buffer */
-int32_t system_frame_buffer(void)
-{
-    uint32_t ra = 0;
-    uintptr_t *v0 = 0;
-
-    /* fragment 0: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    /* fragment 1: Arithmetic */
-    v0 = 1;
-
-    return 0;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000002135c origin=model_output original=resolution_active_image */
@@ -42203,22 +32407,16 @@ int32_t ae_integrator_set(void *arg1, int32_t arg2, char arg3, int32_t *arg4)
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000222e8 origin=model_output original=get_awb_idx */
 uint32_t get_awb_idx(int32_t arg1)
 {
-	uint32_t idx = (uint32_t)arg1 - 53;
-
-	if (idx < 6)
-		return 0;
-
-	return awb_idx_table[idx - 6];
+	/* ko 0x21a08: modes 53..58 -> awb_idx_table { 1..6 }, else 0 (tx_isp_t30_awb_preset.h) */
+	return t30_get_awb_idx(arg1);
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000022310 origin=model_output original=awb_mode */
 int32_t awb_mode(void *arg1, int32_t arg2, char arg3, int32_t *arg4)
 {
     uint32_t mode = (uint32_t)(uint8_t)arg3;
-    int32_t ret;
-    int16_t *lut;
-    uint32_t idx;
-    uint16_t val0, val1;
+    const uint16_t *lut;
+    uint8_t red, blue;
 
     *arg4 = 0;
 
@@ -42243,16 +32441,19 @@ int32_t awb_mode(void *arg1, int32_t arg2, char arg3, int32_t *arg4)
     if ((uint32_t)arg2 >= 0x34) {
         if ((uint32_t)arg2 >= 0x3b)
             return 2;
-        lut = (int16_t *)_GET_MOD_ENTRY16_PTR(0xff);
-        idx = get_awb_idx(arg2) << 2;
+        /* ko 0x21acc-0x21b20: row get_awb_idx(mode) of table 255 (awb_scene_presets),
+         * two u16 per row (byte offset idx << 2), >> 1 into stab[0x31]/[0x32].
+         * Row guard against a short bin table 255 (no-op for the 7-row table). */
+        lut = (const uint16_t *)(uintptr_t)_GET_MOD_ENTRY16_PTR(0xff);
+        if (!lut || _GET_COLS(0xff) < 2 ||
+		    t30_get_awb_idx(arg2) >= _GET_ROWS(0xff))
+            return 2;
+        t30_awb_preset_gains(lut, arg2, &red, &blue);
         *(volatile uint8_t *)((char *)arg1 + 0x75a) = 0;
         *(volatile uint8_t *)((char *)&stab + 0xc) = 1;
-        lut = lut + idx;
-        val0 = lut[0];
-        val1 = lut[1];
         *(int32_t *)((char *)arg1 + 0xec8) = arg2;
-        *(volatile uint8_t *)((char *)&stab + 0x31) = (uint8_t)(val0 >> 1);
-        *(volatile uint8_t *)((char *)&stab + 0x32) = (uint8_t)(val1 >> 1);
+        *(volatile uint8_t *)((char *)&stab + 0x31) = red;
+        *(volatile uint8_t *)((char *)&stab + 0x32) = blue;
         return 0;
     }
 
@@ -43024,6 +33225,9 @@ int32_t sinter_strength(int32_t arg1, int32_t arg2, char arg3, int32_t *arg4)
         } else if (s2 == 1) {
             *arg4 = (int32_t)(uint8_t)stab[43];
             return 0;
+        } else {
+            /* OEM 0x22e64: selector other than 0/1 returns 2 (lift: uninitialised) */
+            result = 2;
         }
     } else {
         result = 2;
@@ -43043,9 +33247,10 @@ int32_t temper(int32_t arg1, int32_t arg2, char arg3, int32_t *arg4)
 
     *arg4 = 0;
     status = APICAL_READ_32(0x40);
+    /* OEM 0x22f2c: temper disabled in 0x40 (bit 10) returns 2 (lift: uninitialised) */
+    ret = 2;
 
     if ((status & 0x400) == 0) {
-        ret = 2;
         if (arg3 == 0) {
             if (arg2 == 0x3b) {
                 val = APICAL_READ_32(0x2c0) | 1;
@@ -43109,6 +33314,9 @@ int32_t temper_strength(int32_t arg1, int32_t arg2, char arg3, int32_t *arg4)
         } else if (mode == 1) {
             *arg4 = stab[46];
             return 0;
+        } else {
+            /* OEM 0x23070: selector other than 0/1 returns 2 (lift: uninitialised) */
+            result = 2;
         }
     } else {
         result = 2;
@@ -43413,24 +33621,6 @@ label_23d90:
             return 5;
         return result;
     }
-}
-
-/* WHOLE_DRIVER_CANDIDATE fn_0000000000024068 origin=fragment_seed original=sharpening_mode */
-int32_t sharpening_mode(uint32_t a0, uint32_t a1, uint32_t a2, uintptr_t a3)
-{
-    uint32_t ra = 0;
-    uintptr_t *v0 = 0;
-
-    /* fragment 0: MemoryAccess */
-    *(uint32_t *)((char *)a3 + 0) = 0;
-
-    /* fragment 1: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    /* fragment 2: Arithmetic */
-    v0 = 2;
-
-    return 0;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000024074 origin=model_output original=sharpening_strength */
@@ -43826,90 +34016,63 @@ int32_t orientation_hflip(void *arg1, int32_t arg2, char arg3, int32_t *arg4)
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000248d8 origin=model_output original=orientation_vflip */
 int32_t orientation_vflip(void *arg1, int32_t arg2, char arg3, int32_t *arg4)
 {
-	uint32_t a2 = (uint32_t)(uint8_t)arg3;
-	int32_t ret;
-	uint32_t *s2;
-	int32_t *s3;
-	int32_t *s0;
-	uint32_t *a1;
-	uint32_t val;
-	int32_t *v0;
-	uint8_t flag;
+	/*
+	 * #375: vendor 4ea12e1f 0x23ff8.  Per-exposure line offsets 0xb08..0xb18 for the flipped / unflipped
+	 * readout, |0xb20| sign-flipped.  The lift kept the line count in a `uint32_t *` (`s2 - 1` stepped 4)
+	 * and took |x| with a logical shift (abs of a negative value was wrong).
+	 */
+	uint8_t *ctx = *(uint8_t **)((char *)arg1 + 4);
+	uint32_t a2 = (uint8_t)arg3, n, mode;
+	int32_t step;
 
 	*arg4 = 0;
-
 	if (a2 != 0) {
 		if (a2 != 1)
 			return 1;
-		v0 = 0xc;
-		if (*(uint8_t *)((char *)*(void **)((char *)arg1 + 4) + 0x14) == 0)
-			v0 = 0xd;
-		*arg4 = v0;
+		*arg4 = ctx[0x14] ? 0xc : 0xd;
 		return 0;
 	}
-
 	if (arg2 == 0xc) {
-		*(uint8_t *)((char *)*(void **)((char *)arg1 + 4) + 0x14) = 1;
+		ctx[0x14] = 1;
+	} else if (arg2 == 0xd) {
+		ctx[0x14] = 0;
 	} else {
-		if (arg2 != 0xd) {
-			*arg4 = 1;
-			return 5;
-		}
-		*(uint8_t *)((char *)*(void **)((char *)arg1 + 4) + 0x14) = 0;
+		*arg4 = 1;
+		return 5;
 	}
-
-	s2 = (uintptr_t)APICAL_READ_32(0xb04) >> 16;
-	s3 = APICAL_READ_32(0xb1c) & 7;
-	v0 = APICAL_READ_32(0xb20);
-	s0 = v0;
-	v0 = (uintptr_t)(v0) >> 31;
-	s0 = ((uintptr_t)s0 ^ (uintptr_t)v0) - (uintptr_t)v0;
-
-	flag = *(uint8_t *)((char *)*(void **)((char *)arg1 + 4) + 0x14);
-
-	if (flag != 0) {
-		if (s3 == 1) {
-			APICAL_WRITE_32(0xb0c, (uint32_t)s0 * (((uintptr_t)s2 << 1) - 1));
-			a1 = s2 - 1;
-		} else {
-			a1 = s2 - 1;
-			if (s3 != 0) {
-				if (s3 != 2) {
-					uint32_t a1_10;
-					if (s3 == 3)
-						a1_10 = (uintptr_t)s2 << 2;
-					else {
-						APICAL_WRITE_32(0xb18, (uint32_t)s0 * ((uintptr_t)s2 * 5 - 1));
-						a1_10 = (uintptr_t)s2 << 2;
-					}
-					APICAL_WRITE_32(0xb14, (uint32_t)s0 * (a1_10 - 1));
+	n = (uint32_t)APICAL_READ_32(0xb04) >> 16;
+	mode = APICAL_READ_32(0xb1c) & 7;
+	step = (int32_t)APICAL_READ_32(0xb20);
+	step = (step ^ (step >> 31)) - (step >> 31);
+	if (ctx[0x14]) {
+		if (mode != 0) {
+			if (mode != 1) {
+				if (mode != 2) {
+					if (mode != 3)
+						APICAL_WRITE_32(0xb18, step * (n * 5 - 1));
+					APICAL_WRITE_32(0xb14, step * (n * 4 - 1));
 				}
-				APICAL_WRITE_32(0xb10, (uint32_t)s0 * ((uintptr_t)s2 * 3 - 1));
-				APICAL_WRITE_32(0xb0c, (uint32_t)s0 * (((uintptr_t)s2 << 1) - 1));
-				a1 = s2 - 1;
+				APICAL_WRITE_32(0xb10, step * (n * 3 - 1));
 			}
+			APICAL_WRITE_32(0xb0c, step * (n * 2 - 1));
 		}
-		APICAL_WRITE_32(0xb08, (uint32_t)s0 * (uintptr_t)a1);
-		a1 = (uint32_t *)(-(uintptr_t)s0);
+		APICAL_WRITE_32(0xb08, step * (n - 1));
+		step = -step;
 	} else {
-		if (s3 == 1) {
-			APICAL_WRITE_32(0xb0c, (uint32_t)s0 * (uintptr_t)s2);
-		} else if (s3 != 0) {
-			uint32_t a1_1 = (uintptr_t)s2 << 1;
-			if (s3 != 2) {
-				if (s3 != 3)
-					APICAL_WRITE_32(0xb18, ((uintptr_t)s2 << 2) * (uint32_t)s0);
-				APICAL_WRITE_32(0xb14, (uintptr_t)s2 * 3 * (uint32_t)s0);
-				a1_1 = (uintptr_t)s2 << 1;
+		if (mode != 0) {
+			if (mode != 1) {
+				if (mode != 2) {
+					if (mode != 3)
+						APICAL_WRITE_32(0xb18, n * 4 * step);
+					APICAL_WRITE_32(0xb14, n * 3 * step);
+				}
+				APICAL_WRITE_32(0xb10, n * 2 * step);
 			}
-			APICAL_WRITE_32(0xb10, a1_1 * (uint32_t)s0);
-			APICAL_WRITE_32(0xb0c, (uint32_t)s0 * (uintptr_t)s2);
+			APICAL_WRITE_32(0xb0c, step * n);
 		}
 		APICAL_WRITE_32(0xb08, 0);
-		a1 = (uint32_t *)s0;
 	}
-
-	APICAL_WRITE_32(0xb20, a1);
+	APICAL_WRITE_32(0xb20, step);
 	return 0;
 }
 
@@ -43989,46 +34152,15 @@ exposure_log20x28:
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000024c48 origin=fragment_seed original=gain_log2 */
 int32_t gain_log2(uintptr_t a0, uint32_t a1, uint32_t a2, uintptr_t a3)
 {
-    uint32_t ra = 0;
-    uintptr_t *v0 = 0;
-    uint32_t v1 = 0;
-
-    /* fragment 0: Arithmetic */
-    a2 = a2 & 255;
-
-    /* fragment 1: MemoryAccess */
-    *(uint32_t *)((char *)a3 + 0) = 0;
-
-    /* fragment 2: Branch */
-    v0 = 3;
-    if (a2 == 0) { goto gain_log20x40; }
-
-    /* fragment 3: Arithmetic */
-    v0 = 1;
-
-    /* fragment 4: Branch */
-    if (a2 != v0) { goto gain_log20x40; }
-
-    /* fragment 5: MemoryAccess */
-    v1 = *(uint32_t *)((char *)a0 + 716);
-    v0 = *(uint32_t *)((char *)a0 + 720);
-    v0 = v1 + (uintptr_t)v0;
-    v1 = *(uint32_t *)((char *)a0 + 724);
-    v0 = v0 + v1;
-    v0 = v0 + 32767;
-    v0 = (uintptr_t)(v0) >> 16;
-    *(uint32_t *)((char *)a3 + 0) = v0;
-    v0 = 0;
-
-gain_log20x40:
-    /* fragment 6: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    /* fragment 7: Unknown */
-    /* unmatched fragment 7 (Unknown): no deterministic matcher for Unknown */
-    /* asm: 24c8c:	00000000 	nop */
-
-    return 0;
+	/* #375: vendor 4ea12e1f 0x24368.  The lift summed the gains on a `uintptr_t *` (scaled 4) and returned 0. */
+	*(uint32_t *)a3 = 0;
+	a2 &= 0xff;
+	if (a2 == 0)
+		return 3;
+	if (a2 != 1)
+		return 1;
+	*(int32_t *)a3 = (int32_t)(*(uint32_t *)(a0 + 716) + *(uint32_t *)(a0 + 720) + *(uint32_t *)(a0 + 724) + 0x7fff) >> 16;	/* OEM 0x2439c sra */
+	return 0;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000024c90 origin=fragment_seed original=apical_api_read_buffer */
@@ -44216,61 +34348,15 @@ int32_t cmos_store_frame_exposure_set(int32_t *arg1, int32_t *arg2)
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000002519c origin=fragment_seed original=_process_fps_cnt */
+/* OEM _process_fps_cnt (SDK ko 0x248bc): see tx_isp_t30_fps_cnt.h.  The lifted body skipped the timestamp
+ * store on every path but one, so the frame-rate filter never converged (#273). */
 uint32_t _process_fps_cnt(uintptr_t a0, uint32_t a1)
 {
-    uint32_t local_14 = 0;
-    uint32_t *local_18 = 0;
-    uint32_t local_1c = 0;
-    uint32_t ra = 0;
-    uintptr_t *s0 = 0;
-    uint32_t *s1 = 0;
-    uint32_t *v0 = 0;
-    uint32_t v1 = 0;
+	u32 *c = (u32 *)a0;
+	u32 now = system_timer_timestamp();
 
-    /* fragment 0: Prologue */
-    /* function prologue: stack frame and callee-saved register setup */
-
-    /* fragment 1: CallSetup */
-    s0 = a0;
-    s1 = a1;
-    v0 = (uintptr_t *)((uintptr_t (*)(int32_t *))(uintptr_t)system_timer_timestamp)(a0); /* jalr target resolved by relocation */
-
-    /* fragment 2: Branch */
-    a0 = *(uint32_t *)((char *)(s0) + 0);
-    if (s1 == 0) { goto _process_fps_cnt0x50; }
-
-    /* fragment 3: MemoryAccess */
-    v1 = *(uint8_t *)((char *)s0 + 8);
-
-    /* fragment 4: Branch */
-    if (v1 != 0) { goto _process_fps_cnt0x54; }
-
-    /* fragment 5: MemoryAccess */
-    v1 = *(uint32_t *)((char *)s0 + 4);
-    a0 = v1 - a0;
-    v1 = v1 >> 4;
-    v1 = a0 - v1;
-    v1 = v1 + (uintptr_t)v0;
-    *(uint32_t *)((char *)s0 + 4) = v1;
-
-_process_fps_cnt0x50:
-    /* fragment 6: Epilogue */
-    /* function epilogue: restore registers and return */
-    return (uint32_t)v0;
-
-_process_fps_cnt0x54:
-    /* fragment 7: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    /* fragment 8: MemoryAccess */
-    *(uint32_t *)((char *)s0 + 0) = v0;
-    *(uint8_t *)((char *)s0 + 8) = 0;
-    s0 = local_14;
-
-    /* fragment 9: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    return (uint32_t)v0;
+	t30_fps_cnt_process(c, (u8 *)&c[2], now, a1);
+	return now;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000025208 origin=model_output original=_init_fps_cnt */
@@ -45210,23 +35296,6 @@ void *cmos_set_exposure_target(int32_t *arg1, int32_t arg2, int32_t arg3)
 	return (void *)result;
 }
 
-/* WHOLE_DRIVER_CANDIDATE fn_0000000000026890 origin=model_output original=defect_pixel_table_read */
-int32_t defect_pixel_table_read(uint32_t *buf, uint32_t count)
-{
-	uint32_t *i;
-	uint32_t limit;
-
-	if (buf == 0)
-		return -1;
-
-	limit = (count < 0x1001) ? count : 0x1000;
-
-	for (i = 0; i < limit; i++)
-		((void **)buf)[(uintptr_t)i] = APICAL_READ_32((uintptr_t)i * 4 + 0xc000);
-
-	return 0;
-}
-
 /* WHOLE_DRIVER_CANDIDATE fn_000000000002692c origin=model_output original=defect_pixel_table_write */
 int32_t defect_pixel_table_write(void *arg1, void *arg2)
 {
@@ -45444,26 +35513,6 @@ int32_t matrix_matrix_multiply(void *arg1, void *arg2, void *arg3, int32_t arg4,
 	return 0;
 }
 
-/* WHOLE_DRIVER_CANDIDATE fn_0000000000026e84 origin=model_output original=matrix_vector_multiply */
-int32_t matrix_vector_multiply(void *arg1, void *arg2, void *arg3, int32_t arg4, int32_t arg5)
-{
-	const int16_t *a = (const int16_t *)arg1;
-	const uint16_t *b = (const uint16_t *)arg2;
-	int16_t *out = (int16_t *)arg3;
-	int32_t row;
-	int32_t col;
-
-	for (row = 0; row < arg4; row++) {
-		int32_t sum = 0;
-
-		for (col = 0; col < arg5; col++)
-			sum += ((int32_t)a[row * arg5 + col] *
-				(int32_t)b[col]) >> 8;
-		out[row] = (int16_t)sum;
-	}
-	return row;
-}
-
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000026ef0 origin=model_output original=complement_to_direct */
 int32_t complement_to_direct(int32_t arg1)
 {
@@ -45624,45 +35673,7 @@ int32_t shading_mesh_load(int32_t arg1)
 	return shading_mesh_reload(arg1);
 }
 
-/* WHOLE_DRIVER_CANDIDATE fn_0000000000027560 origin=model_output original=is_yuv_format */
-int is_yuv_format(int16_t fmt)
-{
-    uint32_t f = (uint32_t)fmt;
-    uint32_t lo;
-    uint32_t hi;
-
-    if (f >= 0x10f) {
-        lo = f - 0x20d;
-        hi = 1;
-    } else {
-        lo = f - 0xa;
-        if (f < 0x10d)
-            hi = 4;
-        else
-            return 1;
-    }
-
-    if (hi < lo)
-        return 0;
-
-    return 1;
-}
-
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000275a4 origin=model_output original=shading_mesh_init */
-/*
- * shading_mesh_init - entry point for the shading mesh initialization path.
- *
- * The compiled target is an 8-byte trampoline (jr ra; nop) with no
- * arguments and an int32_t return value.  The body therefore performs no
- * work and returns a zero status, matching the observed assembly shape.
- */
-int32_t shading_mesh_init(void)
-{
-	int32_t status = 0;
-
-	return status;
-}
-
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000275ac origin=model_output original=color_matrix_write */
 int32_t color_matrix_write(void *arg1)
 {
@@ -46715,12 +36726,14 @@ int32_t adjust_exposure(void *arg1, int32_t arg2)
 {
 	int32_t *base = (int32_t *)((uintptr_t)arg1 + 0x118);
 	int32_t *corr = (int32_t *)((uintptr_t)arg1 + 0x320);
-	int32_t *i;
+	int32_t i;
 	int32_t v;
 
+	/* OEM 0x29250: the eight frame exposure sets move by arg2, not below 0 (#338: the lift
+	 * dropped the return value and dereferenced NULL) */
 	for (i = 0; i != 8; i++) {
-		cmos_get_frame_exposure_set(base, i);
-		int32_t *p = 0;
+		int32_t *p = (int32_t *)cmos_get_frame_exposure_set(base, i);
+
 		v = arg2 + *p;
 		if (v < 0)
 			v = 0;
@@ -46932,58 +36945,44 @@ int32_t general_initialize(int32_t *arg1)
 /* WHOLE_DRIVER_CANDIDATE fn_000000000002a3d0 origin=model_output original=general_frame_start */
 uint32_t general_frame_start(uint32_t *arg1)
 {
-	uint32_t result = *(uint8_t *)(arg1 + 0x10);
+	/*
+	 * OEM general_frame_start (SDK ko 0x29af0), void there.  Byte offsets of
+	 * the general FSM (a0) and its context (v1 = *a0): enable +64, mode +60,
+	 * counter +65; context sums +0x710 (10 words) plus +0x338 (10 words, mode
+	 * 0, or 50 words, mode != 0), divisor +0x738 (1848), flag +0x1527 (5415).
+	 * Mode 0: brightness ratio >= 65 for 21 frames -> adjust_exposure(+0x3762f);
+	 * mode != 0: ratio < 65 for 21 frames -> adjust_exposure(-0x3762f).
+	 * The lift scaled +0x41/+0x738/+0x1527 as word indices (4x the OEM byte
+	 * offsets) and never computed the ratio / counter in mode 0.  Divisor 0:
+	 * the OEM traps (teq), kept as an early return.
+	 */
+	uint8_t *fsm = (uint8_t *)arg1;
+	uint8_t *ctx;
+	uint32_t sum = 0, n, i, q;
+	uint8_t cnt;
 
-	if (result == 0)
+	if (fsm[64] == 0)
 		return 0;
-
-	uint32_t *v1 = *(uint32_t **)arg1;
-	uint32_t sum = 0;
-	uint32_t *i;
-
-	for (i = 0; (uintptr_t)i != 0x28; i = (uintptr_t)i + 4)
-		sum += *(uintptr_t *)((uintptr_t)v1 + 0x308 + (uintptr_t)i + 0x408);
-
-	uint32_t count = *(uint8_t *)(arg1 + 0xf);
-	uint32_t divisor;
-	uint32_t quotient;
-	uint32_t val;
-
-	if (count != 0) {
-		for (i = 0; (uintptr_t)i != 0xc8; i = (uintptr_t)i + 4)
-			sum += *(uintptr_t *)((uintptr_t)v1 + 0x308 + (uintptr_t)i + 0x30);
-		divisor = *(v1 + 0x738);
-		if (divisor == 0)
-			return 0;
-		quotient = (sum * 0x3e8) / divisor;
-		if (quotient >= 0x41) {
-			*(uint8_t *)(arg1 + 0x41) = 0;
-			return 0;
-		}
-		val = (*(uint8_t *)(arg1 + 0x41) + 1) & 0xff;
-		*(uint8_t *)(arg1 + 0x41) = val;
-		if (val >= 0x15)
-			return 0;
-		*(uint8_t *)(arg1 + 0x41) = 0;
-		*(uint8_t *)(v1 + 0x1527) = 0;
-		return adjust_exposure(*(void **)(v1 + 1), 0xfffc89d1);
-	} else {
-		for (i = 0; (uintptr_t)i != 0x28; i = (uintptr_t)i + 4)
-			sum += *(uintptr_t *)((uintptr_t)v1 + 0x308 + (uintptr_t)i + 0x30);
-		divisor = *(v1 + 0x738);
-		if (divisor == 0)
-			return 0;
-		if (quotient < 0x41) {
-			*(uint8_t *)(arg1 + 0x41) = 0;
-			return 0;
-		}
-		*(uint8_t *)(arg1 + 0x41) = val;
-		if (val >= 0x15)
-			return 0;
-		*(uint8_t *)(arg1 + 0x41) = 0;
-		*(uint8_t *)(v1 + 0x1527) = 0;
-		return adjust_exposure(*(void **)(v1 + 1), 0x3762f);
+	ctx = *(uint8_t **)fsm;
+	for (i = 0; i < 10; i++)
+		sum += *(uint32_t *)(ctx + 0x308 + 0x408 + 4 * i);
+	n = fsm[60] ? 50 : 10;
+	for (i = 0; i < n; i++)
+		sum += *(uint32_t *)(ctx + 0x308 + 0x30 + 4 * i);
+	if (*(uint32_t *)(ctx + 0x738) == 0)
+		return 0;
+	q = (sum * 1000) / *(uint32_t *)(ctx + 0x738);
+	if ((fsm[60] == 0) == (q < 65)) {
+		fsm[65] = 0;
+		return 0;
 	}
+	cnt = fsm[65] + 1;
+	fsm[65] = cnt;
+	if (cnt < 21)
+		return 0;
+	fsm[65] = 0;
+	ctx[0x1527] = 0;
+	return adjust_exposure(*(void **)(ctx + 4), fsm[60] ? (int32_t)0xfffc89d1 : 0x3762f);
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000002a4fc origin=model_output original=general_frame_end */
@@ -47047,45 +37046,6 @@ uint32_t calc_fe_lut_output(int32_t *arg1, int16_t arg2)
 	uint32_t len_1f = _GET_LEN(_GET_HDR_TABLE_INDEX(0x1f, *(uint8_t *)((char *)(*(uint32_t *)arg1) + 0x1524)));
 	result = calc_equidistant_modulation_u16((int32_t *)result, table_1f, (uint16_t)len_1f);
 
-	return result;
-}
-
-/* WHOLE_DRIVER_CANDIDATE fn_000000000002a6b4 origin=model_output original=calc_fe_lut_input */
-uint32_t calc_fe_lut_input(uint32_t *arg1, uint16_t arg2)
-{
-	uint32_t *base = *arg1;
-	uint8_t mode = *(uint8_t *)((char *)base + 0x1524);
-	uint16_t val = arg2;
-	uint16_t *table;
-	uint16_t len;
-	uint16_t lut_idx;
-	uint16_t lut_len_idx;
-	uint32_t *result;
-
-	if (mode == 2) {
-		table = (uint16_t *)_GET_UINT_PTR(0x21);
-		len = (uint16_t)_GET_LEN(0x21);
-		result = calc_inv_equidistant_modulation_u16(val, table, len);
-		table = (uint16_t *)_GET_UINT_PTR(0x1c);
-		lut_idx = 0x1c;
-	} else if (mode == 3) {
-		table = (uint16_t *)_GET_UINT_PTR(0x22);
-		len = (uint16_t)_GET_LEN(0x22);
-		result = calc_inv_equidistant_modulation_u16(val, table, len);
-		table = (uint16_t *)_GET_UINT_PTR(0x1d);
-		lut_idx = 0x1d;
-	} else if (mode != 1) {
-		return val;
-	} else {
-		table = (uint16_t *)_GET_UINT_PTR(0x20);
-		len = (uint16_t)_GET_LEN(0x20);
-		result = calc_inv_equidistant_modulation_u16(val, table, len);
-		table = (uint16_t *)_GET_UINT_PTR(0x1b);
-		lut_idx = 0x1b;
-	}
-
-	lut_len_idx = (uint16_t)_GET_LEN(lut_idx);
-	result = calc_inv_equidistant_modulation_u16(result, table, lut_len_idx);
 	return result;
 }
 
@@ -47251,474 +37211,6 @@ uint32_t compute_transfrom_matrix(void *arg1, void *arg2, char arg3)
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000002ada8 origin=fragment_seed original=matrix_yuv_recompute */
-#if 0 /* Superseded below by the typed OEM/HLIL reconstruction. */
-int32_t matrix_yuv_recompute(uintptr_t a0)
-{
-    uint32_t *local_10 = 0;
-    uint32_t local_28 = 0;
-    uint32_t local_34 = 0;
-    uint32_t local_38 = 0;
-    uint32_t local_3c = 0;
-    uint32_t local_40 = 0;
-    uint32_t local_44 = 0;
-    uintptr_t *a1 = 0;
-    uintptr_t a2 = 0;
-    uint32_t *a3 = 0;
-    uint32_t ra = 0;
-    uintptr_t *s0 = 0;
-    uint32_t *s1 = 0;
-    uint32_t *s2 = 0;
-    uint32_t *s3 = 0;
-    uintptr_t t0 = 0;
-    uint32_t t1 = 0;
-    uint32_t t2 = 0;
-    uintptr_t t3 = 0;
-    uint32_t t9 = 0;
-    uintptr_t *v0 = 0;
-    uint32_t v1 = 0;
-
-    /* fragment 0: Prologue */
-    /* function prologue: stack frame and callee-saved register setup */
-
-    /* fragment 1: CallSetup */
-    s2 = (uint32_t *)&memcpy;
-    s3 = *(uint16_t *)((char *)(a0) + 246);
-    s0 = a0;
-    s1 = a0 + 112;
-    v0 = (uintptr_t *)memcpy((void *)(uintptr_t)&local_10, (void *)(uintptr_t)(0 + 6288), 24); /* jalr target resolved by relocation */
-
-    /* fragment 2: Arithmetic */
-    v1 = v0;
-    a3 = s2;
-    v0 = 0;
-    a0 = 24;
-
-matrix_yuv_recompute0x54:
-    /* fragment 3: Arithmetic */
-    a2 = v1 + (uintptr_t)v0;
-
-    /* fragment 4: MemoryAccess */
-    a2 = *(uint16_t *)((char *)a2 + 0);
-    a1 = (uintptr_t)s1 + (uintptr_t)v0;
-    v0 = v0 + 2;
-
-    /* fragment 5: Branch */
-    *(uint16_t *)((char *)a1 + 0) = a2;
-    if (v0 != a0) { goto matrix_yuv_recompute0x54; }
-
-    /* fragment 6: Arithmetic */
-    v0 = s3 - 79;
-    v0 = (uintptr_t)v0 & 65535;
-    v1 = v0 < 5;
-
-    /* fragment 7: Unknown */
-    /* unmatched fragment 7 (Unknown): no deterministic matcher for Unknown */
-    /* asm: 2ae20:	5060007f 	beqzl	v1,2b020 <matrix_yuv_recompute+0x278> */
-
-    /* fragment 8: MemoryAccess */
-    v0 = *(uint8_t *)((char *)s0 + 164);
-    v1 = 0;
-    v0 = (uintptr_t)v0 << 2;
-    v1 = v1 + 6336;
-    v0 = v1 + (uintptr_t)v0;
-    v0 = *(uint32_t *)((char *)v0 + 0);
-
-    /* fragment 9: IndirectTailCall */
-    /* unmatched fragment 9 (IndirectTailCall): indirect tail call target register v0 has no known symbol */
-    /* asm: 2ae3c:	00400008 	jr	v0 */
-    /* asm: 2ae40:	00000000 	nop */
-
-matrix_yuv_recompute0x9c:
-    /* fragment 10: Arithmetic */
-    t3 = (uintptr_t)v0 & 255;
-
-matrix_yuv_recompute0xa0:
-    /* fragment 11: Branch */
-    int _bc_t0_11 = t0 != t3;
-    t3 = (uintptr_t)v0 << 1;
-    if (_bc_t0_11) { goto matrix_yuv_recompute0xb0; }
-
-    /* fragment 12: Branch */
-    *(uint16_t *)((char *)a2 + 0) = t1;
-    goto matrix_yuv_recompute0xb8;
-
-matrix_yuv_recompute0xb0:
-    /* fragment 13: Arithmetic */
-    t3 = a0 + t3;
-
-    /* fragment 14: MemoryAccess */
-    *(uint16_t *)((char *)t3 + 0) = 0;
-
-matrix_yuv_recompute0xb8:
-    /* fragment 15: Arithmetic */
-    v0 = v0 + 1;
-
-    /* fragment 16: Branch */
-    t3 = (uintptr_t)v0 & 255;
-    if (v0 != t2) { goto matrix_yuv_recompute0xa0; }
-
-    /* fragment 17: Arithmetic */
-    v1 = v1 + 1;
-
-    /* fragment 18: Branch */
-    int _bc_v1_18 = v1 != v0;
-    v0 = v1 * (uintptr_t)a1;
-    if (_bc_v1_18) { goto matrix_yuv_recompute0xec; }
-
-    /* fragment 19: Branch */
-    *(uint16_t *)((char *)s0 + 130) = 0;
-    goto matrix_yuv_recompute0x26c;
-
-    /* fragment 20: Arithmetic */
-    v1 = 0;
-    a1 = 6;
-    t1 = 256;
-    t2 = 3;
-    v0 = v1 * (uintptr_t)a1;
-
-matrix_yuv_recompute0xec:
-    /* fragment 21: Arithmetic */
-    a2 = v1 << 3;
-    a0 = (uintptr_t)v0 + (uintptr_t)s1;
-    t0 = v1 & 255;
-    a2 = s1 + a2;
-
-    /* fragment 22: Branch */
-    v0 = 0;
-    goto matrix_yuv_recompute0x9c;
-
-matrix_yuv_recompute0x104:
-    /* fragment 23: Arithmetic */
-    t0 = (uintptr_t)s0 + (uintptr_t)v0;
-
-    /* fragment 24: MemoryAccess */
-    t1 = *(uint16_t *)((char *)t0 + 136);
-    t0 = a0 + (uintptr_t)v0;
-    v0 = v0 + 2;
-
-    /* fragment 25: Branch */
-    *(uint16_t *)((char *)t0 + 0) = t1;
-    if (v0 != a1) { goto matrix_yuv_recompute0x104; }
-
-    /* fragment 26: Arithmetic */
-    v1 = v1 + 6;
-
-    /* fragment 27: Branch */
-    v0 = 0;
-    if (v1 != a2) { goto matrix_yuv_recompute0x140; }
-
-    /* fragment 28: Branch */
-    *(uint16_t *)((char *)s0 + 130) = 0;
-    goto matrix_yuv_recompute0x26c;
-
-    /* fragment 29: Arithmetic */
-    v1 = 0;
-    a1 = 6;
-    a2 = 18;
-    v0 = 0;
-
-matrix_yuv_recompute0x140:
-    /* fragment 30: Branch */
-    a0 = s1 + v1;
-    goto matrix_yuv_recompute0x104;
-
-matrix_yuv_recompute0x148:
-    /* fragment 31: Arithmetic */
-    t3 = (uintptr_t)v0 & 255;
-
-matrix_yuv_recompute0x14c:
-    /* fragment 32: Branch */
-    int _bc_t0_32 = t0 != t3;
-    t3 = (uintptr_t)v0 << 1;
-    if (_bc_t0_32) { goto matrix_yuv_recompute0x15c; }
-
-    /* fragment 33: Branch */
-    *(uint16_t *)((char *)a2 + 0) = t1;
-    goto matrix_yuv_recompute0x164;
-
-matrix_yuv_recompute0x15c:
-    /* fragment 34: Arithmetic */
-    t3 = a0 + t3;
-
-    /* fragment 35: MemoryAccess */
-    *(uint16_t *)((char *)t3 + 0) = 0;
-
-matrix_yuv_recompute0x164:
-    /* fragment 36: Arithmetic */
-    v0 = v0 + 1;
-
-    /* fragment 37: Branch */
-    t3 = (uintptr_t)v0 & 255;
-    if (v0 != t2) { goto matrix_yuv_recompute0x14c; }
-
-    /* fragment 38: Arithmetic */
-    v1 = v1 + 1;
-
-    /* fragment 39: Unknown */
-    /* unmatched fragment 39 (Unknown): no deterministic matcher for Unknown */
-    /* asm: 2af1c:	54620008 	bnel	v1,v0,2af40 <matrix_yuv_recompute+0x198> */
-
-    /* fragment 40: Arithmetic */
-    v0 = v1 * (uintptr_t)a1;
-
-    /* fragment 41: Branch */
-    v0 = 1023;
-    goto matrix_yuv_recompute0x1b0;
-
-    /* fragment 42: Arithmetic */
-    v1 = 0;
-    a1 = 6;
-    t1 = -256;
-    t2 = 3;
-    v0 = v1 * (uintptr_t)a1;
-    a2 = v1 << 3;
-    a0 = (uintptr_t)v0 + (uintptr_t)s1;
-    t0 = v1 & 255;
-    a2 = s1 + a2;
-
-    /* fragment 43: Branch */
-    v0 = 0;
-    goto matrix_yuv_recompute0x148;
-
-matrix_yuv_recompute0x1b0:
-    /* fragment 44: MemoryAccess */
-    *(uint16_t *)((char *)s0 + 130) = v0;
-    *(uint16_t *)((char *)s0 + 132) = v0;
-
-    /* fragment 45: Branch */
-    *(uint16_t *)((char *)s0 + 134) = v0;
-    goto matrix_yuv_recompute0x274;
-
-    /* fragment 46: Arithmetic */
-    v0 = 117;
-
-    /* fragment 47: MemoryAccess */
-    *(uint16_t *)((char *)s0 + 112) = v0;
-    v0 = 21;
-    *(uint16_t *)((char *)s0 + 114) = v0;
-    v0 = 5;
-    v1 = 32;
-    *(uint16_t *)((char *)s0 + 116) = v0;
-    a0 = 112;
-    *(uint16_t *)((char *)s0 + 122) = v0;
-    *(uint16_t *)((char *)s0 + 128) = v0;
-    v0 = 211;
-    *(uint16_t *)((char *)s0 + 118) = v1;
-    *(uint16_t *)((char *)s0 + 120) = a0;
-    *(uint16_t *)((char *)s0 + 124) = v1;
-    *(uint16_t *)((char *)s0 + 126) = v1;
-
-    /* fragment 48: Branch */
-    *(uint16_t *)((char *)s0 + 130) = v0;
-    goto matrix_yuv_recompute0x26c;
-
-matrix_yuv_recompute0x204:
-    /* fragment 49: Arithmetic */
-    t3 = (uintptr_t)v0 & 255;
-
-matrix_yuv_recompute0x208:
-    /* fragment 50: Branch */
-    int _bc_t0_50 = t0 != t3;
-    t3 = (uintptr_t)v0 << 1;
-    if (_bc_t0_50) { goto matrix_yuv_recompute0x218; }
-
-    /* fragment 51: Branch */
-    *(uint16_t *)((char *)a2 + 0) = t1;
-    goto matrix_yuv_recompute0x220;
-
-matrix_yuv_recompute0x218:
-    /* fragment 52: Arithmetic */
-    t3 = a0 + t3;
-
-    /* fragment 53: MemoryAccess */
-    *(uint16_t *)((char *)t3 + 0) = 0;
-
-matrix_yuv_recompute0x220:
-    /* fragment 54: Arithmetic */
-    v0 = v0 + 1;
-
-    /* fragment 55: Branch */
-    t3 = (uintptr_t)v0 & 255;
-    if (v0 != t2) { goto matrix_yuv_recompute0x208; }
-
-    /* fragment 56: Arithmetic */
-    v1 = v1 + 1;
-
-    /* fragment 57: Branch */
-    int _bc_v1_57 = v1 != v0;
-    v0 = v1 * (uintptr_t)a1;
-    if (_bc_v1_57) { goto matrix_yuv_recompute0x254; }
-
-    /* fragment 58: Branch */
-    *(uint16_t *)((char *)s0 + 130) = 0;
-    goto matrix_yuv_recompute0x26c;
-
-    /* fragment 59: Arithmetic */
-    v1 = 0;
-    a1 = 6;
-    t1 = 256;
-    t2 = 3;
-    v0 = v1 * (uintptr_t)a1;
-
-matrix_yuv_recompute0x254:
-    /* fragment 60: Arithmetic */
-    a2 = v1 << 3;
-    a0 = (uintptr_t)v0 + (uintptr_t)s1;
-    t0 = v1 & 255;
-    a2 = s1 + a2;
-
-    /* fragment 61: Branch */
-    v0 = 0;
-    goto matrix_yuv_recompute0x204;
-
-matrix_yuv_recompute0x26c:
-    /* fragment 62: MemoryAccess */
-    *(uint16_t *)((char *)s0 + 132) = 0;
-    *(uint16_t *)((char *)s0 + 134) = 0;
-
-matrix_yuv_recompute0x274:
-    /* fragment 63: MemoryAccess */
-    v0 = *(uint8_t *)((char *)s0 + 164);
-    v1 = (uintptr_t)v0 << 24;
-    v1 = (int32_t)v1 >> 24;
-
-    /* fragment 64: Branch */
-    a2 = s0 + 64;
-    if (v1 < 0) { goto matrix_yuv_recompute0x2a4; }
-
-    /* fragment 65: Arithmetic */
-    a0 = -1023;
-    a1 = (uintptr_t)v0 * a0;
-    v1 = 65536;
-    v1 = v1 | 64385;
-    v0 = a1 + v1;
-
-    /* fragment 66: Branch */
-    v1 = -127;
-    goto matrix_yuv_recompute0x2bc;
-
-matrix_yuv_recompute0x2a4:
-    /* fragment 67: Arithmetic */
-    a0 = 1023;
-    a1 = (uintptr_t)v0 * a0;
-    v1 = 4294836224;
-    v1 = v1 + 128;
-    v0 = a1 + v1;
-    v1 = 127;
-
-matrix_yuv_recompute0x2bc:
-    /* fragment 68: Unknown */
-    /* unmatched fragment 68 (Unknown): no deterministic matcher for Unknown */
-    /* asm: 2b064:	0043001a 	div	zero,v0,v1 */
-
-    /* fragment 69: Arithmetic */
-    /* trap/BUG_ON check */
-    v1 = 0;
-
-    /* fragment 70: StackAccess */
-    local_28 = a0;
-    a0 = 24;
-
-matrix_yuv_recompute0x2d8:
-    /* fragment 71: Arithmetic */
-    a1 = a2 + v1;
-    v1 = v1 + 2;
-
-    /* fragment 72: Branch */
-    *(uint16_t *)((char *)a1 + 0) = 0;
-    if (v1 != a0) { goto matrix_yuv_recompute0x2d8; }
-
-    /* fragment 73: Arithmetic */
-    v1 = 256;
-
-    /* fragment 74: MemoryAccess */
-    *(uint16_t *)((char *)s0 + 82) = v0;
-    *(uint16_t *)((char *)s0 + 84) = v0;
-    *(uint16_t *)((char *)s0 + 86) = v0;
-    v0 = *(uint8_t *)((char *)s0 + 163);
-    *(uint16_t *)((char *)s0 + 64) = v1;
-    *(uint16_t *)((char *)s0 + 72) = v1;
-    *(uint16_t *)((char *)s0 + 80) = v1;
-    v1 = 128;
-    v1 = v1 - (uintptr_t)v0;
-    a0 = (uintptr_t)v0 << 1;
-    t0 = s0 + 40;
-    v1 = v1 << 2;
-    v0 = 0;
-    a1 = 24;
-
-matrix_yuv_recompute0x324:
-    /* fragment 75: Arithmetic */
-    a2 = t0 + (uintptr_t)v0;
-    v0 = v0 + 2;
-
-    /* fragment 76: Branch */
-    *(uint16_t *)((char *)a2 + 0) = 0;
-    if (v0 != a1) { goto matrix_yuv_recompute0x324; }
-
-    /* fragment 77: CallSetup */
-    *(uint16_t *)((char *)s0 + 58) = v1;
-    *(uint16_t *)((char *)s0 + 60) = v1;
-    *(uint16_t *)((char *)s0 + 62) = v1;
-    s2 = *(uint8_t *)((char *)(s0) + 162);
-    *(uint16_t *)((char *)s0 + 40) = a0;
-    *(uint16_t *)((char *)s0 + 48) = a0;
-    *(uint16_t *)((char *)s0 + 56) = a0;
-    v0 = (uintptr_t *)memcpy((void *)(uintptr_t)&local_10, (void *)(uintptr_t)(0 + 6312), 24); /* jalr target resolved by relocation */
-
-    /* fragment 78: Arithmetic */
-    s2 = s2 - 128;
-    v1 = v0;
-    s1 = s0 + 16;
-    s2 = (uintptr_t)s2 << 1;
-    v0 = 0;
-    a0 = 24;
-
-matrix_yuv_recompute0x384:
-    /* fragment 79: Arithmetic */
-    a2 = v1 + (uintptr_t)v0;
-
-    /* fragment 80: MemoryAccess */
-    a2 = *(uint16_t *)((char *)a2 + 0);
-    a1 = (uintptr_t)s1 + (uintptr_t)v0;
-    a2 = a2 * (uintptr_t)s2;
-    v0 = v0 + 2;
-    a2 = (int32_t)a2 >> 8;
-
-    /* fragment 81: Branch */
-    *(uint16_t *)((char *)a1 + 0) = a2;
-    if (v0 != a0) { goto matrix_yuv_recompute0x384; }
-
-    /* fragment 82: CallSetup */
-    *(uint16_t *)((char *)s0 + 16) = ((*(uint16_t *)((char *)(s0) + 16)) + 256);
-    *(uint16_t *)((char *)s0 + 24) = ((*(uint16_t *)((char *)(s0) + 24)) + 256);
-    *(uint16_t *)((char *)s0 + 32) = ((*(uint16_t *)((char *)(s0) + 32)) + 256);
-    s1 = (uintptr_t *)&compute_transfrom_matrix;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)matrix_compute_hue_saturation)(*(uint16_t *)((char *)(s0) + 160), s0 + 88); /* jalr target resolved by relocation */
-
-    /* fragment 83: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)compute_transfrom_matrix)(s0, s0 + 170, *(uint8_t *)((char *)(s0) + 168)); /* jalr target resolved by relocation */
-
-    /* fragment 84: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)compute_transfrom_matrix)(s0, s0 + 196, *(uint8_t *)((char *)(s0) + 194)); /* jalr target resolved by relocation */
-
-    /* fragment 85: MemoryAccess */
-    a2 = *(uint8_t *)((char *)s0 + 220);
-    ra = local_44;
-    s3 = local_40;
-    s2 = local_3c;
-    a0 = s0;
-    a1 = s0 + 222;
-    t9 = s1;
-    s0 = local_34;
-    s1 = local_38;
-
-    /* fragment 86: IndirectTailCall */
-    return ((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))compute_transfrom_matrix)((uintptr_t)(a0), (uintptr_t)(a1), (uintptr_t)(a2), (uintptr_t)(a3));
-
-    return 0;
-}
-#endif
 
 int32_t matrix_yuv_recompute(void *arg1)
 {
@@ -48947,86 +38439,60 @@ static int tx_isp_t30_fsm_request_interrupt(int32_t *fsm, int32_t mask)
 	return system_hw_interrupts_enable();
 }
 
-int32_t sensor_request_interrupt(int32_t *arg1, int32_t arg2)
-{
-	return tx_isp_t30_fsm_request_interrupt(arg1, arg2);
-}
-
 /* WHOLE_DRIVER_CANDIDATE fn_000000000002dd5c origin=model_output original=sensor_fsm_switch_state */
 uint32_t sensor_fsm_switch_state(int32_t *fsm, int32_t new_state)
 {
-	int32_t old_state;
-	uint32_t *result;
+	/*
+	 * OEM sensor_fsm_switch_state (SDK ko 0x2d47c), void there.  The lift
+	 * called sensor_stop_calibrate() when the NEW state was 3 (OEM: when the
+	 * OLD state is 3, before raising 0x10 / starting the new state) and
+	 * returned an uninitialised value.  States compare unsigned (OEM sltiu).
+	 */
+	uint32_t old_state = (uint32_t)fsm[1];
+	uint32_t ns = (uint32_t)new_state;
 
-	old_state = fsm[1];
+	if (ns == old_state)
+		return 0;
 
-	if (new_state == old_state)
-		goto out;
+	fsm[1] = new_state;
 
-	((void **)fsm)[1] = new_state;
-
-	if (old_state >= 3) {
-		if (new_state < 3) {
-			apical_isp_raise_event(*(void **)fsm, 0x10);
-			result = 2;
-		} else {
-			if (new_state == 3) {
-				sensor_stop_calibrate();
-			} else {
-				if (new_state < 3) {
-					apical_isp_raise_event(*(void **)fsm, 0x10);
-					result = 2;
-				} else {
-					result = 3;
-				}
-			}
-		}
+	if (old_state < 3) {
+		if (ns < 3)
+			goto low;
+		apical_isp_raise_event(*(void **)fsm, 0xf);
 	} else {
-		if (new_state < 3) {
-			result = 2;
-		} else {
-			apical_isp_raise_event(*(void **)fsm, 0xf);
-			result = 3;
+		if (old_state == 3)
+			sensor_stop_calibrate();
+		if (ns < 3) {
+			apical_isp_raise_event(*(void **)fsm, 0x10);
+			goto low;
 		}
 	}
 
-	if (new_state == 2) {
-		sensor_update_black(fsm);
-		uint8_t cnt = *(uint8_t *)((char *)fsm + 0xde);
-		uint8_t flag;
-
-		if (cnt != 0) {
-			*(uint8_t *)((char *)fsm + 0xde) = cnt - 1;
-			flag = *(uint8_t *)((char *)fsm + 0xf0);
-		} else {
-			apical_isp_raise_event(*(void **)fsm, 0xc);
-			flag = *(uint8_t *)((char *)fsm + 0xf0);
-		}
-
-		result = 1;
-
-		if (flag == 1) {
-			result = apical_isp_raise_event(*(void **)fsm, 0x11);
-			*(uint8_t *)((char *)fsm + 0xf0) = 0;
-		}
-	}
-
-	if (new_state == 3) {
+	if (ns == 3) {
 		*(int32_t *)((char *)fsm + 0xd4) = 0xa;
-		return sensor_start_calibrate();
-	}
-
-	result = 5;
-
-	if (new_state == 4) {
-		result = sensor_hw_init(fsm);
+		sensor_start_calibrate();
+	} else if (ns == 4) {
+		sensor_hw_init(fsm);
 		*(uint8_t *)((char *)fsm + 0xd8) = 0;
-	} else if (new_state == 5) {
-		return sensor_sw_init(fsm);
+	} else if (ns == 5) {
+		sensor_sw_init(fsm);
 	}
+	return 0;
 
-out:
-	return result;
+low:
+	if (ns != 2)
+		return 0;
+	sensor_update_black(fsm);
+	if (*(uint8_t *)((char *)fsm + 0xde) == 0)
+		apical_isp_raise_event(*(void **)fsm, 0xc);
+	else
+		*(uint8_t *)((char *)fsm + 0xde) -= 1;
+	if (*(uint8_t *)((char *)fsm + 0xf0) == 1) {
+		apical_isp_raise_event(*(void **)fsm, 0x11);
+		*(uint8_t *)((char *)fsm + 0xf0) = 0;
+	}
+	return 0;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000002def0 origin=model_output original=sensor_fsm_process_state */
@@ -49151,70 +38617,35 @@ int32_t sensor_fsm_process_event(int32_t *fsm, int32_t event)
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000002e0f0 origin=fragment_seed original=cmos_fsm_clear */
+/*
+ * OEM cmos_fsm_clear (cmos_fsm.c, SDK ko 0x2d810).  +484 (FSM manager +740) is the ISP digital
+ * gain limit that ae_calculate_exposure adds to the AE exposure limit:
+ * log2_fixed_to_fixed(4095, 12, 16) + 0x40000 = 262112.  (#338: the lift passed only the first
+ * argument, so the result depended on stale a1/a2 and the AE exposure limit came out far too
+ * high; rewritten from the register-level fragments.)
+ */
 void* cmos_fsm_clear(uintptr_t a0)
 {
-    uint32_t *local_10 = 0;
-    uint32_t local_14 = 0;
-    uint32_t *a1 = 0;
-    uint32_t a2 = 0;
-    uint32_t ra = 0;
-    uintptr_t *s0 = 0;
-    uintptr_t *v0 = 0;
-    uint32_t v1 = 0;
+	uint8_t *c = (uint8_t *)a0;
+	int32_t v;
 
-    /* fragment 0: Prologue */
-    /* function prologue: stack frame and callee-saved register setup */
-
-    /* fragment 1: Arithmetic */
-    v0 = 1;
-
-    /* fragment 2: StackAccess */
-    local_14 = ra;
-    local_10 = s0;
-    *(uint32_t *)((char *)a0 + 20) = v0;
-    v0 = 256;
-    *(uint32_t *)((char *)a0 + 24) = v0;
-    v0 = 131072;
-    *(uint32_t *)((char *)a0 + 28) = v0;
-    v0 = 41;
-    *(uint32_t *)((char *)a0 + 72) = v0;
-    v0 = -1;
-    *(uint32_t *)((char *)a0 + 420) = v0;
-    v0 = 12800;
-    *(uint16_t *)((char *)a0 + 436) = v0;
-    v0 = 64;
-    *(uint32_t *)((char *)a0 + 444) = v0;
-    *(uint16_t *)((char *)a0 + 458) = v0;
-    v0 = (uintptr_t *)&log2_fixed_to_fixed;
-    s0 = a0;
-    *(uint8_t *)((char *)a0 + 16) = 0;
-    *(uint16_t *)((char *)a0 + 452) = 0;
-    *(uint16_t *)((char *)a0 + 454) = 0;
-    *(uint16_t *)((char *)a0 + 456) = 0;
-    *(uint32_t *)((char *)a0 + 468) = 0;
-    *(uint32_t *)((char *)a0 + 472) = 0;
-    a1 = 12;
-    a0 = 4095;
-    v0 = v0;
-
-    /* fragment 3: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(int32_t *))(uintptr_t)log2_fixed_to_fixed)(a0); /* jalr target resolved by relocation */
-
-    /* fragment 4: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    /* fragment 5: Arithmetic */
-    v1 = 262144;
-    v0 = v0 + v1;
-
-    /* fragment 6: MemoryAccess */
-    *(uint32_t *)((char *)s0 + 484) = v0;
-    s0 = local_10;
-
-    /* fragment 7: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    return (void*)v0;
+	*(uint32_t *)(c + 20) = 1;
+	*(uint32_t *)(c + 24) = 256;
+	*(uint32_t *)(c + 28) = 0x20000;
+	*(uint32_t *)(c + 72) = 41;
+	*(int32_t *)(c + 420) = -1;
+	*(uint16_t *)(c + 436) = 12800;
+	*(uint32_t *)(c + 444) = 64;
+	*(uint16_t *)(c + 458) = 64;
+	c[16] = 0;
+	*(uint16_t *)(c + 452) = 0;
+	*(uint16_t *)(c + 454) = 0;
+	*(uint16_t *)(c + 456) = 0;
+	*(uint32_t *)(c + 468) = 0;
+	*(uint32_t *)(c + 472) = 0;
+	v = log2_fixed_to_fixed(4095, 12, 16) + 0x40000;
+	*(int32_t *)(c + 484) = v;
+	return (void *)(uintptr_t)v;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000002e188 origin=model_output original=cmos_request_interrupt */
@@ -49226,40 +38657,49 @@ int32_t cmos_request_interrupt(int32_t *arg1, int32_t arg2)
 /* WHOLE_DRIVER_CANDIDATE fn_000000000002e20c origin=model_output original=cmos_fsm_switch_state */
 int cmos_fsm_switch_state(int32_t *arg1, int32_t arg2)
 {
+	/*
+	 * OEM cmos_fsm_switch_state (SDK ko 0x2d92c), void there.  The lift had
+	 * the state tests in the wrong order (inttime/antiflicker before the long
+	 * exposure / init step, calc_target_gain keyed on the old state 6..8) and
+	 * fell off the end.  Ranges compare unsigned (OEM sltiu).
+	 */
 	int32_t old_state = arg1[1];
 
-	if (arg2 != old_state) {
-		((void **)arg1)[1] = arg2;
+	if (arg2 == old_state)
+		return 0;
+	arg1[1] = arg2;
 
-		if (old_state != 1) {
-			if ((uint32_t)(old_state - 3) < 3) {
-				if ((uint32_t)(arg2 - 3) >= 3)
-					apical_isp_raise_event(*arg1, 19);
-			}
-		} else {
-			cmos_update_wdr_mode();
-		}
+	if (old_state == 1)
+		cmos_update_wdr_mode();
+	else if ((uint32_t)(old_state - 3) < 3 && (uint32_t)(arg2 - 3) >= 3)
+		apical_isp_raise_event(*arg1, 19);
 
-		if ((uint32_t)(old_state - 6) >= 3) {
-			if (arg2 == 7)
-				return cmos_inttime_update(arg1);
-			if (arg2 == 8)
-				return cmos_antiflicker_update(arg1);
-		} else {
-			if ((uint32_t)(old_state - 3) >= 3)
-				cmos_calc_target_gain(arg1);
-			if (arg2 == 4)
-				return cmos_analog_gain_update(arg1);
-			if (arg2 == 5)
-				return cmos_digital_gain_update(arg1);
-		}
-
-		if ((uint32_t)(arg2 - 6) >= 3)
+	if ((uint32_t)(old_state - 6) < 3) {
+		if ((uint32_t)(arg2 - 6) >= 3) {
 			cmos_long_exposure_update(arg1);
-
-		if (arg2 == 2)
-			return cmos_init(arg1);
+			if (arg2 == 2) {
+				cmos_init(arg1);
+				return 0;
+			}
+		}
+	} else if (arg2 == 2) {
+		cmos_init(arg1);
+		return 0;
 	}
+
+	if ((uint32_t)(arg2 - 3) < 3) {
+		if ((uint32_t)(old_state - 3) >= 3)
+			cmos_calc_target_gain(arg1);
+		if (arg2 == 4)
+			cmos_analog_gain_update(arg1);
+		else if (arg2 == 5)
+			cmos_digital_gain_update(arg1);
+	} else if (arg2 == 7) {
+		cmos_inttime_update(arg1);
+	} else if (arg2 == 8) {
+		cmos_antiflicker_update(arg1);
+	}
+	return 0;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000002e390 origin=model_output original=cmos_fsm_process_state */
@@ -49374,12 +38814,6 @@ void defect_pixel_fsm_clear(void *fsm)
 	(void)fsm;
 }
 
-/* WHOLE_DRIVER_CANDIDATE fn_000000000002e578 origin=model_output original=defect_pixel_request_interrupt */
-int32_t defect_pixel_request_interrupt(int32_t *arg1, int32_t arg2)
-{
-	return tx_isp_t30_fsm_request_interrupt(arg1, arg2);
-}
-
 /* WHOLE_DRIVER_CANDIDATE fn_000000000002e5fc origin=model_output original=defect_pixel_fsm_switch_state */
 void defect_pixel_fsm_switch_state(int32_t *fsm, int32_t new_state)
 {
@@ -49456,22 +38890,27 @@ call_process:
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000002e760 origin=model_output original=AE_fsm_clear */
+/*
+ * OEM AE_fsm_clear (ae_balanced_fsm.c, SDK ko 0x2de80): +16 step, +20 exposure, +24/+28 s64
+ * accumulator and +32/+36 s64 pending value zero, +40 ratio and +44 0x40, +1076 0x4040c0c0,
+ * request byte +1080 zero; nothing else.  (#338: the lift wrote 0x40 into the pending value,
+ * which the first ae_calculate_exposure took as the accumulator 0x40_00000040, and zeroed
+ * +48..+60 instead of +16/+20.)
+ */
 int32_t AE_fsm_clear(void *arg1)
 {
-	uint32_t *p = (uint32_t *)arg1;
+	int32_t *p = (int32_t *)arg1;
 
-	((void **)p)[6] = 0;
-	((void **)p)[7] = 0;
-	((void **)p)[8] = 0x40;
-	((void **)p)[9] = 0x40;
-	((void **)p)[10] = 0x40;
-	((void **)p)[11] = 0x40;
-	((void **)p)[12] = 0;
-	((void **)p)[13] = 0;
-	((void **)p)[14] = 0;
-	((void **)p)[15] = 0;
-	((void **)(uintptr_t)p)[0x434 / 4] = 0x4040c0c0;
-	*(uint8_t *)(arg1 + 0x438) = 0;
+	p[4] = 0;
+	p[5] = 0;
+	p[6] = 0;
+	p[7] = 0;
+	p[8] = 0;
+	p[9] = 0;
+	p[10] = 0x40;
+	p[11] = 0x40;
+	p[1076 / 4] = 0x4040c0c0;
+	*((uint8_t *)arg1 + 1080) = 0;
 	return 0x4040c0c0;
 }
 
@@ -49485,35 +38924,29 @@ int32_t AE_request_interrupt(int32_t *arg1, int32_t arg2)
 int32_t AE_fsm_switch_state(int32_t *arg1, int32_t arg2)
 {
 	int32_t cur = arg1[1];
-	int32_t *result = cur - 3;
 
-	if (arg2 != cur) {
-		((void **)arg1)[1] = arg2;
+	/* OEM ae_balanced_fsm.c AE_fsm_switch_state (ko 0x2e824): no state change, no action;
+	 * the return value is the old state - 3 (no caller uses it) */
+	if (arg2 == cur)
+		return cur - 3;
 
-		if (result >= 3)
-			goto label_2e878;
+	arg1[1] = arg2;
+	/* leaving the 3..5 (calculate) states raises event 8 (OEM sltiu: unsigned compares;
+	 * the lifted signed arg2 - 3 >= 3 never raised it for states 0..2, #283) */
+	if ((uint32_t)(cur - 3) < 3 && (uint32_t)(arg2 - 3) >= 3)
+		apical_isp_raise_event((void *)(uintptr_t)*arg1, 8);
 
-		if (arg2 - 3 >= 3)
-			apical_isp_raise_event(*arg1, 8);
-	}
-
-label_2e878:
 	if (arg2 == 0)
 		return ae_initialize(arg1);
-
 	if (arg2 == 2)
 		return AE_request_interrupt(arg1, 8);
-
-	result = 5;
-
+	/* #283: the lifted baseline returned 0 here for every state, so state 5 never ran
+	 * ae_calculate_exposure; the OEM tail-calls both */
 	if (arg2 == 4)
-		ae_calculate_target(arg1);
-		return 0;
-
+		return (int32_t)(uintptr_t)ae_calculate_target(arg1);
 	if (arg2 == 5)
-		return ae_calculate_exposure(arg1);
-
-	return result;
+		return ae_calculate_exposure((uintptr_t)arg1);
+	return 5;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000002e910 origin=model_output original=AE_fsm_process_state */
@@ -49673,7 +39106,8 @@ check6:
 check7:
 	if (arg2 != 7)
 		goto check8;
-	return (int32_t)(uintptr_t)awb_normalise(arg1);
+	awb_normalise(arg1);
+	return 0;
 check8:
 	if (arg2 != 8)
 		goto check9;
@@ -49802,6 +39236,8 @@ int color_matrix_fsm_switch_state(int32_t *arg1, int32_t arg2)
 	} else {
 		return color_matrix_initialize(arg1);
 	}
+	/* OEM 0x2e66c is void: other states only store the state (lift fell off the end) */
+	return 0;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000002efa4 origin=model_output original=color_matrix_fsm_process_state */
@@ -49891,6 +39327,8 @@ int iridix_fsm_switch_state(int32_t *arg1, int32_t arg2)
 
 	if (arg2 == 3)
 		return iridix_update(arg1);
+	/* OEM 0x2e8bc is void: other states only store the state (lift fell off the end) */
+	return 0;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000002f1dc origin=model_output original=iridix_fsm_process_state */
@@ -49947,12 +39385,6 @@ int32_t iridix_fsm_process_event(int32_t *fsm, int32_t event)
 int noise_reduction_fsm_clear(void *fsm) {
 	(void)fsm;
     return 0;
-}
-
-/* WHOLE_DRIVER_CANDIDATE fn_000000000002f308 origin=model_output original=noise_reduction_request_interrupt */
-int32_t noise_reduction_request_interrupt(int32_t *arg1, int32_t arg2)
-{
-	return tx_isp_t30_fsm_request_interrupt(arg1, arg2);
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000002f38c origin=model_output original=noise_reduction_fsm_switch_state */
@@ -50061,12 +39493,6 @@ int32_t sharpening_fsm_clear(uintptr_t a0)
     return 0;
 }
 
-/* WHOLE_DRIVER_CANDIDATE fn_000000000002f514 origin=model_output original=sharpening_request_interrupt */
-int32_t sharpening_request_interrupt(int32_t *arg1, int32_t arg2)
-{
-	return tx_isp_t30_fsm_request_interrupt(arg1, arg2);
-}
-
 /* WHOLE_DRIVER_CANDIDATE fn_000000000002f598 origin=model_output original=sharpening_fsm_switch_state */
 int32_t sharpening_fsm_switch_state(int32_t *fsm, int32_t new_state)
 {
@@ -50142,12 +39568,6 @@ int32_t flash_fsm_clear(void *arg1)
 {
 	*(uint8_t *)((uintptr_t)arg1 + 0x11) = 0;
 	return 0;
-}
-
-/* WHOLE_DRIVER_CANDIDATE fn_000000000002f788 origin=model_output original=flash_request_interrupt */
-int32_t flash_request_interrupt(int32_t *arg1, int32_t arg2)
-{
-	return tx_isp_t30_fsm_request_interrupt(arg1, arg2);
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000002f80c origin=model_output original=flash_fsm_switch_state */
@@ -50275,50 +39695,37 @@ int32_t crop_fsm_process_state(int32_t *arg1)
 /* WHOLE_DRIVER_CANDIDATE fn_000000000002fa4c origin=model_output original=crop_fsm_process_event */
 int32_t crop_fsm_process_event(int32_t *arg1, int32_t arg2)
 {
-	int32_t state;
-	int32_t new_state;
+	/*
+	 * OEM crop_fsm_process_event (SDK ko 0x2f16c).  Event 0x10 (state 3)
+	 * re-initialises and goes straight to process_state with state 2; the
+	 * lift fell through into the common store and wrote an uninitialised
+	 * new_state over it.  Event and state compare unsigned (OEM sltu/sltiu).
+	 */
+	uint32_t ev = (uint32_t)arg2;
+	uint32_t state = (uint32_t)arg1[1];
 
-	if (arg2 == 7) {
-		state = arg1[1];
+	if (ev == 7) {
 		if (state != 2)
 			return 0;
-		new_state = 1;
-		goto common_store_call;
-	}
-
-	if (arg2 < 8) {
-		if (arg2 != 6)
+		arg1[1] = 1;
+	} else if (ev < 8) {
+		if (ev != 6 || state != 1)
 			return 0;
-		state = arg1[1];
-		if (state != 1)
-			return 0;
-		new_state = 2;
-		goto common_store_call;
-	}
-
-	if (arg2 == 0xf) {
-		state = arg1[1];
+		arg1[1] = 2;
+	} else if (ev == 0xf) {
 		if (state >= 3)
 			return 0;
-		new_state = 3;
-		goto common_store_call;
+		arg1[1] = 3;
+	} else if (ev == 0x10) {
+		if (state != 3)
+			return 0;
+		crop_initialize(arg1);
+		crop_resolution_changed(arg1);
+		if (arg1[1] != 2)
+			arg1[1] = 2;
+	} else {
+		return 0;
 	}
-
-	if (arg2 != 0x10)
-		return 0;
-
-	state = arg1[1];
-	if (state != 3)
-		return 0;
-
-	crop_initialize(arg1);
-	crop_resolution_changed(arg1);
-
-	if (arg1[1] != 2)
-		((void **)arg1)[1] = 2;
-
-common_store_call:
-	((void **)arg1)[1] = new_state;
 	crop_fsm_process_state(arg1);
 	return 1;
 }
@@ -50598,119 +40005,6 @@ int32_t matrix_yuv_fsm_process_event(int32_t *arg1, int32_t arg2)
 	return 0;
 }
 
-/* WHOLE_DRIVER_CANDIDATE fn_00000000000300b0 origin=model_output original=mem_read_u16 */
-uint32_t mem_read_u16(uintptr_t arg1)
-{
-    if ((arg1 & 1) == 0)
-        return *(uint16_t *)(uintptr_t)arg1;
-    return ((uint32_t)(*(uint8_t *)(uintptr_t)(arg1 + 1)) << 8) | (uint32_t)(*(uint8_t *)(uintptr_t)arg1);
-}
-
-/* WHOLE_DRIVER_CANDIDATE fn_00000000000300d8 origin=model_output original=mem_read_u32 */
-uint32_t mem_read_u32(int32_t *arg1)
-{
-	uint32_t *v0;
-	uint32_t v1;
-
-	v0 = (uintptr_t)(arg1) & 3;
-	if (v0 == 2) {
-		v1 = *(uint16_t *)arg1;
-		v0 = *(uint16_t *)(arg1 + 2) << 0x10;
-	} else {
-		if (v0 == 3) {
-			v0 = *(uint8_t *)(arg1 + 3);
-		} else {
-			if (v0 != 1)
-				return *(uint32_t *)arg1;
-			v0 = *(uint8_t *)(arg1 + 3);
-		}
-		v0 = ((uintptr_t)v0 << 0x18) | *(uint8_t *)arg1;
-		v1 = *(uint16_t *)(arg1 + 1) << 8;
-	}
-	return (uintptr_t)v0 | v1;
-}
-
-/* WHOLE_DRIVER_CANDIDATE fn_0000000000030138 origin=model_output original=mem_write_u16 */
-void *mem_write_u16(uintptr_t arg1, uint32_t arg2)
-{
-	uint32_t val = arg2 & 0xffff;
-	uint32_t *result = arg1 & 1;
-
-	if (result == 0) {
-		*(uint16_t *)arg1 = (uint16_t)val;
-		return (void *)result;
-	}
-
-	*(uint8_t *)arg1 = (uint8_t)val;
-	*(uint8_t *)(arg1 + 1) = (uint8_t)(val >> 8);
-	return (void *)result;
-}
-
-/* WHOLE_DRIVER_CANDIDATE fn_000000000003015c origin=fragment_seed original=mem_write_u32 */
-void* mem_write_u32(uintptr_t a0, uint32_t a1)
-{
-    uint32_t ra = 0;
-    uintptr_t *v0 = 0;
-    uint32_t v1 = 0;
-
-    /* fragment 0: Arithmetic */
-    v0 = a0 & 3;
-    v1 = 2;
-
-    /* fragment 1: Branch */
-    int _bc_v0_1 = v0 == v1;
-    v1 = 3;
-    if (_bc_v0_1) { goto mem_write_u320x28; }
-
-    /* fragment 2: Branch */
-    int _bc_v0_2 = v0 == v1;
-    v1 = 1;
-    if (_bc_v0_2) { goto mem_write_u320x38; }
-
-    /* fragment 3: Branch */
-    int _bc_v0_3 = v0 == v1;
-    v0 = a1 >> 8;
-    if (_bc_v0_3) { goto mem_write_u320x3c; }
-
-    /* fragment 4: Epilogue */
-    /* function epilogue: restore registers and return */
-    return (void*)v0;
-
-    /* fragment 5: MemoryAccess */
-    *(uint32_t *)((char *)a0 + 0) = a1;
-
-mem_write_u320x28:
-    /* fragment 6: MemoryAccess */
-    *(uint16_t *)((char *)a0 + 0) = a1;
-    a1 = a1 >> 16;
-
-    /* fragment 7: Epilogue */
-    /* #189: delay slot of the OEM `jr ra`; the lift put the return in front of it and lost this statement */
-    *(uint16_t *)((char *)a0 + 2) = a1;
-    /* function epilogue: restore registers and return */
-    return (void*)v0;
-
-    /* fragment 8: MemoryAccess */
-
-mem_write_u320x38:
-    /* fragment 9: Arithmetic */
-    v0 = a1 >> 8;
-
-mem_write_u320x3c:
-    /* fragment 10: MemoryAccess */
-    *(uint8_t *)((char *)a0 + 0) = a1;
-    a1 = a1 >> 24;
-    *(uint16_t *)((char *)a0 + 1) = v0;
-
-    /* fragment 11: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    /* fragment 12: MemoryAccess */
-    *(uint8_t *)((char *)a0 + 3) = a1;
-
-    return (void*)v0;
-}
-
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000301ac origin=model_output original=apical_sbus_read_u8 */
 uint32_t apical_sbus_read_u8(int32_t *arg1, uint32_t arg2)
 {
@@ -50867,247 +40161,38 @@ uint32_t apical_sbus_read_u32(struct apical_sbus_dev *dev, uint32_t offset)
 	return result;
 }
 
-/* WHOLE_DRIVER_CANDIDATE fn_000000000003057c origin=model_output original=apical_sbus_read_data_u8 */
-int32_t apical_sbus_read_data_u8(int32_t *arg1, int32_t arg2, void *arg3, int32_t arg4)
-{
-	int32_t *i = 0;
-	int32_t *result;
-
-	do {
-		if (i < arg4) {
-			((uintptr_t *)(uintptr_t)(arg3))[(uintptr_t)i] = apical_sbus_read_u8(arg1, (uintptr_t)i + arg2);
-			i++;
-		}
-	} while (i < arg4);
-
-	result = i + arg2;
-	return result;
-}
-
-/* WHOLE_DRIVER_CANDIDATE fn_0000000000030600 origin=model_output original=apical_sbus_read_data_u16 */
-int32_t apical_sbus_read_data_u16(int32_t *arg1, uint32_t arg2, void *arg3, int32_t arg4)
-{
-	int32_t step;
-	uint32_t addr;
-	int32_t *i;
-	int32_t *result;
-
-	if ((*arg1 & 0x40) == 0)
-		step = 2;
-	else
-		step = 1;
-
-	addr = arg2;
-	i = 0;
-
-	if ((uintptr_t)arg3 & 1) {
-		while (i < arg4) {
-			uint32_t val = apical_sbus_read_u16(arg1, addr);
-			mem_write_u16((uintptr_t)arg3 + ((uintptr_t)i << 1), val);
-			addr += step;
-			i++;
-		}
-		result = 0;
-	} else {
-		while (i < arg4) {
-			uint32_t val = apical_sbus_read_u16(arg1, addr);
-			*(uint16_t *)((char *)arg3 + ((uintptr_t)i << 1)) = (uint16_t)val;
-			addr += step;
-			i++;
-		}
-		result = 0;
-	}
-
-	return result;
-}
-
-/* WHOLE_DRIVER_CANDIDATE fn_000000000003070c origin=fragment_seed original=apical_sbus_read_data_u32 */
-int32_t apical_sbus_read_data_u32(uintptr_t a0, uint32_t a1, uintptr_t a2, uint32_t a3)
-{
-    uint32_t *local_10 = 0;
-    uint32_t local_14 = 0;
-    uint32_t *local_18 = 0;
-    uint32_t local_1c = 0;
-    uint32_t local_20 = 0;
-    uint32_t local_24 = 0;
-    uint32_t local_28 = 0;
-    uint32_t local_2c = 0;
-    uint32_t local_30 = 0;
-    uint32_t local_34 = 0;
-    uint32_t ra = 0;
-    uint32_t *s0 = 0;
-    uint32_t *s1 = 0;
-    uint32_t *s2 = 0;
-    uint32_t *s3 = 0;
-    uint32_t s4 = 0;
-    uint32_t s5 = 0;
-    uint32_t s6 = 0;
-    uint32_t s7 = 0;
-    uint32_t s8 = 0;
-    uintptr_t *v0 = 0;
-    uintptr_t v1 = 0;
-
-    /* fragment 0: MemoryAccess */
-    v0 = *(uint32_t *)((char *)a0 + 0);
-    v1 = (uintptr_t)v0 & 128;
-    local_24 = s5;
-    local_20 = s4;
-    local_1c = s3;
-    local_14 = s1;
-    local_10 = s0;
-    local_34 = ra;
-    local_30 = s8;
-    local_2c = s7;
-    local_28 = s6;
-    local_18 = s2;
-    s3 = a0;
-    s0 = a1;
-    s4 = a2;
-    s5 = a3;
-
-    /* fragment 1: Branch */
-    s1 = 1;
-    if (v1 != 0) { goto apical_sbus_read_data_u320x5c; }
-
-    /* fragment 2: Arithmetic */
-    v0 = (uintptr_t)v0 & 64;
-    s1 = 2;
-    v1 = 4;
-    if (v0 == 0) { s1 = v1; }
-
-apical_sbus_read_data_u320x5c:
-    /* fragment 3: Arithmetic */
-    v0 = s4 & 3;
-
-    /* fragment 4: Branch */
-    s2 = 0;
-    if (v0 != 0) { goto apical_sbus_read_data_u320x9c; }
-
-    /* fragment 5: Branch */
-    s6 = (uintptr_t)&apical_sbus_read_u32;
-    goto apical_sbus_read_data_u320xdc;
-
-apical_sbus_read_data_u320x70:
-    /* fragment 6: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(int32_t *)apical_sbus_read_u32)(s3, s0); /* jalr target resolved by relocation */
-
-    /* fragment 7: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(int32_t *)mem_write_u32)(s7, v0); /* jalr target resolved by relocation */
-
-    /* fragment 8: Arithmetic */
-    s0 = (uintptr_t)s0 + (uintptr_t)s1;
-
-    /* fragment 9: Branch */
-    s2 = s2 + 1;
-    goto apical_sbus_read_data_u320xa4;
-
-apical_sbus_read_data_u320x9c:
-    /* fragment 10: Arithmetic */
-    s8 = (uintptr_t)&apical_sbus_read_u32;
-    s6 = (uintptr_t)&mem_write_u32;
-
-apical_sbus_read_data_u320xa4:
-    /* fragment 11: Arithmetic */
-    s7 = (uintptr_t)s2 << 2;
-    v0 = s2 < s5;
-
-    /* fragment 12: Branch */
-    s7 = s4 + s7;
-    if (v0 != 0) { goto apical_sbus_read_data_u320x70; }
-
-    /* fragment 13: Branch */
-    goto apical_sbus_read_data_u320xec;
-
-apical_sbus_read_data_u320xbc:
-    /* fragment 14: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(int32_t *))(uintptr_t)apical_sbus_read_u32)(s3); /* jalr target resolved by relocation */
-
-    /* fragment 15: Arithmetic */
-    v1 = (uintptr_t)s2 << 2;
-    v1 = s4 + v1;
-
-    /* fragment 16: MemoryAccess */
-    *(uint32_t *)((char *)v1 + 0) = v0;
-    s0 = (uintptr_t)s0 + (uintptr_t)s1;
-    s2 = s2 + 1;
-
-apical_sbus_read_data_u320xdc:
-    /* fragment 17: Arithmetic */
-    v0 = s2 < s5;
-
-    /* fragment 18: Branch */
-    a1 = s0;
-    if (v0 != 0) { goto apical_sbus_read_data_u320xbc; }
-
-    /* fragment 19: Epilogue */
-    /* function epilogue: restore registers and return */
-    return (int32_t)v0;
-
-apical_sbus_read_data_u320xec:
-    /* fragment 20: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    return 0;
-}
-
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000030824 origin=model_output original=apical_sbus_write_u8 */
 int32_t apical_sbus_write_u8(int32_t *arg1, int32_t arg2, char arg3)
 {
-	int32_t *result = *arg1;
+	/*
+	 * OEM apical_sbus_write_u8 (SDK ko 0x2ff44): byte-swap the address per the
+	 * bus flags in arg1[0], then tail-call the bus write arg1[5](bus, addr,
+	 * data, 1).  The lift used an uninitialised callback / address when flag
+	 * 0x20 was clear and passed (addr, arg2, data, 1) instead of the bus.
+	 */
+	uint32_t flags = (uint32_t)arg1[0];
+	uint32_t a = (uint32_t)arg2;
+	int32_t (*fn)(int32_t *, uint32_t, uint32_t, uint32_t);
 
-	if (((uintptr_t)result & 1) == 0)
-		return result;
+	if ((flags & 1) == 0)
+		return (int32_t)flags;
 
-	arg3 = (char)(arg3 & 0xff);
+	fn = (int32_t (*)(int32_t *, uint32_t, uint32_t, uint32_t))(uintptr_t)arg1[5];
+	if (flags & 0x20) {
+		if (flags & 0x400) {
+			uint32_t lo = a & 0xffff, hi = a >> 16;
 
-	if (((uintptr_t)result & 0x20) == 0)
-		goto check_0x410;
-
-	{
-		int32_t (*fn)(int32_t, int32_t, int32_t, int32_t) =
-			(int32_t (*)(int32_t, int32_t, int32_t, int32_t))arg1[5];
-		int32_t *v0 = result;
-		int32_t v1;
-		int32_t *a1 = arg2;
-		int32_t *a3;
-
-		if (((uintptr_t)v0 & 0x400) != 0) {
-			v0 = (uintptr_t)v0 & 0x200;
-			a3 = (uintptr_t)a1 & 0xffff;
-			v1 = ((uintptr_t)a3 << 8) | ((uintptr_t)a3 >> 8);
-			a1 = ((uintptr_t)a1 >> 16) & 0xff;
-			a1 = ((uintptr_t)a1 << 8) | ((uintptr_t)a1 >> 8);
-		} else {
-			v1 = 0;
+			lo = ((lo << 8) | (lo >> 8)) & 0xffff;
+			hi = ((hi << 8) | (hi >> 8)) & 0xffff;
+			a = (flags & 0x800) ? (hi | (lo << 16)) : ((hi << 16) | lo);
+		} else if (flags & 0x200) {
+			a = (a >> 16) | (a << 16);
 		}
-
-		v0 = (uintptr_t)v0 & 0x800;
-		v1 = v1 & 0xffff;
-
-		if (v0 != 0) {
-			a1 = (uintptr_t)a1 & 0xffff;
-			v1 = v1 << 16;
-		} else {
-			a1 = (uintptr_t)a1 << 16;
-		}
-
-		a1 = (uintptr_t)a1 | v1;
-
-		if (((uintptr_t)result & 0x800) != 0) {
-			v0 = (uintptr_t)a1 >> 16;
-			a1 = (uintptr_t)a1 << 16;
-			a1 = (uintptr_t)a1 | (uintptr_t)v0;
-		}
-
-	check_0x410:
-		if (((uintptr_t)result & 0x410) == 0x410) {
-			a1 = (uintptr_t)a1 & 0xffff;
-			a1 = ((uintptr_t)a1 << 8) | ((uintptr_t)a1 >> 8);
-			a1 = (uintptr_t)a1 & 0xffff;
-		}
-
-		return ((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))fn)((uintptr_t)(a1), (uintptr_t)(arg2), (uintptr_t)(arg3), (uintptr_t)(1));
+	} else if ((flags & 0x410) == 0x410) {
+		a &= 0xffff;
+		a = ((a << 8) | (a >> 8)) & 0xffff;
 	}
+	return fn(arg1, a, (uint8_t)arg3, 1);
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000308d8 origin=model_output original=apical_sbus_write_u16 */
@@ -51234,489 +40319,6 @@ int32_t apical_sbus_write_u32(struct apical_sbus_dev *dev, uint32_t reg, uint32_
 
 	return ((int32_t (*)(struct apical_sbus_dev *, uint32_t, uint32_t, int32_t))
 		dev->write_fn)(dev, r, v, 4);
-}
-
-/* WHOLE_DRIVER_CANDIDATE fn_0000000000030c3c origin=model_output original=apical_sbus_write_data_u8 */
-int32_t apical_sbus_write_data_u8(int32_t *arg1, int32_t arg2, void *arg3, int32_t arg4)
-{
-	int32_t *i = 0;
-
-	while (i < arg4) {
-		apical_sbus_write_u8(arg1, (uintptr_t)i + arg2, *(uint8_t *)((char *)arg3 + (uintptr_t)i));
-		i++;
-	}
-
-	return i < arg4;
-}
-
-/* WHOLE_DRIVER_CANDIDATE fn_0000000000030cc0 origin=model_output original=apical_sbus_write_data_u16 */
-int32_t apical_sbus_write_data_u16(int32_t *arg1, uint32_t arg2, void *arg3, int32_t arg4)
-{
-	int32_t flags = *arg1;
-	uint32_t addr = arg2;
-	int32_t step = (flags & 0x40) ? 1 : 2;
-	int32_t *i = 0;
-	int32_t *result;
-
-	if ((uintptr_t)arg3 & 1) {
-		while (i < arg4) {
-			uint16_t val = *(uint16_t *)((char *)arg3 + ((uintptr_t)i << 1));
-			apical_sbus_write_u16(arg1, addr, val);
-			addr += step;
-			i++;
-		}
-		result = i;
-	} else {
-		while (i < arg4) {
-			uint16_t val = *(uint16_t *)((char *)arg3 + ((uintptr_t)i << 1));
-			apical_sbus_write_u16(arg1, addr, val);
-			addr += step;
-			i++;
-		}
-		result = (uintptr_t)i << 1;
-	}
-	return result;
-}
-
-/* WHOLE_DRIVER_CANDIDATE fn_0000000000030dc0 origin=model_output original=apical_sbus_write_data_u32 */
-int32_t apical_sbus_write_data_u32(int32_t *arg1, uint32_t arg2, void *arg3, int32_t arg4)
-{
-	int32_t flags = *arg1;
-	uint32_t *reg = arg2;
-	int32_t step;
-	int32_t *i;
-	int32_t *result;
-
-	if ((flags & 0x80) == 0) {
-		step = 2;
-		if ((flags & 0x40) == 0)
-			step = 4;
-	} else {
-		step = 1;
-	}
-
-	i = 0;
-
-	if (((uintptr_t)arg3 & 3) != 0) {
-		while (i < arg4) {
-			uint32_t val = mem_read_u32((int32_t *)((char *)arg3 + ((uintptr_t)i << 2)));
-			apical_sbus_write_u32(arg1, reg, val);
-			reg = (void *)(uintptr_t)((uintptr_t)reg + (step));
-			i++;
-		}
-		result = (i < arg4) ? 1 : 0;
-	} else {
-		while (i < arg4) {
-			apical_sbus_write_u32(arg1, (uintptr_t)reg, *(uint32_t *)((char *)arg3 + ((uintptr_t)i << 2)));
-			reg = (void *)(uintptr_t)((uintptr_t)reg + (step));
-			i++;
-		}
-		result = (uintptr_t)i << 2;
-	}
-
-	return result;
-}
-
-/* WHOLE_DRIVER_CANDIDATE fn_0000000000030ecc origin=fragment_seed original=apical_sbus_write_data */
-int32_t apical_sbus_write_data(uintptr_t a0, uint32_t a1, uintptr_t a2, uint32_t a3)
-{
-    uint32_t local_14 = 0;
-    uint32_t *local_18 = 0;
-    uint32_t local_1c = 0;
-    uint32_t local_20 = 0;
-    uint32_t local_24 = 0;
-    uint32_t local_28 = 0;
-    uint32_t local_2c = 0;
-    uint32_t ra = 0;
-    uint32_t *s0 = 0;
-    uint32_t *s1 = 0;
-    uintptr_t *s2 = 0;
-    uintptr_t *s3 = 0;
-    uint32_t s4 = 0;
-    uint32_t s5 = 0;
-    uint32_t t9 = 0;
-    uintptr_t *v0 = 0;
-    uint32_t v1 = 0;
-
-    /* fragment 0: MemoryAccess */
-    v0 = *(uint32_t *)((char *)a0 + 0);
-    v1 = (uintptr_t)v0 & 128;
-    local_24 = s4;
-    local_20 = s3;
-    local_1c = s2;
-    local_18 = s1;
-    local_14 = s0;
-    local_2c = ra;
-    local_28 = s5;
-    s3 = a0;
-    s1 = a1;
-    s2 = a2;
-    s0 = a3;
-
-    /* fragment 1: Branch */
-    s4 = 2;
-    if (v1 != 0) { goto apical_sbus_write_data0x48; }
-
-    /* fragment 2: Arithmetic */
-    s4 = (uintptr_t)v0 >> 6;
-    s4 = s4 & 1;
-
-apical_sbus_write_data0x48:
-    /* fragment 3: Arithmetic */
-    v0 = (uintptr_t)s1 << s4;
-    v0 = (uintptr_t)v0 & 3;
-    v1 = 2;
-
-    /* fragment 4: Branch */
-    int _bc_v0_4 = v0 == v1;
-    v1 = 3;
-    if (_bc_v0_4) { goto apical_sbus_write_data0xc4; }
-
-    /* fragment 5: Branch */
-    int _bc_v0_5 = v0 == v1;
-    v1 = 1;
-    if (_bc_v0_5) { goto apical_sbus_write_data0x74; }
-
-    /* fragment 6: Branch */
-    int _bc_v0_6 = v0 != v1;
-    v0 = s0 < 4;
-    if (_bc_v0_6) { goto apical_sbus_write_data0x148; }
-
-    /* fragment 7: Branch */
-    a2 = *(uint8_t *)((char *)(s2) + 0);
-    goto apical_sbus_write_data0xa0;
-
-apical_sbus_write_data0x74:
-    /* fragment 8: CallSetup */
-    s0 = s0 - 1;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)apical_sbus_write_u8)(s3, s1, *(uint8_t *)((char *)(s2) + 0)); /* jalr target resolved by relocation */
-
-    /* fragment 9: Branch */
-    s2 = s2 + 1;
-    if (s0 == 0) { goto apical_sbus_write_data0x240; }
-
-    /* fragment 10: Branch */
-    s1 = s1 + 1;
-    goto apical_sbus_write_data0x144;
-
-apical_sbus_write_data0xa0:
-    /* fragment 11: CallSetup */
-    s0 = s0 - 1;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(int32_t *)apical_sbus_write_u8)(s3, s1); /* jalr target resolved by relocation */
-
-    /* fragment 12: Branch */
-    s2 = s2 + 1;
-    if (s0 == 0) { goto apical_sbus_write_data0x240; }
-
-    /* fragment 13: Arithmetic */
-    s1 = s1 + 1;
-
-apical_sbus_write_data0xc4:
-    /* fragment 14: Arithmetic */
-    v0 = 1;
-
-    /* fragment 15: Branch */
-    int _bc_s0_15 = s0 != v0;
-    v0 = (uintptr_t *)&mem_read_u16;
-    if (_bc_s0_15) { goto apical_sbus_write_data0x108; }
-
-    /* fragment 16: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    /* fragment 17: Arithmetic */
-    a0 = s3;
-    a1 = s1;
-
-    /* fragment 18: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    /* fragment 19: MemoryAccess */
-    a2 = *(uint8_t *)((char *)s2 + 0);
-    t9 = (uintptr_t)&apical_sbus_write_u8;
-    s2 = local_1c;
-    t9 = t9;
-
-    /* fragment 20: IndirectTailCall */
-    return ((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))apical_sbus_write_u8)((uintptr_t)(a0), (uintptr_t)(a1), (uintptr_t)(a2), (uintptr_t)(a3));
-
-apical_sbus_write_data0x108:
-    /* fragment 21: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(int32_t *))(uintptr_t)mem_read_u16)(s2); /* jalr target resolved by relocation */
-
-    /* fragment 22: CallSetup */
-    s0 = s0 - 2;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(int32_t *)apical_sbus_write_u16)(s3, s1, v0); /* jalr target resolved by relocation */
-
-    /* fragment 23: Branch */
-    v0 = 2;
-    if (s0 == 0) { goto apical_sbus_write_data0x240; }
-
-    /* fragment 24: Arithmetic */
-    v0 = (uintptr_t)(v0) >> s4;
-    s2 = s2 + 2;
-    s1 = (uintptr_t)s1 + (uintptr_t)v0;
-
-apical_sbus_write_data0x144:
-    /* fragment 25: Arithmetic */
-    v0 = s0 < 4;
-
-apical_sbus_write_data0x148:
-    /* fragment 26: Branch */
-    int _bc_v0_26 = v0 != 0;
-    v0 = s0 < 2;
-    if (_bc_v0_26) { goto apical_sbus_write_data0x1a8; }
-
-    /* fragment 27: CallSetup */
-    s5 = -4;
-    s5 = (uintptr_t)s0 & s5;
-    s0 = s0 - s5;
-    v0 = (uintptr_t)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)apical_sbus_write_data_u32)((uintptr_t)s3, (uintptr_t)s1, (uintptr_t)s2, (uintptr_t)(s0) >> 2); /* jalr target resolved by relocation */
-
-    /* fragment 28: Branch */
-    s2 = s2 + s5;
-    if (s0 == 0) { goto apical_sbus_write_data0x240; }
-
-    /* fragment 29: Arithmetic */
-    v0 = s0 < 2;
-    s5 = (int32_t)s5 >> s4;
-
-    /* fragment 30: Branch */
-    s1 = s1 + s5;
-    if (v0 == 0) { goto apical_sbus_write_data0x1b0; }
-
-    /* fragment 31: Branch */
-    goto apical_sbus_write_data0x208;
-
-apical_sbus_write_data0x1a8:
-    /* fragment 32: Branch */
-    if (v0 != 0) { goto apical_sbus_write_data0x1fc; }
-
-apical_sbus_write_data0x1b0:
-    /* fragment 33: MemoryAccess */
-    v0 = *(uint32_t *)((char *)s3 + 0);
-    v0 = (uintptr_t)v0 & 2;
-
-    /* fragment 34: Branch */
-    if (v0 == 0) { goto apical_sbus_write_data0x208; }
-
-    /* fragment 35: CallSetup */
-    s5 = -2;
-    s5 = (uintptr_t)s0 & s5;
-    s0 = s0 - s5;
-    v0 = (uintptr_t)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)apical_sbus_write_data_u16)((uintptr_t)s3, (uintptr_t)s1, (uintptr_t)s2, (uintptr_t)(s0) >> 1); /* jalr target resolved by relocation */
-
-    /* fragment 36: Branch */
-    s4 = (int32_t)s5 >> s4;
-    if (s0 == 0) { goto apical_sbus_write_data0x240; }
-
-    /* fragment 37: Arithmetic */
-    s2 = s2 + s5;
-
-    /* fragment 38: Branch */
-    s1 = s1 + s4;
-    goto apical_sbus_write_data0x204;
-
-apical_sbus_write_data0x1fc:
-    /* fragment 39: Branch */
-    if (s0 == 0) { goto apical_sbus_write_data0x244; }
-
-apical_sbus_write_data0x204:
-    /* fragment 40: Epilogue */
-    /* function epilogue: restore registers and return */
-    return (int32_t)v0;
-
-apical_sbus_write_data0x208:
-    /* fragment 41: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    /* fragment 42: Arithmetic */
-    a0 = s3;
-    a1 = s1;
-
-    /* fragment 43: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    /* fragment 44: Arithmetic */
-    a2 = s2;
-    a3 = s0;
-
-    /* fragment 45: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    /* fragment 46: ConstantLoad */
-    t9 = 0x0;
-
-    /* fragment 47: IndirectTailCall */
-    return apical_sbus_write_data_u8(a0, a1, a2, a3);
-
-apical_sbus_write_data0x240:
-    /* fragment 48: Epilogue */
-    /* function epilogue: restore registers and return */
-    return (int32_t)v0;
-
-apical_sbus_write_data0x244:
-    /* fragment 49: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    return 0;
-}
-
-/* WHOLE_DRIVER_CANDIDATE fn_0000000000031130 origin=model_output original=apical_sbus_copy */
-int32_t apical_sbus_copy(int32_t *dst, uint32_t dst_off, int32_t *src, uint32_t src_off, int32_t len)
-{
-	int32_t dst_flags = *dst;
-	int32_t src_flags = *src;
-	uint32_t combined = (uint32_t)(src_flags | dst_flags);
-	uint32_t *i = src_off;
-	uint32_t *d = dst_off;
-	int32_t remaining = len;
-	int32_t *result;
-	int32_t dst_step = 1;
-	int32_t src_step = 1;
-	int32_t cnt = 0;
-
-	if (len < 5)
-		goto tail;
-
-	if ((combined & 4) == 0) {
-		if ((combined & 2) == 0) {
-			uint32_t end = (uint32_t)len + src_off;
-			uint32_t di = dst_off - src_off;
-			do {
-				di += 1;
-				result = apical_sbus_write_u8(dst, di, apical_sbus_read_u8(src, i));
-				i = (void *)(uintptr_t)((uintptr_t)i + (1));
-			} while (i != end);
-			return result;
-		}
-
-		dst_step = (dst_flags & 0x40) ? 1 : 2;
-		src_step = (src_flags & 0x40) ? 1 : 2;
-		int32_t half = len >> 1;
-		cnt = 0;
-
-		do {
-			apical_sbus_write_u16(dst, d, apical_sbus_read_u16(src, i));
-			cnt += 1;
-			d = (void *)(uintptr_t)((uintptr_t)d + (dst_step));
-			i = (void *)(uintptr_t)((uintptr_t)i + (src_step));
-		} while (cnt < half);
-
-		remaining += half * -2;
-	} else {
-		if ((dst_flags & 0x80) == 0) {
-			dst_step = 2;
-			if ((dst_flags & 0x40) == 0)
-				dst_step = 4;
-		}
-
-		if ((src_flags & 0x80) == 0) {
-			src_step = 2;
-			if ((src_flags & 0x40) == 0)
-				src_step = 4;
-		}
-
-		int32_t quarter = len >> 2;
-
-		do {
-			apical_sbus_write_u32(dst, d, apical_sbus_read_u32(src, i));
-			cnt += 1;
-			d = (void *)(uintptr_t)((uintptr_t)d + (dst_step));
-			i = (void *)(uintptr_t)((uintptr_t)i + (src_step));
-		} while (cnt < quarter);
-
-		remaining += quarter * -4;
-	}
-
-tail:
-	if (remaining == 2) {
-		uint32_t val = apical_sbus_read_u16(src, i);
-		return apical_sbus_write_u16(dst, d, val);
-	}
-
-	if (remaining >= 3) {
-		if (remaining == 3) {
-			apical_sbus_write_u8(dst, d, apical_sbus_read_u8(src, i));
-			apical_sbus_write_u8(dst, d + 1, apical_sbus_read_u8(src, i + 1));
-			uint32_t val = apical_sbus_read_u8(src, i + 2);
-			return apical_sbus_write_u8(dst, d + 2, val);
-		}
-		if (remaining != 4)
-			return 4;
-		uint32_t val = apical_sbus_read_u32(src, i);
-		return apical_sbus_write_u32(dst, d, val);
-	}
-
-	if (remaining != 1)
-		return 1;
-
-	uint32_t val = apical_sbus_read_u8(src, i);
-	return apical_sbus_write_u8(dst, d, val);
-}
-
-/* WHOLE_DRIVER_CANDIDATE fn_0000000000031490 origin=model_output original=sensor_sync_get_output_resolution */
-uint32_t sensor_sync_get_output_resolution(void *arg1, int16_t *arg2)
-{
-	uint16_t val = *(volatile uint16_t *)((uintptr_t)arg1 + 0xe6);
-	uint32_t *result;
-
-	if (val != 720) {
-		*arg2 = 1920;
-		result = 1080;
-	} else {
-		*arg2 = 1280;
-		result = 1080;
-	}
-	((void **)arg2)[1] = (int16_t)result;
-	return result;
-}
-
-/* WHOLE_DRIVER_CANDIDATE fn_00000000000314bc origin=model_output original=apply_dvi_sync_param */
-int32_t apply_dvi_sync_param(int16_t *arg1)
-{
-	/* OEM fw 0x30bec: registers 0x40000-0x40010 (lui 0x4); the lift had made them data addresses
-	 * (&apical_downscaler_lut + 0x1f0..0x200) */
-	volatile uint32_t r;
-
-	r = APICAL_READ_32(0x40004);
-	APICAL_WRITE_32(0x40004, (r & 0xffff0000u) | (uint32_t)(uint16_t)arg1[2]);
-	r = APICAL_READ_32(0x40004);
-	APICAL_WRITE_32(0x40004, (r & 0xffffu) | ((uint32_t)(uint16_t)arg1[3] << 16));
-
-	r = APICAL_READ_32(0x40008);
-	APICAL_WRITE_32(0x40008, (r & 0xffff0000u) | (uint32_t)(uint16_t)arg1[0]);
-	r = APICAL_READ_32(0x40008);
-	APICAL_WRITE_32(0x40008, (r & 0xffffu) | ((uint32_t)(uint16_t)arg1[1] << 16));
-
-	r = APICAL_READ_32(0x4000c);
-	APICAL_WRITE_32(0x4000c, (r & 0xfffff000u) | ((uint32_t)(uint16_t)arg1[6] & 0xfffu));
-	r = APICAL_READ_32(0x4000c);
-	APICAL_WRITE_32(0x4000c, (r & 0xf000ffffu) | (((uint32_t)(uint16_t)arg1[7] & 0xfffu) << 16));
-
-	r = APICAL_READ_32(0x40010);
-	APICAL_WRITE_32(0x40010, (r & 0xfffff000u) | ((uint32_t)(uint16_t)arg1[8] & 0xfffu));
-	r = APICAL_READ_32(0x40010);
-	APICAL_WRITE_32(0x40010, (r & 0xf000ffffu) | (((uint32_t)(uint16_t)arg1[9] & 0xfffu) << 16));
-
-	r = APICAL_READ_32(0x40000);
-	APICAL_WRITE_32(0x40000, (r & 0xfffff000u) | ((uint32_t)(uint16_t)arg1[4] & 0xfffu));
-	r = APICAL_READ_32(0x40000);
-	return APICAL_WRITE_32(0x40000, (r & 0xf000ffffu) | (((uint32_t)(uint16_t)arg1[5] & 0xfffu) << 16));
-}
-
-/* WHOLE_DRIVER_CANDIDATE fn_0000000000031674 origin=model_output original=apply_dvi_fpga_sync_param */
-int32_t apply_dvi_fpga_sync_param(int16_t *arg1)
-{
-    APICAL_WRITE_32(0x20044, (APICAL_READ_32(0x20044) & 0xffff0000) | (uint32_t)(uint16_t)arg1[2]);
-    APICAL_WRITE_32(0x20044, APICAL_READ_32(0x20044) | ((uint32_t)(uint16_t)arg1[3] << 0x10));
-    APICAL_WRITE_32(0x20010, (APICAL_READ_32(0x20010) & 0xffff0000) | (uint32_t)(uint16_t)arg1[0]);
-    APICAL_WRITE_32(0x20014, (APICAL_READ_32(0x20014) & 0xffff0000) | (uint32_t)(uint16_t)arg1[1]);
-    APICAL_WRITE_32(0x2004c, (APICAL_READ_32(0x2004c) & 0xffffe000) | ((uint32_t)(uint16_t)arg1[6] & 0x1fff));
-    APICAL_WRITE_32(0x2004c, (APICAL_READ_32(0x2004c) & 0xe000ffff) | (((uint32_t)(uint16_t)arg1[7] & 0x1fff) << 0x10));
-    APICAL_WRITE_32(0x20050, (APICAL_READ_32(0x20050) & 0xffffe000) | ((uint32_t)(uint16_t)arg1[8] & 0x1fff));
-    APICAL_WRITE_32(0x20050, (APICAL_READ_32(0x20050) & 0xe000ffff) | (((uint32_t)(uint16_t)arg1[9] & 0x1fff) << 0x10));
-    APICAL_WRITE_32(0x20040, (APICAL_READ_32(0x20040) & 0xffffe000) | ((uint32_t)(uint16_t)arg1[4] & 0x1fff));
-    return APICAL_WRITE_32(0x20040, (APICAL_READ_32(0x20040) & 0xe000ffff) | (((uint32_t)(uint16_t)arg1[5] & 0x1fff) << 0x10));
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000031828 origin=model_output original=sensor_init_output */
@@ -51886,18 +40488,6 @@ int32_t sensor_stop_calibrate(void)
 	return state;
 }
 
-/* WHOLE_DRIVER_CANDIDATE fn_0000000000031d74 origin=model_output original=sensor_fps_change */
-int sensor_fps_change(void) {
-    return 0;
-}
-
-/* WHOLE_DRIVER_CANDIDATE fn_0000000000031d7c origin=model_output original=sensor_get_lines_second */
-int32_t sensor_get_lines_second(void *arg1)
-{
-    int32_t (*func)(void *, void *) = *(int32_t (**)(void *, void *))((char *)arg1 + 0xcc);
-    return func((char *)arg1 + 0x28, (char *)arg1 + 0x40);
-}
-
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000031d90 origin=model_output original=ae_initialize */
 int32_t ae_initialize(int32_t *arg1)
 {
@@ -51923,111 +40513,36 @@ int32_t ae_initialize(int32_t *arg1)
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000031e78 origin=fragment_seed original=ae_read_full_histogram_data */
+/*
+ * OEM ae_read_full_histogram_data (libt30-firmware ae_balanced_func.c.o 0xe8).  arg = AE
+ * context.  256 bins at ISP 0x10000 + 4 i, 4-bit exponent / 12-bit mantissa float, into
+ * +0x30..+0x42c, sum into +0x430; with the request byte +0x438 set it is cleared and the
+ * histogram is copied to the API buffer (1024 bytes).  No defined return value in the OEM.
+ * (#283: the earlier lift scaled the copy offset by the pointer size.)
+ */
 uint32_t ae_read_full_histogram_data(uintptr_t a0)
 {
-    uint32_t local_14 = 0;
-    uint32_t *local_18 = 0;
-    uint32_t local_1c = 0;
-    uint32_t local_20 = 0;
-    uint32_t local_24 = 0;
-    uint32_t local_28 = 0;
-    uint32_t local_2c = 0;
-    uint32_t local_30 = 0;
-    uint32_t local_34 = 0;
-    uint32_t *a1 = 0;
-    uint32_t ra = 0;
-    uintptr_t *s0 = 0;
-    uint32_t *s1 = 0;
-    uint32_t *s2 = 0;
-    uintptr_t *s3 = 0;
-    uint32_t s4 = 0;
-    uint32_t s5 = 0;
-    uint32_t s6 = 0;
-    uint32_t s7 = 0;
-    uintptr_t *v0 = 0;
-    uint32_t v1 = 0;
+	uint32_t *ae = (uint32_t *)a0;
+	uint32_t *buf = (uint32_t *)(uintptr_t)get_apical_api_buffer();
+	uint32_t i, v, m, e, sum = 0;
 
-    /* fragment 0: Prologue */
-    /* function prologue: stack frame and callee-saved register setup */
-
-    /* fragment 1: CallSetup */
-    s0 = a0;
-    v0 = (uintptr_t *)((uintptr_t (*)(int32_t *))(uintptr_t)get_apical_api_buffer)(a0); /* jalr target resolved by relocation */
-
-    /* fragment 2: CallSetup */
-    s4 = v0;
-    s2 = 0;
-    s1 = 0;
-    s6 = 65536;
-    s7 = (uintptr_t)&APICAL_READ_32;
-    s5 = 256;
-
-ae_read_full_histogram_data0x50:
-    /* fragment 3: CallSetup */
-    s3 = (uintptr_t)s1 << 2;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)APICAL_READ_32)(((uintptr_t)s1 << 2) + s6); /* jalr target resolved by relocation */
-
-    /* fragment 4: Arithmetic */
-    a0 = (uintptr_t)v0 >> 12;
-    a0 = a0 & 15;
-
-    /* fragment 5: Branch */
-    v1 = (uintptr_t)v0 & 4095;
-    if (a0 == 0) { goto ae_read_full_histogram_data0x7c; }
-
-    /* fragment 6: Arithmetic */
-    v1 = v1 | 4096;
-    a0 = a0 - 1;
-    v1 = v1 << a0;
-
-ae_read_full_histogram_data0x7c:
-    /* fragment 7: Arithmetic */
-    s3 = (uintptr_t)s0 + (uintptr_t)s3;
-    s1 = s1 + 1;
-
-    /* fragment 8: MemoryAccess */
-    *(uint32_t *)((char *)s3 + 48) = v1;
-
-    /* fragment 9: Branch */
-    s2 = s2 + v1;
-    if (s1 != s5) { goto ae_read_full_histogram_data0x50; }
-
-    /* fragment 10: MemoryAccess */
-    v0 = *(uint8_t *)((char *)s0 + 1080);
-
-    /* fragment 11: Branch */
-    *(uint32_t *)((char *)s0 + 1072) = s2;
-    if (v0 == 0) { goto ae_read_full_histogram_data0xc8; }
-
-    /* fragment 12: MemoryAccess */
-    *(uint8_t *)((char *)s0 + 1080) = 0;
-    v1 = 0;
-    v0 = 1024;
-
-ae_read_full_histogram_data0xa8:
-    /* fragment 13: Arithmetic */
-    a0 = s0 + v1;
-
-    /* fragment 14: MemoryAccess */
-    a1 = *(uint32_t *)((char *)a0 + 48);
-    a0 = s4 + v1;
-    v1 = v1 + 4;
-
-    /* fragment 15: Branch */
-    *(uint32_t *)((char *)a0 + 0) = a1;
-    if (v1 != v0) { goto ae_read_full_histogram_data0xa8; }
-
-    /* fragment 16: Arithmetic */
-    v0 = (uintptr_t *)&apical_api_buffer_data_size;
-
-    /* fragment 17: MemoryAccess */
-    *(uint32_t *)((char *)((char *)&apical_api_buffer_data_size)) = v1;
-
-ae_read_full_histogram_data0xc8:
-    /* fragment 18: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    return (uint32_t)v0;
+	for (i = 0; i < 256; i++) {
+		v = (uint32_t)APICAL_READ_32(0x10000 + (i << 2));
+		e = (v >> 12) & 0xf;
+		m = v & 0xfff;
+		if (e)
+			m = (m | 0x1000) << (e - 1);
+		ae[0x30 / 4 + i] = m;
+		sum += m;
+	}
+	ae[0x430 / 4] = sum;
+	if (*(uint8_t *)(a0 + 0x438)) {
+		*(uint8_t *)(a0 + 0x438) = 0;
+		for (i = 0; i < 256; i++)
+			buf[i] = ae[0x30 / 4 + i];
+		apical_api_buffer_data_size = 1024;
+	}
+	return 0;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000031f6c origin=model_output original=AE_fsm_process_interrupt */
@@ -52592,569 +41107,223 @@ int32_t AE_fsm_process_interrupt(int32_t *arg1, char arg2)
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000031fc0 origin=model_output original=ae_calculate_exposure_ratio */
+/*
+ * OEM ae_calculate_exposure_ratio (ae_balanced_func.c.o 0x230).  arg = AE context: [0] ISP
+ * context (HDR mode byte +5412), +0x30..+0x42c 256-bin histogram, +0x430 total, +0x2c filter.
+ * Ratio = min(item 23 << 6, max(64, 0x7f80 / (2 * bin + 1))) where bin is the first bin from the
+ * top whose cumulative count exceeds total * table146[3] >> 8 (squared >> 6 in HDR modes 1/2);
+ * manual (item byte 2): item 22 << 3.  Smoothed over table146[4] frames, auto value -> item 22.
+ * (#283: the earlier lift read the HDR mode at AE ctx +0x1524 instead of ISP ctx +0x1524.)
+ */
 uint32_t ae_calculate_exposure_ratio(int32_t *arg1)
 {
-	uint32_t hdr_val;
-	uint32_t hdr_idx;
-	uint32_t *lut_ptr;
-	uint32_t flag;
-	uint32_t base_val;
-	uint32_t *result;
-	uint32_t result_1;
-	uint32_t val_430;
-	uint32_t val_12;
-	uint32_t idx;
-	uint32_t acc;
-	uint32_t val_42c;
-	uint32_t div_val;
-	uint32_t val_1524;
-	uint32_t val_10;
-	uint32_t val_2c;
-	uint32_t new_val;
-	uint32_t ret;
+	uintptr_t ctx = (uintptr_t)arg1[0];
+	uint32_t *lut = (uint32_t *)(uintptr_t)_GET_UINT_PTR(
+		_GET_HDR_TABLE_INDEX(0x92, *(uint8_t *)(ctx + 0x1524)));
+	uint8_t manual = stab[2];
+	uint32_t result = (uint32_t)stab[23] << 6;
+	uint32_t r;
 
-	hdr_val = *(uint8_t *)((char *)arg1 + 0x1524);
-	hdr_idx = _GET_HDR_TABLE_INDEX(0x92, hdr_val);
-	lut_ptr = (int32_t *)_GET_UINT_PTR(hdr_idx);
-	flag = *(uint8_t *)(((char *)&stab + 0x2));
-	base_val = *(uint8_t *)(((char *)&stab + 0x17));
-	result = base_val << 6;
+	if (!manual) {
+		uint64_t prod = (uint64_t)lut[3] * (uint32_t)arg1[0x430 / 4];
+		uint32_t thr = (uint32_t)(prod >> 32) << 24 | (uint32_t)prod >> 8;
+		uint32_t idx = 255;
+		uint32_t cum = (uint32_t)arg1[0x42c / 4];
 
-	if (flag == 0) {
-		val_430 = *(uint32_t *)((char *)arg1 + 0x430);
-		val_12 = *(uint32_t *)((char *)lut_ptr + 0xc);
-		idx = 0xff;
-		{
-			uint64_t prod = (uint64_t)val_12 * (uint64_t)val_430;
-			acc = (uint32_t)(prod >> 32) << 24 | (uint32_t)prod >> 8;
+		while (thr >= cum) {
+			idx--;
+			cum += (uint32_t)arg1[0x30 / 4 + idx];
 		}
-		val_42c = *(uint32_t *)((char *)arg1 + 0x42c);
-		while (acc >= val_42c) {
-			idx -= 1;
-			val_42c += *(uint32_t *)((char *)arg1 + (idx << 2) + 0x30);
-		}
-		div_val = (idx << 1) + 1;
-		result_1 = 0x7f80 / div_val;
-		val_1524 = *(uint8_t *)((char *)arg1 + 0x1524);
-		if (val_1524 - 1 < 2)
-			result_1 = (result_1 * result_1) >> 6;
+		r = 0x7f80 / (idx * 2 + 1);
+		if ((uint32_t)(*(uint8_t *)((uintptr_t)arg1[0] + 0x1524) - 1) < 2)
+			r = (r * r) >> 6;
 	} else {
-		result_1 = *(uint8_t *)(((char *)&stab + 0x16)) << 3;
+		r = (uint32_t)stab[22] << 3;
 	}
+	if (r < 0x40)
+		r = 0x40;
+	if (result >= r)
+		result = r;
+	if (lut[4]) {
+		uint32_t f = (uint32_t)arg1[0x2c / 4];
 
-	if (result_1 < 0x40)
-		result_1 = 0x40;
-
-	if (result >= result_1)
-		result = result_1;
-
-	val_10 = *(uint32_t *)((char *)lut_ptr + 0x10);
-	if (val_10 != 0) {
-		val_2c = *(uint32_t *)((char *)arg1 + 0x2c);
-		new_val = (val_2c - val_2c / val_10) + (uintptr_t)result;
-		*(uint32_t *)((char *)arg1 + 0x2c) = new_val;
-		result = new_val / val_10;
+		f = f - f / lut[4] + result;
+		arg1[0x2c / 4] = (int32_t)f;
+		result = f / lut[4];
 	}
-
-	if (flag == 0)
-		*(uint8_t *)(((char *)&stab + 0x16)) = (uint8_t)((uintptr_t)result >> 3);
-
+	if (!manual)
+		stab[22] = (uint8_t)(result >> 3);
 	return result;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000003210c origin=model_output original=ae_calculate_target */
+/*
+ * OEM ae_calculate_target (libt30-firmware ae_balanced_func.c.o 0x37c).  arg = AE context:
+ * [0] ISP context, +0x30..+0x42c 256-bin histogram, +0x430 total, +20 exposure (Q16 log2),
+ * +16 output step.  Mean: bins below 256 - table146[2] weigh (2i+1), the top bins also
+ * (table146[2] - 254 + i) / 2; HDR modes 1/2 use the squared weights and a square root.
+ * Step = log2(table146[1]) - log2(mean) + (item 53 - 128) << 11 + (offset(exposure) - 128) << 11,
+ * offset interpolated from HDR table 41 (u8) over table 206 (exposure points).
+ * (#283: the earlier lift indexed int32_t pointers in bytes, divided by 1 and left the
+ * non-HDR mean undivided.)  No defined return value in the OEM; the caller discards it.
+ */
 void *ae_calculate_target(int32_t *arg1)
 {
-	int32_t *ptr = *(int32_t **)arg1;
-	uint8_t idx = *(uint8_t *)((char *)ptr + 0x1524);
-	int32_t hdr_idx = _GET_HDR_TABLE_INDEX(0x92, idx);
-	int32_t lut_ptr = _GET_UINT_PTR(hdr_idx);
-	int32_t field_430 = *(int32_t *)((char *)arg1 + 0x430);
-	uint8_t stab_val = *(uint8_t *)(((char *)&stab + 0x35));
-	int32_t t4;
-	int32_t sum_lo;
-	int32_t sum_hi;
-	int32_t s5_val;
-	int32_t s1_val;
-	int32_t s4_shifted;
-	int32_t log_diff;
-	uint32_t exp2_val;
-	uint8_t *uchar_ptr;
-	int32_t *uint_ptr_arr;
-	int32_t len;
-	int32_t i;
-	int32_t *result;
-	int32_t v0 = 1;
-	int32_t v1 = 0;
-	int32_t count = 0;
-	int32_t limit;
-	int32_t t2 = 0;
-	uint64_t div_result = 0;
+	uintptr_t ctx = (uintptr_t)arg1[0];
+	uint8_t mode = *(uint8_t *)(ctx + 0x1524);
+	const uint32_t *lut = (const uint32_t *)(uintptr_t)_GET_UINT_PTR(
+		_GET_HDR_TABLE_INDEX(0x92, mode));
+	const uint32_t *hist = (const uint32_t *)&arg1[0x30 / 4];
+	uint32_t total = (uint32_t)arg1[0x430 / 4];
+	uint8_t comp = stab[53];
+	uint32_t split, i, t2, w, mean, exposure, len;
+	const uint32_t *pts;
+	const uint8_t *offs;
+	uint64_t sum = 0;
+	int32_t step;
+	uint8_t off;
 
-	if (field_430 != 0) {
+	if (!total)
+		return NULL;
+	split = 256 - lut[2];
+	if ((uint32_t)(mode - 1) < 2) {
+		for (i = 0; i < split; i++) {
+			uint64_t odd = 2 * (uint64_t)i + 1;
 
-	t4 = *(int32_t *)(lut_ptr + 8);
-	sum_lo = 0;
-	sum_hi = 0;
-
-	if ((uint32_t)(idx - 1) < 2) {
-		v0 = 1;
-		v1 = 0;
-		count = 0;
-		limit = 0x100 - t4;
-
-		while (count < limit) {
-			uint64_t sq = (uint64_t)(uintptr_t)v0 * (uint64_t)(uintptr_t)v0;
-			int32_t lo_sq = (int32_t)sq;
-			int32_t hi_sq = (int32_t)(sq >> 32);
-			int32_t cross = v1 * (uintptr_t)v0;
-			int32_t cross_shifted = (cross << 1) + hi_sq;
-			int32_t coeff = *(int32_t *)(arg1 + ((uintptr_t)v0 << 1) + 0x2e);
-			uint64_t prod = (uint64_t)lo_sq * (uint64_t)coeff;
-			int32_t lo_prod = (int32_t)prod;
-			int32_t hi_prod = (int32_t)(prod >> 32);
-			int32_t new_lo = sum_lo + lo_prod;
-			int32_t carry = (uint32_t)new_lo < (uint32_t)sum_lo ? 1 : 0;
-			int32_t cross_mul = coeff * cross_shifted;
-			int32_t new_hi = sum_hi + carry + cross_mul + hi_prod;
-			sum_lo = new_lo;
-			sum_hi = new_hi;
-			int32_t next_v0 = v0 + 2;
-			int32_t v0_carry = (uint32_t)next_v0 < (uint32_t)v0 ? 1 : 0;
-			v1 = v1 + v0_carry;
-			v0 = next_v0;
-			count++;
+			sum += odd * odd * hist[i];
 		}
+		for (i = split, t2 = split << 1; i < 256; i++, t2 += 2) {
+			uint64_t odd = (uint64_t)t2 + 1;
 
-		t2 = limit << 1;
-		for (i = limit; i < 0x100; i++) {
-			int32_t t2_plus1 = t2 + 1;
-			uint64_t sq2 = (uint64_t)t2_plus1 * (uint64_t)t2_plus1;
-			int32_t lo_sq2 = (int32_t)sq2;
-			int32_t hi_sq2 = (int32_t)(sq2 >> 32);
-			int32_t t2_carry = (uint32_t)t2_plus1 < (uint32_t)t2 ? 1 : 0;
-			int32_t v1_2 = (t2_carry * t2_plus1) << 1;
-			int32_t *v1_3 = v1_2 + hi_sq2;
-			int32_t coeff2 = *(int32_t *)(arg1 + (uintptr_t)i + 0xc);
-			t2 += 2;
-			uint64_t prod2 = (uint64_t)lo_sq2 * (uint64_t)coeff2;
-			int32_t lo_prod2 = (int32_t)prod2;
-			int32_t hi_prod2 = (int32_t)(prod2 >> 32);
-			uint32_t t3 = (uint32_t)(t4 - 0xfe + (uintptr_t)i) >> 1;
-			uint64_t prod3 = (uint64_t)lo_prod2 * (uint64_t)t3;
-			int32_t lo_prod3 = (int32_t)prod3;
-			int32_t hi_prod3 = (int32_t)(prod3 >> 32);
-			int32_t cross2 = coeff2 * (uintptr_t)v1_3;
-			int32_t new_lo = sum_lo + lo_prod3;
-			int32_t carry2 = (uint32_t)new_lo < (uint32_t)sum_lo ? 1 : 0;
-			int32_t cross3 = t3 * (cross2 + hi_prod2);
-			int32_t new_hi = sum_hi + carry2 + cross3 + hi_prod3;
-			sum_lo = new_lo;
-			sum_hi = new_hi;
+			w = (lut[2] - 254 + i) >> 1;
+			sum += odd * odd * hist[i] * w;
 		}
-
-		div_result = div64_u64((uint64_t)sum_hi << 32 | (uint32_t)sum_lo, 1);
-		s5_val = sqrt32((int32_t)(div_result >> 1));
+		mean = ((uint32_t)sqrt32((int32_t)(uint32_t)div64_u64(sum, total)) >> 1) & 0xffff;
 	} else {
-
-		while (count < limit) {
-			int32_t coeff = *(int32_t *)(arg1 + ((uintptr_t)v0 << 1) + 0x2e);
-			uint64_t prod = (uint64_t)coeff * (uint64_t)(uintptr_t)v0;
-			int32_t lo_prod = (int32_t)prod;
-			int32_t hi_prod = (int32_t)(prod >> 32);
-			int32_t new_lo = sum_lo + lo_prod;
-			int32_t carry = (uint32_t)new_lo < (uint32_t)sum_lo ? 1 : 0;
-			int32_t cross = coeff * v1;
-			int32_t new_hi = sum_hi + carry + cross + hi_prod;
-			sum_lo = new_lo;
-			sum_hi = new_hi;
-			int32_t next_v0 = v0 + 2;
-			int32_t v0_carry = (uint32_t)next_v0 < (uint32_t)v0 ? 1 : 0;
-			v1 = v1 + v0_carry;
-			v0 = next_v0;
-			count++;
+		for (i = 0; i < split; i++)
+			sum += (uint64_t)hist[i] * (2 * (uint64_t)i + 1);
+		for (i = split, t2 = split << 1; i < 256; i++, t2 += 2) {
+			w = (lut[2] - 254 + i) >> 1;
+			sum += (uint64_t)hist[i] * ((uint64_t)t2 + 1) * w;
 		}
-
-		for (i = limit; i < 0x100; i++) {
-			int32_t coeff = *(int32_t *)(arg1 + (uintptr_t)i + 0xc);
-			int32_t t2_plus1 = t2 + 1;
-			uint64_t prod = (uint64_t)coeff * (uint64_t)t2_plus1;
-			int32_t lo_prod = (int32_t)prod;
-			int32_t hi_prod = (int32_t)(prod >> 32);
-			int32_t t2_carry = (uint32_t)t2_plus1 < (uint32_t)t2 ? 1 : 0;
-			int32_t cross = t2_carry * coeff;
-			int32_t v1_2 = cross + hi_prod;
-			t2 += 2;
-			uint32_t t3 = (uint32_t)(t4 - 0xfe + (uintptr_t)i) >> 1;
-			uint64_t prod2 = (uint64_t)lo_prod * (uint64_t)t3;
-			int32_t lo_prod2 = (int32_t)prod2;
-			int32_t hi_prod2 = (int32_t)(prod2 >> 32);
-			int32_t cross2 = t3 * v1_2;
-			int32_t new_lo = sum_lo + lo_prod2;
-			int32_t carry2 = (uint32_t)new_lo < (uint32_t)sum_lo ? 1 : 0;
-			int32_t new_hi = sum_hi + carry2 + cross2 + hi_prod2;
-			sum_lo = new_lo;
-			sum_hi = new_hi;
-		}
-
-		s5_val = (int32_t)div_result;
+		mean = (uint32_t)div64_u64(sum, (uint32_t)(total << 1));
 	}
-
-	log_diff = log2_fixed_to_fixed(*(uint32_t *)(lut_ptr + 4), 0, 0x10) - log2_fixed_to_fixed((uint32_t)s5_val, 0, 0x10);
-	exp2_val = math_exp2(*(int32_t *)(arg1 + 5), 0x10, 6);
-	uchar_ptr = (uint8_t *)_GET_UCHAR_PTR(_GET_HDR_TABLE_INDEX(0x29, idx));
-	uint_ptr_arr = (int32_t *)_GET_UINT_PTR(0xce);
-	len = _GET_LEN(0xce);
-
-	if ((uint32_t)uint_ptr_arr[0] < exp2_val) {
-		int32_t *s2 = 1;
-		int32_t found = 0;
-
-		while (s2 < len) {
-			int32_t offset = (uintptr_t)s2 << 2;
-			if (exp2_val < (uint32_t)uint_ptr_arr[offset / 4]) {
-				int32_t prev_val = uint_ptr_arr[((uintptr_t)s2 - 1) << 2 / 4];
-				int32_t cur_val = uint_ptr_arr[offset / 4];
-				s1_val = uchar_ptr[(uintptr_t)s2 - 1];
-				if (cur_val != prev_val) {
-					int32_t diff = cur_val - prev_val;
-					int32_t num = (uchar_ptr[(uintptr_t)s2] - s1_val) * (exp2_val - prev_val);
-					s1_val = (uint8_t)(num / diff + s1_val);
-				}
-				found = 1;
+	step = log2_fixed_to_fixed(lut[1], 0, 16) - log2_fixed_to_fixed(mean, 0, 16) +
+	       ((int32_t)comp - 128) * 2048;
+	exposure = math_exp2(arg1[5], 16, 6);
+	offs = (const uint8_t *)(uintptr_t)_GET_UCHAR_PTR(_GET_HDR_TABLE_INDEX(41, mode));
+	pts = (const uint32_t *)(uintptr_t)_GET_UINT_PTR(206);
+	if (pts[0] >= exposure) {
+		off = offs[0];
+	} else {
+		len = (uint32_t)_GET_LEN(206);
+		if (exposure >= pts[len - 1]) {
+			off = offs[len - 1];
+		} else {
+			off = 0;
+			for (i = 1; i < (uint32_t)_GET_LEN(206); i++) {
+				if (exposure >= pts[i])
+					continue;
+				off = offs[i - 1];
+				if (pts[i] != pts[i - 1])
+					off = (uint8_t)((int32_t)((offs[i] - offs[i - 1]) *
+							(int32_t)(exposure - pts[i - 1])) /
+							(int32_t)(pts[i] - pts[i - 1]) + offs[i - 1]);
 				break;
 			}
-			s2++;
 		}
-
-		if (!found) {
-			s1_val = uchar_ptr[len - 1];
-		}
-	} else {
-		s1_val = uchar_ptr[0];
 	}
-
-	}
-
-	s4_shifted = (stab_val - 0x80) << 0xb;
-	int32_t s1_shifted = (s1_val - 0x80) << 0xb;
-	*(int32_t *)(arg1 + 4) = log_diff + s4_shifted + s1_shifted;
-
-	/* #202 symval: the OEM function has no defined return value (SDK ko 0x31cc8: jr ra with a leftover v0); the lift turned that register into
-	 * &isp_kfifo_in + 0x8dc. The only caller (AE_fsm_switch_state) discards it. */
+	arg1[4] = step + ((int32_t)off - 128) * 2048;
 	return NULL;
 }
 
-/* WHOLE_DRIVER_CANDIDATE fn_00000000000325b0 origin=model_output original=set_integrator_ae */
-int32_t set_integrator_ae(void *arg1, int32_t arg2, int32_t arg3, int32_t arg4)
+/* WHOLE_DRIVER_CANDIDATE fn_00000000000325bc origin=fragment_seed original=ae_calculate_exposure */
+/*
+ * OEM ae_calculate_exposure (libt30-firmware ae_balanced_func.c.o 0x82c, 145 insns; the OEM ko
+ * has the same body).  arg = AE context: [0] ISP context, +16 exposure step (Q16 log2, signed),
+ * +20 exposure (Q16 log2), +24/28 s64 accumulator, +32/36 s64 pending value, +40 ratio.
+ * Manual exposure (system item byte 1): the exposure is item 16 (Q6 lines).  Automatic: the
+ * accumulator follows the step, limited to k * (log2 frame-sync + ctx+100 + ctx+104 + ctx+740),
+ * k = HDR table 146 word 0; exposure = (step + accumulator) / k, published into item 16.
+ * (#283: the earlier lift used uninitialised registers and a wrong div64_s64 call.)
+ */
+int32_t ae_calculate_exposure(uintptr_t a0)
 {
-	*(int32_t *)((uintptr_t)arg1 + 0x20) = arg3;
-	*(int32_t *)((uintptr_t)arg1 + 0x24) = arg4;
+	int32_t *ae = (int32_t *)a0;
+	uintptr_t ctx = (uintptr_t)ae[0];
+	int32_t exposure, ratio;
+
+	if (stab[1]) {
+		exposure = log2_fixed_to_fixed(T30_STAB32(16), 6, 16);
+		if (exposure < 0)
+			exposure = 0;
+	} else {
+		int32_t k = *(int32_t *)(uintptr_t)_GET_UINT_PTR(
+			_GET_HDR_TABLE_INDEX(146, *(uint8_t *)(ctx + 5412)));
+		uint32_t sum = (uint32_t)*(int32_t *)(ctx + 100) + (uint32_t)*(int32_t *)(ctx + 104) +
+			       (uint32_t)*(int32_t *)(ctx + 740);
+		int64_t *acc = (int64_t *)&ae[6];
+		int64_t *pending = (int64_t *)&ae[8];
+
+		sum += (uint32_t)log2_fixed_to_fixed((uint32_t)APICAL_READ_32(0x40114) >> 16, 0, 16);
+		if (*pending) {
+			*acc = *pending;
+			*pending = 0;
+		} else {
+			/* multu k,sum + (k >> 31) * sum: s64 k times the unsigned 32-bit sum */
+			int64_t limit = (int64_t)((uint64_t)(int64_t)k * (uint64_t)sum);
+			int64_t cand = *acc + (int64_t)ae[4];
+
+			*acc = cand > limit ? limit : cand;
+		}
+		if (*acc < 0)
+			*acc = 0;
+		exposure = (int32_t)div64_s64((int64_t)ae[4] + *acc, (int64_t)k);
+		if (exposure < 0)
+			exposure = 0;
+		T30_STAB32(16) = math_exp2(exposure, 16, 6);
+	}
+	ae[5] = exposure;
+	ratio = (int32_t)ae_calculate_exposure_ratio(ae);
+	ae[10] = ratio;
+	cmos_set_exposure_target((int32_t *)(ctx + 256), exposure, ratio);
 	return 0;
 }
 
-/* WHOLE_DRIVER_CANDIDATE fn_00000000000325bc origin=fragment_seed original=ae_calculate_exposure */
-int32_t ae_calculate_exposure(uintptr_t a0)
-{
-    uint32_t *local_10 = 0;
-    uint32_t local_14 = 0;
-    uint32_t *local_18 = 0;
-    uint32_t local_1c = 0;
-    uint32_t local_20 = 0;
-    uint32_t local_24 = 0;
-    uint32_t local_28 = 0;
-    uint32_t local_2c = 0;
-    uint32_t local_30 = 0;
-    uint32_t local_34 = 0;
-    uint32_t *a1 = 0;
-    uint32_t a2 = 0;
-    uint32_t *a3 = 0;
-    uint32_t ra = 0;
-    uintptr_t *s0 = 0;
-    uintptr_t *s1 = 0;
-    uint32_t *s2 = 0;
-    uint32_t *s3 = 0;
-    uintptr_t s4 = 0;
-    uint32_t s5 = 0;
-    uint32_t s6 = 0;
-    uint32_t s7 = 0;
-    uint32_t s8 = 0;
-    uint32_t t0 = 0;
-    uint32_t t1 = 0;
-    uint32_t t9 = 0;
-    uintptr_t *v0 = 0;
-    uint32_t v1 = 0;
-
-    /* fragment 0: Prologue */
-    /* function prologue: stack frame and callee-saved register setup */
-
-    /* fragment 1: Arithmetic */
-    s4 = (uintptr_t)&stab;
-
-    /* fragment 2: StackAccess */
-    local_28 = s6;
-    local_1c = s3;
-    local_14 = s1;
-    local_10 = s0;
-    local_34 = ra;
-    local_30 = s8;
-    local_2c = s7;
-    local_24 = s5;
-    local_18 = s2;
-    v0 = s4;
-    s1 = *(uint32_t *)((char *)a0 + 0);
-    v1 = *(uint8_t *)((char *)v0 + 1);
-    s0 = a0;
-    s3 = s1 + 256;
-
-    /* fragment 3: Branch */
-    s6 = (uintptr_t)&log2_fixed_to_fixed;
-    if (v1 == 0) { goto ae_calculate_exposure0x70; }
-
-    /* fragment 4: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)log2_fixed_to_fixed)(*(uint32_t *)((char *)(v0) + 16), 6, 16); /* jalr target resolved by relocation */
-
-    /* fragment 5: Arithmetic */
-    s1 = v0 < 0;
-    if (s1 != 0) { v0 = 0; }
-
-    /* fragment 6: Branch */
-    s1 = v0;
-    goto ae_calculate_exposure0x1e8;
-
-ae_calculate_exposure0x70:
-    /* fragment 7: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)_GET_HDR_TABLE_INDEX)(146, *(uint8_t *)((char *)(s1) + 5412)); /* jalr target resolved by relocation */
-
-    /* fragment 8: CallSetup */
-    s6 = (uintptr_t)&log2_fixed_to_fixed;
-    v0 = (uintptr_t *)((uintptr_t (*)(int32_t *))(uintptr_t)_GET_UINT_PTR)(v0); /* jalr target resolved by relocation */
-
-    /* fragment 9: CallSetup */
-    s2 = *(uint32_t *)((char *)(v0) + 0);
-    s8 = *(uint32_t *)((char *)(s1) + 100);
-    s7 = *(uint32_t *)((char *)(s1) + 104);
-    s1 = *(uint32_t *)((char *)(s1) + 740);
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)APICAL_READ_32)(262144 + 276); /* jalr target resolved by relocation */
-
-    /* fragment 10: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)log2_fixed_to_fixed)((uintptr_t)v0 >> 16, 0, 16); /* jalr target resolved by relocation */
-
-    /* fragment 11: MemoryAccess */
-    a0 = *(uint32_t *)((char *)s0 + 32);
-    v1 = *(uint32_t *)((char *)s0 + 36);
-    a1 = a0 | v1;
-
-    /* fragment 12: Branch */
-    s5 = (int32_t)s2 >> 31;
-    if (a1 == 0) { goto ae_calculate_exposure0xfc; }
-
-    /* fragment 13: MemoryAccess */
-    *(uint32_t *)((char *)s0 + 28) = v1;
-    v0 = 0;
-    v1 = 0;
-    *(uint32_t *)((char *)s0 + 24) = a0;
-    *(uint32_t *)((char *)s0 + 32) = v0;
-
-    /* fragment 14: Branch */
-    *(uint32_t *)((char *)s0 + 36) = v1;
-    goto ae_calculate_exposure0x170;
-
-ae_calculate_exposure0xfc:
-    /* fragment 15: Arithmetic */
-    s7 = s8 + s7;
-    s1 = s7 + (uintptr_t)s1;
-    v0 = (uintptr_t)(uintptr_t)v0 + (uintptr_t)s1;
-
-    /* fragment 16: MemoryAccess */
-    a1 = *(uint32_t *)((char *)s0 + 16);
-    v1 = s5 * (uintptr_t)v0;
-    a0 = *(uint32_t *)((char *)s0 + 24);
-    v0 = v1 + t1;
-    v1 = *(uint32_t *)((char *)s0 + 28);
-    a2 = (int32_t)a1 >> 31;
-    a0 = a1 + a0;
-    a1 = a0 < a1;
-    v1 = a2 + v1;
-    v1 = a1 + v1;
-    a1 = v0 < v1;
-
-    /* fragment 17: Branch */
-    t1 = v0;
-    if (a1 != 0) { goto ae_calculate_exposure0x168; }
-
-    /* fragment 18: Unknown */
-    /* unmatched fragment 18 (Unknown): no deterministic matcher for Unknown */
-    /* asm: 32704:	54620005 	bnel	v1,v0,3271c <ae_calculate_exposure+0x160> */
-
-    /* fragment 19: MemoryAccess */
-    *(uint32_t *)((char *)s0 + 24) = a0;
-    v0 = t0 < a0;
-
-    /* fragment 20: Unknown */
-    /* unmatched fragment 20 (Unknown): no deterministic matcher for Unknown */
-    /* asm: 32710:	54400005 	bnezl	v0,32728 <ae_calculate_exposure+0x16c> */
-
-    /* fragment 21: MemoryAccess */
-    *(uint32_t *)((char *)s0 + 24) = t0;
-    *(uint32_t *)((char *)s0 + 24) = a0;
-
-    /* fragment 22: Branch */
-    *(uint32_t *)((char *)s0 + 28) = v1;
-    goto ae_calculate_exposure0x170;
-
-ae_calculate_exposure0x168:
-    /* fragment 23: MemoryAccess */
-    *(uint32_t *)((char *)s0 + 24) = t0;
-    *(uint32_t *)((char *)s0 + 28) = t1;
-
-ae_calculate_exposure0x170:
-    /* fragment 24: MemoryAccess */
-    v0 = *(uint32_t *)((char *)s0 + 28);
-
-    /* fragment 25: Branch */
-    int _bc_v0_25 = v0 >= 0;
-    v0 = 0;
-    if (_bc_v0_25) { goto ae_calculate_exposure0x188; }
-
-    /* fragment 26: CallSetup */
-    v1 = 0;
-    *(uint32_t *)((char *)s0 + 24) = v0;
-    *(uint32_t *)((char *)s0 + 28) = v1;
-
-ae_calculate_exposure0x188:
-    /* fragment 27: CallSetup */
-    v0 = (uintptr_t)div64_s64((*(uint32_t *)((char *)((uintptr_t)s0) + 16)) + (*(uint32_t *)((char *)((uintptr_t)s0) + 24)), (*(uint32_t *)((char *)((uintptr_t)s0) + 16)) + (*(uint32_t *)((char *)((uintptr_t)s0) + 24)) < (*(uint32_t *)((char *)((uintptr_t)s0) + 16)) + ((*(uint32_t *)((char *)((uintptr_t)s0) + 16)) >> 31) + (*(uint32_t *)((char *)((uintptr_t)s0) + 28))); /* jalr target resolved by relocation */
-
-    /* fragment 28: CallSetup */
-    s1 = v0 < 0;
-    s1 = v0;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(int32_t *)math_exp2)(v0, 16, 6); /* jalr target resolved by relocation */
-
-    /* fragment 29: CallSetup */
-    s4 = s4;
-    *(uint32_t *)((char *)s4 + 16) = v0;
-
-ae_calculate_exposure0x1e8:
-    /* fragment 30: CallSetup */
-    *(uint32_t *)((char *)s0 + 20) = s1;
-    v0 = (uintptr_t *)((uintptr_t (*)(int32_t *))(uintptr_t)ae_calculate_exposure_ratio)(s0); /* jalr target resolved by relocation */
-
-    /* fragment 31: MemoryAccess */
-    *(uint32_t *)((char *)s0 + 40) = v0;
-    ra = local_34;
-    s8 = local_30;
-    s7 = local_2c;
-    s6 = local_28;
-    s5 = local_24;
-    s4 = local_20;
-    s2 = local_18;
-    s0 = local_10;
-    a0 = s3;
-    a1 = s1;
-    s3 = local_1c;
-    s1 = local_14;
-    t9 = (uintptr_t)&cmos_set_exposure_target;
-    a2 = v0;
-    t9 = t9;
-
-    /* fragment 32: IndirectTailCall */
-    return ((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))cmos_set_exposure_target)((uintptr_t)(a0), (uintptr_t)(a1), (uintptr_t)(a2), (uintptr_t)(a3));
-
-    return 0;
-}
-
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000032800 origin=model_output original=ae_exposure_correction */
+/*
+ * OEM ae_exposure_correction (ae_balanced_func.c, SDK ko 0x31f20): the AE accumulator (+24/+28,
+ * s64) grows by arg2 * k (32-bit product, k = HDR table 146 word 0), the carry out of the low
+ * word unsigned.  (#338: the lift compared signed and stored through void ** slots.)
+ */
 int32_t ae_exposure_correction(int32_t *arg1, int32_t arg2)
 {
-	int32_t *hdr = *(int32_t **)arg1;
-	uint8_t idx = *(uint8_t *)((uintptr_t)hdr + 0x1524);
-	int32_t table_idx = _GET_HDR_TABLE_INDEX(0x92, idx);
-	int32_t *val_ptr = _GET_UINT_PTR(table_idx);
-	int32_t val = *val_ptr;
-	int32_t old = arg1[6];
-	int32_t new_val = arg2 * val + old;
-	int32_t carry = (new_val < old) ? 1 : 0;
-	int32_t result = carry + arg1[7];
-	((void **)arg1)[6] = new_val;
-	((void **)arg1)[7] = result;
-	return result;
+	uintptr_t mgr = (uintptr_t)(uint32_t)arg1[0];
+	uint32_t k = *(uint32_t *)(uintptr_t)_GET_UINT_PTR(
+		_GET_HDR_TABLE_INDEX(0x92, *(uint8_t *)(mgr + 0x1524)));
+	uint32_t old = (uint32_t)arg1[6];
+	uint32_t new_val = (uint32_t)arg2 * k + old;
+
+	arg1[6] = (int32_t)new_val;
+	arg1[7] = (int32_t)((uint32_t)arg1[7] + (new_val < old));
+	return arg1[7];
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000032880 origin=model_output original=luts_fetch */
 uint32_t luts_fetch(uint32_t arg1, uint32_t arg2, uint32_t arg3, uint32_t arg4, uint16_t *arg5, uint16_t arg6)
 {
-    uint32_t offset;
-
+    /*
+     * OEM luts_fetch (SDK ko 0x31fa0): step 0 -> x; x < lo -> lut[0];
+     * hi < x -> lut[len - 1]; else lut[(x - lo) / step] (signed div).  The
+     * lift scaled the index twice (byte offset added to a u16 pointer).
+     */
     if (arg4 == 0)
         return arg1;
-
     if (arg1 < arg2)
-        return (uint32_t)*arg5;
-
-    if (arg3 >= arg1) {
-        offset = ((arg1 - arg2) / arg4) << 1;
-    } else {
-        offset = ((uint32_t)arg6 - 1) << 1;
-    }
-
-    return (uint32_t)*(arg5 + offset);
-}
-
-/* WHOLE_DRIVER_CANDIDATE fn_00000000000328dc origin=model_output original=fifo_push */
-uint32_t fifo_push(uint32_t arg1, uint32_t arg2)
-{
-	uint32_t *s0 = arg1 & 0xffff;
-	uint32_t *s1 = arg2 & 0xffff;
-	uint32_t count = *(uint8_t *)_GET_UCHAR_PTR(262);
-
-	if (count == 0) {
-		fifo_rg_avg = s0;
-		fifo_gb_avg = s1;
-		return count;
-	}
-
-	if (fifo_rg_avg != 0 || fifo_gb_avg != 0) {
-		uint32_t rg_new = (uintptr_t)s0 + fifo_rg_avg - (fifo_rg_avg / count);
-		uint32_t gb_new = (uintptr_t)s1 + fifo_gb_avg - (fifo_gb_avg / count);
-		fifo_rg_avg = rg_new;
-		fifo_gb_avg = gb_new;
-	} else {
-		fifo_rg_avg = count * (uintptr_t)s0;
-		fifo_gb_avg = count * (uintptr_t)s1;
-	}
-
-	return count;
-}
-
-/* WHOLE_DRIVER_CANDIDATE fn_000000000003298c origin=model_output original=get_point */
-uint16_t *get_point(uint16_t *arg1)
-{
-    uint32_t rg_avg_value;
-    uint32_t gb_avg_value;
-    uint32_t divisor;
-    uint16_t rg_out;
-    uint16_t gb_out;
-    uint32_t *lut_ptr;
-
-    lut_ptr = (uint32_t *)_GET_UCHAR_PTR(262);
-    divisor = *(uint8_t *)lut_ptr;
-
-    if (divisor == 0) {
-        rg_out = *(uint16_t *)((char *)&rg_avg_value);
-        gb_out = *(uint16_t *)((char *)&gb_avg_value);
-    } else {
-        rg_avg_value = rg_avg;
-        gb_avg_value = gb_avg;
-        rg_out = (uint16_t)(rg_avg_value / divisor);
-        gb_out = (uint16_t)(gb_avg_value / divisor);
-    }
-
-    ((void **)arg1)[0] = rg_out;
-    ((void **)arg1)[1] = gb_out;
-    *(uint32_t *)(arg1 + 2) = 0;
-
-    return arg1;
+        return arg5[0];
+    if (arg3 < arg1)
+        return arg5[(uint32_t)arg6 - 1];
+    return arg5[(int32_t)(arg1 - arg2) / (int32_t)arg4];
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000032a10 origin=model_output original=interpl */
@@ -53168,69 +41337,62 @@ int32_t interpl(int32_t x0, int32_t x1, int32_t y0, int32_t x1_end, int32_t y1)
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000032a4c origin=model_output original=init_interp_2d_point */
 int16_t *init_interp_2d_point(int16_t *arg1, int32_t arg2, int32_t arg3, void *arg4, int16_t *arg5, int16_t *arg6)
 {
-	int32_t len = _GET_LEN(226);
-	int32_t x, y;
+	/*
+	 * OEM init_interp_2d_point (SDK ko 0x3216c).  The point is
+	 * { u16 x; u16 y; s32 value } (8 bytes).  Index class per axis:
+	 * len < idx (unsigned, so also idx < 0) -> 2 (last entry + 20),
+	 * else 1 (table entry; idx == len reads one past, as the OEM);
+	 * class 0 (first entry - 20) needs idx < 0 and idx <= len unsigned,
+	 * which never happens, kept for the OEM shape.  The lift wrote three
+	 * 32-bit words into the 6-byte point and indexed with the class.
+	 */
+	uint32_t len = (uint32_t)_GET_LEN(226);
+	uint32_t xi = (uint32_t)arg2, yi = (uint32_t)arg3;
+	uint32_t cx = len < xi ? 2 : (~xi >> 31);
+	uint32_t cy = len < yi ? 2 : (~yi >> 31);
 	int16_t sx, sy;
-	int32_t idx;
 
-	if ((uint32_t)len < (uint32_t)arg2) {
-		x = 0;
+	if (cx == 0) {
+		xi = 0;
+		sx = arg5[0] - 20;
+	} else if (cx == 2) {
+		xi = len - 1;
+		sx = arg5[xi] + 20;
 	} else {
-		x = (int32_t)((~(uint32_t)arg2) >> 31);
+		sx = arg5[xi];
 	}
-	x += 2;
-
-	if ((uint32_t)len < (uint32_t)arg3) {
-		y = 0;
+	if (cy == 0) {
+		yi = 0;
+		sy = arg6[0] - 20;
+	} else if (cy == 2) {
+		yi = len - 1;
+		sy = arg6[yi] + 20;
 	} else {
-		y = (int32_t)((~(uint32_t)arg3) >> 31);
+		sy = arg6[yi];
 	}
-	y += 2;
-
-	if (x == 0) {
-		x = 0;
-		sx = (int16_t)((int32_t)*arg5 - 20);
-	} else if (x != 2) {
-		sx = (int16_t)((int32_t)arg5[x] );
-	} else {
-		x = len - 1;
-		sx = (int16_t)((int32_t)arg5[x] + 20);
-	}
-
-	if (y == 0) {
-		y = 0;
-		sy = (int16_t)((int32_t)*arg6 - 20);
-	} else if (y != 2) {
-		sy = (int16_t)((int32_t)arg6[y]);
-	} else {
-		y = len - 1;
-		sy = (int16_t)((int32_t)arg6[y] + 20);
-	}
-
-	idx = (y * len + x) << 1;
-	((void **)arg1)[2] = (int32_t)*(int16_t *)((char *)arg4 + idx);
-	((void **)arg1)[0] = sx;
-	((void **)arg1)[1] = sy;
+	*(int32_t *)(arg1 + 2) = *(int16_t *)((char *)arg4 + (yi * len + xi) * 2);
+	arg1[0] = sx;
+	arg1[1] = sy;
 	return arg1;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000032bac origin=model_output original=get_index */
 int32_t get_index(int32_t arg1, void *arg2)
 {
-	int32_t len = _GET_LEN(226);
-	int32_t *i = 1;
+	/*
+	 * OEM get_index (SDK ko 0x32bac): first i >= 1 with arg1 < axis[i]
+	 * (signed lh), minus one; len - 2 when none (unsigned loop over
+	 * _GET_LEN(226)).  The lift counted with an int32_t pointer, so i
+	 * stepped 1, 5, 9, ... and skipped three of four axis entries.
+	 */
+	uint32_t len = (uint32_t)_GET_LEN(226);
 	int16_t *p = (int16_t *)arg2;
+	uint32_t i;
 
-	while (i < len) {
-		if (arg1 < p[(uintptr_t)i])
-			break;
-		i++;
-	}
-
-	if (i >= len)
-		return len - 2;
-
-	return i - 1;
+	for (i = 1; i < len; i++)
+		if (arg1 < p[i])
+			return i - 1;
+	return len - 2;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000032c1c origin=model_output original=AWB_mesh.isra.1 */
@@ -53239,89 +41401,85 @@ int32_t AWB_mesh_isra_1(uint32_t arg1, uint32_t arg2, int16_t *arg3, int16_t *ar
 #endif
 int32_t AWB_mesh_isra_1(uint32_t arg1, uint32_t arg2, int16_t *arg3, int16_t *arg4, void *arg5)
 {
-	int32_t idx_x = get_index((int32_t)arg1, arg3);
-	int32_t idx_y = get_index((int32_t)arg2, arg4);
-	int16_t pt00[3];
-	int16_t pt10[3];
-	int16_t pt01[3];
-	int16_t pt11[3];
-	uint32_t x = arg1;
-	uint32_t y = arg2;
-	int32_t lut_x;
-	int32_t lut_y;
-	int32_t len_x;
-	int32_t len_y;
-	int32_t mid_x;
-	int32_t mid_y;
-	int32_t inner_x;
-	int32_t inner_y;
+	/*
+	 * OEM AWB_mesh.isra.1 (SDK ko 0x3233c): bilinear lookup of the mesh
+	 * arg5 at (x, y) on the axes arg3/arg4.  x/y clamp to the first/last
+	 * entry of calibration tables 226/251; interpolate along x in the rows
+	 * idx_y and idx_y + 1, then along y.  Points are {u16 x; u16 y; s32 v}
+	 * (lhu x/y, lw v).  The lift kept 6-byte points (init writes 8) and
+	 * interpolated a third time along x.
+	 */
+	int32_t ix = get_index((int32_t)arg1, arg3);
+	int32_t iy = get_index((int32_t)arg2, arg4);
+	int16_t p00[4], p10[4], p01[4], p11[4];
+	uint16_t *t;
+	int32_t r0, r1;
+	uint32_t y0, y1;
 
-	init_interp_2d_point(pt00, idx_x, idx_y, arg5, arg3, arg4);
-	init_interp_2d_point(pt10, idx_x + 1, idx_y, arg5, arg3, arg4);
-	init_interp_2d_point(pt01, idx_x, idx_y + 1, arg5, arg3, arg4);
-	init_interp_2d_point(pt11, idx_x + 1, idx_y + 1, arg5, arg3, arg4);
+	init_interp_2d_point(p00, ix, iy, arg5, arg3, arg4);
+	init_interp_2d_point(p10, ix + 1, iy, arg5, arg3, arg4);
+	init_interp_2d_point(p01, ix, iy + 1, arg5, arg3, arg4);
+	init_interp_2d_point(p11, ix + 1, iy + 1, arg5, arg3, arg4);
 
-	lut_x = _GET_USHORT_PTR(226);
-	if (x < (uint32_t)(uint16_t)*(uint16_t *)lut_x)
-		x = (uint32_t)(uint16_t)*(uint16_t *)lut_x;
+	t = (uint16_t *)(uintptr_t)_GET_USHORT_PTR(226);
+	if (arg1 < t[0])
+		arg1 = t[0];
+	t = (uint16_t *)(uintptr_t)_GET_USHORT_PTR(226);
+	if (arg1 >= t[_GET_LEN(226) - 1])
+		arg1 = t[_GET_LEN(226) - 1];
+	t = (uint16_t *)(uintptr_t)_GET_USHORT_PTR(251);
+	if (arg2 < t[0])
+		arg2 = t[0];
+	t = (uint16_t *)(uintptr_t)_GET_USHORT_PTR(251);
+	if (arg2 >= t[_GET_LEN(251) - 1])
+		arg2 = t[_GET_LEN(251) - 1];
 
-	len_x = _GET_LEN(226);
-	lut_x = _GET_USHORT_PTR(226);
-	if (x >= (uint32_t)(uint16_t)*(uint16_t *)(lut_x + (len_x - 1) * 2))
-		x = (uint32_t)(uint16_t)*(uint16_t *)(lut_x + (len_x - 1) * 2);
-
-	lut_y = _GET_USHORT_PTR(251);
-	if (y < (uint32_t)(uint16_t)*(uint16_t *)lut_y)
-		y = (uint32_t)(uint16_t)*(uint16_t *)lut_y;
-
-	len_y = _GET_LEN(251);
-	lut_y = _GET_USHORT_PTR(251);
-	if (y >= (uint32_t)(uint16_t)*(uint16_t *)(lut_y + (len_y - 1) * 2))
-		y = (uint32_t)(uint16_t)*(uint16_t *)(lut_y + (len_y - 1) * 2);
-
-	mid_x = interpl((int32_t)x, (int32_t)(uint16_t)pt00[0], (int32_t)(int32_t)pt00[2], (int32_t)(uint16_t)pt10[0], (int32_t)(int32_t)pt10[2]);
-	mid_y = interpl((int32_t)x, (int32_t)(uint16_t)pt01[0], (int32_t)(int32_t)pt01[2], (int32_t)(uint16_t)pt11[0], (int32_t)(int32_t)pt11[2]);
-	inner_x = interpl((int32_t)y, (int32_t)(uint16_t)pt00[1], mid_x, (int32_t)(uint16_t)pt01[1], mid_y);
-	inner_y = interpl((int32_t)y, (int32_t)(uint16_t)pt10[1], mid_x, (int32_t)(uint16_t)pt11[1], mid_y);
-
-	return interpl((int32_t)x, (int32_t)(uint16_t)pt00[0], inner_x, (int32_t)(uint16_t)pt10[0], inner_y);
+	r0 = interpl((int32_t)arg1, (uint16_t)p00[0], *(int32_t *)(p00 + 2),
+		     (uint16_t)p10[0], *(int32_t *)(p10 + 2));
+	r1 = interpl((int32_t)arg1, (uint16_t)p01[0], *(int32_t *)(p01 + 2),
+		     (uint16_t)p11[0], *(int32_t *)(p11 + 2));
+	y0 = (uint16_t)p00[1];
+	y1 = (uint16_t)p01[1];
+	return interpl((int32_t)arg2, (int32_t)y0, r0, (int32_t)y1, r1);
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000032e9c origin=model_output original=init_interp_2d_point_LUT */
 int16_t *init_interp_2d_point_LUT(int16_t *out, int32_t x, int32_t y, int32_t base,
-                                   int16_t x_min, int16_t x_step,
-                                   int16_t y_min, int16_t y_step,
-                                   int16_t y_base, void *lut)
+                                   int16_t x_max, int16_t x_step,
+                                   int16_t y_base, int16_t y_max,
+                                   int16_t y_step, void *lut)
 {
-    int32_t len;
-    int32_t cx, cy;
+    /*
+     * OEM init_interp_2d_point_LUT (SDK ko 0x325bc).  Point {u16 x; u16 y;
+     * s32 v}: x < 0 -> (0, base - 20); x < len -> (x, x_step * x + base);
+     * else (len - 1, x_max + 20); y the same with y_base / y_step / y_max.
+     * The lift left the in-range indices (cx/cy) uninitialised, swapped the
+     * y step and base, and wrote three 32-bit words into the point.
+     */
+    uint32_t len = (uint32_t)_GET_LEN(226);
     int16_t ox, oy;
-
-    len = _GET_LEN(226);
 
     if (x < 0) {
         ox = (int16_t)base - 20;
-        cx = 0;
-    } else if ((unsigned)x < (unsigned)len) {
-        ox = (int16_t)(x_step * x + base);
+        x = 0;
+    } else if ((uint32_t)x < len) {
+        ox = (int16_t)(x_step * (int16_t)x + base);
     } else {
-        cx = len - 1;
-        ox = x_min + 20;
+        x = len - 1;
+        ox = x_max + 20;
     }
-
     if (y < 0) {
-        oy = y_min - 20;
-        cy = 0;
-    } else if ((unsigned)y < (unsigned)len) {
-        oy = (int16_t)(y_step * y + y_base);
+        oy = y_base - 20;
+        y = 0;
+    } else if ((uint32_t)y < len) {
+        oy = (int16_t)(y_step * (int16_t)y + y_base);
     } else {
-        cy = len - 1;
-        oy = y_base + 20;
+        y = len - 1;
+        oy = y_max + 20;
     }
-
-    ((void **)out)[2] = *(int16_t *)((char *)lut + ((cy * len + cx) << 1));
-    ((void **)out)[0] = ox;
-    ((void **)out)[1] = oy;
+    *(int32_t *)(out + 2) = *(int16_t *)((char *)lut + ((uint32_t)y * len + (uint32_t)x) * 2);
+    out[0] = ox;
+    out[1] = oy;
     return out;
 }
 
@@ -53330,141 +41488,73 @@ int32_t AWB_mesh_LUT(int32_t arg1, int32_t arg2, int32_t arg3, int32_t arg4,
                      int16_t arg5, int16_t arg6, int16_t arg7, int16_t arg8,
                      int16_t arg9, void *arg10)
 {
-    int32_t x_step = (int32_t)arg6;
-    int32_t y_step = (int32_t)arg9;
-    int32_t x_min = (int32_t)arg5;
-    int32_t y_min = (int32_t)arg7;
-    int32_t x_max = (int32_t)arg8;
-    int32_t y_max = (int32_t)arg8;
-    int32_t base_x = (int32_t)(arg4 << 16) >> 16;
-    int32_t len = _GET_LEN(226);
-    int32_t x_idx;
-    int32_t y_idx;
-    int32_t x_base;
-    int32_t y_base;
-    int32_t x_val;
-    int32_t y_val;
-    int32_t r1;
-    int32_t r2;
-    int32_t r3;
-    int32_t *result = 0;
-    int16_t pt0[4];
-    int16_t pt1[4];
-    int16_t pt2[4];
-    int16_t pt3[4];
-    uint16_t *v0;
-    uint16_t v1;
-    uint16_t v2;
-    uint16_t v3;
-    int32_t t0;
-    int32_t t1;
-    int32_t t2;
-    int32_t t3;
-    int32_t t4;
-    int32_t t5;
-    int32_t t6;
-    int32_t t7;
-    int32_t t8;
+    /*
+     * OEM AWB_mesh_LUT (SDK ko 0x326d0): bilinear lookup in a regular grid
+     * (x: base arg4, max arg5, step arg6; y: base arg7, max arg8, step arg9).
+     * A zero step returns x.  The lift returned 0 there, read the 8-byte
+     * points as four u16 and mixed the corner values.
+     */
+    int32_t xb = (int16_t)arg4, xm = arg5, xs = arg6;
+    int32_t yb = arg7, ym = arg8, ys = arg9;
+    uint32_t last = (uint32_t)_GET_LEN(226) - 1;
+    uint32_t xi, yi, q;
+    int16_t p0[4], p1[4], p2[4], p3[4];
+    int32_t r0, r1;
 
-    x_base = arg2;
-    y_base = arg3;
+    if (xs == 0 || ys == 0)
+        return arg2;
 
-    if (x_step == 0 || y_step == 0)
-        goto out;
-
-    t0 = x_base - base_x;
-    t0 = t0 / x_step;
-
-    if (t0 < 0) {
-        x_base = base_x;
-        t0 = 0;
+    xi = (uint32_t)((arg2 - xb) / xs);
+    if ((int32_t)xi < 0) {
+        xi = 0;
+        arg2 = xb;
+    } else if (last < xi) {
+        xi = last;
+        arg2 = xm;
+    }
+    q = (uint32_t)((arg3 - yb) / ys);
+    yi = last;
+    if ((int32_t)q < 0) {
+        yi = 0;
+        arg3 = yb;
+    } else if (last < q) {
+        arg3 = ym;
     } else {
-        t1 = len - 1;
-        if ((unsigned int)t1 < (unsigned int)t0) {
-            t0 = t1;
-            x_base = x_min;
-        }
+        yi = q;
     }
 
-    x_idx = t0;
+    init_interp_2d_point_LUT(p0, xi, yi, xb, xm, xs, yb, ym, ys, arg10);
+    init_interp_2d_point_LUT(p1, xi + 1, yi, xb, xm, xs, yb, ym, ys, arg10);
+    init_interp_2d_point_LUT(p2, xi, yi + 1, xb, xm, xs, yb, ym, ys, arg10);
+    init_interp_2d_point_LUT(p3, xi + 1, yi + 1, xb, xm, xs, yb, ym, ys, arg10);
 
-    t2 = y_base - y_min;
-    t2 = t2 / y_step;
-
-    if (t2 < 0) {
-        y_base = y_min;
-        t2 = 0;
-    } else {
-        t3 = len - 1;
-        if ((unsigned int)t3 < (unsigned int)t2) {
-            t2 = t3;
-            y_base = y_max;
-        }
-    }
-
-    y_idx = t2;
-
-    init_interp_2d_point_LUT(pt0, x_idx, y_idx, base_x, x_min, x_step, y_min, y_step, y_base, arg10);
-    v0 = (uintptr_t *)pt0[0];
-    v1 = (uint16_t)pt0[1];
-    t4 = (int32_t)pt0[2];
-    t5 = (int32_t)pt0[3];
-
-    init_interp_2d_point_LUT(pt1, x_idx + 1, y_idx, base_x, x_min, x_step, y_min, y_step, y_base, arg10);
-    v2 = (uint16_t)pt1[0];
-    v3 = (uint16_t)pt1[1];
-    t6 = (int32_t)pt1[2];
-    t7 = (int32_t)pt1[3];
-
-    init_interp_2d_point_LUT(pt2, x_idx, y_idx + 1, base_x, x_min, x_step, y_min, y_step, y_base, arg10);
-    t8 = (int32_t)pt2[0];
-    t1 = (int32_t)pt2[1];
-    t2 = (int32_t)pt2[2];
-    t3 = (int32_t)pt2[3];
-
-    init_interp_2d_point_LUT(pt3, x_idx + 1, y_idx + 1, base_x, x_min, x_step, y_min, y_step, y_base, arg10);
-    t4 = (int32_t)pt3[0];
-    t5 = (int32_t)pt3[1];
-    t6 = (int32_t)pt3[2];
-    t7 = (int32_t)pt3[3];
-
-    r1 = interpl(x_base, (int32_t)v0, t4, (int32_t)v2, t6);
-    r2 = interpl(x_base, (int32_t)t8, t2, (int32_t)t4, t6);
-    result = interpl(y_base, (int32_t *)v1, r1, (int32_t)t1, r2);
-out:
-    return result;
+    r0 = interpl(arg2, (uint16_t)p0[0], *(int32_t *)(p0 + 2), (uint16_t)p1[0], *(int32_t *)(p1 + 2));
+    r1 = interpl(arg2, (uint16_t)p2[0], *(int32_t *)(p2 + 2), (uint16_t)p3[0], *(int32_t *)(p3 + 2));
+    if ((uint16_t)p2[1] != (uint16_t)p0[1])
+        r0 += (int32_t)((uint32_t)(r1 - r0) * (uint32_t)(arg3 - (uint16_t)p0[1])) /
+              (int32_t)((uint16_t)p2[1] - (uint16_t)p0[1]);
+    return r0;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000033290 origin=model_output original=mesh_AWB_getKnownSourceLight_weight_LUT */
 int32_t mesh_AWB_getKnownSourceLight_weight_LUT(int32_t arg1, int16_t arg2, int16_t arg3, int32_t arg4, int32_t arg5)
 {
-    uint32_t x = (uint32_t)(uint16_t)arg2;
-    uint32_t y = (uint32_t)(uint16_t)arg3;
-    int32_t len = _GET_LEN(226);
-    int32_t x_min = arg4 - 30;
-    int32_t x_max = arg4 + 30;
-    int32_t y_min = arg5 - 30;
-    int32_t y_max = arg5 + 30;
-    int32_t in_range;
-    uint16_t step;
-    int32_t *lut_ptr;
-    int32_t *result;
+    /*
+     * OEM mesh_AWB_getKnownSourceLight_weight_LUT (SDK ko 0x32b20): weight of
+     * a known light source at (arg4, arg5) for the point (x, y): 0 outside the
+     * +-30 window (signed compares; the lift compared x unsigned), else the
+     * 60 / (len - 1) grid of calibration table 217.
+     */
+    int32_t x = (uint16_t)arg2;
+    int32_t y = (uint16_t)arg3;
+    uint32_t step;
 
-    in_range = 0;
-    if (x >= (uint32_t)x_min && (int32_t)x_max >= (int32_t)x && y >= (uint32_t)y_min) {
-        in_range = ((int32_t)y_max < (int32_t)y) ^ 1;
-    }
-
-    if (in_range == 0)
+    if (!(arg4 - 30 <= x && x <= arg4 + 30 && arg5 - 30 <= y && y <= arg5 + 30))
         return 0;
-
-    step = (uint16_t)(60 / (len - 1));
-    lut_ptr = _GET_USHORT_PTR(217);
-    result = AWB_mesh_LUT(arg1, (uintptr_t)x, (int32_t)y, (int32_t)((int32_t)x_min << 16) >> 16,
-                          (int16_t)((int32_t)x_max << 16) >> 16, (int16_t)step,
-                          (int16_t)((int32_t)y_min << 16) >> 16, (int16_t)((int32_t)y_max << 16) >> 16,
-                          (int16_t)step, (void *)lut_ptr);
-    return result;
+    step = 60U / ((uint32_t)_GET_LEN(226) - 1);
+    return AWB_mesh_LUT(arg1, x, y, (int16_t)(arg4 - 30), (int16_t)(arg4 + 30), (int16_t)step,
+                        (int16_t)(arg5 - 30), (int16_t)(arg5 + 30), (int16_t)step,
+                        (void *)(uintptr_t)_GET_USHORT_PTR(217));
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000333c4 origin=model_output original=awb_coeffs_write */
@@ -53607,58 +41697,6 @@ uint32_t awb_init(void *arg1)
 
 out:
 	return result;
-}
-
-/* WHOLE_DRIVER_CANDIDATE fn_0000000000033654 origin=model_output original=awb_set_identity */
-int32_t awb_set_identity(void *arg1)
-{
-	uint16_t *p = (uint16_t *)((uintptr_t)arg1 + 0x46);
-	int *i;
-
-	for (i = 0; (uintptr_t)i != 18; i = (uintptr_t)i + 2)
-		*(uint16_t *)((uintptr_t)arg1 + (uintptr_t)i + 0x46) = 0;
-
-	*(uint16_t *)((uintptr_t)arg1 + 0x56) = 0x100;
-	*(uint16_t *)((uintptr_t)arg1 + 0x4e) = 0x100;
-	*(uint16_t *)((uintptr_t)arg1 + 0x46) = 0x100;
-	return 0x100;
-}
-
-/* WHOLE_DRIVER_CANDIDATE fn_0000000000033680 origin=model_output original=awb_read_statistics */
-int32_t awb_read_statistics(void *arg1)
-{
-	uint16_t *stats;
-	uint32_t count;
-	uint32_t i;
-	uint32_t val;
-	uint32_t r;
-	uint32_t g;
-	uint32_t population;
-
-	*(uint32_t *)((char *)arg1 + 0x14) = 0;
-	count = *(uint16_t *)((char *)arg1 + 0x10);
-
-	for (i = 0; i < count; i++) {
-		val = APICAL_READ_32(0x8000 + ((2 * i + 0x1d0) << 2));
-		r = ((val & 0xfff) *
-		     *(uint16_t *)((char *)arg1 + 0x18)) >> 8;
-		g = (((val >> 16) & 0xfff) *
-		     *(uint16_t *)((char *)arg1 + 0x1a)) >> 8;
-		if (!r)
-			r = 1;
-		if (!g)
-			g = 1;
-
-		stats = (uint16_t *)((char *)arg1 + ((i + 0xb) << 3));
-		stats[0] = (uint16_t)(0xffff / r);
-		stats[1] = (uint16_t)(0xffff / g);
-		population = APICAL_READ_32(0x8000 +
-					    ((2 * i + 0x1d1) << 2));
-		*(uint32_t *)&stats[2] = population;
-		*(uint32_t *)((char *)arg1 + 0x14) += population;
-	}
-
-	return 0;
 }
 
 static void tx_isp_t30_awb_apply_calibrated_gains(void)
@@ -54028,501 +42066,451 @@ int32_t awb_zones_calculate(void)
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000033804 origin=model_output original=compute_weight */
 int32_t compute_weight(int32_t arg1, int32_t arg2, void *arg3, int32_t *arg4, void *arg5, void *arg6)
 {
-    int32_t *result = 0;
+    /*
+     * OEM compute_weight (SDK ko 0x32f24), void there.  Per zone i < count
+     * (u16 arg6+0x10), record arg6 + 0x58 + 8 * i = {u16 x; u16 y}: with x,
+     * y and arg2 != 0x100, w[i] = 0 if the mask arg3[i] is 0 or y lies above
+     * the line sign * |(x - arg1) * (arg1 - 0x100)| / (0x100 - arg2) + arg2,
+     * else w[i] *= arg5[i].  Divide and compare are unsigned (OEM divu/sltu;
+     * the lift divided signed).
+     */
     uint16_t count = *(uint16_t *)((char *)arg6 + 0x10);
-    int32_t a0_minus_256 = arg1 - 0x100;
-    int32_t two_hundred_fifty_six_minus_arg2 = 0x100 - arg2;
-    int32_t sign_val;
-    int32_t abs_val;
-    int32_t div_result;
-    int32_t threshold;
-    uint8_t mask_byte;
-    uint8_t weight_byte;
-    int32_t current_weight;
+    uint8_t *rec = (uint8_t *)arg6;
+    uint32_t i;
 
-    while (((uintptr_t)result & 0xffff) < count) {
-        uint16_t field_58 = *(uint16_t *)((char *)arg6 + 0x58);
-        uint16_t field_5a;
+    for (i = 0; (i & 0xffff) < count; i++, rec += 8, arg4++) {
+        uint32_t x = *(uint16_t *)(rec + 0x58);
+        uint32_t y = *(uint16_t *)(rec + 0x5a);
+        int32_t prod, sign;
+        uint32_t mag;
 
-        if (field_58 == 0) {
-            result = (void *)(uintptr_t)((uintptr_t)result + (1));
-        } else {
-            field_5a = *(uint16_t *)((char *)arg6 + 0x5a);
-            if (field_5a == 0) {
-                result = (void *)(uintptr_t)((uintptr_t)result + (1));
-            } else {
-                if (arg2 != 0x100) {
-                    int32_t diff = field_58 - arg1;
-                    int32_t prod = diff * a0_minus_256;
-
-                    sign_val = (prod < 0) ? -1 : 1;
-                    mask_byte = *(uint8_t *)((char *)arg3 + (uintptr_t)result);
-
-                    if (mask_byte == 0) {
-                        *arg4 = 0;
-                    } else {
-                        int32_t sign_bit = (int32_t)((uint32_t)prod >> 31);
-                        abs_val = (sign_bit ^ prod) - sign_bit;
-                        div_result = abs_val / two_hundred_fifty_six_minus_arg2;
-                        threshold = sign_val * div_result + arg2;
-
-                        if ((uint16_t)field_5a < (uint32_t)threshold) {
-                            *arg4 = 0;
-                        } else {
-                            weight_byte = *(uint8_t *)((char *)arg5 + (uintptr_t)result);
-                            current_weight = *arg4;
-                            *arg4 = current_weight * weight_byte;
-                        }
-                    }
-                }
-                result = (void *)(uintptr_t)((uintptr_t)result + (1));
-            }
+        if (x == 0 || y == 0 || arg2 == 0x100)
+            continue;
+        prod = (int32_t)((x - (uint32_t)arg1) * (uint32_t)(arg1 - 0x100));
+        sign = prod < 0 ? -1 : 1;
+        if (((uint8_t *)arg3)[i] == 0) {
+            *arg4 = 0;
+            continue;
         }
-        arg6 = (char *)arg6 + 8;
-        arg4 = arg4 + 1;
+        mag = (uint32_t)((prod >> 31 ^ prod) - (prod >> 31));
+        if (y < (uint32_t)(sign * (int32_t)(mag / (uint32_t)(0x100 - arg2)) + arg2))
+            *arg4 = 0;
+        else
+            *arg4 = *arg4 * ((uint8_t *)arg5)[i];
     }
-
-    return result;
+    return 0;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000338e4 origin=model_output original=awb_calc_avg_weighted_gr_gb_mesh */
+/*
+ * OEM fifo_push / get_point (SDK ko 0x31ffc / 0x320ac, .sbss+12/+16): the
+ * running red/blue gain filter of the stock AWB with coefficient
+ * calibration 262 (0: no filtering).  The lift had dropped both.
+ */
+static uint32_t t30_awb_fifo_r, t30_awb_fifo_b;
+
+static void t30_awb_fifo_push(uint32_t r, uint32_t b)
+{
+	uint32_t c = *(uint8_t *)(uintptr_t)_GET_UCHAR_PTR(262);
+
+	r &= 0xffff;
+	b &= 0xffff;
+	if (c == 0) {
+		t30_awb_fifo_r = r;
+		t30_awb_fifo_b = b;
+	} else if (t30_awb_fifo_r == 0 && t30_awb_fifo_b == 0) {
+		t30_awb_fifo_r = c * r;
+		t30_awb_fifo_b = c * b;
+	} else {
+		t30_awb_fifo_r = r + t30_awb_fifo_r - t30_awb_fifo_r / c;
+		t30_awb_fifo_b = b + t30_awb_fifo_b - t30_awb_fifo_b / c;
+	}
+}
+
+static void t30_awb_get_point(uint16_t *pt)
+{
+	uint32_t c = *(uint8_t *)(uintptr_t)_GET_UCHAR_PTR(262);
+
+	if (c) {
+		pt[0] = t30_awb_fifo_r / c;
+		pt[1] = t30_awb_fifo_b / c;
+	} else {
+		pt[0] = t30_awb_fifo_r;
+		pt[1] = t30_awb_fifo_b;
+	}
+	pt[2] = pt[3] = 0;
+}
+
+static inline uint16_t t30_lut16(int32_t id, uint32_t i)
+{
+	return ((uint16_t *)(uintptr_t)_GET_USHORT_PTR(id))[i];
+}
+
 int32_t awb_calc_avg_weighted_gr_gb_mesh(int32_t *arg1)
 {
-	int32_t *s3 = *(int32_t **)arg1;
-	int32_t s0 = (int32_t)arg1;
-	int32_t val_870 = APICAL_READ_32(0x870);
-	int32_t val_870_hi = (val_870 & 0xff00) >> 8;
-	int32_t val_870_lo = val_870 & 0xff;
-	int32_t mesh_size = val_870_hi * val_870_lo;
-	int32_t cols = _GET_COLS(0xef);
-	int16_t *mesh_ptr = (int16_t *)_GET_USHORT_PTR(0xef);
-	int32_t *i = mesh_size;
-	int32_t *result;
+	/*
+	 * OEM awb_calc_avg_weighted_gr_gb_mesh (SDK ko 0x33004, frame 3080
+	 * bytes), void there.  arg1 is the AWB FSM: zone count u16 +0x10 (from
+	 * 0x870 = rows x cols), zone records +0x58 + 8 * i = {u16 rg; u16 bg;
+	 * u32 sum}, results +0x18/+0x1a (manual / chosen gains), +0x1c/+0x1d
+	 * (light source shares), +0x30/+0x34 (filtered point), +0x38/+0x3c
+	 * (weighted rg/bg), +0x778 (colour temperature, 1e6 / mired).
+	 *
+	 * The lift kept the per-zone byte arrays as offsets from the int array
+	 * (scaled by 4: wrote far outside the masks the later steps read), never
+	 * stored the zone count, tested the u16 bg instead of the u32 sum, and
+	 * stopped before the light-source / weighted-average / fifo / colour
+	 * temperature tail, storing an uninitialised value to +0x778.
+	 */
+	uint8_t *fsm = (uint8_t *)arg1;
+	uint8_t *ctx = *(uint8_t **)arg1;
+	int32_t w[225];
+	uint16_t wb_bg[226], wb_rg[226];
+	uint8_t inbox[228], w_a[228], w_b[228], known0[228], valid[228];
+	uint32_t n, i, j, cols, rows, ct, sum, avg_a, avg_b, cnt, r, b;
+	uint32_t min_x, min_y, max_x, max_y;
+	int32_t share_a, share_b, temp;
+	uint16_t *mesh, pt[4];
+	uint32_t *tab;
+	int32_t hdr;
+	bool hot = false;
 
-	if (i >= 0xe2)
+#define ZX(k) (*(uint16_t *)(fsm + 0x58 + 8 * (k)))
+#define ZY(k) (*(uint16_t *)(fsm + 0x5a + 8 * (k)))
+	{
+		uint32_t v870 = APICAL_READ_32(0x870);
+
+		*(uint16_t *)(fsm + 0x10) = ((v870 >> 8) & 0xff) * (v870 & 0xff);
+	}
+	cols = _GET_COLS(0xef);
+	mesh = (uint16_t *)(uintptr_t)_GET_USHORT_PTR(0xef);
+	n = *(uint16_t *)(fsm + 0x10);
+	if (n > 0xe1)
 		return 0;
-
-	int32_t var_bf0[0x326];
-	int8_t var_154[0xe4];
-	int8_t var_238[0xe4];
-	int8_t var_4e4[0xe4];
-	int8_t var_400[0xe4];
-	int8_t var_31c[0xe4];
-	int32_t idx;
-
-	for (idx = 0; idx < i; idx++) {
-		((void **)var_bf0)[idx] = 0;
-		((void **)var_154)[idx] = 0;
-		((void **)var_238)[idx] = 0;
-		((void **)var_4e4)[idx] = 1;
-		((void **)var_400)[idx] = 0;
-		((void **)var_31c)[idx] = 0;
+	for (i = 0; i < n; i++) {
+		w[i] = 0;
+		valid[i] = 0;
+		known0[i] = 0;
+		inbox[i] = 1;
+		w_b[i] = 0;
+		w_a[i] = 0;
 	}
 
-	int32_t s3_1 = *(int32_t *)((char *)s3 + 0x11c);
-	int32_t hdr_idx = _GET_HDR_TABLE_INDEX(0x97, *(uint8_t *)((char *)arg1 + 0x1524));
-	int32_t s4_1 = hdr_idx & 0xff;
-	int32_t *hdr_table = (int32_t *)_GET_UINT_PTR(s4_1);
-	int32_t var_68_1;
-
-	if (s3_1 >= *hdr_table) {
-		int32_t len = _GET_LEN(s4_1);
-		if (s3_1 < hdr_table[len - 1]) {
-			int32_t fp_1 = 1;
-			int32_t s4_2;
-			while (1) {
-				if (fp_1 >= len) {
-					s4_2 = fp_1 - 1;
-					break;
-				}
-				if (s3_1 < hdr_table[fp_1]) {
-					s4_2 = fp_1 - 1;
-					break;
-				}
-				fp_1++;
-			}
-			int32_t *lut_f3 = (int32_t *)_GET_UINT_PTR(0xf3);
-			var_68_1 = interpl(s3_1, hdr_table[s4_2], lut_f3[s4_2], hdr_table[fp_1], lut_f3[fp_1]) & 0xffff;
-		} else {
-			var_68_1 = ((int32_t *)_GET_UINT_PTR(0xf3))[len - 1] & 0xffff;
-		}
-	} else {
-		int32_t *lut_f3 = (int32_t *)_GET_UINT_PTR(0xf3);
-		var_68_1 = lut_f3[0] & 0xffff;
-	}
-
-	uint32_t var_48_1;
-	uint32_t var_4c_1;
-
-	if (var_68_1 >= 0x1389) {
-		var_48_1 = 0x63;
-		var_4c_1 = 1;
-	} else {
-		int16_t *p_fa = (int16_t *)_GET_USHORT_PTR(0xfa);
-		int16_t *p_fc = (int16_t *)_GET_USHORT_PTR(0xfc);
-		int16_t *p_f4 = (int16_t *)_GET_USHORT_PTR(0xf4);
-		int16_t *p_fd = (int16_t *)_GET_USHORT_PTR(0xfd);
-		uint16_t len_fd = _GET_LEN(0xfd);
-		var_48_1 = luts_fetch(var_68_1, *p_fa, *p_fc, *p_f4, p_fd, len_fd);
-
-		int16_t *p_e7 = (int16_t *)_GET_USHORT_PTR(0xe7);
-		int16_t *p_f6 = (int16_t *)_GET_USHORT_PTR(0xf6);
-		int16_t *p_e3 = (int16_t *)_GET_USHORT_PTR(0xe3);
-		int16_t *p_d4 = (int16_t *)_GET_USHORT_PTR(0xd4);
-		uint16_t len_d4 = _GET_LEN(0xd4);
-		var_4c_1 = luts_fetch(var_68_1, *p_e7, *p_f6, *p_e3, p_d4, len_d4);
-	}
-
-	int16_t *p_e2 = (int16_t *)_GET_USHORT_PTR(0xe2);
-	uint32_t e2_min = *p_e2;
-	uint32_t mesh_x0 = (uint32_t)(uint16_t)mesh_ptr[0];
-	uint32_t var_60_1;
-
-	if (e2_min < mesh_x0)
-		var_60_1 = e2_min;
-	else
-		var_60_1 = mesh_x0;
-
-	int16_t *p_fb = (int16_t *)_GET_USHORT_PTR(0xfb);
-	uint32_t fb_min = *p_fb;
-	uint32_t mesh_y0 = (uint32_t)(uint16_t)mesh_ptr[1];
-	uint32_t fp_6;
-
-	if (fb_min < mesh_y0)
-		fp_6 = fb_min;
-	else
-		fp_6 = mesh_y0;
-
-	uint16_t len_e2 = _GET_LEN(0xe2);
-	int16_t *e2_last = (void *)((uintptr_t)p_e2 + (len_e2 - 1) * 2);
-	uint32_t s7_3 = mesh_x0;
-
-	if ((uint32_t)(uint16_t)*e2_last >= s7_3)
-		s7_3 = (uint32_t)(uint16_t)*e2_last;
-
-	uint16_t len_fb = _GET_LEN(0xfb);
-	int16_t *fb_last = (void *)((uintptr_t)p_fb + (len_fb - 1) * 2);
-	uint32_t s4_8 = mesh_y0;
-	uint32_t var_5c_1 = s4_8;
-
-	if ((uint32_t)(uint16_t)*fb_last >= s4_8)
-		var_5c_1 = (uint32_t)(uint16_t)*fb_last;
-
-	uint32_t rows = _GET_ROWS(0xef);
-	uint32_t row_stride = cols << 1;
-	uint32_t row_idx;
-
-	for (row_idx = 1; row_idx < rows; row_idx++) {
-		int16_t *row_ptr = (void *)((uintptr_t)mesh_ptr + row_idx * row_stride);
-		uint32_t rx = (uint32_t)(uint16_t)row_ptr[0];
-		uint32_t ry = (uint32_t)(uint16_t)row_ptr[1];
-
-		if ((int32_t)rx < (int32_t)var_60_1)
-			var_60_1 = rx;
-		if ((int32_t)ry < (int32_t)fp_6)
-			fp_6 = ry;
-		if ((int32_t)s7_3 < (int32_t)rx)
-			s7_3 = rx;
-		if ((int32_t)var_5c_1 < (int32_t)ry)
-			var_5c_1 = ry;
-	}
-
-	uint32_t var_64_1 = 0;
-	int32_t var_50_1 = 0;
-	int32_t var_54_1 = 0;
-	uint32_t col_idx;
-
-	for (col_idx = 0; col_idx < (uint32_t)i; col_idx++) {
-		int16_t *pt = (uintptr_t)&arg1[(col_idx + 0xb) * 2];
-		uint32_t px = (uint32_t)(uint16_t)pt[0];
-		uint32_t py = (uint32_t)(uint16_t)pt[1];
-		int32_t flag_x = 0;
-
-		if ((int32_t)px >= (int32_t)var_60_1)
-			flag_x = ((int32_t)s7_3 < (int32_t)px) ^ 1;
-
-		int32_t flag_y = 0;
-		if ((int32_t)py >= (int32_t)fp_6)
-			flag_y = ((int32_t)var_5c_1 < (int32_t)py) ^ 1;
-
-		int32_t flag_both = 0;
-		if (flag_x != 0 && flag_y != 0)
-			flag_both = ((uint32_t)pt[1] < 0x101) ^ 1;
-
-		uint32_t flag_val = (uint32_t)flag_both & 0xff;
-		*(uint8_t *)((char *)&var_bf0[col_idx] + 0xa9c) = (uint8_t)flag_val;
-
-		if (flag_val != 0) {
-			int32_t s6_4 = AWB_mesh_isra_1(px, py, p_e2, p_fb, (void *)_GET_USHORT_PTR(0xee));
-			uint32_t j;
-
-			for (j = 0; j < rows; j++) {
-				int16_t *jrow = (void *)((uintptr_t)mesh_ptr + j * row_stride);
-				int32_t lut_val = mesh_AWB_getKnownSourceLight_weight_LUT(arg1, (int16_t)px, (int16_t)py, (int32_t)(uint16_t)jrow[0], (int32_t)(uint16_t)jrow[1]);
-
-				if (lut_val < 0x14) {
-					continue;
-				} else if (s6_4 + 0xf >= lut_val) {
-					continue;
-				} else {
-					s6_4 = lut_val;
-					if (j == 0)
-						*(uint8_t *)((char *)&var_bf0[col_idx] + 0x9b8) = 1;
-				}
-			}
-
-			int32_t t1_2 = 0;
-			if (s6_4 >= 0)
-				t1_2 = s6_4;
-
-			if (t1_2 >= 0x3c) {
-				((void **)var_bf0)[col_idx] = t1_2;
-				int16_t *p_d7 = (int16_t *)_GET_USHORT_PTR(0xd7);
-				int16_t *p_e1 = (int16_t *)_GET_USHORT_PTR(0xe1);
-				int16_t *p_fe = (int16_t *)_GET_USHORT_PTR(0xfe);
-				int16_t *p_f5 = (int16_t *)_GET_USHORT_PTR(0xf5);
-				uint16_t len_f5 = _GET_LEN(0xf5);
-				int32_t w1 = luts_fetch(px, *p_d7, *p_e1, *p_fe, (uintptr_t)p_f5, len_f5) * 0x32 * (int32_t)var_48_1;
-
-				int16_t *p_ec = (int16_t *)_GET_USHORT_PTR(0xec);
-				int16_t *p_f0 = (int16_t *)_GET_USHORT_PTR(0xf0);
-				int16_t *p_e5 = (int16_t *)_GET_USHORT_PTR(0xe5);
-				int16_t *p_f8 = (int16_t *)_GET_USHORT_PTR(0xf8);
-				uint16_t len_f8 = _GET_LEN(0xf8);
-				int32_t w2 = luts_fetch(px, *p_ec, *p_f0, *p_e5, (uintptr_t)p_f8, len_f8) * 0x32 * (int32_t)var_4c_1;
-
-				int32_t sum_w = w2 + w1;
-				char *base = (char *)&var_bf0[col_idx];
-
-				if (sum_w == 0) {
-					*(uint8_t *)(base + 0x8d4) = (uint8_t)(w1 & 0xff) * 0x64;
-					*(uint8_t *)(base + 0x7f0) = (uint8_t)(w2 & 0xff) * 0x64;
-				} else {
-					*(uint8_t *)(base + 0x8d4) = (uint8_t)((w1 * 0x64) / sum_w);
-					*(uint8_t *)(base + 0x7f0) = (uint8_t)((w2 * 0x64) / sum_w);
-				}
-
-				var_50_1 += *(uint8_t *)(base + 0x8d4);
-				var_54_1 += *(uint8_t *)(base + 0x7f0);
-				var_64_1++;
-			} else {
-				*(uint8_t *)((char *)&var_bf0[col_idx] + 0xa9c) = 0;
-			}
-		}
-	}
-
-	uint32_t s1_1;
-	uint32_t s2_3;
-
-	if (var_64_1 == 0) {
-		s2_3 = 0x32;
-		s1_1 = 0x32;
-	} else {
-		s1_1 = (uint32_t)((var_50_1 / (int32_t)var_64_1) & 0xff);
-		s2_3 = (uint32_t)((var_54_1 / (int32_t)var_64_1) & 0xff);
-	}
-
-	uint32_t uchar_10b = *(uint8_t *)_GET_UCHAR_PTR(0x10b);
-	uint32_t t0_10 = var_68_1;
-
-	if (uchar_10b == 0) {
-		s2_3 = 0x32;
-		s1_1 = 0x32;
-		t0_10 = 0x1f4;
-	}
-
-	*(uint8_t *)((char *)arg1 + 0x1c) = (uint8_t)s1_1;
-	*(uint8_t *)((char *)arg1 + 0x1d) = (uint8_t)s2_3;
-
-	int32_t s4_12;
-	uint32_t t1_6;
-
-	if (s1_1 >= s2_3) {
-		t1_6 = t0_10;
-		if (s1_1 - s2_3 < 0xf)
-			goto label_34204;
-		goto label_34440;
-	} else if (s2_3 - s1_1 >= 0xf) {
-		if (s1_1 >= s2_3)
-			goto label_34440;
-
-		uint32_t i_5;
-		int32_t *v1_21 = &var_bf0[0];
-		int32_t v0_171;
-
-		for (v0_171 = 0; (v0_171 & 0xffff) < (int32_t)i; v0_171++) {
-			int32_t a0_41 = 0;
-			if (var_154[v0_171] != 0)
-				a0_41 = var_400[v0_171] * *v1_21;
-			*v1_21 = a0_41;
-			v1_21++;
-		}
-
-		s4_12 = 0;
-		i_5 = (uint32_t)i;
-		goto label_34440;
-	} else {
-		t1_6 = t0_10;
-	}
-
-label_34204:
+	/* colour temperature estimate from the exposure (ctx +0x11c) */
 	{
-		uint32_t i_6 = 0;
+		uint32_t e = *(uint32_t *)(ctx + 0x11c);
 
-		if (t1_6 < 0x50) {
-			for (i_6 = 0; i_6 < (uint32_t)i; i_6++) {
-				char *s5_4 = (char *)&var_bf0[i_6];
+		hdr = _GET_HDR_TABLE_INDEX(0x97, *(uint8_t *)(ctx + 0x1524)) & 0xff;
+		tab = (uint32_t *)(uintptr_t)_GET_UINT_PTR(hdr);
+		if (e < tab[0]) {
+			ct = *(uint16_t *)(uintptr_t)_GET_UINT_PTR(0xf3);
+		} else if (e < tab[_GET_LEN(hdr) - 1]) {
+			uint32_t k = 1;
 
-				if (*(uint8_t *)(s5_4 + 0xa9c) == 0) {
-					((void **)var_bf0)[i_6] = 0;
-				} else {
-					int16_t *s6_8 = (uintptr_t)&arg1[(i_6 + 0xb) * 2];
-					int16_t *p_e0 = (int16_t *)_GET_USHORT_PTR(0xe0);
-					int16_t *p_dd = (int16_t *)_GET_USHORT_PTR(0xdd);
-					int16_t *p_e4 = (int16_t *)_GET_USHORT_PTR(0xe4);
-
-					if ((uint32_t)(uint16_t)s6_8[0] < (uint32_t)(uint16_t)p_e0[*p_dd * 2]) {
-						((void **)var_bf0)[i_6] = 0;
-					} else {
-						int32_t v0_146 = i_6 << 2;
-						if ((uint32_t)(uint16_t)p_e4[*p_dd * 2] < (uint32_t)(uint16_t)s6_8[1]) {
-							((void **)var_bf0)[i_6] = 0;
-						} else {
-							int32_t *v0_157 = &var_bf0[i_6];
-							*v0_157 *= *(uint8_t *)(s5_4 + 0x7f0);
-						}
-					}
-				}
-			}
-			s4_12 = 0;
-		} else if (t0_10 >= 0x73b) {
-			int16_t *p_e0_f = (int16_t *)_GET_USHORT_PTR(0xe0);
-			int16_t *p_f1 = (int16_t *)_GET_USHORT_PTR(0xf1);
-			int16_t *p_e4_f = (int16_t *)_GET_USHORT_PTR(0xe4);
-			int32_t cw_a1 = ((int32_t)(uint16_t)p_e0_f[*p_f1 * 2] + 0x100) >> 1;
-			int32_t cw_a2 = ((int32_t)(uint16_t)p_e4_f[*p_f1 * 2] + 0x100) >> 1;
-			compute_weight(cw_a1, cw_a2, &var_154[0], &var_bf0[0], &var_31c[0], arg1);
-			s4_12 = 0;
+			while (k < (uint32_t)_GET_LEN(hdr) && tab[k] <= e)
+				k = (k + 1) & 0xffff;
+			ct = interpl(e, tab[k - 1], ((int32_t *)(uintptr_t)_GET_UINT_PTR(0xf3))[k - 1],
+				     tab[k], ((int32_t *)(uintptr_t)_GET_UINT_PTR(0xf3))[k]) & 0xffff;
 		} else {
-			uint32_t i_7;
-			int32_t *v1_20 = &var_bf0[0];
-			int32_t v0_162;
-
-			for (v0_162 = 0; (v0_162 & 0xffff) < (int32_t)i; v0_162++) {
-				int32_t a0_36 = 0;
-				if (var_154[v0_162] != 0)
-					a0_36 = 0x64 * *v1_20;
-				*v1_20 = a0_36;
-				v1_20++;
-			}
-			s4_12 = 0;
+			ct = *(uint16_t *)((char *)(uintptr_t)_GET_UINT_PTR(0xf3) + (_GET_LEN(hdr) - 1) * 4);
 		}
 	}
+	if (ct < 0x1389) {
+		share_a = luts_fetch(ct, t30_lut16(0xfa, 0), t30_lut16(0xfc, 0), t30_lut16(0xf4, 0),
+				     (uint16_t *)(uintptr_t)_GET_USHORT_PTR(0xfd), _GET_LEN(0xfd));
+		share_b = luts_fetch(ct, t30_lut16(0xe7, 0), t30_lut16(0xf6, 0), t30_lut16(0xe3, 0),
+				     (uint16_t *)(uintptr_t)_GET_USHORT_PTR(0xd4), _GET_LEN(0xd4));
+	} else {
+		share_a = 99;
+		share_b = 1;
+	}
 
-label_34440:
-	{
-		s4_12 = ((uint32_t)(uint16_t)*(int16_t *)_GET_USHORT_PTR(0xf7) < t0_10) ? 1 : 0;
-		int32_t *v1_22 = arg1;
-		uint32_t v0_173 = 0;
-		uint32_t s3_9 = 0;
+	/* bounding box of the light-source mesh (table 0xef, rows of cols u16) */
+	min_x = mesh[0];
+	if (t30_lut16(0xe2, 0) < min_x)
+		min_x = t30_lut16(0xe2, 0);
+	min_y = mesh[1];
+	if (t30_lut16(0xfb, 0) < min_y)
+		min_y = t30_lut16(0xfb, 0);
+	max_x = mesh[0];
+	if (max_x <= t30_lut16(0xe2, _GET_LEN(0xe2) - 1))
+		max_x = t30_lut16(0xe2, _GET_LEN(0xe2) - 1);
+	max_y = mesh[1];
+	if (max_y <= t30_lut16(0xfb, _GET_LEN(0xfb) - 1))
+		max_y = t30_lut16(0xfb, _GET_LEN(0xfb) - 1);
+	for (j = 1; j < _GET_ROWS(0xef); j = (j + 1) & 0xffff) {
+		uint16_t *row = (uint16_t *)((char *)mesh + j * (cols << 1));
 
-		while (1) {
-			v1_22 = &v1_22[2];
-			if (v0_173 == (uint32_t)i)
-				break;
-			s3_9 += *(int32_t *)((uintptr_t)v1_22 + 0x52);
-			v0_173++;
+		if ((int32_t)row[0] < (int32_t)min_x)
+			min_x = row[0];
+		if (row[1] < min_y)
+			min_y = row[1];
+		if (max_x < row[0])
+			max_x = row[0];
+		if ((int32_t)max_y < (int32_t)row[1])
+			max_y = row[1];
+	}
+
+	/* per zone: inside the box and bright enough -> mesh weight + shares */
+	cnt = 0;
+	avg_a = 0;
+	avg_b = 0;
+	for (i = 0; i < *(uint16_t *)(fsm + 0x10); i = (i + 1) & 0xffff) {
+		uint32_t x = ZX(i), y = ZY(i);
+		int32_t m;
+		uint32_t wa, wb, tot;
+
+		valid[i] = min_x <= x && x <= max_x && min_y <= y && y <= max_y &&
+			   *(uint32_t *)(fsm + 0x5c + 8 * i) > 0x100;
+		if (!valid[i])
+			continue;
+		m = AWB_mesh_isra_1(x, y, (int16_t *)(uintptr_t)_GET_USHORT_PTR(0xe2),
+				    (int16_t *)(uintptr_t)_GET_USHORT_PTR(0xfb),
+				    (void *)(uintptr_t)_GET_USHORT_PTR(0xee));
+		for (j = 0; j < _GET_ROWS(0xef); j = (j + 1) & 0xffff) {
+			uint16_t *row = (uint16_t *)((char *)mesh + j * (cols << 1));
+			int32_t k = mesh_AWB_getKnownSourceLight_weight_LUT((int32_t)(uintptr_t)arg1,
+				(int16_t)x, (int16_t)y, row[0], row[1]);
+
+			if (k > 0x13 && m + 0xf < k) {
+				m = k;
+				if (j == 0)
+					known0[i] = 1;
+			}
 		}
+		if (m < 0)
+			m = 0;
+		if (m < 0x3c) {
+			valid[i] = 0;
+			continue;
+		}
+		w[i] = m;
+		wa = luts_fetch(x, t30_lut16(0xd7, 0), t30_lut16(0xe1, 0), t30_lut16(0xfe, 0),
+				(uint16_t *)(uintptr_t)_GET_USHORT_PTR(0xf5), _GET_LEN(0xf5)) * 0x32 * share_a;
+		wb = luts_fetch(x, t30_lut16(0xec, 0), t30_lut16(0xf0, 0), t30_lut16(0xe5, 0),
+				(uint16_t *)(uintptr_t)_GET_USHORT_PTR(0xf8), _GET_LEN(0xf8)) * 0x32 * share_b;
+		tot = wa + wb;
+		if (tot == 0) {
+			w_a[i] = (uint8_t)wa * 100;
+			w_b[i] = (uint8_t)wb * 100;
+		} else {
+			w_a[i] = (wa * 100) / tot;
+			w_b[i] = (wb * 100) / tot;
+		}
+		avg_b += w_b[i];
+		avg_a += w_a[i];
+		cnt = (cnt + 1) & 0xffff;
+	}
+	if (cnt == 0) {
+		r = 0x32;
+		b = 0x32;
+	} else {
+		r = (avg_a / cnt) & 0xff;
+		b = (avg_b / cnt) & 0xff;
+	}
+	if (*(uint8_t *)(uintptr_t)_GET_UCHAR_PTR(0x10b) == 0) {
+		r = 0x32;
+		b = 0x32;
+		ct = 500;
+	}
+	fsm[0x1c] = r;
+	fsm[0x1d] = b;
 
-		if (v0_173 != 0)
-			s3_9 /= v0_173;
-
-		if ((uint32_t)(uint16_t)*(int16_t *)_GET_USHORT_PTR(0xf7) < t0_10 && s3_9 >= 0x101) {
-			int32_t s6_11 = 0x3cf;
-			int16_t *p_e0_s = (int16_t *)_GET_USHORT_PTR(0xe0);
-			int16_t *p_dd_s = (int16_t *)_GET_USHORT_PTR(0xdd);
-			uint32_t s3_13 = (uint32_t)(uint16_t)p_e0_s[*p_dd_s * 2];
-			int32_t *v1_27 = &var_bf0[0];
-			uint32_t i_3;
-
-			while (1) {
-				int16_t *p_e0_l = (int16_t *)_GET_USHORT_PTR(0xe0);
-				int16_t *p_f1_l = (int16_t *)_GET_USHORT_PTR(0xf1);
-				int16_t *p_e4_l = (int16_t *)_GET_USHORT_PTR(0xe4);
-				int32_t lo_6 = (s6_11 * (((int32_t)(uint16_t)p_e0_l[*p_f1_l * 2] + 0x100) >> 1)) / 0x3e8;
-				uint32_t t0_13;
-
-				if (s6_11 - 0x3b6 < 0x33)
-					t0_13 = (uint32_t)((s6_11 * (int32_t)(uint16_t)p_e4_l[*p_dd_s * 2]) / 0x3e8);
+	/* light-source weighting (r = share a, b = share b) */
+	if (r < b && (int32_t)(b - r) >= 0xf) {
+		n = *(uint16_t *)(fsm + 0x10);
+		for (i = 0; (i & 0xffff) < n; i++)
+			w[i] = valid[i] ? w_b[i] * w[i] : 0;
+		n = *(uint16_t *)(fsm + 0x10);
+	} else if (r >= b ? (int32_t)(r - b) < 0xf : 1) {
+		/* shares within 15 */
+		if (ct < 0x50) {
+			for (i = 0; i < *(uint16_t *)(fsm + 0x10); i = (i + 1) & 0xffff) {
+				if (!valid[i] || ZX(i) < t30_lut16(0xe0, t30_lut16(0xdd, 0)) ||
+				    t30_lut16(0xe4, t30_lut16(0xdd, 0)) < ZY(i))
+					w[i] = 0;
 				else
-					t0_13 = (uint32_t)(uint16_t)p_e4_l[*p_dd_s * 2];
-
-				i_3 = (uint32_t)i;
-				int8_t *a0_47 = &var_4e4[0];
-				int32_t *a1_23 = arg1;
-				int32_t v0_203 = 0;
-				int32_t a2_17 = 0;
-
-				while ((v0_203 & 0xffff) < (int32_t)i_3) {
-					uint32_t t1_18 = (uint32_t)(uint16_t)a1_23[0x16];
-
-					if (t1_18 < s3_13)
-						*a0_47 = 0;
-					else if ((uint32_t)lo_6 < t1_18)
-						*a0_47 = 0;
-					else if (t0_13 < (uint32_t)(uint16_t)*(int16_t *)((char *)a1_23 + 0x5a))
-						*a0_47 = 0;
-					else
-						*a0_47 = 1;
-
-					int32_t t2_9 = var_154[v0_203] * var_bf0[v0_203];
-					uint32_t t1_14 = (uint32_t)var_31c[v0_203];
-					v0_203++;
-					a1_23 = &a1_23[2];
-					int32_t v1_26 = t2_9 * (int32_t)t1_14 * *a0_47;
-					a0_47++;
-					a2_17 += v1_26;
-				}
-
-				if (a2_17 != 0)
-					break;
-
-				s6_11 += 0x14;
-				if (s6_11 == 0x40b)
-					break;
+					w[i] = w[i] * w_b[i];
 			}
-
-			int32_t v0_204;
-			for (v0_204 = 0; (v0_204 & 0xffff) < (int32_t)i_3; v0_204++) {
-				int32_t a0_51 = var_154[v0_204] * *v1_27 * var_31c[v0_204];
-				uint32_t a1_28 = (uint32_t)var_4e4[v0_204];
-				v1_27++;
-				*(v1_27 - 1) = a0_51 * (int32_t)a1_28;
-			}
-		} else if (t0_10 >= 0x73b) {
-			int16_t *p_e0_c = (int16_t *)_GET_USHORT_PTR(0xe0);
-			int16_t *p_f1_c = (int16_t *)_GET_USHORT_PTR(0xf1);
-			int16_t *p_e4_c = (int16_t *)_GET_USHORT_PTR(0xe4);
-			int32_t cw1 = ((int32_t)(uint16_t)p_e0_c[*p_f1_c * 2] + 0x100) >> 1;
-			int32_t cw2 = ((int32_t)(uint16_t)p_e4_c[*p_f1_c * 2] + 0x100) >> 1;
-			compute_weight(cw1, cw2, &var_154[0], &var_bf0[0], &var_31c[0], arg1);
+		} else if (ct < 0x73b) {
+			n = *(uint16_t *)(fsm + 0x10);
+			for (i = 0; (i & 0xffff) < n; i++)
+				w[i] = valid[i] ? w[i] * 100 : 0;
 		} else {
-			uint32_t i_4 = (uint32_t)i;
-			int32_t *v1_28 = &var_bf0[0];
-			int32_t v0_205;
+			compute_weight((t30_lut16(0xe0, t30_lut16(0xf1, 0)) + 0x100) >> 1,
+				       (t30_lut16(0xe4, t30_lut16(0xf1, 0)) + 0x100) >> 1,
+				       valid, w, w_a, arg1);
+		}
+		n = *(uint16_t *)(fsm + 0x10);
+	} else {
+		/* share a dominates */
+		uint32_t avg_y = 0;
 
-			for (v0_205 = 0; (v0_205 & 0xffff) < (int32_t)i_4; v0_205++) {
-				int32_t a0_57 = 0;
-				if (var_154[v0_205] != 0)
-					a0_57 = var_31c[v0_205] * *v1_28;
-				*v1_28 = a0_57;
-				v1_28++;
-			}
+		hot = t30_lut16(0xf7, 0) < ct;
+		for (i = 0; i != *(uint16_t *)(fsm + 0x10); i = (i + 1) & 0xffff)
+			avg_y += ZY(i);
+		if (i != 0)
+			avg_y /= i;
+		if (t30_lut16(0xf7, 0) < ct && avg_y > 0x100) {
+			uint32_t lo = t30_lut16(0xe0, t30_lut16(0xdd, 0));
+			int32_t k = 0x3cf, acc;
+			uint16_t cntz;
+
+			do {
+				uint32_t hx = t30_lut16(0xe0, t30_lut16(0xf1, 0));
+				uint32_t lim_x, lim_y;
+
+				if (k - 0x3b6 < 0x33)
+					lim_y = (k * (int32_t)t30_lut16(0xe4, t30_lut16(0xdd, 0))) / 1000 & 0xffff;
+				else
+					lim_y = t30_lut16(0xe4, t30_lut16(0xdd, 0));
+				lim_x = (k * (int32_t)((hx + 0x100) >> 1)) / 1000 & 0xffff;
+				cntz = *(uint16_t *)(fsm + 0x10);
+				acc = 0;
+				for (i = 0; (i & 0xffff) < cntz; i++) {
+					uint32_t x = ZX(i);
+
+					inbox[i] = !(x < lo || lim_x < x || lim_y < ZY(i));
+					acc += valid[i] * w[i] * w_a[i] * inbox[i];
+				}
+			} while (acc == 0 && (k += 0x14) != 0x40b);
+			for (i = 0; (i & 0xffff) < cntz; i++)
+				w[i] = valid[i] * w[i] * w_a[i] * inbox[i];
+			n = *(uint16_t *)(fsm + 0x10);
+		} else if (ct < 0x73b) {
+			n = *(uint16_t *)(fsm + 0x10);
+			for (i = 0; (i & 0xffff) < n; i++)
+				w[i] = valid[i] ? w_a[i] * w[i] : 0;
+			n = *(uint16_t *)(fsm + 0x10);
+		} else {
+			compute_weight((t30_lut16(0xe0, t30_lut16(0xf1, 0)) + 0x100) >> 1,
+				       (t30_lut16(0xe4, t30_lut16(0xf1, 0)) + 0x100) >> 1,
+				       valid, w, w_a, arg1);
+			n = *(uint16_t *)(fsm + 0x10);
 		}
 	}
 
-	*(int32_t *)((char *)arg1 + 0x778) = result;
-	return result;
+	/* zones near the first known light source */
+	sum = 0;
+	for (i = 0; (i & 0xffff) < n; i++)
+		sum += known0[i];
+	if ((n >> 3) < sum && r < b && ct >= 0x65 && ct <= 900) {
+		for (i = 0; (i & 0xffff) < n; i++) {
+			uint16_t f = (uint16_t)(known0[i] * valid[i]);
+
+			wb_rg[i] = f * (int16_t)ZX(i);
+			wb_bg[i] = f * (int16_t)ZY(i);
+			w[i] *= known0[i];
+		}
+	} else if (sum != 0 && ct > 900) {
+		/* OEM 0x34134: (n / 8 < sum implies sum != 0) */
+		for (i = 0; (i & 0xffff) < n; i++) {
+			uint16_t f = (uint16_t)((1 - known0[i]) * inbox[i] * valid[i]);
+
+			wb_rg[i] = f * (int16_t)ZX(i);
+			wb_bg[i] = f * (int16_t)ZY(i);
+			w[i] *= 1 - known0[i];
+		}
+	} else {
+		for (i = 0; (i & 0xffff) < n; i++) {
+			uint16_t f = (uint16_t)(inbox[i] * valid[i]);
+
+			wb_rg[i] = f * (int16_t)ZX(i);
+			wb_bg[i] = f * (int16_t)ZY(i);
+		}
+	}
+
+	/* weighted average point */
+	sum = 0;
+	for (i = 0; (i & 0xffff) < n; i++)
+		sum += w[i];
+	if (sum == 0) {
+		uint32_t avg_x = 0;
+
+		for (i = 0; i != n; i = (i + 1) & 0xffff)
+			avg_x += ZX(i);
+		if (i != 0)
+			avg_x /= i;
+		if (t30_lut16(0xe0, t30_lut16(0xd8, 0)) < avg_x) {
+			r = t30_lut16(0xe0, t30_lut16(0xd8, 0));
+			b = t30_lut16(0xe4, t30_lut16(0xd8, 0));
+		} else {
+			r = 0x100;
+			b = 0x100;
+		}
+	} else {
+		r = 0;
+		b = 0;
+		for (i = 0; (i & 0xffff) < n; i++) {
+			r += (uint32_t)wb_rg[i] * w[i];
+			b += (uint32_t)wb_bg[i] * w[i];
+		}
+		b /= sum;
+		r /= sum;
+		arg1[0xf] = b;
+		arg1[0xe] = r;
+	}
+	if (hot && t30_lut16(0xe6, 2) != 0) {
+		r = (t30_lut16(0xe6, 0) * r) / t30_lut16(0xe6, 2);
+		b = (t30_lut16(0xe6, 1) * b) / t30_lut16(0xe6, 2);
+	}
+	if (r == 0)
+		r = arg1[0xe];
+	if (b == 0)
+		b = arg1[0xf];
+	if (r != 0 && b != 0)
+		t30_awb_fifo_push(0xffff / r, 0xffff / b);
+	else
+		t30_awb_fifo_push(0, 0);
+
+	/* filtered point -> chosen gains and colour temperature */
+	t30_awb_get_point(pt);
+	arg1[0xc] = pt[0];
+	arg1[0xd] = pt[1];
+	temp = 0;
+	if (stab[12] == 0) {
+		if (pt[0] != 0 && pt[1] != 0) {
+			int32_t m = AWB_mesh_isra_1(0xffff / pt[0], 0xffff / pt[1],
+						    (int16_t *)(uintptr_t)_GET_USHORT_PTR(0xe2),
+						    (int16_t *)(uintptr_t)_GET_USHORT_PTR(0xfb),
+						    (void *)(uintptr_t)_GET_USHORT_PTR(0xd6));
+			int32_t lo_t = arg1[0x1e2];
+
+			if (m != 0)
+				temp = 1000000 / m;
+			if (hot && (m == 0 || temp < 5000))
+				temp = 10000 - temp;
+			if (temp < lo_t) {
+				*(uint16_t *)(fsm + 0x18) = (uint16_t)arg1[0x1e4];
+				*(uint16_t *)(fsm + 0x1a) = *(uint16_t *)(fsm + 0x792);
+				temp = lo_t;
+			} else if (temp <= arg1[0x1e1]) {
+				*(uint16_t *)(fsm + 0x18) = (uint16_t)arg1[0xc];
+				*(uint16_t *)(fsm + 0x1a) = (uint16_t)arg1[0xd];
+			} else {
+				*(uint16_t *)(fsm + 0x18) = (uint16_t)arg1[0x1e3];
+				*(uint16_t *)(fsm + 0x1a) = *(uint16_t *)(fsm + 0x78e);
+				temp = arg1[0x1e1];
+			}
+		}
+	} else {
+		uint32_t qr = 0xffff, qb = 0xffff;
+		int32_t m;
+
+		if (*(uint16_t *)(fsm + 0x18))
+			qr = 0xffff / *(uint16_t *)(fsm + 0x18);
+		if (*(uint16_t *)(fsm + 0x1a))
+			qb = 0xffff / *(uint16_t *)(fsm + 0x1a);
+		m = AWB_mesh_isra_1(qr, qb, (int16_t *)(uintptr_t)_GET_USHORT_PTR(0xe2),
+				    (int16_t *)(uintptr_t)_GET_USHORT_PTR(0xfb),
+				    (void *)(uintptr_t)_GET_USHORT_PTR(0xd6));
+		if (m != 0)
+			temp = 1000000 / m;
+	}
+	arg1[0x1de] = temp;
+#undef ZX
+#undef ZY
+	return 0;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000034e08 origin=model_output original=awb_calc_avg_weighted_gr_gb */
@@ -54695,68 +42683,47 @@ int32_t awb_update(void)
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000034fb4 origin=model_output original=awb_normalise */
 int32_t *awb_normalise(int32_t *arg1)
 {
-	int32_t val_770;
-	int32_t val_772;
-	int32_t val_774;
-	int32_t val_776;
-	int32_t r0;
-	int32_t r1;
-	int32_t r2;
-	int32_t r3;
-	int32_t r4;
-	int32_t sum0;
-	int32_t sum1;
-	int32_t min_val;
-	int32_t clamped;
-	int32_t offset;
-	int32_t *i;
-	int32_t *result;
+	/*
+	 * OEM awb_normalise (SDK ko 0x346d4), void there.  gain[4] = log2 of the
+	 * four static WB values (+0x770..+0x776, Q8); channels 0 and 3 add the
+	 * red/blue feedback (+0x18/+0x1a, or stab[49]/stab[50] while AWB is manual,
+	 * stab[12]).  The minimum of the four is moved to unity:
+	 * +0x760 + 4*i = gain[i] + 0xc0000 - min - log2(0x1000 - ctx[0]+0xe6).
+	 * The lift added the offset to four unrelated stack slots starting at a
+	 * local (&sum0) instead of gain[0..3] and returned that stack address.
+	 */
+	int32_t gain[4];
+	int32_t r0, r3, m, offset, i;
 
-	val_770 = *(uint16_t *)((char *)arg1 + 0x770);
-	r0 = log2_fixed_to_fixed(val_770, 8, 0x10);
-	val_772 = *(uint16_t *)((char *)arg1 + 0x772);
-	r1 = log2_fixed_to_fixed(val_772, 8, 0x10);
-	val_774 = *(uint16_t *)((char *)arg1 + 0x774);
-	r2 = log2_fixed_to_fixed(val_774, 8, 0x10);
-	val_776 = *(uint16_t *)((char *)arg1 + 0x776);
-	r3 = log2_fixed_to_fixed(val_776, 8, 0x10);
-	r4 = log2_fixed_to_fixed(*(uint16_t *)((char *)arg1 + 0x778), 8, 0x10);
+	r0 = log2_fixed_to_fixed(*(uint16_t *)((char *)arg1 + 0x770), 8, 0x10);
+	gain[1] = log2_fixed_to_fixed(*(uint16_t *)((char *)arg1 + 0x772), 8, 0x10);
+	gain[2] = log2_fixed_to_fixed(*(uint16_t *)((char *)arg1 + 0x774), 8, 0x10);
+	r3 = log2_fixed_to_fixed(*(uint16_t *)((char *)arg1 + 0x776), 8, 0x10);
 
-	/* #202 symval: the lift declared a local `stab` and took the address of that local (stab = &stab + 0xc), so the flag was read
-	 * from and the 0x31/0x32 bytes written to the kernel stack; OEM ko 0x34770/0x3477c/0x3478c: lbu 12/49/50(stab) */
-
+	/* #202 symval: lbu 12/49/50(stab), OEM ko 0x34770/0x3477c/0x3478c */
 	if (stab[12] == 0) {
-		sum0 = log2_fixed_to_fixed(*(uint16_t *)((char *)arg1 + 0x18), 8, 0x10) + r0;
-		sum1 = log2_fixed_to_fixed(*(uint16_t *)((char *)arg1 + 0x1a), 8, 0x10) + r3;
+		gain[0] = log2_fixed_to_fixed(*(uint16_t *)((char *)arg1 + 0x18), 8, 0x10) + r0;
+		gain[3] = log2_fixed_to_fixed(*(uint16_t *)((char *)arg1 + 0x1a), 8, 0x10) + r3;
 		stab[0x31] = (uint8_t)(*(uint16_t *)((char *)arg1 + 0x18) >> 1);
 		stab[0x32] = (uint8_t)(*(uint16_t *)((char *)arg1 + 0x1a) >> 1);
 	} else {
-		sum0 = log2_fixed_to_fixed(stab[0x31], 7, 0x10) + r0;
-		sum1 = log2_fixed_to_fixed(stab[0x32], 7, 0x10) + r3;
+		gain[0] = log2_fixed_to_fixed(stab[0x31], 7, 0x10) + r0;
+		gain[3] = log2_fixed_to_fixed(stab[0x32], 7, 0x10) + r3;
 		*(uint16_t *)((char *)arg1 + 0x18) = (uint16_t)(stab[0x31] << 1);
 		*(uint16_t *)((char *)arg1 + 0x1a) = (uint16_t)(stab[0x32] << 1);
 	}
 
-	min_val = sum0;
-	if (sum1 < min_val)
-		min_val = sum1;
+	m = gain[3] < gain[0] ? gain[3] : gain[0];
+	if (gain[1] < m)
+		m = gain[1];
+	if (gain[2] < m)
+		m = gain[2];
 
-	clamped = r1;
-	if (clamped >= min_val)
-		clamped = min_val;
+	offset = 0xc0000 - m - log2_fixed_to_fixed(0x1000 - *(uint16_t *)((char *)(*(int32_t *)arg1) + 0xe6), 0, 0x10);
+	for (i = 0; i < 4; i++)
+		*(int32_t *)((char *)arg1 + 0x760 + 4 * i) = gain[i] + offset;
 
-	if (r2 < clamped)
-		clamped = r2;
-
-	offset = 0xc0000 - clamped - log2_fixed_to_fixed(0x1000 - *(uint16_t *)((char *)(*(int32_t *)arg1) + 0xe6), 0, 0x10);
-
-	result = (int32_t *)&sum0;
-	for (i = 0; (uintptr_t)i != 0x10; i = (uintptr_t)i + 4) {
-		*(int32_t *)((char *)arg1 + (uintptr_t)i + 0x760) = *(int32_t *)((char *)&sum0 + (uintptr_t)i) + offset;
-		result = (int32_t *)((char *)&sum0 + (uintptr_t)i);
-	}
-
-	return result;
+	return NULL;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000035190 origin=model_output original=dynamic_dpc_strength_calculate */
@@ -55050,264 +43017,6 @@ int32_t noise_reduction_update(struct noise_reduction_fsm_state *state)
 		       APICAL_READ_32(0x2c0) & 1);
 
 	return 0;
-}
-
-/* Preserve the raw recovery artifact for binary-audit provenance. */
-static int32_t noise_reduction_update_recovered(uintptr_t a0)
-{
-    uint32_t *local_10 = 0;
-    uint32_t local_14 = 0;
-    uint32_t *local_18 = 0;
-    uint32_t local_1c = 0;
-    uint32_t local_20 = 0;
-    uint32_t local_24 = 0;
-    uint32_t local_28 = 0;
-    uint32_t local_2c = 0;
-    uint32_t local_30 = 0;
-    uint32_t local_34 = 0;
-    uint32_t local_38 = 0;
-    uint32_t local_3c = 0;
-    uint32_t *a1 = 0;
-    uint32_t a2 = 0;
-    uint32_t ra = 0;
-    uintptr_t *s0 = 0;
-    uint32_t *s1 = 0;
-    uintptr_t *s2 = 0;
-    uint32_t *s3 = 0;
-    uint32_t s4 = 0;
-    uint32_t s5 = 0;
-    uint32_t s6 = 0;
-    uint32_t s7 = 0;
-    uint32_t s8 = 0;
-    uint32_t t9 = 0;
-    uintptr_t *v0 = 0;
-    uint32_t v1 = 0;
-
-    /* fragment 0: MemoryAccess */
-    v0 = *(uint32_t *)((char *)a0 + 0);
-    v1 = *(uint32_t *)((char *)v0 + 720);
-    local_1c = s1;
-    s1 = *(uint32_t *)((char *)v0 + 716);
-    local_3c = ra;
-    local_28 = s4;
-    local_24 = s3;
-    local_20 = s2;
-    local_18 = s0;
-    local_38 = s8;
-    local_34 = s7;
-    local_30 = s6;
-    local_2c = s5;
-    a1 = *(uint8_t *)((char *)v0 + 5412);
-    s1 = s1 + v1;
-    v1 = *(uint32_t *)((char *)v0 + 724);
-    v0 = (uintptr_t *)&_GET_HDR_TABLE_INDEX;
-    s0 = a0;
-    v0 = v0;
-    a0 = 81;
-
-    /* fragment 1: CallSetup */
-    s1 = s1 + v1;
-    v0 = (uintptr_t *)((uintptr_t (*)(int32_t *))(uintptr_t)_GET_HDR_TABLE_INDEX)(a0); /* jalr target resolved by relocation */
-
-    /* fragment 2: CallSetup */
-    s1 = (uintptr_t)(s1) >> 8;
-    v0 = (uintptr_t *)((uintptr_t (*)(int32_t *))(uintptr_t)_GET_MOD_ENTRY16_PTR)(v0); /* jalr target resolved by relocation */
-
-    /* fragment 3: CallSetup */
-    s2 = v0;
-    v0 = (uintptr_t *)((uintptr_t (*)(int32_t *))(uintptr_t)_GET_ROWS)(81); /* jalr target resolved by relocation */
-
-    /* fragment 4: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)calc_modulation_u16)((uintptr_t)s1 & 65535, (uintptr_t)s2, (uintptr_t)v0); /* jalr target resolved by relocation */
-
-    /* fragment 5: CallSetup */
-    s4 = (uintptr_t)&APICAL_READ_32;
-    s1 = v0;
-    v0 = (uintptr_t *)((uintptr_t (*)(int32_t *))(uintptr_t)APICAL_READ_32)(1096); /* jalr target resolved by relocation */
-
-    /* fragment 6: CallSetup */
-    s3 = (int32_t *)&APICAL_WRITE_32;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)APICAL_WRITE_32)(1096, ((uintptr_t)s1 & 255) | ((uintptr_t)v0 & (-256))); /* jalr target resolved by relocation */
-
-    /* fragment 7: MemoryAccess */
-    v0 = *(uint32_t *)((char *)s0 + 0);
-    v1 = 3;
-    v0 = *(uint8_t *)((char *)v0 + 5412);
-
-    /* fragment 8: Branch */
-    int _bc_v0_8 = v0 == v1;
-    v1 = 1;
-    if (_bc_v0_8) { goto noise_reduction_update0xec; }
-
-    /* fragment 9: CallSetup */
-    s1 = *(uint8_t *)((char *)s0 + 34);
-
-noise_reduction_update0xec:
-    /* fragment 10: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(int32_t *))(uintptr_t)stitching_error_calculate)(s0); /* jalr target resolved by relocation */
-
-    /* fragment 11: CallSetup */
-    s1 = *(uint8_t *)((char *)(s0) + 34);
-    *(uint8_t *)((char *)s0 + 28) = (*(uint8_t *)((char *)((char *)&stab + 0x2b)));
-    v0 = (uintptr_t *)((uintptr_t (*)(int32_t *))(uintptr_t)sinter_strength_calculate)(s0); /* jalr target resolved by relocation */
-
-    /* fragment 12: CallSetup */
-    s2 = *(uint32_t *)((char *)(s0) + 0);
-    s2 = (uint32_t *)&APICAL_READ_32;
-    s2 = (uint32_t *)&APICAL_READ_32;
-    v0 = (uintptr_t *)((uintptr_t (*)(int32_t *))(uintptr_t)APICAL_READ_32)(584); /* jalr target resolved by relocation */
-
-    /* fragment 13: CallSetup */
-    s5 = s2 + 5352;
-    s6 = a0 & 65535;
-    v0 = (uintptr_t *)((uintptr_t (*)(int32_t *))(uintptr_t)_GET_UINT_PTR)(275); /* jalr target resolved by relocation */
-
-    /* fragment 14: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)calc_fe_lut_output)(s5, s6 + (*(uint32_t *)((char *)((uintptr_t)v0) + 0)) & 65535); /* jalr target resolved by relocation */
-
-    /* fragment 15: CallSetup */
-    local_14 = v0;
-    v0 = (uintptr_t *)((uintptr_t (*)(int32_t *))(uintptr_t)APICAL_READ_32)(580); /* jalr target resolved by relocation */
-
-    /* fragment 16: CallSetup */
-    s8 = (uintptr_t)v0 & 4095 & 65535;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)_GET_UINT_PTR)(275, ((uintptr_t)v0 & 4095) << 10); /* jalr target resolved by relocation */
-
-    /* fragment 17: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)calc_fe_lut_output)(s5, s8 + (*(uint32_t *)((char *)((uintptr_t)v0) + 0)) & 65535); /* jalr target resolved by relocation */
-
-    /* fragment 18: CallSetup */
-    s7 = v0;
-    v0 = (uintptr_t *)((uintptr_t (*)(int32_t *))(uintptr_t)_GET_USHORT_PTR)(266); /* jalr target resolved by relocation */
-
-    /* fragment 19: CallSetup */
-    s5 = *(uint16_t *)((char *)(v0) + 0);
-    s6 = s5 << 6;
-    s8 = s5 + 15;
-    s8 = s8 + ((int32_t)((*(uint16_t *)((char *)((uintptr_t)s2) + 714)) + 32) >> 6);
-    s2 = (uint32_t *)&APICAL_WRITE_32;
-    v0 = (uintptr_t *)((uintptr_t (*)(int32_t *))(uintptr_t)APICAL_WRITE_32)(736); /* jalr target resolved by relocation */
-
-    /* fragment 20: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)APICAL_WRITE_32)(736, ((uintptr_t)v0 & 4294901760) | (s7 & 65535)); /* jalr target resolved by relocation */
-
-    /* fragment 21: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(int32_t *))(uintptr_t)APICAL_READ_32)(740); /* jalr target resolved by relocation */
-
-    /* fragment 22: CallSetup */
-    s7 = -256;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)APICAL_WRITE_32)(740, (uintptr_t)v0 & (-256) | 3); /* jalr target resolved by relocation */
-
-    /* fragment 23: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(int32_t *))(uintptr_t)APICAL_READ_32)(744); /* jalr target resolved by relocation */
-
-    /* fragment 24: CallSetup */
-    s8 = s8 - s6;
-    local_10 = v1;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)APICAL_WRITE_32)(744, (v1 + 1 & 255) | ((uintptr_t)v0 & s7), local_14); /* jalr target resolved by relocation */
-
-    /* fragment 25: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(int32_t *))(uintptr_t)APICAL_READ_32)(7548); /* jalr target resolved by relocation */
-
-    /* fragment 26: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)APICAL_WRITE_32)(7548, (s8 << 24) | ((uintptr_t)v0 & (16711680 | 65535))); /* jalr target resolved by relocation */
-
-    /* fragment 27: MemoryAccess */
-    v0 = *(uint16_t *)((char *)s0 + 32);
-    s6 = v0 + s6;
-    s5 = s5 + (uintptr_t)v0;
-    *(uint16_t *)((char *)s0 + 20) = s6;
-
-    /* fragment 28: Branch */
-    *(uint16_t *)((char *)s0 + 22) = s5;
-    goto noise_reduction_update0x324;
-
-    /* fragment 29: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(int32_t *))(uintptr_t)APICAL_WRITE_32)(736); /* jalr target resolved by relocation */
-
-    /* fragment 30: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)APICAL_WRITE_32)(736, (uintptr_t)v0 | 65535); /* jalr target resolved by relocation */
-
-    /* fragment 31: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(int32_t *))(uintptr_t)APICAL_WRITE_32)(740); /* jalr target resolved by relocation */
-
-    /* fragment 32: CallSetup */
-    s5 = -256;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)APICAL_WRITE_32)(740, (uintptr_t)v0 & (-256) | 32); /* jalr target resolved by relocation */
-
-    /* fragment 33: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(int32_t *))(uintptr_t)APICAL_WRITE_32)(744); /* jalr target resolved by relocation */
-
-    /* fragment 34: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)APICAL_WRITE_32)(744, (uintptr_t)v0 & s5 | 4); /* jalr target resolved by relocation */
-
-noise_reduction_update0x324:
-    /* fragment 35: CallSetup */
-    s6 = 255;
-    s1 = *(uint16_t *)((char *)(s0) + 20) < 256;
-    s1 = *(uint16_t *)((char *)((uintptr_t)s0) + 20) & 255;
-    s2 = -256;
-    v0 = (uintptr_t *)((uintptr_t (*)(int32_t *))(uintptr_t)APICAL_READ_32)(680); /* jalr target resolved by relocation */
-
-    /* fragment 36: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)APICAL_WRITE_32)(680, ((uintptr_t)v0 & (uintptr_t)s2) | (uintptr_t)s1); /* jalr target resolved by relocation */
-
-    /* fragment 37: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(int32_t *))(uintptr_t)APICAL_READ_32)(676); /* jalr target resolved by relocation */
-
-    /* fragment 38: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)APICAL_WRITE_32)(676, ((uintptr_t)v0 & (uintptr_t)s2) | s6); /* jalr target resolved by relocation */
-
-    /* fragment 39: MemoryAccess */
-    v1 = *(uint8_t *)((char *)s0 + 35);
-    v0 = 1;
-
-    /* fragment 40: Branch */
-    if (v1 != v0) { goto noise_reduction_update0x42c; }
-
-    /* fragment 41: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(int32_t *))(uintptr_t)temper_strength_calculate)(s0); /* jalr target resolved by relocation */
-
-    /* fragment 42: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(int32_t *))(uintptr_t)dynamic_dpc_strength_calculate)(s0); /* jalr target resolved by relocation */
-
-    /* fragment 43: CallSetup */
-    s2 = *(uint8_t *)((char *)(s0) + 16);
-    s1 = -256;
-    v0 = (uintptr_t *)((uintptr_t (*)(int32_t *))(uintptr_t)APICAL_READ_32)(712); /* jalr target resolved by relocation */
-
-    /* fragment 44: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)APICAL_WRITE_32)(712, ((uintptr_t)v0 & (uintptr_t)s1) | (uintptr_t)s2); /* jalr target resolved by relocation */
-
-    /* fragment 45: CallSetup */
-    s0 = *(uint8_t *)((char *)(s0) + 18);
-    v0 = (uintptr_t *)((uintptr_t (*)(int32_t *))(uintptr_t)APICAL_READ_32)(708); /* jalr target resolved by relocation */
-
-    /* fragment 46: Arithmetic */
-    v0 = (uintptr_t)v0 & (uintptr_t)s1;
-
-    /* fragment 47: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    /* fragment 48: Arithmetic */
-    a1 = (uintptr_t)v0 | (uintptr_t)s0;
-    t9 = s3;
-
-    /* fragment 49: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    /* fragment 50: Arithmetic */
-    a0 = 708;
-
-    /* fragment 51: IndirectTailCall */
-    APICAL_WRITE_32((uintptr_t)a0, (uintptr_t)a1);
-    return 0;
-
-noise_reduction_update0x42c:
-    /* fragment 52: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    return 0;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000035dc0 origin=model_output original=histogramspace_to_gamma_space */
@@ -55973,13 +43682,15 @@ int32_t dis_update_stats(int32_t *arg1)
         return result;
     }
 
-    int32_t count = (val1 & 0x1f) * ((val2 & (uintptr_t)&LC11) >> 8);
+    /* #375: vendor 4ea12e1f 0x36498: rows = reg 0x908 & 0x1f00 (the lift masked with the address of a
+     * string literal) and the event goes to the FSM owner *arg1 (the lift raised it on the FSM itself) */
+    int32_t count = (val1 & 0x1f) * ((val2 & 0x1f00) >> 8);
     int32_t threshold = arg1[10];
     ((void **)arg1)[8] = 1;
 
     if (threshold < count) {
         ((void **)arg1)[8] = 0;
-        return apical_isp_raise_event((void *)arg1, 0xd);
+        return apical_isp_raise_event(*(void **)arg1, 0xd);
     }
 
     int32_t *dst = &arg1[11];
@@ -56000,7 +43711,7 @@ int32_t dis_update_stats(int32_t *arg1)
     }
 
     ((void **)arg1)[8] = 0;
-    return apical_isp_raise_event((void *)arg1, 0xd);
+    return apical_isp_raise_event(*(void **)arg1, 0xd);
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000036f00 origin=model_output original=dis_update_settings */
@@ -56016,7 +43727,7 @@ int32_t dis_update_settings(uintptr_t arg1)
 	uint32_t val1 = APICAL_READ_32(0x908);
 	uint32_t *s2 = val1 & 0x1f;
 	uint32_t val2 = APICAL_READ_32(0x908);
-	uint32_t v0_5 = (val2 & (uintptr_t)&LC11) >> 8;
+	uint32_t v0_5 = (val2 & 0x1f00) >> 8;	/* #375: vendor 0x36680 andi 0x1f00 (was a string address) */
 
 	if (s2 != *(uint32_t *)((char *)arg1 + 0x18) || v0_5 != *(uint32_t *)((char *)arg1 + 0x14)) {
 		*(uint32_t *)((char *)arg1 + 0x14) = v0_5;
@@ -56026,25 +43737,11 @@ int32_t dis_update_settings(uintptr_t arg1)
 		uint32_t val3 = APICAL_READ_32(0x908);
 		uint32_t val4 = APICAL_READ_32(0x908);
 		((void **)settings)[0] = val3 & 0x1f;
-		((void **)settings)[1] = (val4 & (uintptr_t)&LC11) >> 8;
+		((void **)settings)[1] = (val4 & 0x1f00) >> 8;
 		dis_set_settings(*(uint32_t *)((char *)arg1 + 0x10), (int32_t)settings);
 	}
 
 	return 0;
-}
-
-/* WHOLE_DRIVER_CANDIDATE fn_0000000000036ff8 origin=model_output original=dis_update_output */
-int32_t dis_update_output(void *arg1, int32_t arg2, int32_t arg3, int32_t arg4, int32_t arg5)
-{
-    uint32_t *p = (uint32_t *)arg1;
-    ((void **)(uintptr_t)p)[0x182c / 4] = (uint32_t)arg2;
-    ((void **)(uintptr_t)p)[0x1830 / 4] = (uint32_t)arg3;
-    ((void **)(uintptr_t)p)[0x1834 / 4] = (uint32_t)arg4;
-    ((void **)(uintptr_t)p)[0x1838 / 4] = (uint32_t)arg5;
-    ((void **)(uintptr_t)p)[0x183c / 4] = p[0x1c / 4];
-    stab[28] = (uint16_t)arg2;
-    stab[29] = (uint16_t)arg3;
-    return 0;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000037038 origin=model_output original=dis_analyze_stats */
@@ -56160,15 +43857,6 @@ int32_t dis_get_settings(int32_t arg1, int32_t arg2)
 	return 0;
 }
 
-/* WHOLE_DRIVER_CANDIDATE fn_000000000003729c origin=model_output original=dis_check_settings */
-int32_t dis_check_settings(int32_t a0, int32_t a1, int32_t a2, int32_t a3)
-{
-	int32_t sum = a0 + a1 + a2 + a3;
-	if (sum)
-		return sum;
-	return 0;
-}
-
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000372b4 origin=model_output original=dis_open */
 int32_t dis_open(void **arg1, int32_t arg2, int32_t arg3, int32_t arg4,
 		 int32_t arg5, int32_t arg6, int32_t arg7, int32_t arg8,
@@ -56208,12 +43896,6 @@ int32_t dis_open(void **arg1, int32_t arg2, int32_t arg3, int32_t arg4,
 		return 0;
 
 	return get_gmv_gauss_init((void **)(ctx + 0xfc), arg8);
-}
-
-/* WHOLE_DRIVER_CANDIDATE fn_00000000000373ec origin=model_output original=dis_close */
-int32_t dis_close(int32_t arg1)
-{
-	return arg1 ? 0 : -1;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000373f8 origin=model_output original=dis_clip_gmv_vector */
@@ -56274,68 +43956,6 @@ int32_t dis_analyze(void *arg1, void *arg2, int32_t *arg3, int32_t *arg4)
     }
 
     return -1;
-}
-
-/* WHOLE_DRIVER_CANDIDATE fn_0000000000037568 origin=model_output original=dis_update_bg_map */
-int32_t dis_update_bg_map(void *arg1, int32_t arg2, int32_t *arg3)
-{
-    int32_t *p = (int32_t *)arg1;
-    int32_t count = p[2] * p[3];
-    if (count >= 257)
-        count = 256;
-
-    memset((char *)arg1 + 0x10c, 0xff, 32);
-
-    int32_t ax8 = 0, bx8 = 0, ay8 = 0, by8 = 0;
-    if (arg3 != 0) {
-        int32_t x = arg3[0];
-        int32_t y = arg3[1];
-
-        int32_t ax = (x << 8) - ((x & 0x3f) << 6);
-        int32_t bx = (x << 8) + ((x & 0x3f) << 6);
-        int32_t ay = (y << 8) - ((y & 0x3f) << 6);
-        int32_t by = (y << 8) + ((y & 0x3f) << 6);
-
-        if (ax < 0)
-            ax += 255;
-        if (bx < 0)
-            bx += 255;
-        if (ay < 0)
-            ay += 255;
-        if (by < 0)
-            by += 255;
-
-        ax8 = ax >> 8;
-        bx8 = bx >> 8;
-        ay8 = ay >> 8;
-        by8 = by >> 8;
-    }
-
-    int32_t remaining = count;
-    int32_t i = 0;
-    while (arg3 != 0 && i < count) {
-        int32_t *e = (int32_t *)(arg2 + i * 24);
-        int32_t ex = e[0];
-        int32_t ey = e[1];
-        int32_t idx;
-        if (ex < ax8)
-            idx = ((uintptr_t)i >> 5) + 0x42;
-        else if (bx8 < ex)
-            idx = ((uintptr_t)i >> 5) + 0x42;
-        else if (ey < ay8)
-            idx = ((uintptr_t)i >> 5) + 0x42;
-        else if (by8 >= ey) {
-            i++;
-            continue;
-        } else {
-            idx = ((uintptr_t)i >> 5) + 0x42;
-        }
-        int32_t *slot = (void *)((uintptr_t)arg1 + idx);
-        slot[1] &= ~(1 << ((uintptr_t)i & 0x1f));
-        remaining -= 1;
-        i++;
-    }
-    return remaining;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000037700 origin=model_output original=apical_wdr_fs_isp_setup */
@@ -56439,146 +44059,6 @@ int32_t iir_filter_v2(int32_t arg1, int32_t arg2, int32_t arg3, int32_t *arg4)
     return 0;
 }
 
-/* WHOLE_DRIVER_CANDIDATE fn_0000000000037acc origin=model_output original=iir_filter_v4 */
-int32_t iir_filter_v4(int32_t arg1, int32_t arg2, int32_t arg3, int32_t *arg4)
-{
-    int32_t a1 = iir_state_a + arg2;
-    int32_t a2 = iir_state_b + arg3;
-    int32_t t;
-    int32_t u;
-    int32_t e_new;
-    int32_t g_new;
-    int32_t diff_c;
-    int32_t diff_d;
-
-    iir_state_a = a1;
-    iir_state_b = a2;
-
-    t = 31 * iir_state_c + a1;
-    if (t < 0)
-        t += 31;
-    iir_state_c = t >> 5;
-
-    t = 31 * iir_state_d + a2;
-    if (t < 0)
-        t += 31;
-    iir_state_d = t >> 5;
-
-    diff_c = iir_state_c - iir_state_e;
-    u = 3 * iir_state_f + diff_c;
-    if (u < 0)
-        u += 3;
-    iir_state_f = u >> 2;
-
-    diff_d = iir_state_d - iir_state_g;
-    u = 3 * iir_state_h + diff_d;
-    if (u < 0)
-        u += 3;
-    iir_state_h = u >> 2;
-
-    e_new = iir_state_e + iir_state_f;
-    g_new = iir_state_g + iir_state_h;
-
-    *arg4 = a1 - e_new;
-    arg4[1] = a2 - g_new;
-
-    iir_state_e = e_new;
-    iir_state_g = g_new;
-
-    APICAL_WRITE_32(0x900, (APICAL_READ_32(0x900) & 0xffff0000) | (diff_c & 0xffff));
-    APICAL_WRITE_32(0x904, (APICAL_READ_32(0x904) & 0xffff0000) | (diff_d & 0xffff));
-
-    return 0;
-}
-
-/* WHOLE_DRIVER_CANDIDATE fn_0000000000037c48 origin=model_output original=iir_filter_v3 */
-int32_t iir_filter_v3(int32_t arg1, int32_t arg2, int32_t arg3, int32_t *arg4)
-{
-	int32_t *base = (int32_t *)0;
-	int32_t acc1 = base[19];
-	int32_t new_acc1 = acc1 + arg2;
-	int32_t *base2 = (int32_t *)0;
-	int32_t acc2 = base2[19];
-	int32_t new_acc2 = acc2 + arg3;
-	int32_t coeff1 = base2[23];
-	int32_t prod1 = 31 * coeff1;
-	int32_t prev1 = base2[21];
-	int32_t diff1 = new_acc1 - prev1;
-	int32_t sum1 = prod1 + diff1;
-	int32_t adj1 = sum1 + 31;
-	int32_t neg1 = sum1 < 0;
-	int32_t val1 = neg1 ? adj1 : sum1;
-	int32_t q1 = val1 >> 5;
-	int32_t *base3 = (int32_t *)0;
-	int32_t coeff2 = base3[23];
-	int32_t prev2 = base3[22];
-	int32_t prod2 = 31 * coeff2;
-	int32_t diff2 = new_acc2 - prev2;
-	int32_t sum2 = prod2 + diff2;
-	int32_t adj2 = sum2 + 31;
-	int32_t neg2 = sum2 < 0;
-	int32_t val2 = neg2 ? adj2 : sum2;
-	int32_t q2 = val2 >> 5;
-	int32_t new_prev1 = prev1 + q1;
-	int32_t new_prev2 = prev2 + q2;
-	int32_t out1 = new_acc1 - new_prev1;
-	int32_t out2 = new_acc2 - new_prev2;
-	((void **)arg4)[0] = out1;
-	((void **)arg4)[1] = out2;
-	((void **)base2)[19] = new_acc1;
-	((void **)base2)[20] = new_acc2;
-	((void **)base2)[23] = q1;
-	((void **)base3)[23] = q2;
-	((void **)base2)[21] = new_prev1;
-	((void **)base3)[22] = new_prev2;
-	int32_t r1 = APICAL_READ_32(0x900);
-	int32_t w1 = (r1 & 0xffff0000) | (diff1 & 0xffff);
-	APICAL_WRITE_32(0x900, w1);
-	int32_t r2 = APICAL_READ_32(0x904);
-	int32_t w2 = (r2 & 0xffff0000) | (diff2 & 0xffff);
-	APICAL_WRITE_32(0x904, w2);
-	return 0;
-}
-
-/* WHOLE_DRIVER_CANDIDATE fn_0000000000037d80 origin=model_output original=get_common_estimations */
-int32_t get_common_estimations(void *arg1, int32_t arg2, int32_t arg3, uint32_t *arg4, int32_t *arg5)
-{
-    if (arg1 == 0)
-        return -1;
-
-    int32_t sum = 0;
-    int32_t max_val = 0;
-    int32_t *row = 0;
-
-    while (row != arg3) {
-        int32_t col = 0;
-        while (col != arg2) {
-            col += 1;
-            sum += *(int32_t *)((char *)arg1 + 0x10);
-            int32_t val = *(int32_t *)((char *)arg1 + 8);
-            if (max_val < val)
-                max_val = val;
-        }
-        arg1 = (char *)arg1 + 0x18;
-        row = (void *)(uintptr_t)((uintptr_t)row + (1));
-    }
-
-    int32_t total = (uintptr_t)row * arg2;
-    if (total == 0)
-        return 0;
-
-    *arg4 = (uint32_t)sum / (uint32_t)total;
-    *arg5 = max_val;
-    return 0;
-}
-
-/* WHOLE_DRIVER_CANDIDATE fn_0000000000037df8 origin=model_output original=validate_smooth_test */
-int32_t validate_smooth_test(void *arg1, int32_t arg2)
-{
-	uint32_t *p = (uint32_t *)arg1;
-	return (int32_t)((int32_t)(p[4] - p[2]) < arg2);
-}
-
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000037e0c origin=model_output original=validate_complexity_test */
 int32_t validate_complexity_test(void *arg1, int32_t arg2)
 {
@@ -56593,67 +44073,6 @@ int32_t validate_complexity_test(void *arg1, int32_t arg2)
         return 0;
 
     return arg2 < quotient;
-}
-
-/* WHOLE_DRIVER_CANDIDATE fn_0000000000037e40 origin=fragment_seed original=validate_borders */
-int32_t validate_borders(uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3, uint32_t arg4)
-{
-    uint32_t *local_10 = 0;
-    uint32_t ra = 0;
-    uintptr_t *v0 = 0;
-    uint32_t v1 = 0;
-
-    /* fragment 0: StackAccess */
-    v1 = local_10;
-    v0 = a0 < v1;
-
-    /* fragment 1: Branch */
-    int _bc_v0_1 = v0 != 0;
-    v0 = a1 < v1;
-    if (_bc_v0_1) { goto validate_borders0x24; }
-
-    /* fragment 2: Arithmetic */
-    a2 = a2 - v1;
-    a0 = a2 < a0;
-
-    /* fragment 3: Branch */
-    v0 = 0;
-    if (a0 == 0) { goto validate_borders0x44; }
-
-    /* fragment 4: Arithmetic */
-    v0 = a1 < v1;
-
-validate_borders0x24:
-    /* fragment 5: Branch */
-    v1 = a3 - v1;
-    if (v0 == 0) { goto validate_borders0x34; }
-
-validate_borders0x2c:
-    /* fragment 6: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    /* fragment 7: Arithmetic */
-    v0 = 1;
-
-validate_borders0x34:
-    /* fragment 8: Arithmetic */
-    a1 = v1 < a1;
-
-    /* fragment 9: Branch */
-    if (a1 != 0) { goto validate_borders0x2c; }
-
-    /* fragment 10: Arithmetic */
-    v0 = 0;
-
-validate_borders0x44:
-    /* fragment 11: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    /* fragment 12: Unknown */
-    /* unmatched fragment 12 (Unknown): no deterministic matcher for Unknown */
-    /* asm: 37e88:	00000000 	nop */
-
-    return 0;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000037e8c origin=model_output original=validate_motion_vectors */
@@ -56697,38 +44116,6 @@ int32_t validate_motion_vectors(int32_t arg1, void *arg2, int32_t arg3, int32_t 
 	return 0;
 }
 
-/* WHOLE_DRIVER_CANDIDATE fn_0000000000037f90 origin=fragment_seed original=get_exp */
-int32_t get_exp(uint32_t a0, uintptr_t a1)
-{
-    uint32_t ra = 0;
-    uintptr_t *v0 = 0;
-    uint32_t v1 = 0;
-
-    /* fragment 0: MemoryAccess */
-    v1 = *(uint32_t *)((char *)a1 + 4);
-    v1 = a0 < v1;
-
-    /* fragment 1: Branch */
-    v0 = 0;
-    if (v1 == 0) { goto get_exp0x20; }
-
-    /* fragment 2: MemoryAccess */
-    v0 = *(uint32_t *)((char *)a1 + 0);
-    a0 = a0 << 2;
-    a0 = v0 + a0;
-    v0 = *(uint32_t *)((char *)a0 + 0);
-
-get_exp0x20:
-    /* fragment 3: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    /* fragment 4: Unknown */
-    /* unmatched fragment 4 (Unknown): no deterministic matcher for Unknown */
-    /* asm: 37fb4:	00000000 	nop */
-
-    return 0;
-}
-
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000037fb8 origin=model_output original=get_gmv_gauss_init */
 int32_t get_gmv_gauss_init(void **arg1, int32_t arg2)
 {
@@ -56757,63 +44144,6 @@ int32_t get_gmv_gauss_init(void **arg1, int32_t arg2)
     ((void **)arg1)[0] = lut;
     ((void **)arg1)[2] = arg2;
     ((void **)arg1)[1] = 16;
-    return 0;
-}
-
-/* WHOLE_DRIVER_CANDIDATE fn_0000000000038050 origin=model_output original=get_gmv_gauss_method_fast_v1 */
-int32_t get_gmv_gauss_method_fast_v1(void *arg1, int32_t *arg2, int32_t arg3, int32_t arg4, int32_t *arg5)
-{
-    if (arg1 == 0)
-        return -1;
-
-    int32_t total = arg4 * arg3;
-    int32_t *s0 = arg2;
-    int32_t s7 = 0;
-    int32_t *i_1 = -1;
-    int32_t *i = 0;
-    uintptr_t t0 = (uintptr_t)arg1 + 0xfc;
-
-    while (i != total) {
-        int32_t t1 = s0[0];
-        int32_t t2 = s0[1];
-
-        if (s0[5] != 0) {
-            int32_t *s1 = arg2;
-            int32_t s5 = 0;
-            int32_t j = 0;
-
-            while (j != total) {
-                if (s1[5] == 0) {
-                    s1 = &s1[6];
-                } else {
-                    int32_t dx = t1 - s1[0];
-                    int32_t dy = t2 - s1[1];
-                    s5 += get_exp(dx * dx + dy * dy, t0);
-                    s1 = &s1[6];
-                }
-                j++;
-            }
-
-            if (s7 < s5) {
-                s7 = s5;
-                i_1 = i;
-            }
-            s0 = &s0[6];
-        } else {
-            s0 = &s0[6];
-        }
-        i++;
-    }
-
-    if (i_1 == -1) {
-        ((void **)arg5)[0] = 0;
-        ((void **)arg5)[1] = 0;
-    } else {
-        int32_t *s3 = &arg2[(uintptr_t)i_1 * 6];
-        ((void **)arg5)[0] = s3[0];
-        ((void **)arg5)[1] = s3[1];
-    }
-
     return 0;
 }
 
@@ -56886,91 +44216,6 @@ int32_t get_gmv_gauss_method_fast_v2(void *arg1, int32_t arg2, int32_t *arg3)
     return 0;
 }
 
-/* WHOLE_DRIVER_CANDIDATE fn_000000000003832c origin=model_output original=get_gmv_gauss_method_fast_v3 */
-int32_t get_gmv_gauss_method_fast_v3(void *arg1, int32_t arg2, int32_t *arg3)
-{
-	int32_t *p = (int32_t *)arg1;
-	int32_t count = p[2] * p[3];
-	if (count >= 257)
-		count = 256;
-
-	int32_t best_val = 0;
-	int32_t best_idx = -1;
-	int32_t i = 0;
-
-	while (i < count) {
-		int32_t thresh = p[0x40];
-		int32_t *cur = (int32_t *)(arg2 + i * 24);
-		int32_t cx = cur[0];
-		int32_t cy = cur[1];
-
-		int32_t dist = cx * cx + cy * cy;
-		int32_t div_base = (thresh << 14) / (dist + 1) + 1;
-
-		int32_t bit = (p[((uintptr_t)i >> 5) + 0x42 + 1] >> ((uintptr_t)i & 0x1f)) & 1;
-		int32_t accum = 0;
-		int32_t j = 0;
-
-		while (j < count) {
-			if (j != i) {
-				int32_t *other = (int32_t *)(arg2 + j * 24);
-				int32_t ox = other[0];
-				int32_t oy = other[1];
-				int32_t dx = oy - cy;
-				int32_t dy = ox - cx;
-				int32_t odist = dx * dx + dy * dy;
-				uint32_t score = (uint32_t)((div_base * odist) >> 14);
-
-				if (score >= (uint32_t)thresh) {
-					j++;
-					continue;
-				}
-
-				if (bit) {
-					int32_t *tbl = (int32_t *)p[0x3f];
-					int32_t jbit = (p[(j >> 5) + 0x42 + 1] >> (j & 0x1f)) & 1;
-					if (jbit)
-						accum += tbl[score << 2];
-				}
-			}
-			j++;
-		}
-
-		if (accum == 0) {
-			i++;
-		} else {
-			if ((uint32_t)best_val < (uint32_t)accum) {
-				best_val = accum;
-			} else if (best_idx >= 0) {
-				i++;
-				continue;
-			} else {
-				best_val = accum;
-			}
-			best_idx = i;
-			i++;
-		}
-	}
-
-	int32_t *best = (int32_t *)(arg2 + best_idx * 24);
-	((void **)arg3)[0] = best[0];
-	((void **)arg3)[1] = best[1];
-
-	if (best_val != 0) {
-		if (dis_update_bg_map(arg1, arg2, arg3) < 20) {
-			((void **)arg3)[1] = 0;
-			((void **)arg3)[0] = 0;
-			dis_update_bg_map(arg1, arg2, NULL);
-		}
-	} else {
-		((void **)arg3)[1] = 0;
-		((void **)arg3)[0] = 0;
-		dis_update_bg_map(arg1, arg2, NULL);
-	}
-
-	return 0;
-}
-
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000038530 origin=model_output original=tx_isp_vic_remove */
 int tx_isp_vic_remove(struct platform_device *pdev)
 {
@@ -57036,6 +44281,7 @@ int tx_isp_core_remove(struct platform_device *pdev)
 	struct tx_isp_t30_core_video_view *core;
 	struct tx_isp_t30_core_tuning_view *tuning;
 	unsigned int index;
+	bool was_active;
 
 	if (IS_ERR_OR_NULL(sd))
 		return 0;
@@ -57058,12 +44304,21 @@ int tx_isp_core_remove(struct platform_device *pdev)
 		tuning->tuning = NULL;
 	}
 
+	/*
+	 * The vendor remove (SDK-built ko 0x1dc) disables no clock: the last fd
+	 * close already did, in ispcore_slake_module (state back to SLAKE).
+	 * Since that slake runs (#2), disabling here again unbalanced the clock
+	 * counts and the next insmod ran the ISP with its clock gated (QEMU T30:
+	 * hang in the first frame interrupt of the reloaded module).  Only a
+	 * core that is still active (no slake ran) gets its clocks off here.
+	 */
+	was_active = core->state != TX_ISP_T30_MODULE_SLAKE;
 	kfree(core->channels);
 	core->channels = NULL;
 	core->channel_state = TX_ISP_T30_MODULE_SLAKE;
 	core->state = TX_ISP_T30_MODULE_SLAKE;
 	free_tx_isp_priv_param_manage();
-	if (sd->clks) {
+	if (sd->clks && was_active) {
 		for (index = sd->clk_num; index-- > 0;)
 			private_clk_disable(sd->clks[index]);
 	}
@@ -57112,53 +44367,6 @@ int tx_isp_ldc_remove(struct platform_device *pdev)
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000038880 origin=fragment_seed original=tx_isp_mscaler_remove */
-#if 0
-static int tx_isp_mscaler_remove_raw(struct platform_device *pdev)
-{
-    uint32_t *local_10 = 0;
-    uint32_t local_1c = 0;
-    uint32_t local_20 = 0;
-    uint32_t local_24 = 0;
-    uint32_t a0 = 0;
-    uint32_t ra = 0;
-    uint32_t *s0 = 0;
-    uintptr_t *s1 = 0;
-    uintptr_t *v0 = 0;
-
-    /* fragment 0: Prologue */
-    /* function prologue: stack frame and callee-saved register setup */
-
-    /* fragment 1: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(int32_t *))(uintptr_t)private_platform_get_drvdata)(a0); /* jalr target resolved by relocation */
-
-    /* fragment 2: CallSetup */
-    s1 = *(uint32_t *)((char *)((char *)&video_input_cmd_buf + 0x34));
-    local_10 = v0;
-    kfree((void *)(uintptr_t)(*(uint32_t *)((char *)(s1) + 324))); /* jalr target resolved by relocation */
-
-    /* fragment 3: CallSetup */
-    *(uint32_t *)((char *)s1 + 324) = 0;
-    kfree((void *)(uintptr_t)(*(uint32_t *)((char *)(s1) + 312))); /* jalr target resolved by relocation */
-
-    /* fragment 4: CallSetup */
-    *(uint32_t *)((char *)s1 + 312) = 0;
-    v0 = (uintptr_t *)((uintptr_t (*)(int32_t *))(uintptr_t)tx_isp_subdev_deinit)(local_10); /* jalr target resolved by relocation */
-
-    /* fragment 5: CallSetup */
-    kfree((void *)(uintptr_t)s1); /* jalr target resolved by relocation */
-
-    /* fragment 6: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    /* fragment 7: Arithmetic */
-    v0 = 0;
-
-    /* fragment 8: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    return 0;
-}
-#endif
 
 int tx_isp_mscaler_remove(struct platform_device *pdev)
 {
@@ -57295,127 +44503,6 @@ void cleanup_module(void)
     private_platform_device_unregister(&tx_isp_platform_device);
 }
 
-/* WHOLE_DRIVER_CANDIDATE fn_0000000000038a90 origin=fragment_seed original=dump_vic_reg */
-int32_t dump_vic_reg(uintptr_t a0)
-{
-    uint32_t *local_10 = 0;
-    uint32_t local_14 = 0;
-    uint32_t *local_18 = 0;
-    uint32_t local_1c = 0;
-    uint32_t *a1 = 0;
-    uint32_t ra = 0;
-    uint32_t *s0 = 0;
-    uintptr_t *s1 = 0;
-    uint32_t *s2 = 0;
-    uint32_t t9 = 0;
-    uintptr_t *v0 = 0;
-
-    /* fragment 0: Prologue */
-    /* function prologue: stack frame and callee-saved register setup */
-
-    /* fragment 1: CallSetup */
-    s1 = a0;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))printk)((int32_t *)((const char *)(uintptr_t)&LC18), (uintptr_t)(*(uint32_t *)((char *)(*(uint32_t *)((char *)(a0) + 184)) + 16))); /* jalr target resolved by relocation */
-
-    /* fragment 2: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))printk)((int32_t *)((const char *)(uintptr_t)&LC19), (uintptr_t)(*(uint32_t *)((char *)(*(uint32_t *)((char *)(s1) + 184)) + 12))); /* jalr target resolved by relocation */
-
-    /* fragment 3: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))printk)((int32_t *)((const char *)(uintptr_t)&LC20), (uintptr_t)(*(uint32_t *)((char *)(*(uint32_t *)((char *)(s1) + 184)) + 20))); /* jalr target resolved by relocation */
-
-    /* fragment 4: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))printk)((int32_t *)((const char *)(uintptr_t)&LC21), (uintptr_t)(*(uint32_t *)((char *)(*(uint32_t *)((char *)(s1) + 184)) + 4))); /* jalr target resolved by relocation */
-
-    /* fragment 5: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))printk)((int32_t *)((const char *)(uintptr_t)&LC22), (uintptr_t)(*(uint32_t *)((char *)(*(uint32_t *)((char *)(s1) + 184)) + 24))); /* jalr target resolved by relocation */
-
-    /* fragment 6: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))printk)((int32_t *)((const char *)(uintptr_t)&LC23), (uintptr_t)(*(uint32_t *)((char *)(*(uint32_t *)((char *)(s1) + 184)) + 80))); /* jalr target resolved by relocation */
-
-    /* fragment 7: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))printk)((int32_t *)((const char *)(uintptr_t)&LC24), (uintptr_t)(*(uint32_t *)((char *)(*(uint32_t *)((char *)(s1) + 184)) + 0))); /* jalr target resolved by relocation */
-
-    /* fragment 8: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))printk)((int32_t *)((const char *)(uintptr_t)&LC25), (uintptr_t)(*(uint32_t *)((char *)(*(uint32_t *)((char *)(s1) + 184)) + 148))); /* jalr target resolved by relocation */
-
-    /* fragment 9: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))printk)((int32_t *)((const char *)(uintptr_t)&LC26), (uintptr_t)(*(uint32_t *)((char *)(*(uint32_t *)((char *)(s1) + 184)) + 152))); /* jalr target resolved by relocation */
-
-    /* fragment 10: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))printk)((int32_t *)((const char *)(uintptr_t)&LC27), (uintptr_t)(*(uint32_t *)((char *)(*(uint32_t *)((char *)(s1) + 184)) + 144))); /* jalr target resolved by relocation */
-
-    /* fragment 11: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))printk)((int32_t *)((const char *)(uintptr_t)&LC28), (uintptr_t)(*(uint32_t *)((char *)(*(uint32_t *)((char *)(s1) + 184)) + 156))); /* jalr target resolved by relocation */
-
-    /* fragment 12: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))printk)((int32_t *)((const char *)(uintptr_t)&LC29), (uintptr_t)(*(uint32_t *)((char *)(*(uint32_t *)((char *)(s1) + 184)) + 60))); /* jalr target resolved by relocation */
-
-    /* fragment 13: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))printk)((int32_t *)((const char *)(uintptr_t)&LC30), (uintptr_t)(*(uint32_t *)((char *)(*(uint32_t *)((char *)(s1) + 184)) + 64))); /* jalr target resolved by relocation */
-
-    /* fragment 14: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))printk)((int32_t *)((const char *)(uintptr_t)&LC31), (uintptr_t)(*(uint32_t *)((char *)(*(uint32_t *)((char *)(s1) + 184)) + 68))); /* jalr target resolved by relocation */
-
-    /* fragment 15: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))printk)((int32_t *)((const char *)(uintptr_t)&LC32), (uintptr_t)(*(uint32_t *)((char *)(*(uint32_t *)((char *)(s1) + 184)) + 84))); /* jalr target resolved by relocation */
-
-    /* fragment 16: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))printk)((int32_t *)((const char *)(uintptr_t)&LC33), (uintptr_t)(*(uint32_t *)((char *)(*(uint32_t *)((char *)(s1) + 184)) + 88))); /* jalr target resolved by relocation */
-
-    /* fragment 17: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))printk)((int32_t *)((const char *)(uintptr_t)&LC33), (uintptr_t)(*(uint32_t *)((char *)(*(uint32_t *)((char *)(s1) + 184)) + 92))); /* jalr target resolved by relocation */
-
-    /* fragment 18: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))printk)((int32_t *)((const char *)(uintptr_t)&LC34), (uintptr_t)(*(uint32_t *)((char *)(*(uint32_t *)((char *)(s1) + 184)) + 96))); /* jalr target resolved by relocation */
-
-    /* fragment 19: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))printk)((int32_t *)((const char *)(uintptr_t)&LC35), (uintptr_t)(*(uint32_t *)((char *)(*(uint32_t *)((char *)(s1) + 184)) + 100))); /* jalr target resolved by relocation */
-
-    /* fragment 20: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))printk)((int32_t *)((const char *)(uintptr_t)&LC36), (uintptr_t)(*(uint32_t *)((char *)(*(uint32_t *)((char *)(s1) + 184)) + 104))); /* jalr target resolved by relocation */
-
-    /* fragment 21: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))printk)((int32_t *)((const char *)(uintptr_t)&LC37), (uintptr_t)(*(uint32_t *)((char *)(*(uint32_t *)((char *)(s1) + 184)) + 108))); /* jalr target resolved by relocation */
-
-    /* fragment 22: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))printk)((int32_t *)((const char *)(uintptr_t)&LC38), (uintptr_t)(*(uint32_t *)((char *)(*(uint32_t *)((char *)(s1) + 184)) + 112))); /* jalr target resolved by relocation */
-
-    /* fragment 23: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))printk)((int32_t *)((const char *)(uintptr_t)&LC39), (uintptr_t)(*(uint32_t *)((char *)(*(uint32_t *)((char *)(s1) + 184)) + 116))); /* jalr target resolved by relocation */
-
-    /* fragment 24: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))printk)((int32_t *)((const char *)(uintptr_t)&LC40), (uintptr_t)(*(uint32_t *)((char *)(*(uint32_t *)((char *)(s1) + 184)) + 4))); /* jalr target resolved by relocation */
-
-    /* fragment 25: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))printk)((int32_t *)((const char *)(uintptr_t)&LC41), (uintptr_t)(*(uint32_t *)((char *)(*(uint32_t *)((char *)(s1) + 184)) + 8))); /* jalr target resolved by relocation */
-
-    /* fragment 26: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))printk)((int32_t *)((const char *)(uintptr_t)&LC42), (uintptr_t)(*(uint32_t *)((char *)(*(uint32_t *)((char *)(s1) + 184)) + 220))); /* jalr target resolved by relocation */
-
-    /* fragment 27: MemoryAccess */
-    v0 = *(uint32_t *)((char *)s1 + 184);
-    ra = local_1c;
-    s2 = local_18;
-    s1 = local_14;
-    a1 = *(uint32_t *)((char *)v0 + 176);
-    a0 = (uintptr_t)&LC43;
-    t9 = s0;
-    s0 = local_10;
-    a0 = a0;
-
-    /* fragment 28: IndirectTailCall */
-    return ((uintptr_t (*)(uintptr_t, uintptr_t))printk)((uintptr_t)("%s"), (uintptr_t)(({ uintptr_t __regtrace_cstr = (uintptr_t)((const char *)(uintptr_t)a0); (const char *)(__regtrace_cstr ? __regtrace_cstr : (uintptr_t)"<null>"); })));
-
-    return 0;
-}
-
-/* WHOLE_DRIVER_CANDIDATE fn_0000000000038d40 origin=model_output original=check_vic_error */
-void check_vic_error(void)
-{
-    for (;;)
-        dump_vic_reg(*(uint32_t *)&dump_vsd);
-}
-
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000038d6c origin=fragment_seed original=isp_core_tunning_release */
 int32_t isp_core_tunning_release(uint32_t a0, uintptr_t a1)
 {
@@ -57447,39 +44534,6 @@ int32_t isp_core_tunning_release(uint32_t a0, uintptr_t a1)
 	if (paddr)
 		isp_free_buffer(paddr);
 	tuning->state = 2;
-	return 0;
-}
-
-/* WHOLE_DRIVER_CANDIDATE fn_0000000000038de8 origin=model_output original=system_reset_sensor */
-void system_reset_sensor(void)
-{
-	((uintptr_t (*)(uintptr_t, uintptr_t))printk)((uintptr_t)("^^^ %s  ^^^\n"), (uintptr_t)("system_reset_sensor"));
-	dump_stack();
-}
-
-/* WHOLE_DRIVER_CANDIDATE fn_0000000000038e20 origin=model_output original=I2C_init */
-int32_t I2C_init(void)
-{
-    return ((uintptr_t (*)(uintptr_t, uintptr_t))printk)((uintptr_t)("^^^ %s ^^^\n"), (uintptr_t)("I2C_init"));
-}
-
-/* WHOLE_DRIVER_CANDIDATE fn_0000000000038e3c origin=model_output original=I2C_close */
-int32_t I2C_close(void)
-{
-    return ((uintptr_t (*)(uintptr_t, uintptr_t))printk)((uintptr_t)("^^^ %s ^^^\n"), (uintptr_t)("I2C_close"));
-}
-
-/* WHOLE_DRIVER_CANDIDATE fn_0000000000038e58 origin=model_output original=I2C_write */
-int32_t I2C_write(int32_t arg1, char *arg2, int32_t arg3)
-{
-    ((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t, uintptr_t))printk)((uintptr_t)("%s: {add = 0x%02x, *data = 0x%02x} size = %d\n"), (uintptr_t)("I2C_write"), (uintptr_t)(arg1), (uintptr_t)(*(uint8_t *)arg2), (uintptr_t)(arg3));
-    return 0;
-}
-
-/* WHOLE_DRIVER_CANDIDATE fn_0000000000038e98 origin=model_output original=I2C_read */
-int32_t I2C_read(int32_t addr, int32_t data, int32_t size)
-{
-	((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t, uintptr_t))printk)((uintptr_t)("%s: {add = 0x%02x, data = %p} size = %d\n"), (uintptr_t)("I2C_read"), (uintptr_t)(addr), (uintptr_t)((void *)data), (uintptr_t)(size));
 	return 0;
 }
 

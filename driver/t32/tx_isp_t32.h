@@ -22,8 +22,10 @@ void tx_isp_subdev_deinit(void *sd);
 u32 t32_core_sensor_fps(void);
 int t32_core_sensor_size(u32 *w, u32 *h);
 unsigned int t32_core_memopt(void);
+int t32_core_isp_mem(u32 *pa);
 int t32_core_iq_bin(const u8 **bin, u32 *bytes);
 int t32_core_sensor_mbus(u32 *code);
+int t32_core_clk_active(void);
 int t32_core_sensor_expo(u32 packed);
 u32 t32_core_sensor_vts(void);
 int t32_core_sensor_ae_src(const u8 **video_in, const u8 **attr);
@@ -208,6 +210,7 @@ void t32_fs_stop_all(void);
 void t32_fs_done_irq(u32 done);
 void t32_fs_show(struct seq_file *m);
 int t32_fs_ivdc_frame(u32 ch);
+int t32_fs_crop(int ch, u32 *pos, u32 *size);
 
 /* tx_isp_t32_ivdcdrv.c: IVDC direct mode (#349) */
 int t32_ivdc_init(void);
@@ -219,6 +222,30 @@ int t32_ivdc_set_fmt(u8 *fmt);
 int t32_ivdc_reqbufs(u32 count);
 int t32_ivdc_fs_stream(int on);
 void t32_ivdc_show(struct seq_file *m);
+#ifdef TX_ISP_T33
+void t33_stats_show(struct seq_file *m);	/* tx_isp_t32_hw.c */
+/* ../t33/tx_isp_t33_awbc.c: per-frame AWB */
+int t33_awbc_attach(const u8 *sec, u32 len, u32 width, u32 height, const u8 *bufs);
+void t33_awbc_detach(void);
+void t33_awbc_kick(void);
+void t33_awbc_show(struct seq_file *m);
+void t33_awbc_ae_event(u32 type, u32 v0, u32 v1);	/* AE events 4 / 6 (tisp_long_tgain_update / ev_update) */
+/* ../t33/tx_isp_t33_aec.c: per-frame AE; tx_isp_t32_core.c: its sensor entries */
+int t33_aec_attach(const u8 *sec, u32 len, u32 width, u32 height, const u8 *zbufs, const u8 *hbufs);
+void t33_aec_detach(void);
+void t33_aec_irq4(u32 idx);
+void t33_aec_irq5(u32 idx);
+void t33_aec_show(struct seq_file *m);
+bool t33_evq_queue(struct work_struct *w);	/* the vendor's tisp event thread: one ordered queue */
+void t33_evq_get(void);
+void t33_tgain_refresh(u32 gain);	/* tx_isp_t32_hw.c: event 4 block refreshes */
+void t33_ev_refresh(u32 lo, u32 hi);
+void t33_ct_refresh(u32 ct);
+void t33_evq_free(void);
+int t32_core_sensor_ae_src(const u8 **video_in, const u8 **attr);
+u32 t32_core_sensor_alloc_again(u32 log2_q16, u32 *reg);
+int t32_core_sensor_set_fps(u32 fps);
+#endif
 
 /* tx_isp_t32_sinfo.c (shared registry, driver/common/tx_isp_sinfo.c) */
 int tx_isp_sinfo_init(void);

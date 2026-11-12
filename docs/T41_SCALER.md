@@ -83,7 +83,7 @@ recovered object's BSS aliases untouched. Host tests exercise failed-start
 retry, independent inputs, full-stop restart and simultaneous output starts.
 With OpenIMP's matching shared capture/encoder allocation owner, ten
 substream stop/start cycles preserved the main stream at 24.9865 capture fps
-without source-timestamp or RTP sequence gaps. RVD RSS/data stayed at
+without source-timestamp or RTP sequence gaps. Video daemon RSS/data stayed at
 4620/2932 KiB. Different output rates (25/15 fps) and resizing the substream
 to 960x544 also preserved the main stream, and the resized pixels decoded
 correctly. Main stop/start no longer stalls the graph, but a reverse-direction

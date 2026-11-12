@@ -19,8 +19,10 @@
  *  - pack: 13 words, word i = c[2i + 1] << 16 | c[2i], 13-bit two's
  *    complement each (c[25] = 0).
  *
- * The kernel table is the vendor's own (data.c 2867.., 257 s16, tisp_sin's table);
- * the earlier computed table differed from it by 1 in 58 entries.
+ * The kernel table is data transcribed from the vendor T32 module's
+ * .rodata (the table tisp_sin interpolates; the same as the T33 module's
+ * 24 interval table lut_25).  tools/t32_msca_sinc_tab.py computes its
+ * shape, which misses the vendor's by 1 in 58 entries.
  *
  * Checked bit-exact against the vendor flow (Matt Davis' recovered C, PR #15)
  * by tests/t32_oracle (t32_msca_oracle).

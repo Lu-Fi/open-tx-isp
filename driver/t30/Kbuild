@@ -35,8 +35,40 @@ ccflags-y += -DTX_ISP_T30_SHARED_FRAME
 ccflags-y += -DTX_ISP_T30_SHARED_IO
 ccflags-y += -DTX_ISP_T30_SHARED_VIDEOBUF
 ccflags-y += -I$(src)/../include
+# Module size (Lu-Fi/openimp#274).  The recovered unit still builds at -O0:
+# there is no host -O0 vs -Os equivalence harness for it yet (docs/SIZE.md),
+# and a -Os build warns at about 50 places that may rely on -O0 (uninitialised
+# locals, returns of stack addresses, out-of-bounds lifted accesses).
+# TX_ISP_T30_OS=y builds at the kernel default -Os instead (text ~244 KB
+# instead of ~565 KB); untested, for A/B runs only.
+TX_ISP_T30_OS ?= n
+ifneq ($(TX_ISP_T30_OS),y)
 ccflags-y += -O0 -fno-tree-dce -fno-ipa-pure-const -fno-ipa-reference
+endif
+# Only the layout changes below; code generation per function is unchanged.
+#  - per-function sections + --gc-sections drop functions nothing references
+#    (recovered-but-unused helpers); driver/tx_isp_merge.lds KEEPs the
+#    module-loader sections and folds the per-function sections back into
+#    .text.  No -fdata-sections: the static data layout of the lifted unit
+#    stays as it was tested.  TX_ISP_GC=n builds the old layout.
+#  - no .pdr (procedure descriptors, never loaded by the kernel)
+#  - -x: no local symbols in the .ko (exports resolve through __ksymtab)
+TX_ISP_GC ?= y
+ifneq ($(TX_ISP_GC),n)
+ccflags-y += -ffunction-sections
+LDFLAGS_MODULE += --gc-sections --undefined=init_module --undefined=cleanup_module \
+	-T $(abspath $(src)/../tx_isp_merge.lds)
+endif
+ccflags-y += $(call cc-option,-Wa$(comma)-mno-pdr)
+LDFLAGS_MODULE += -x
+# TX_ISP_T30_WARN=y: lift-defect check (Lu-Fi/openimp#274), use with
+# TX_ISP_T30_OS=y; the -Os optimiser sees the uninitialised / out-of-bounds sites.
+ifeq ($(TX_ISP_T30_WARN),y)
+ccflags-y += -std=gnu99 -Wmaybe-uninitialized -Warray-bounds -Wreturn-type \
+	-Wreturn-local-addr -Wframe-larger-than=1024
+else
 ccflags-y += -std=gnu99 -w
+endif
 ccflags-y += -Wno-error=strict-prototypes
 ccflags-y += -Wno-error=implicit-function-declaration
 ccflags-y += -Wno-error=implicit-int

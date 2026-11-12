@@ -7,9 +7,11 @@ struct module;
 #define TX_ISP_SINFO_STATIC_METADATA	(1U << 0)
 #define TX_ISP_SINFO_EXTENDED_ATTRS	(1U << 1)
 #define TX_ISP_SINFO_REGINFO_WIRING	(1U << 2)
+/* min_fps/max_fps only, without the wiring attributes of EXTENDED_ATTRS. */
+#define TX_ISP_SINFO_FPS_RANGE		(1U << 3)
 #define TX_ISP_SINFO_VALID_FLAGS \
 	(TX_ISP_SINFO_STATIC_METADATA | TX_ISP_SINFO_EXTENDED_ATTRS | \
-	 TX_ISP_SINFO_REGINFO_WIRING)
+	 TX_ISP_SINFO_REGINFO_WIRING | TX_ISP_SINFO_FPS_RANGE)
 
 /*
  * Binary sensor modules pass private objects whose layouts differ by SoC.
@@ -115,12 +117,15 @@ tx_isp_sinfo_config_check(const struct tx_isp_sinfo_config *config,
 			return TX_ISP_SINFO_CONFIG_BAD_ATTRIBUTE_OFFSETS;
 	}
 
-	if (config_flags & TX_ISP_SINFO_EXTENDED_ATTRS) {
+	if (config_flags & (TX_ISP_SINFO_EXTENDED_ATTRS |
+			    TX_ISP_SINFO_FPS_RANGE)) {
 		offsets[0] = config->min_fps_offset;
 		offsets[1] = config->max_fps_offset;
 		if (!tx_isp_sinfo_offsets_are_u32_aligned(offsets, 2))
 			return TX_ISP_SINFO_CONFIG_BAD_EXTENDED_OFFSETS;
+	}
 
+	if (config_flags & TX_ISP_SINFO_EXTENDED_ATTRS) {
 		if (!(config_flags & (TX_ISP_SINFO_STATIC_METADATA |
 				      TX_ISP_SINFO_REGINFO_WIRING))) {
 			offsets[0] = config->attr_mclk_offset;

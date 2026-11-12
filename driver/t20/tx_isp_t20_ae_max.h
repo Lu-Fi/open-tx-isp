@@ -3,9 +3,10 @@
  * T20/T10 compact AE: the analog gain ceiling the AE can really reach.
  *
  * sensor_drv.c clamps the requested analog gain to the sensor maximum
- * (attr->max_again, log2 <<16) and, when set, to the SetMaxAgain ceiling
+ * (attr->max_again, log2 <<16) and to the SetMaxAgain ceiling
  * stab.global_max_sensor_analog_gain (8-bit, log2 <<5, i.e. the same value
- * <<11).  /proc/jz/isp/isp-m0 must publish the lower of the two in the
+ * <<11).  Like the OEM 3.12.0 cmos_alloc_sensor_analog_gain() the ceiling
+ * always applies: 0 means 1x, not "no cap" (#238).  /proc/jz/isp/isp-m0 must publish the lower of the two in the
  * "MAX SENSOR analog gain" line (log2 <<5): streamers read it as the
  * exposure cap.  Before, the dump showed only the sensor maximum (158 on
  * jxf22/jxf23) while the AE stopped at the tuning ceiling (128), so timps
@@ -16,14 +17,15 @@
 
 #include <linux/types.h>
 
-/* sensor_max_log2_16: attr->max_again; user_max: stab ceiling, 0 = none.
+/* sensor_max_log2_16: attr->max_again; user_max: stab[29] ceiling (log2
+ * <<5, 0 = 1x as in the OEM cmos_alloc_sensor_analog_gain, #238).
  * Returns the reachable maximum in log2 <<5 units. */
 static inline uint32_t t20_ae_max_again_log2_5(uint32_t sensor_max_log2_16,
 					       uint32_t user_max)
 {
 	uint32_t m = sensor_max_log2_16 >> 11;
 
-	return (user_max && user_max < m) ? user_max : m;
+	return user_max < m ? user_max : m;
 }
 
 /* The gain the compact AE hands to the sensor allocator at its limit, in
@@ -33,7 +35,7 @@ static inline uint32_t t20_ae_request_log2_16(uint32_t sensor_max_log2_16,
 {
 	uint32_t u = user_max << 11;
 
-	return (user_max && u < sensor_max_log2_16) ? u : sensor_max_log2_16;
+	return u < sensor_max_log2_16 ? u : sensor_max_log2_16;
 }
 
 /* The sensor gain tables are stepped: alloc_again() rounds the request
@@ -47,6 +49,208 @@ static inline uint32_t t20_ae_plateau_log2_5(uint32_t cap_log2_5,
 	uint32_t a = applied_log2_16 >> 11;
 
 	return (applied_log2_16 && a < cap_log2_5) ? a : cap_log2_5;
+}
+
+/*
+ * ISP digital gain fill (#246), as the OEM 3.12.0 cmos_digital_gain_update()
+ * (libt20-firmware cmos_func.c.o 0x139c-0x1430) with
+ * cmos_alloc_isp_digital_gain() (0x2ec-0x31c): the part of the requested
+ * total exposure that integration time and the (stepped, floored) analog
+ * gain do not cover goes to the ISP digital gain, capped by
+ * min(stab.global_max_isp_digital_gain << 11, hw_max_log2_16).  hw_max is
+ * cmos+0x1e4, which cmos_fsm_clear() (cmos_fsm.c.o 0x68-0x88) seeds with
+ * log2(4095/4096) + 4 = the 4.8 register maximum 0xfff.  A manual ISP gain
+ * (stab.global_manual_isp_digital_gain, cmos_get_manual_isp_dgain_log2()
+ * 0x378) replaces the remainder with stab.global_isp_digital_gain << 11.
+ * Negative requests give 0 (OEM bltz at 0x2ec).  All values log2 <<16.
+ */
+static inline int32_t t20_ae_isp_dgain_cap(uint8_t max_isp_dgain_q5,
+					   int32_t hw_max_log2_16)
+{
+	int32_t limit = (int32_t)max_isp_dgain_q5 << 11;
+
+	return hw_max_log2_16 < limit ? hw_max_log2_16 : limit;
+}
+
+static inline int32_t t20_ae_isp_dgain_fill(int32_t total_log2,
+					    int32_t integration_log2,
+					    int32_t applied_again_log2,
+					    uint8_t manual, uint8_t isp_dgain_q5,
+					    uint8_t max_isp_dgain_q5,
+					    int32_t hw_max_log2_16)
+{
+	int32_t limit = t20_ae_isp_dgain_cap(max_isp_dgain_q5, hw_max_log2_16);
+	int32_t request = manual ? (int32_t)isp_dgain_q5 << 11 :
+		total_log2 - integration_log2 - applied_again_log2;
+
+	if (request < 0)
+		return 0;
+	return request < limit ? request : limit;
+}
+
+/*
+ * #267: analog gain allocation like the OEM 3.12.0 cmos_analog_gain_update()
+ * (tx_isp_t20_firmware.c, OEM hysteresis 0x1f144-0x1f178): 1/16 stop of the
+ * request (0x1000) is left to the ISP digital gain, and a request within
+ * +-0xfff of the gain applied last time re-allocates that gain.  Without it
+ * the compact AE re-floored the gain to the sensor table on every update, so
+ * a 0.5 % AE step next to a table entry toggled the sensor gain (jxh42 3.5x
+ * <-> 3.625x) and the picture by ~1 Y.  Like the OEM it applies whenever
+ * the AE owns the analog gain (openimp #284 L2: the former gate on a small
+ * SetMaxDgain cap / manual ISP digital gain had no OEM equivalent; a part
+ * of the request the capped ISP digital gain cannot carry is closed by the
+ * AE loop, as on the vendor stack).  All values log2 <<16; prev_applied < 0
+ * = no previous gain.
+ */
+#define T20_AE_AGAIN_RESERVE	0x1000
+#define T20_AE_AGAIN_HYST	0xfff
+
+static inline int32_t t20_ae_again_request(int32_t request_log2)
+{
+	request_log2 -= T20_AE_AGAIN_RESERVE;
+	return request_log2 < 0 ? 0 : request_log2;
+}
+
+static inline int t20_ae_again_keep(int32_t request_log2, int32_t applied_log2,
+				    int32_t prev_applied)
+{
+	return prev_applied >= 0 && applied_log2 != prev_applied &&
+	       request_log2 >= prev_applied - T20_AE_AGAIN_HYST &&
+	       request_log2 <= prev_applied + T20_AE_AGAIN_HYST;
+}
+
+/*
+ * openimp #284: the analog gain the compact AE hands to the sensor
+ * allocator, in the OEM order.  cmos_calc_target_gain() leaves
+ * total - IT unclamped, cmos_analog_gain_update() takes the 0x1000 reserve
+ * off that, and only cmos_alloc_sensor_analog_gain() caps the result to
+ * min(sensor max, stab[29] << 11).  Reserving after the cap put the night
+ * plateau one table step low (jxh42 ceiling 144: 140 instead of 142).
+ * raw_log2: total - IT (log2 <<16); reserve: 1 while the AE owns the gain.
+ */
+static inline int32_t t20_ae_again_target(int32_t raw_log2,
+					  uint32_t sensor_max_log2_16,
+					  uint32_t user_max, int reserve)
+{
+	int32_t cap = (int32_t)t20_ae_request_log2_16(sensor_max_log2_16,
+						      user_max);
+
+	if (reserve)
+		raw_log2 = t20_ae_again_request(raw_log2);
+	if (raw_log2 < 0)
+		raw_log2 = 0;
+	return raw_log2 < cap ? raw_log2 : cap;
+}
+
+/* attr->sensor_ctrl.alloc_again(): floors the request to the sensor table */
+typedef unsigned int (*t20_ae_alloc_again_fn)(unsigned int isp_gain,
+					      unsigned char shift,
+					      unsigned int *sensor_again);
+
+/*
+ * The whole analog gain step of tx_isp_t20_simple_ae_apply(): target
+ * (reserve, then caps), allocation, and the +-0xfff keep, whose
+ * re-allocation is capped like any request (a lowered SetMaxAgain wins over
+ * the kept gain).  *prev: gain applied last call, -1 = none; it is reset
+ * when called with reserve 0 (no OEM path does that; host tests only).
+ */
+static inline int32_t t20_ae_again_alloc(int32_t raw_log2,
+					 uint32_t sensor_max_log2_16,
+					 uint32_t user_max, int reserve,
+					 int32_t *prev,
+					 t20_ae_alloc_again_fn alloc,
+					 unsigned char shift,
+					 unsigned int *code)
+{
+	int32_t cap = (int32_t)t20_ae_request_log2_16(sensor_max_log2_16,
+						      user_max);
+	int32_t request = t20_ae_again_target(raw_log2, sensor_max_log2_16,
+					      user_max, reserve);
+	int32_t applied = (int32_t)alloc((unsigned int)request, shift, code);
+
+	if (!reserve) {
+		*prev = -1;
+		return applied;
+	}
+	if (t20_ae_again_keep(request, applied, *prev))
+		applied = (int32_t)alloc(
+			(unsigned int)(*prev < cap ? *prev : cap), shift, code);
+	*prev = applied;
+	return applied;
+}
+
+/*
+ * openimp #285: manual analog gain (system table
+ * global_manual_sensor_analog_gain = stab[4], value global_sensor_analog_gain
+ * = stab[28], log2 <<5).  OEM 3.12.0 cmos_get_manual_again_log2(): -1 while
+ * the AE owns the gain, else cmos_alloc_sensor_analog_gain(stab[28] << 11),
+ * i.e. the value capped by the SetMaxAgain ceiling stab[29] and floored to
+ * the sensor table.  cmos_analog_gain_update() then applies it as is: no
+ * 0x1000 reserve, no +-0xfff keep, but it still stores the result as the
+ * "previous" gain (s0[0x1cc]) the keep compares against once AUTO resumes.
+ * Returns the applied gain (log2 <<16) and sets *code, or -1 = AE owns it.
+ */
+static inline int32_t t20_ae_again_manual(uint8_t manual, uint8_t again_q5,
+					  uint32_t sensor_max_log2_16,
+					  uint32_t user_max, int32_t *prev,
+					  t20_ae_alloc_again_fn alloc,
+					  unsigned char shift,
+					  unsigned int *code)
+{
+	int32_t applied;
+
+	if (!manual)
+		return -1;
+	applied = (int32_t)alloc((unsigned int)t20_ae_again_target(
+			(int32_t)again_q5 << 11, sensor_max_log2_16, user_max, 0),
+		shift, code);
+	*prev = applied;
+	return applied;
+}
+
+/*
+ * The total exposure window (log2 <<16) the compact AE may steer in:
+ * [time_min + gain_lo, time_max + gain_hi + isp_dgain_cap].  With a manual
+ * analog gain the gain is pinned (gain_lo = gain_hi = applied manual gain)
+ * and the OEM partitioner sees total - manual gain
+ * (cmos_calc_target_inttime: target -= cmos_get_manual_again_log2()), so the
+ * PI loop must neither wind up above what time + ISP digital gain can add
+ * nor below the fixed gain.
+ */
+static inline int32_t t20_ae_total_clamp(int32_t total, int32_t time_min,
+					 int32_t time_max, int32_t gain_lo,
+					 int32_t gain_hi, int32_t isp_dgain_cap)
+{
+	int32_t lo = time_min + gain_lo;
+	int32_t hi = time_max + gain_hi + isp_dgain_cap;
+
+	if (total < lo)
+		return lo;
+	if (total > hi)
+		return hi;
+	return total;
+}
+
+/*
+ * isp-m0 "MAX SENSOR analog gain" (log2 <<5) on the compact AE: the table
+ * step the allocator gives for the cap itself.  At the cap the OEM request
+ * (total - IT - 0x1000) is still >= the cap, so no reserve here (#284).  An
+ * allocator result of 0 (ceiling below the first table step) is a real 1x
+ * plateau, not "unknown" (review #267 finding 4).
+ */
+static inline uint32_t t20_ae_m0_max_again_log2_5(uint32_t sensor_max_log2_16,
+						  uint32_t user_max,
+						  t20_ae_alloc_again_fn alloc)
+{
+	uint32_t cap = t20_ae_max_again_log2_5(sensor_max_log2_16, user_max);
+	unsigned int code = 0;
+	uint32_t a;
+
+	if (!alloc)
+		return cap;
+	a = alloc(t20_ae_request_log2_16(sensor_max_log2_16, user_max), 16,
+		  &code) >> 11;
+	return a < cap ? a : cap;
 }
 
 /*
@@ -81,6 +285,93 @@ static inline int32_t t20_ae_manual_total(int32_t total, int32_t time_log2,
 	if (total > time_log2 + gain_max_log2)
 		return time_log2 + gain_max_log2;
 	return total;
+}
+
+/*
+ * #252: compact AE step on the log2 error, with the bandwidth of the OEM
+ * 3.12.0 AE.  The OEM ae_calculate_target() (ae_balanced_func.c.o
+ * 0x37c-0x820) forms the error in log2 Q16 (log2(target) - log2(mean)) and
+ * ae_calculate_exposure() (0x82c-0xa70) integrates it with
+ * K = AE_BALANCED[0] (AE_PI_COEFF, 10 on jxf23):
+ * exposure = (err + acc) / K per AE-stats frame (integrator 0x928-0x9e8,
+ * div64 0x9b4-0x9e4), an integral gain of 1/K per frame independent of
+ * the metered level.  The compact AE updates every T20_AE_UPDATE_FRAMES
+ * frames (sensor latency), so it takes err * T20_AE_UPDATE_FRAMES / K per
+ * update: the same 0.1/frame.  Before, the step was |target - mean|
+ * (linear 0..255) * gain_accuracy / K, a loop gain proportional to the
+ * target: 0.04 at comp 40 (crawl), 1.4 at comp 200 (ringing).
+ *
+ * Not OEM, kept on purpose: one update is clamped to 1 stop (the measured
+ * 0.1 % lamp-step overshoot stays) and |err| <= 1/128 stop is a deadband.
+ * The OEM has no deadband; its per-frame dither changes the exposure every
+ * frame, which makes iridix_fsm_process_interrupt (OEM 0x21740) skip the
+ * 0x3c4 strength commit (0x3dc != 0x100).  With the deadband the compact
+ * exposure freezes in steady state and Iridix commits as before.
+ * All values log2 Q16.
+ */
+#define T20_AE_UPDATE_FRAMES	3
+#define T20_AE_LOG2_DEADBAND	512		/* 1/128 stop = 0.54 % */
+#define T20_AE_LOG2_STEP_MAX	(1 << 16)	/* 1 stop per update */
+
+static inline int t20_ae_log2_stable(int32_t err_log2)
+{
+	return err_log2 >= -T20_AE_LOG2_DEADBAND &&
+	       err_log2 <= T20_AE_LOG2_DEADBAND;
+}
+
+static inline int32_t t20_ae_log2_correction(int32_t err_log2,
+					     uint32_t pi_coefficient)
+{
+	int32_t c;
+
+	if (!pi_coefficient || t20_ae_log2_stable(err_log2))
+		return 0;
+	/* |err| <= 8 stops (8-bit mean), no overflow in err * 3 */
+	if (err_log2 > 16 * T20_AE_LOG2_STEP_MAX)
+		err_log2 = 16 * T20_AE_LOG2_STEP_MAX;
+	if (err_log2 < -16 * T20_AE_LOG2_STEP_MAX)
+		err_log2 = -16 * T20_AE_LOG2_STEP_MAX;
+	c = err_log2 * T20_AE_UPDATE_FRAMES / (int32_t)pi_coefficient;
+	if (c > T20_AE_LOG2_STEP_MAX)
+		c = T20_AE_LOG2_STEP_MAX;
+	if (c < -T20_AE_LOG2_STEP_MAX)
+		c = -T20_AE_LOG2_STEP_MAX;
+	return c;
+}
+
+/*
+ * #267, optional (module parameter t20_ae_flip_guard, default off = vendor
+ * behaviour): the AE correction curve is a u8 in 1/32-stop steps.  Where its
+ * interpolated value changes by one, the compact AE (block step err*3/K)
+ * can cycle across that exposure for ever.  With the guard a one-step
+ * change is taken over only once the exposure has moved 1/16 stop away from
+ * where the current value was adopted; larger changes pass at once.  The
+ * OEM has no such guard (its per-frame PI moves 0.03-0.06 % per frame).
+ */
+#define T20_AE_CURVE_HOLD_LOG2	4096
+
+struct t20_ae_curve_hold {
+	int valid;
+	uint8_t curve;
+	int32_t exposure_log2;
+};
+
+static inline uint8_t t20_ae_curve_hysteresis(struct t20_ae_curve_hold *h,
+					      uint8_t curve,
+					      int32_t exposure_log2)
+{
+	int32_t d = exposure_log2 - h->exposure_log2;
+	int step = (int)curve - (int)h->curve;
+
+	if (h->valid && (step == 1 || step == -1) &&
+	    d > -T20_AE_CURVE_HOLD_LOG2 && d < T20_AE_CURVE_HOLD_LOG2)
+		return h->curve;
+	if (!h->valid || step) {
+		h->valid = 1;
+		h->curve = curve;
+		h->exposure_log2 = exposure_log2;
+	}
+	return curve;
 }
 
 #endif

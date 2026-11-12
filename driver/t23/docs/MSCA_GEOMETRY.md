@@ -11,7 +11,7 @@ main 1920x1080, sub 640x360) in its first case, `fcrop-mid50`:
 
 - No channel completed another frame. Sensor and ISP interrupts kept running.
 - Every later STREAMOFF reported `2 of 2 buffers still queued after 21 x 10 ms`.
-- timps then served only snapshot 503. Every later session hung as well;
+- The application then served only snapshot 503. Every later session hung as well;
   only a reboot helped.
 
 ## Cause

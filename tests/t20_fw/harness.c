@@ -454,7 +454,8 @@ int32_t sensor_init(int32_t *arg)
 }
 
 int tx_isp_t20_simple_ae_apply(int32_t *total, uint32_t *it, int32_t *again_log2,
-			       uint32_t *again_code, const uint8_t *steps, uint32_t nsteps)
+			       uint32_t *again_code, int32_t *isp_dgain_log2,
+			       const uint8_t *steps, uint32_t nsteps)
 {
 	int32_t t, ilog, g;
 	uint32_t i;
@@ -477,6 +478,7 @@ int tx_isp_t20_simple_ae_apply(int32_t *total, uint32_t *it, int32_t *again_log2
 	if (it) *it = cur_int_time;
 	if (again_log2) *again_log2 = g;
 	if (again_code) *again_code = cur_again_code;
+	if (isp_dgain_log2) *isp_dgain_log2 = 0;
 	return 0;
 }
 
@@ -503,6 +505,7 @@ uint32_t system_timer_timestamp(void) { return frame_no * 40000u; }
 int32_t system_timer_frequency(void) { return 1000000; }
 int32_t system_timer_init(void) { ev("TIMER init"); return 0; }
 void usleep_range(unsigned long a, unsigned long b) { EVF("usleep %lu %lu", a, b); }
+void sema_init(struct semaphore *s, int v) { (void)s; EVF("sema_init %d", v); }
 int32_t I2C_init(void) { ev("I2C init"); return 0; }
 int32_t I2C_write(int32_t add, char *data, int32_t size)
 {

@@ -158,6 +158,25 @@ static void t32_fs_push_locked(struct t32_fchan *f, int i)
 				 f->buf[i].w[T32_QBUF_UV_PA_WORD]);
 }
 
+/*
+ * The channel's input crop from its vendor format (SET_FRAME_FORMAT words
+ * 13..17: enable, top, left, width, height): MSCA crop position
+ * left << 16 | top and size width << 16 | height (T33 list 23).
+ */
+int t32_fs_crop(int ch, u32 *pos, u32 *size)
+{
+	const u8 *fmt;
+
+	if (ch < 0 || ch >= T32_MSCA_CHANNELS)
+		return 0;
+	fmt = fchan[ch].vch + T32_FCH_FMT;
+	if (!t32_g_rd32(fmt, 13 * 4))
+		return 0;
+	*pos = (t32_g_rd32(fmt, 15 * 4) & 0xffff) << 16 | (t32_g_rd32(fmt, 14 * 4) & 0xffff);
+	*size = (t32_g_rd32(fmt, 16 * 4) & 0xffff) << 16 | (t32_g_rd32(fmt, 17 * 4) & 0xffff);
+	return 1;
+}
+
 /* IVDC frame start of sensor ch (its interrupt): the next queued buffer is done */
 int t32_fs_ivdc_frame(u32 ch)
 {
@@ -439,8 +458,19 @@ static int t32_fs_release(struct inode *inode, struct file *file)
 	return 0;
 }
 
+/*
+ * misc_open() sets file->private_data to the miscdevice before calling
+ * .open; 3.10.14 does that only when the fops have an .open (4.4.94
+ * always), so without one ioctl and release see a NULL private_data there.
+ */
+static int t32_fs_open(struct inode *inode, struct file *file)
+{
+	return 0;
+}
+
 static const struct file_operations t32_fs_fops = {
 	.owner = THIS_MODULE,
+	.open = t32_fs_open,
 	.unlocked_ioctl = t32_fs_ioctl,
 	.release = t32_fs_release,
 };

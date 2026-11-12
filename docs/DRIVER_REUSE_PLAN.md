@@ -63,7 +63,7 @@ The per-SoC wrappers preserve their existing ABI and endpoint policy:
   for the remaining scalar and modulation helpers. The recovered square-root
   acceptance and zero-returning line-offset bodies are no longer linked.
 - T23 retains its recovered unsuffixed/64-bit multiply bodies. Moving those
-  symbols into the adapter reproducibly made `rvd` exit during startup on two
+  symbols into the adapter reproducibly made the video daemon exit during startup on two
   clean boots, while rebuilding the committed local boundary restored the application
   and produced the exact accepted module hash.
 

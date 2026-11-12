@@ -40,8 +40,14 @@ typedef uint16_t u16;
 #endif
 
 /* IQ bin sections 1 and 2 (tx_isp_t32_iq.h; the vendor's tparamsP + 0x68 / + 0xd40) */
+#ifdef TX_ISP_T33
+/* PRJ008: section 0 is 108 bytes (T32: 100), AE and AWB have the T32 sizes */
+#define T32_AE_PARAM		0x10cU
+#define T32_AWB_PARAM		0xde4U
+#else
 #define T32_AE_PARAM		0x104U
 #define T32_AWB_PARAM		0xddcU
+#endif
 #define T32_AE_BUF_BYTES	0x6000U		/* 4 zone buffers of 4 KiB + 4 histograms of 2 KiB */
 #define T32_AWB_BUF_BYTES	0x1c000U	/* 4 buffers of 0x7000 */
 #define T32_STATS_ID		0x0134da11U
