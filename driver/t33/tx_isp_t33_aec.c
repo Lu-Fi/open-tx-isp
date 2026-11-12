@@ -12,9 +12,11 @@
  * The sensor gets the integration time and again packed (it | again << 16,
  * TX_ISP_EVENT_SENSOR_EXPO) once per change after the frame, as the vendor
  * sensor_set_integration_time / sensor_set_analog_gain mark them for its
- * frame-done sensor update.  Event 4 (long total gain) and 6 (long EV) are
- * kept for the proc file; the AWB / CCM / BCSH follow-ups are not wired
- * yet.  T33 only: the T32 build does not compile this file.
+ * frame-done sensor update.  Events 4 (long total gain) and 6 (long EV)
+ * go to the AWB (tisp_awb_tgain_update / tisp_awb_ev_update); the AE and
+ * AWB works share one ordered queue like the vendor's event thread.  The
+ * other gain / EV follow-ups (DPC, CCM, BCSH, ...) are not wired yet.
+ * T33 only: the T32 build does not compile this file.
  */
 #include <linux/module.h>
 #include <linux/kernel.h>
@@ -85,12 +87,15 @@ static void drv_event(u32 ch, const u32 *ev)
 {
 	(void)ch;
 	st.events++;
-	if (ev[2] == 4)
+	if (ev[2] == 4) {
 		st.tgain = ev[4];
+		t33_awbc_ae_event(4, ev[4], ev[5]);
+	}
 	if (ev[2] == 6) {
 		st.ev_lo = ev[4];
 		st.ev_hi = ev[5];
 		st.bv = ev[6];
+		t33_awbc_ae_event(6, ev[4], ev[5]);
 	}
 }
 
@@ -168,13 +173,60 @@ out:
 }
 static DECLARE_WORK(aec_work, aec_work_fn);
 
+/*
+ * The vendor runs AE calc, AWB and the gain / EV refreshes in one event
+ * thread in push order (AWB irq 3 before AE irq 4).  One ordered queue for
+ * the AWB and AE works keeps that order; schedule_work when it is missing.
+ */
+static struct workqueue_struct *evq;
+static DEFINE_SPINLOCK(evq_lock);
+
+bool t33_evq_queue(struct work_struct *w)
+{
+	struct workqueue_struct *q = ACCESS_ONCE(evq);
+
+	return q ? queue_work(q, w) : schedule_work(w);
+}
+
+void t33_evq_get(void)
+{
+	struct workqueue_struct *q;
+
+	if (ACCESS_ONCE(evq))
+		return;
+	q = alloc_ordered_workqueue("t33_isp_ev", 0);
+	if (!q)
+		return;
+	spin_lock(&evq_lock);
+	if (!evq) {
+		evq = q;
+		q = NULL;
+	}
+	spin_unlock(&evq_lock);
+	if (q)
+		destroy_workqueue(q);
+}
+
+/* module teardown, after both detaches */
+void t33_evq_free(void)
+{
+	struct workqueue_struct *q;
+
+	spin_lock(&evq_lock);
+	q = evq;
+	evq = NULL;
+	spin_unlock(&evq_lock);
+	if (q)
+		destroy_workqueue(q);
+}
+
 /* system irq 4 (status bit 4): histogram index, then the AE frame */
 void t33_aec_irq4(u32 idx)
 {
 	if (!ACCESS_ONCE(ready))
 		return;
 	front.hidx = t33_ae_hbuf_idx(idx);
-	schedule_work(&aec_work);
+	t33_evq_queue(&aec_work);
 }
 
 /* system irq 5 (status bit 5): zone buffer index */
@@ -208,6 +260,7 @@ int t33_aec_attach(const u8 *sec, u32 len, u32 width, u32 height, const u8 *zb, 
 	int n, ret = 0;
 
 	t33_aec_detach();
+	t33_evq_get();
 	mutex_lock(&aec_lock);
 	memset(&st, 0, sizeof(st));
 	memset(&front, 0, sizeof(front));

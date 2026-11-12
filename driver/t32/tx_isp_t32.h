@@ -62,12 +62,16 @@ int t33_awbc_attach(const u8 *sec, u32 len, u32 width, u32 height, const u8 *buf
 void t33_awbc_detach(void);
 void t33_awbc_kick(void);
 void t33_awbc_show(struct seq_file *m);
+void t33_awbc_ae_event(u32 type, u32 v0, u32 v1);	/* AE events 4 / 6 (tisp_long_tgain_update / ev_update) */
 /* ../t33/tx_isp_t33_aec.c: per-frame AE; tx_isp_t32_core.c: its sensor entries */
 int t33_aec_attach(const u8 *sec, u32 len, u32 width, u32 height, const u8 *zbufs, const u8 *hbufs);
 void t33_aec_detach(void);
 void t33_aec_irq4(u32 idx);
 void t33_aec_irq5(u32 idx);
 void t33_aec_show(struct seq_file *m);
+bool t33_evq_queue(struct work_struct *w);	/* the vendor's tisp event thread: one ordered queue */
+void t33_evq_get(void);
+void t33_evq_free(void);
 int t32_core_sensor_ae_src(const u8 **video_in, const u8 **attr);
 u32 t32_core_sensor_alloc_again(u32 log2_q16, u32 *reg);
 int t32_core_sensor_set_fps(u32 fps);

@@ -19,6 +19,7 @@ typedef uint64_t u64;	/* host: the AWB headers take the kernel type */
 #include "../driver/t32/tx_isp_t32_rcfg33.h"
 #include "../driver/t32/tx_isp_t32_iq.h"
 #include "../driver/t32/tx_isp_t33_awbalg.h"
+#include "../driver/t32/tx_isp_t33_awb.h"
 
 #define T33_SEC_AWB_ALG	2	/* IQ bin AWB section */
 
@@ -102,6 +103,28 @@ int main(void)
 	CHECK(n == 6 && w[0].reg == 0x6040);
 	ai.a.st->hist[0] = ai.a.hw->inv_r;
 	ai.a.st->hist[1] = ai.a.hw->inv_b;
+	{
+		/* tgain_update (AE event 4): list 29 words = the init list at that interpolation point */
+		static const u32 gains[] = { 0x400, 0x18000, 0x2c3a1, 0x70000 };
+		static u8 sec0[sizeof(struct t32_awb_par)];
+		static u32 l[64];
+		u8 slot[T33_AWB_TG_SLOTS];
+		u32 val[T33_AWB_TG_SLOTS], g, k;
+
+		memcpy(sec0, bin + off, sizeof(sec0));
+		for (g = 0; g < 4; g++) {
+			memset(l, 0, sizeof(l));
+			CHECK(t33_awb_init(sec0, 1920, 1080, gains[g], 0x1000000, l, 64) > 0);
+			t33_awb_tgain_update(&ai.a, gains[g]);
+			t33_awb_tg_slots(&ai.a, slot, val);
+			for (k = 0; k < T33_AWB_TG_SLOTS; k++)
+				CHECK(l[slot[k] + 1] == val[k]);
+		}
+		t33_awb_tgain_update(&ai.a, 0x400);	/* the driver's init state (hw_param hook) */
+		CHECK(ai.a.st->lim_a[0] == t32_tp_intp_u16(0, 0x400, sec0 + 0x147a));
+		t33_awb_ev_update(&ai.a, 0x110400);
+		CHECK(ai.a.st->ev == 0x441);
+	}
 	printf("par: grid %ux%u fp %u os %u sat_mode %u sat_thr %u ev %u..%u win %u start r 0x%x b 0x%x\n",
 	       ai.a.par->zones_w, ai.a.par->zones_h, ai.a.par->fp_shift, ai.a.par->out_shift, ai.a.par->sat_mode,
 	       ai.a.par->sat_thr, ai.a.par->ev_lo, ai.a.par->ev_hi, ai.a.par->lg_win, w[0].val, w[1].val & 0xffff);

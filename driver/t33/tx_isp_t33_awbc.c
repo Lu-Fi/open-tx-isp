@@ -26,6 +26,7 @@ int isp_printf(unsigned int level, const char *fmt, ...);
 u32 t33_hw_rd(u32 reg);
 void t33_awb_list_gain(u32 r, u32 b);			/* tx_isp_t32_hw.c: AWBG list 7 slots 3 / 4 */
 void t33_awb_list_slot(int slot, u32 v);		/* tx_isp_t32_hw.c: AWB list 29 slot */
+void t33_awb_list_refresh(void);			/* tx_isp_t32_hw.c: run list 29 at the next AWB irq */
 
 static struct t32_awb_init ai;
 static struct t32_awb_ctd *ctd;
@@ -35,15 +36,25 @@ static u16 counter;
 static bool ready;
 static DEFINE_MUTEX(awbc_lock);
 static struct {
-	u32 frames, drops, still, refused, gain_r, gain_b, ct, path;
+	u32 frames, drops, still, refused, gain_r, gain_b, ct, path, tg_updates, ev_updates;
 } awbc_st;
+/* the vendor's tgain_old / ev_last (tisp_long_tgain_update / tisp_long_ev_update), not reset per stream */
+static u32 tgain_old, ev_last[2];
 
 static void *drv_alloc(void *p, u32 size)
 {
 	(void)p;
 	return size > 0x10000 ? vzalloc(size) : kzalloc(size, GFP_KERNEL);	/* the run state is 117 KiB */
 }
-static void drv_nop(void *p, u32 ch) { (void)p; (void)ch; }	/* no RISC-V AWB; hw param in list 29 at init */
+static void drv_nop(void *p, u32 ch) { (void)p; (void)ch; }	/* no RISC-V AWB */
+/* tisp_awb_set_hardware_param: its list 29 words are in the init list; the state part here */
+static void drv_hw_param(void *p, u32 ch)
+{
+	(void)p;
+	(void)ch;
+	t33_awb_regional_threshold(&ai.a);
+	t33_awb_lum_th_freq(&ai.a);
+}
 static void drv_nop2(void *p, u32 ch, u32 v) { (void)p; (void)ch; (void)v; }
 static void drv_print(void *p, int ok)
 {
@@ -52,7 +63,7 @@ static void drv_print(void *p, int ok)
 		isp_printf(2, "tx-isp-t33: no memory for the AWB context\n");
 }
 static const struct t32_awb_init_ops drv_init_ops = {
-	NULL, drv_alloc, drv_nop, drv_nop, drv_nop2, drv_nop2, drv_print,
+	NULL, drv_alloc, drv_nop, drv_hw_param, drv_nop2, drv_nop2, drv_print,
 };
 
 static u32 drv_rd(void *p, u32 reg) { (void)p; return t33_hw_rd(reg); }
@@ -114,7 +125,44 @@ static DECLARE_WORK(awbc_work, awbc_work_fn);
 void t33_awbc_kick(void)
 {
 	if (ACCESS_ONCE(ready))
-		schedule_work(&awbc_work);
+		t33_evq_queue(&awbc_work);
+}
+
+/*
+ * AE events from the AE work (same ordered queue, after this frame's AWB
+ * work as the vendor's event FIFO has them):
+ *   6 (long EV, v0 / v1 = low / high word): tisp_long_ev_update ->
+ *     tisp_awb_ev_update on an EV change;
+ *   4 (long total gain, log2 Q16; v1 = force): tisp_long_tgain_update ->
+ *     tisp_awb_tgain_update on a change: thresholds, list 29 words and
+ *     tispAwbRefresh (list 29 at the next AWB interrupt).
+ */
+void t33_awbc_ae_event(u32 type, u32 v0, u32 v1)
+{
+	u8 slot[T33_AWB_TG_SLOTS];
+	u32 val[T33_AWB_TG_SLOTS];
+	unsigned int k;
+
+	mutex_lock(&awbc_lock);
+	if (!ready)
+		goto out;
+	if (type == 6 && (v0 != ev_last[0] || v1 != ev_last[1])) {
+		t33_awb_ev_update(&ai.a, v0);
+		ev_last[0] = v0;
+		ev_last[1] = v1;
+		awbc_st.ev_updates++;
+	} else if (type == 4 && (v0 != tgain_old || v1)) {
+		t33_awb_tgain_update(&ai.a, v0);
+		t33_awb_tg_slots(&ai.a, slot, val);
+		for (k = 0; k < T33_AWB_TG_SLOTS; k++)
+			t33_awb_list_slot(slot[k], val[k]);
+		t33_awb_list_slot(1, 1);	/* system_reg_set_awb_trig(1) */
+		t33_awb_list_refresh();
+		tgain_old = v0;
+		awbc_st.tg_updates++;
+	}
+out:
+	mutex_unlock(&awbc_lock);
 }
 
 void t33_awbc_detach(void)
@@ -137,6 +185,7 @@ int t33_awbc_attach(const u8 *sec, u32 len, u32 width, u32 height, const u8 *buf
 	int n, ret = 0;
 
 	t33_awbc_detach();
+	t33_evq_get();
 	mutex_lock(&awbc_lock);
 	memset(&awbc_st, 0, sizeof(awbc_st));
 	counter = 0;
@@ -169,8 +218,9 @@ out:
 void t33_awbc_show(struct seq_file *m)
 {
 	mutex_lock(&awbc_lock);
-	seq_printf(m, "t33 awb: %s frames %u still %u drops %u refused %u path %d gain r 0x%x b 0x%x ct %u\n",
+	seq_printf(m, "t33 awb: %s frames %u still %u drops %u refused %u path %d gain r 0x%x b 0x%x ct %u tgain %u/0x%x ev %u/%u\n",
 		   ready ? "on" : "off", awbc_st.frames, awbc_st.still, awbc_st.drops, awbc_st.refused,
-		   awbc_st.path, awbc_st.gain_r, awbc_st.gain_b, awbc_st.ct);
+		   awbc_st.path, awbc_st.gain_r, awbc_st.gain_b, awbc_st.ct, awbc_st.tg_updates,
+		   ready ? ai.a.st->tgain : 0, awbc_st.ev_updates, ready ? ai.a.st->ev : 0);
 	mutex_unlock(&awbc_lock);
 }

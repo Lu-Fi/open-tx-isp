@@ -32,6 +32,7 @@
 #define TX_ISP_T33_AWBALG_H
 
 #include "tx_isp_t32_awbinit.h"
+#include "tx_isp_t32_tp.h"
 #include "tx_isp_t33_stats.h"
 
 /* the flat zone records of one statistics buffer into the T32 per-zone tables (z = row * 32 + col) */
@@ -177,6 +178,82 @@ static inline int t33_awb_process(struct t32_awb *a, struct t32_awb_ctd *d, u32 
 	next = *counter + 1;
 	*counter = next < 101 ? next : 0;
 	return 0;
+}
+
+/*
+ * tisp_awb_set_regional_threshold and tisp_awb_set_lum_th_freq (T33) on
+ * the context, at the AWB interpolation point st->tgain (T33 st 0x10434):
+ * the threshold rows of the section into par 0xcb4.. / 0xcc4.. and the
+ * ct_detect limits st 0x9468.. (lim_a / lim_b, offsets equal to the T32
+ * port's); the list 29 words they give are t33_awb_tg_slots.  The vendor
+ * runs both from tisp_awb_set_hardware_param at init (tgain 0x400) and
+ * from tisp_awb_tgain_update (AE event 4).  Unlike the T32 there is no
+ * luma override (e16c4) and no freeze check on the luma words.
+ */
+static inline void t33_awb_regional_threshold(struct t32_awb *a)
+{
+	static const u16 st_ip[6][2] = {
+		{ 0x9468, 0x147a }, { 0x946a, 0x1490 }, { 0x946c, 0x14a6 },
+		{ 0x947c, 0x1556 }, { 0x947e, 0x156c }, { 0x9480, 0x1582 },
+	};
+	u8 *par = a->par->raw, *st = a->st->raw;
+	u32 g = a->st->tgain, i = g >> 16, f = g & 0xffff, k;
+
+	for (k = 0; k < 8; k++)
+		t32_tp_put16(par + 0xcb4 + 2 * k, t32_tp_intp_u16(i, f, par + 0x11ec + 0x16 * k));
+	for (k = 0; k < 6; k++)
+		t32_tp_put16(st + st_ip[k][0], t32_tp_intp_u16(i, f, par + st_ip[k][1]));
+	for (k = 0; k < 4; k++) {
+		t32_tp_put16(st + 0x946e + 2 * k, t32_st16(par, 0xdac + 2 * k));
+		t32_tp_put16(st + 0x9482 + 2 * k, t32_st16(par, 0xdb4 + 2 * k));
+	}
+}
+
+static inline void t33_awb_lum_th_freq(struct t32_awb *a)
+{
+	static const u16 dst[11] = { 0xcc4, 0xcc6, 0xcc8, 0xcd2, 0xcd4, 0xcd6, 0xcd8, 0xcde, 0xce0, 0xce2, 0xce4 };
+	u8 *par = a->par->raw;
+	u32 g = a->st->tgain, i = g >> 16, f = g & 0xffff, k;
+
+	for (k = 0; k < 11; k++)
+		t32_tp_put16(par + dst[k], t32_tp_intp_u16(i, f, par + 0x129c + 0x16 * k));
+}
+
+/* the list 29 words of regional_threshold / lum_th_freq: slots 6..10, 0x28, 0x29, 0x2b (n = 8) */
+#define T33_AWB_TG_SLOTS	8U
+static inline void t33_awb_tg_slots(const struct t32_awb *a, u8 *slot, u32 *val)
+{
+	const u8 *p = a->par->raw;
+	unsigned int k;
+
+	for (k = 0; k < 4; k++) {
+		slot[k] = 6 + k;
+		val[k] = t32_st16(p, 0xcb4 + 4 * k) | (u32)t32_st16(p, 0xcb6 + 4 * k) << 16;
+	}
+	slot[4] = 10;
+	val[4] = t32_st16(p, 0xcc4) | t32_st16(p, 0xcc6) << 8 | (u32)t32_st16(p, 0xcc8) << 16 | (u32)t32_st16(p, 0xcca) << 24;
+	slot[5] = 0x28;
+	val[5] = (t32_st16(p, 0xcd0) & 3) << 16 | (t32_st16(p, 0xcce) & 1);
+	slot[6] = 0x29;
+	val[6] = (t32_st16(p, 0xcd2) & 0xf) | (t32_st16(p, 0xcd4) & 0xf) << 8 | (t32_st16(p, 0xcd6) & 0xf) << 16 |
+		 (u32)(t32_st16(p, 0xcd8) & 0xf) << 24;
+	slot[7] = 0x2b;
+	val[7] = (t32_st16(p, 0xcde) & 0xf) | (t32_st16(p, 0xce0) & 0xf) << 8 | (t32_st16(p, 0xce2) & 0xf) << 16 |
+		 (u32)(t32_st16(p, 0xce4) & 0xf) << 24;
+}
+
+/* tisp_awb_tgain_update: the gain (AE event 4, log2 Q16), then both threshold sets */
+static inline void t33_awb_tgain_update(struct t32_awb *a, u32 gain)
+{
+	a->st->tgain = gain;
+	t33_awb_regional_threshold(a);
+	t33_awb_lum_th_freq(a);
+}
+
+/* tisp_awb_ev_update: the exposure measure (AE event 6, EV low word) */
+static inline void t33_awb_ev_update(struct t32_awb *a, u32 ev)
+{
+	a->st->ev = ev >> 10;
 }
 
 #endif /* TX_ISP_T33_AWBALG_H */

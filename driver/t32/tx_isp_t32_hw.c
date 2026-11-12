@@ -113,6 +113,7 @@ static int t32_wait_clear(u32 off, u32 mask, int us)
 
 #ifdef TX_ISP_T33
 static u32 t33_mod_dirty;	/* lists 0..31 to run again at the next frame end (tisp*Refresh) */
+static bool t33_awb_refresh;	/* tispAwbRefresh == 1: run list 29 at the next AWB interrupt */
 extern u32 t33_rcfg_runs;
 #endif
 
@@ -153,6 +154,12 @@ static irqreturn_t t32_isp_irq(int irq, void *dev)
 		t32_hw_stats.awb_irqs++;
 #ifdef TX_ISP_T33
 		t33_awbc_kick();
+		/* tisp_awb_interrupt_static: tispAwbRefresh == 1 -> list 29 (no DMA state check) */
+		if (t33_awb_refresh) {
+			t33_awb_refresh = false;
+			isp_wr(T33_RCFG_TRIG, 1U << T33_MOD_AWB);
+			t33_rcfg_runs++;
+		}
 #endif
 	}
 	if (sta & T32_INT_AE) {
@@ -344,6 +351,7 @@ static void t33_mod_free(void)
 	t33_mod_built = 0;
 #ifdef TX_ISP_T33
 	t33_mod_dirty = 0;
+	t33_awb_refresh = false;
 #endif
 }
 
@@ -836,6 +844,13 @@ void t33_dg_list_set(u32 v)
 	else
 		t33_mod_dirty |= 1U << T33_MOD_DG;
 	local_irq_restore(flags);
+}
+
+/* tisp_awb_tgain_update's tispAwbRefresh = 1: list 29 runs at the next AWB interrupt */
+void t33_awb_list_refresh(void)
+{
+	if (t33_mod_built & (1ULL << T33_MOD_AWB))
+		ACCESS_ONCE(t33_awb_refresh) = true;
 }
 
 /* tisp_reg_write_t33(29, slot, v) of spec_calculate: list memory only (runs with tispAwbRefresh) */
@@ -1696,6 +1711,7 @@ void t32_hw_exit(void)
 	cancel_work_sync(&t32_bringup_ae_w);	/* it reads registers and the AE buffer */
 #ifdef TX_ISP_T33
 	cancel_work_sync(&t33_stats_w);	/* it reads registers and the statistics buffers */
+	t33_evq_free();
 #endif
 	if (regs)
 		writel(0, csi_base + 0x0c);	/* CSI host back into reset */
