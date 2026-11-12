@@ -7,6 +7,7 @@ marked otherwise. Release tags `vYYYY.MM.DD` on the `aperto` branch are planned 
 ## 2026-11-12: T32 QEMU smoke fixes (openimp #234, #360, #361, #362; QEMU only, not device-tested)
 
 - Per-frame write list of `tx_isp_t32_tisp.c` 1024 -> 1536 entries with `BUILD_BUG_ON(T32_MDNS_MAX_WRITES > T32_PF_MAX_WRITES)`: one MDNS refresh is up to 1281 writes, so a full refresh ran past the kmalloc'd list and was then dropped (`per-frame write list overflow (1243)` in dmesg) (#362).
+- QEMU smoke findings #360 (red/magenta cast, U+V about 325 instead of 256) and #361 (AWB frozen at ct 5000): not a driver fault. Bit-off runs (bits 10..19 one at a time) showed only bit 14 (per-frame AWB) causes the cast. The QEMU T32 model capped the AWB grid at 15 columns while the cv8001 bin (0x160f4 = 120 x 72 quads) and the vendor reader use 16, so the driver unpacked shifted rows and computed gains of 11x / 46x. With the model fixed (local QEMU branch `t32-awb-grid`) and this driver: U+V 253..256 in all six windows, ct follows the tint clip (2344 .. 6880), gains r 312 .. 790 / b 374 .. 931, no write list overflow, 1800/1800 streams, 0 decode errors. Host trace `audit/t32smoke/sim/awbsim.c`: the driver chain gives ct 6747 / 4705 / 3838 / 2532 for synthetic grey zones of rising red.
 
 ## 2026-11-11: T32 /proc show routines (openimp #234; planned, host only, not device-tested)
 
