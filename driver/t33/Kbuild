@@ -7,7 +7,8 @@ tx-isp-t33-objs := tx_isp_t33_sinfo.o \
 		   tx_isp_t33_core.o \
 		   tx_isp_t33_funcs.o \
 		   tx_isp_t33_hw.o \
-		   tx_isp_t33_fs.o
+		   tx_isp_t33_fs.o \
+		   tx_isp_t33_awbc.o
 obj-m += tx-isp-t33.o
 
 ccflags-y += -I$(src)/../include -I$(src)/../t32 -std=gnu99 -DTX_ISP_T33

@@ -149,8 +149,12 @@ static irqreturn_t t32_isp_irq(int irq, void *dev)
 		}
 #endif
 	}
-	if (sta & T32_INT_AWB)
+	if (sta & T32_INT_AWB) {
 		t32_hw_stats.awb_irqs++;
+#ifdef TX_ISP_T33
+		t33_awbc_kick();
+#endif
+	}
 	if (sta & T32_INT_AE)
 		t32_hw_stats.ae_irqs++;
 	if (sta & T32_INT_AE_HIST) {
@@ -291,6 +295,10 @@ static struct {
 static void t33_mod_free(void)
 {
 	unsigned int i;
+
+#ifdef TX_ISP_T33
+	t33_awbc_detach();
+#endif
 
 	if (t33_lsc_pages)
 		free_pages(t33_lsc_pages, T33_LSC_ORDER);
@@ -770,6 +778,35 @@ void t33_stats_show(struct seq_file *m)
 	seq_printf(m, "t33 statistics: ae %u (bad %u) grid %ux%u luma %u lo %u hi %u tag %u, hist %u (bad %u) mean %u/16\n",
 		   t33_st.ae_frames, t33_st.ae_bad, t33_ae_cols, t33_ae_rows, t33_st.ae.luma, t33_st.ae.lo,
 		   t33_st.ae.hi, t33_st.ae.tag, t33_st.hist_frames, t33_st.hist_bad, t33_st.mean16);
+	t33_awbc_show(m);
+}
+
+/* for ../t33/tx_isp_t33_awbc.c: register read, and the per-frame AWB results into lists 7 / 29 */
+u32 t33_hw_rd(u32 reg)
+{
+	return isp_rd(reg);
+}
+
+/* tisp_awb_set_gain: AWBG list 7 slots 3 / 4, run at the next frame end (tispAwbgRefresh) */
+void t33_awb_list_gain(u32 r, u32 b)
+{
+	u32 *l;
+
+	if (!(t33_mod_built & (1ULL << T33_MOD_AWBG)) || !(l = t33_mod_buf(T33_MOD_AWBG)))
+		return;
+	T33_SW(l, 3, r);
+	T33_SW(l, 4, b);
+	t33_mod_dirty |= 1U << T33_MOD_AWBG;
+}
+
+/* tisp_reg_write_t33(29, slot, v) of spec_calculate: list memory only (runs with tispAwbRefresh) */
+void t33_awb_list_slot(int slot, u32 v)
+{
+	u32 *l;
+
+	if (slot < 1 || !(t33_mod_built & (1ULL << T33_MOD_AWB)) || !(l = t33_mod_buf(T33_MOD_AWB)))
+		return;
+	T33_SW(l, slot, v);
 }
 
 /*
@@ -801,6 +838,9 @@ static noinline_for_stack void t33_tisp_init_awb(const u8 *bin, u32 bytes)
 	buf = t33_mod_buf(T33_MOD_AWBG);
 	if (buf)
 		t33_mod_done(T33_MOD_AWBG, t33_awbg_init(r, b, buf, T33_SLOT_WORDS));
+	/* tisp_awb_init's run state, then tisp_awb_process per statistics frame */
+	if (t33_awb_stat_pages && t33_awbc_attach(bin + off, len, width, height, t33_stat_va(t33_awb_stat_pages, 0)))
+		isp_printf(1, "tx-isp-t33: per-frame AWB not started\n");
 }
 
 static void t33_tisp_init(const u8 *bin, u32 bytes)
@@ -1285,6 +1325,9 @@ void t32_hw_stream_on(void)
 
 void t32_hw_stream_off(void)
 {
+#ifdef TX_ISP_T33
+	t33_awbc_detach();
+#endif
 	t32_vic_wr(0, T32_VIC_CTRL, 4);		/* stop + reset */
 	t32_vic_wr(1, T32_VIC_CTRL, 4);
 	t32_wait_clear(T32_VIC_RESET_BUSY, 0xf, 1000);

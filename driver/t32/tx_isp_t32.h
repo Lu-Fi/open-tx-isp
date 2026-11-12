@@ -57,6 +57,11 @@ void t32_fs_done_irq(u32 done);
 void t32_fs_show(struct seq_file *m);
 #ifdef TX_ISP_T33
 void t33_stats_show(struct seq_file *m);	/* tx_isp_t32_hw.c */
+/* ../t33/tx_isp_t33_awbc.c: per-frame AWB */
+int t33_awbc_attach(const u8 *sec, u32 len, u32 width, u32 height, const u8 *bufs);
+void t33_awbc_detach(void);
+void t33_awbc_kick(void);
+void t33_awbc_show(struct seq_file *m);
 #endif
 
 /* tx_isp_t32_sinfo.c (shared registry, driver/common/tx_isp_sinfo.c) */
