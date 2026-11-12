@@ -15650,6 +15650,13 @@ static bool tx_isp_t30_core_chan_direct(struct tx_isp_t30_core_output_channel *c
 	case V4L2_PIX_FMT_SGBRG12:
 	case V4L2_PIX_FMT_SGRBG12:
 	case V4L2_PIX_FMT_SRGGB12:
+	/*
+	 * #365: NV12/NV21 to DDR as well (the core -> LDC link of graph 2,
+	 * flag 0x10): the bank helper writes Y and UV like the OEM
+	 * isp_set_buffer_address_vflip_disable.
+	 */
+	case V4L2_PIX_FMT_NV12:
+	case V4L2_PIX_FMT_NV21:
 		return true;
 	default:
 		return false;
@@ -20676,8 +20683,8 @@ int tx_isp_ldc_show(struct seq_file *m)
 		result = (void *)(uintptr_t)((uintptr_t)result + (seq_printf(m, "LDC is using default parameter!\n")));
 
 	flags = arch_local_irq_save();
-	entry = *(void **)((char *)current + 0x14);
-	*(uint32_t *)((uintptr_t)entry + 0x14) += 1;
+	/* #365: OEM spin_lock_irqsave (gp->preempt_count++); was a store through current + 0x14 */
+	preempt_disable();
 
 	list_head = *(void **)((char *)ldc + 0x1c4);
 	list_end = (char *)ldc + 0x1c4;
