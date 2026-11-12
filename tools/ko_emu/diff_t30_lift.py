@@ -13,6 +13,9 @@ Runs functions of the SDK-built vendor tx-isp-t30.ko (4ea12e1f) and of our drive
   apical_event_queue_push                       queue head, _qlock1
   luts_fetch / AWB_mesh / AWB_mesh_LUT / mesh_AWB_getKnownSourceLight_weight_LUT / compute_weight
   awb_calc_avg_weighted_gr_gb_mesh              every FSM byte, fifo state (vendor rg_avg/gb_avg)
+  ispcore/ncu_pad_event_handle, mscaler_frame_channel_streamoff   gp = thread_info: preempt_count, flags,
+                                                unlock sequence, heap, GET_FORMAT buffer (#371)
+  tx_isp_unlocked_ioctl                         user vs kernel argument: return, copies to user (addr_limit, #371)
 
 Callees outside the function under test are hooked at their entry in both modules and logged; the
 calibration getters return synthetic tables (no vendor data).  Return values are compared only where the
@@ -31,7 +34,7 @@ def s32(v): return v - (1 << 32) if v & 0x80000000 else v
 
 class Mod:
     def __init__(self, path, st):
-        self.st = st; self.log = []
+        self.st = st; self.log = []; self.path = path
         e = self.e = KoEmu(path, hle={"printk": lambda e: 0, "isp_printf": lambda e: 0}, max_insns=3_000_000)
         e.uc.mem_map(CB, 0x1000)
         e.stubname[CB] = "bus_cb"; e.hle["bus_cb"] = self.rec("bus_cb", 4)
@@ -366,9 +369,115 @@ def t_calc(V, O, rnd, n):
     if skip: print("  awb_calc: %d of %d cases trap in both (OEM divide by zero), skipped" % (skip, n))
     return bad
 
+# ---------------------------------------------------------------- gp = current_thread_info() (#371)
+# The lift resolved the OEM gp-relative thread_info accesses (gp+0 task, +8 flags, +20 preempt_count, +24 addr_limit)
+# to .sbss statics or 0.  Both modules run with $28 pointing at a fake thread_info; spin_unlock_irqrestore (OEM
+# private_spin_unlock_irqrestore, ours inline irqrestore + preempt_enable) is compared as one "unlock".
+GP_NB, GP_BS, USER_DS = 12, 0x400, 0x80000000
+def gp_world(m, rnd):
+    m.e.heap_reset(); ti = m.e.alloc(0x40); m.e.gp = ti
+    blk = [m.e.alloc(GP_BS) for _ in range(GP_NB)]
+    for b in blk:
+        w = []
+        for i in range(GP_BS // 4):
+            c = rnd.random()
+            if c < 0.3: w.append(0)
+            elif c < 0.45: w.append(rnd.choice([1, 2, 3, 4, 5, 8, 0x20]))
+            elif c < 0.85: w.append(rnd.choice(blk) + 4 * rnd.randrange(0, 64))
+            else: w.append(b + 4 * i)                                       # empty list head
+        m.e.write(b, struct.pack("<%dI" % len(w), *w))
+    m.e.write(ti, struct.pack("<8I", 0x5a5a0000, 0, rnd.choice([0, 4]), 0, 0, rnd.choice([0, 1, 3]), USER_DS, 0))
+    return ti, blk
+
+def gp_hooks(m):
+    lg = m.log
+    m.hook("arch_local_irq_save", lambda e: (lg.append(("irqsave",)), 0x55)[1])
+    m.hook("arch_local_irq_restore", lambda e: (lg.append(("unlock", e.get_reg(UC_MIPS_REG_A0))), 0)[1])
+    def unlock(e):
+        ti = m.e.gp; pc = struct.unpack("<i", e.read(ti + 20, 4))[0]
+        e.write(ti + 20, struct.pack("<i", pc - 1)); lg.append(("unlock", e.get_reg(UC_MIPS_REG_A1))); return 0
+    m.hook("private_spin_unlock_irqrestore", unlock)
+    def mset(e):
+        a, c, k = (e.get_reg(r) for r in (UC_MIPS_REG_A0, UC_MIPS_REG_A1, UC_MIPS_REG_A2))
+        lg.append(("memset", a, c, k)); e.write(a, bytes([c & 0xff]) * k); return a
+    m.hook("memset", mset)
+    for f in ("printk", "isp_printf", "__might_sleep", "msleep", "private_msleep", "seq_printf", "preempt_schedule"):
+        m.hook(f, lambda e: 0)
+    m.hook("tx_isp_reg_set", m.rec("tx_isp_reg_set", 4))
+    m.hook("tx_isp_send_event_to_remote", m.rec("tx_isp_send_event_to_remote", 2))
+    regfile(m, {}, [])
+
+def gp_case(m, r, kind):
+    ti, b = gp_world(m, r)
+    W = lambda a, o, v: m.e.write(a + o, struct.pack("<I", v & M32))
+    B = lambda a, o, v: m.e.write(a + o, bytes([v]))
+    if kind in ("isp_qbuf", "isp_free"):          # ispcore QUEUE_BUFFER / FREE_BUFFERS: lock + list ops (OEM c5dc)
+        B(b[0], 5, 1); W(b[0], 20, r.choice([0, 0, 0x20])); W(b[0], 32, b[1])
+        for o in (112, 120): W(b[1], o, b[1] + o); W(b[1], o + 4, b[1] + o)
+        return "ispcore_pad_event_handle", (b[0], 0x3000005 if kind == "isp_qbuf" else 0x3000007, b[2]), True
+    if kind == "isp_fmt":                           # GET_FORMAT: OEM c684..c694 store to the a2 buffer
+        B(b[0], 5, 1); W(b[0], 32, b[1]); W(b[1], 88, b[3]); W(b[3], 352, 1); W(b[3], 336, r.randrange(0, 4))
+        return "ispcore_pad_event_handle", (b[0], 0x3000001, b[2]), True
+    if kind == "ncu_qbuf":                          # ncu QUEUE_BUFFER (OEM 12f1c): preempt_count, 64-bit frame count
+        B(b[0], 5, 1); W(b[0], 0, b[4]); W(b[0], 32, b[1]); W(b[4], 208, b[5]); W(b[5], 20, r.choice([0, 0x20]))
+        W(b[1], 412, r.choice([0, b[6]])); W(b[1], 372, r.choice([4, 3]))
+        return "ncu_pad_event_handle", (b[0], 0x3000005, b[2]), True
+    # mscaler_frame_channel_streamoff (OEM 1677c, void): lock, poll, list drain, memset tail call
+    B(b[0], 7, r.choice([4, 4, 3])); W(b[0], 32, b[1]); W(b[1], 100, b[2]); W(b[1], 80, r.choice([4, 3]))
+    W(b[1], 76, r.randrange(0, 3)); W(b[2], 184, b[3]); W(b[1], 124, b[1] + 124)
+    W(b[1], 12, r.choice([0x34524742, 0x50424752, 0]))
+    return "mscaler_frame_channel_streamoff.isra.0", (b[0],), False
+
+GP_KINDS = ("isp_qbuf", "isp_free", "isp_fmt", "ncu_qbuf", "msc_off")
+def t_gp_lock(V, O, rnd, n):
+    V, O = Mod(V.path, {}), Mod(O.path, {})          # fresh modules: no hooks/state of the other groups
+    bad = 0
+    for k in range(n):
+        kind = GP_KINDS[k % len(GP_KINDS)]; seed = rnd.getrandbits(32); res = []
+        for m in (V, O):
+            r0 = random.Random(seed); fn, args, has_ret = gp_case(m, r0, kind); gp_hooks(m)
+            nm = fn if fn in m.e.symaddr else fn.replace(".", "_"); del m.log[:]
+            r = m.e.call(nm, *args)
+            res.append((r.stop, r.v0 if has_ret and not r.stop else None, list(m.log), m.e.read(m.e.gp, 0x20),
+                        m.e.read(HEAP, 0x40 + GP_NB * GP_BS)))
+        if res[0] != res[1]:
+            bad += 1
+            if bad < 4: print("DIFF %s: vendor %s open %s" % (kind, res[0][:4], res[1][:4]))
+    return bad
+
+# tx_isp_unlocked_ioctl with a user / kernel argument (addr_limit USER_DS): OEM access_ok() on gp+24
+UACCESS_CMDS = (0x40045626, 0x80045612, 0x80045613, 0x800456d0, 0x800456d3, 0x800456d4, 0x8038564f, 0x805056c1,
+                0x805056c2, 0xc0045627, 0xc0045628, 0xc0385650, 0xc050561a)
+def t_uaccess(V, O, rnd, n):
+    V, O = Mod(V.path, {}), Mod(O.path, {})          # fresh modules: no hooks/state of the other groups
+    bad = 0
+    for k in range(n):
+        cmd = UACCESS_CMDS[k % len(UACCESS_CMDS)]; kind = rnd.choice(["user", "kernel"])
+        ub0 = bytes(rnd.getrandbits(8) for _ in range(0x100)); res = []
+        for m in (V, O):
+            m.e.heap_reset(); ti = m.e.alloc(0x40, struct.pack("<8I", 0x5a5a0000, 0, 0, 0, 0, 0, USER_DS, 0)); m.e.gp = ti
+            cp = []
+            def cu(e, cp=cp):
+                to, frm, cnt = (e.get_reg(r) for r in (UC_MIPS_REG_A0, UC_MIPS_REG_A1, UC_MIPS_REG_A2))
+                try: e.write(to, e.read(frm, cnt)); e.set_reg(UC_MIPS_REG_A2, 0)
+                except Exception: e.set_reg(UC_MIPS_REG_A2, cnt)
+                if HEAP <= to < HEAP + HEAP_SZ: cp.append((to - HEAP, cnt))       # copies to user memory
+                return 0
+            m.hook("__copy_user", cu)
+            for f in ("printk", "isp_printf", "__might_sleep"): m.hook(f, lambda e: 0)
+            dev = m.e.alloc(0x800); filp = m.e.alloc(0x100); m.e.write(filp + 112, struct.pack("<I", dev + 12))
+            ub = m.e.alloc(0x100, ub0)
+            r = m.call("tx_isp_unlocked_ioctl", filp, cmd, ub if kind == "user" else 0x80001000)
+            res.append((r.stop, s32(r.v0) if not r.stop else None, cp, m.e.read(ti, 0x20)))   # data: our ioctl wrappers
+        if res[0] != res[1]:
+            bad += 1
+            if bad < 4: print("DIFF tx_isp_unlocked_ioctl cmd=%#x %s: vendor %s open %s" % (cmd, kind, res[0][:3], res[1][:3]))
+    return bad
+
 TESTS = [("nr_selectors", t_nr), ("general_frame_start", t_general), ("fsm_switch_state", t_fsm), ("crop_event", t_crop),
          ("sbus_write_u8", t_sbus), ("awb_normalise", t_normalise), ("event_queue_push", t_queue),
-         ("awb_mesh_chain", t_mesh), ("compute_weight", t_weight), ("awb_calc_mesh", t_calc)]
+         ("awb_mesh_chain", t_mesh), ("compute_weight", t_weight), ("awb_calc_mesh", t_calc),
+         ("gp_lock_paths", t_gp_lock), ("ioctl_uaccess", t_uaccess)]
 
 def main():
     vko, oo = sys.argv[1], sys.argv[2]
