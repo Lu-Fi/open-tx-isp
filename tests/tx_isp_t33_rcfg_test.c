@@ -19,6 +19,7 @@
 #include "../driver/t32/tx_isp_t33_ysp.h"
 #include "../driver/t32/tx_isp_t33_rdns.h"
 #include "../driver/t32/tx_isp_t33_ccm.h"
+#include "../driver/t32/tx_isp_t33_lsc.h"
 
 static int bad;
 #define CHECK(c) do { if (!(c)) { bad++; printf("FAIL line %d: %s\n", __LINE__, #c); } } while (0)
@@ -93,8 +94,9 @@ static void vs_tmpl(const char *what, unsigned int id, const struct t33_tcmd *t,
 	printf("  %s: list %u, %u words, %u writes vs vendor %u\n", what, id, len, m, ref_n[id]);
 }
 
-/* a list filled the vendor's way (layout + slot stores) against the vendor's list */
-static void vs_list(const char *what, unsigned int id, const u32 *buf, int len)
+/* a list filled the vendor's way (layout + slot stores) against the vendor's list;
+ * skip: a register whose vendor value is not defined (0: none) */
+static void vs_list_skip(const char *what, unsigned int id, const u32 *buf, int len, u32 skip)
 {
 	static u32 reg[1024], val[1024];
 	unsigned int m, i;
@@ -105,12 +107,17 @@ static void vs_list(const char *what, unsigned int id, const u32 *buf, int len)
 	m = decode(buf, reg, val, 1024);
 	CHECK(m == ref_n[id]);
 	for (i = 0; i < m && i < ref_n[id]; i++)
-		if (reg[i] != ref_reg[id][i] || val[i] != ref_val[id][i]) {
+		if (reg[i] != ref_reg[id][i] || (val[i] != ref_val[id][i] && (!skip || reg[i] != skip))) {
 			bad++;
 			printf("FAIL %s #%u: %05x=%08x vendor %05x=%08x\n", what, i, reg[i], val[i],
 			       ref_reg[id][i], ref_val[id][i]);
 		}
 	printf("  %s: list %u, %d words, %u writes vs vendor %u\n", what, id, len, m, ref_n[id]);
+}
+
+static void vs_list(const char *what, unsigned int id, const u32 *buf, int len)
+{
+	vs_list_skip(what, id, buf, len, 0);
 }
 
 #define TMPL(x) x, sizeof(x) / sizeof(x[0])
@@ -211,6 +218,30 @@ int main(void)
 			vs_list("ccm", T33_MOD_CCM, lb, t33_ccm_init(bin + off, bin + off + len,
 								 t32_iq_payload(bin + off, bytes - off, T33_SEC_CCM),
 								 T33_CCM_INIT_CT, 0, 0, v, lb, T33_SLOT_WORDS));
+			{
+				/* LSC: the DMA table address (slot 16) as the vendor's; 0x507c is slab slack there */
+				static struct t33_lsc m;
+				static u8 lut[T33_LSC_LUT_BYTES];
+				u32 phys = 0;
+
+				for (id = 0; id < ref_n[T33_MOD_LSC]; id++)
+					if (ref_reg[T33_MOD_LSC][id] == 0x5078)
+						phys = ref_val[T33_MOD_LSC][id];
+				off = t32_iq_section(bin, bytes, T33_SEC_LSC, &len);
+				CHECK(off && len == T33_LSC_SEC_BYTES);
+				vs_list_skip("lsc", T33_MOD_LSC, lb,
+					     t33_lsc_init(bin + off, bin + off + len,
+							  t32_iq_payload(bin + off, bytes - off, T33_SEC_LSC), 1080, 1920,
+							  0x10000, 5000, v, &m, lut, phys, lb, T33_SLOT_WORDS), 0x507c);
+				CHECK(m.rows == 36 && m.cols == 62 && m.cells == 2232);
+				/* the table: row 0 cells 0/1 of the blend of the 3850 / 6300 K tables */
+				{
+					/* 5000 K: 3950..6200 K, f = 1911 / 4096; identity distance gains */
+					static const u8 c01[9] = { 0xd7, 0x88, 0x88, 0x97, 0x78, 0x8b, 0x6b, 0x98, 0x87 };
+
+					CHECK(!memcmp(lut, c01, 9) && !lut[279]);
+				}
+			}
 		}
 	}
 	printf("tx_isp_t33_rcfg_test: %s\n", bad ? "FAIL" : "PASS");

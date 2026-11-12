@@ -35,6 +35,7 @@
 #include "tx_isp_t33_ysp.h"
 #include "tx_isp_t33_rdns.h"
 #include "tx_isp_t33_ccm.h"
+#include "tx_isp_t33_lsc.h"
 #include "tx_isp_t32_lsc.h"
 #include "tx_isp_t32_stats.h"
 #include "tx_isp_t32_iq.h"
@@ -223,9 +224,17 @@ static void __maybe_unused t33_mod_set_tmpl(unsigned int id, const struct t33_tc
 }
 #define T33_TMPL(t) (t), ARRAY_SIZE(t)
 
+/* LSC mesh table, read by the core by DMA from the address in 0x5078 */
+static unsigned long t33_lsc_pages;
+#define T33_LSC_ORDER	get_order(T33_LSC_LUT_BYTES)
+
 static void t33_mod_free(void)
 {
 	unsigned int i;
+
+	if (t33_lsc_pages)
+		free_pages(t33_lsc_pages, T33_LSC_ORDER);
+	t33_lsc_pages = 0;
 
 	for (i = 0; i < T33_MODULES; i++) {
 		if (t33_mod_page[i])
@@ -481,7 +490,8 @@ static int t32_mdns_build(u8 *sec, u32 width, u32 height)
 
 /* block state of the blocks filled the vendor's way (layout + slot stores) */
 static u32 t33_dmsc_v[T33_DMSC_WORDS], t33_dpc_v[T33_DPC_WORDS], t33_ysp_v[T33_YSP_WORDS];
-static u32 t33_rdns_v[T33_RDNS_WORDS], t33_ccm_v[T33_CCM_WORDS];
+static u32 t33_rdns_v[T33_RDNS_WORDS], t33_ccm_v[T33_CCM_WORDS], t33_lsc_v[T33_LSC_WORDS];
+static struct t33_lsc t33_lsc_m;
 #define T33_INIT_EV	0xffffffffU	/* the vendor's EV before the first AE run */
 #define T33_DG_UNITY	0x04000400U	/* DG list 0x4060 at init (DG 1.0), until #389 builds list 5 */
 
@@ -496,7 +506,7 @@ static u32 t33_rdns_v[T33_RDNS_WORDS], t33_ccm_v[T33_CCM_WORDS];
 
 static void t33_tisp_init(const u8 *bin, u32 bytes)
 {
-	u32 off, len, code;
+	u32 off, len, code, width, height;
 
 	off = t32_iq_section(bin, bytes, T33_SEC_BLC, &len);
 	if (off && len == T33_BLC_SEC_BYTES && !t32_core_sensor_mbus(&code) && t32_mbus_to_bayer(code) >= 0)
@@ -534,6 +544,21 @@ static void t33_tisp_init(const u8 *bin, u32 bytes)
 							       t32_iq_payload(bin + off, bytes - off, T33_SEC_CCM),
 							       T33_CCM_INIT_CT, T33_CCM_INIT_EV, 0, t33_ccm_v, buf,
 							       T33_SLOT_WORDS));
+	}
+	off = t32_iq_section(bin, bytes, T33_SEC_LSC, &len);
+	if (off && len == T33_LSC_SEC_BYTES && !t32_core_sensor_size(&width, &height)) {
+		u32 *buf = t33_mod_buf(T33_MOD_LSC);
+
+		if (!t33_lsc_pages)
+			t33_lsc_pages = __get_free_pages(GFP_KERNEL | __GFP_ZERO, T33_LSC_ORDER);
+		/* CT 5000 K as the CCM; the table written uncached */
+		if (buf && t33_lsc_pages)
+			t33_mod_done(T33_MOD_LSC,
+				     t33_lsc_init(bin + off, bin + off + len,
+						  t32_iq_payload(bin + off, bytes - off, T33_SEC_LSC), height, width,
+						  T33_INIT_GAIN, T33_CCM_INIT_CT, t33_lsc_v, &t33_lsc_m,
+						  (u8 *)CKSEG1ADDR(virt_to_phys((void *)t33_lsc_pages)),
+						  (u32)virt_to_phys((void *)t33_lsc_pages), buf, T33_SLOT_WORDS));
 	}
 }
 #endif
