@@ -16291,9 +16291,9 @@ static long regtrace_t23_sensor_register_ioctl(unsigned int cmd, unsigned long a
  *   0x800456db / 0xc00456e1 (get the statistics): the stock module has no handler, the
  *                         ioctl answers 0 at once and fills nothing (stock completes
  *                         ae_algo_comp / awb_algo_comp, nobody waits).  algo_get_wait=1
- *                         (default) waits up to 2 s for the next AE / AWB run instead,
- *                         so the library thread follows the frame rate instead of
- *                         spinning (deviation; 0 = stock).
+ *                         (default) waits up to 2 s for the next AE / AWB run instead
+ *                         (then answers 0 like stock), so the library thread follows
+ *                         the AE / AWB rate instead of spinning (deviation; 0 = stock).
  * Sensor 0 without WDR (the T23 boards); the custom AE needs the stock AE chain
  * (source_ae_oem=1, default), whose run skips its own exposure update while
  * ta_custom_en is set.
@@ -16325,7 +16325,7 @@ static uint32_t t23_algo_q10_mul(uint32_t a, uint32_t b)
 
 static uint32_t t23_algo_q10_div(uint32_t a, uint32_t b)
 {
-	return b ? (uint32_t)(((uint64_t)a << 10) / b) : 0;
+	return b ? (uint32_t)div_u64((uint64_t)a << 10, b) : 0;
 }
 
 static long t23_algo_ae_open(unsigned long arg)
@@ -16447,6 +16447,14 @@ static void t23_algo_ae_apply(const uint32_t *in)
 	system_reg_write_ae(3, 0x1030, (isp_gain << 16) | isp_gain);
 	system_reg_write_ae(3, 0x1034, (isp_gain << 16) | isp_gain);
 	regtrace_t23_call_sensor_exposure(packed, "custom-ae");
+	{
+		/* stock: the AE control words follow (tisp_ae_ctrls 0x04 again, 0x08 sensor dgain,
+		 * 0x0c integration time, 0x10 ISP dgain), GetExpr / GetEVAttr read them */
+		uint8_t *ctrl = regtrace_t23_source_ae_oem ? oem_tisp_ae_ctrls : tisp_ae_ctrls;
+		uint32_t w[4] = { gain_q16, 0x400, actual_it, isp_gain };
+
+		memcpy(ctrl + 0x04, w, sizeof(w));
+	}
 	ev = t23_algo_q10_mul(t23_algo_q10_mul(actual_it << 10, gain_q16), isp_gain);
 	tgain = t23_algo_q10_mul(gain_q16, isp_gain);
 	if (ev != t23_algo_ae_ev) {
@@ -16469,10 +16477,8 @@ static long t23_algo_get(struct completion *comp, bool on, const char *what)
 	ret = wait_for_completion_interruptible_timeout(comp, 2 * HZ);
 	if (ret < 0)
 		return -ERESTARTSYS;
-	if (ret == 0) {
-		printk_ratelimited(KERN_WARNING "t23: custom %s get-handle: no run within 2 s\n", what);
-		return -ETIMEDOUT;
-	}
+	if (ret == 0)	/* no run (stream start, stopped stream): answer as stock does, the library loops on */
+		printk_ratelimited(KERN_INFO "t23: custom %s get-handle: no run within 2 s\n", what);
 	return 0;
 }
 
