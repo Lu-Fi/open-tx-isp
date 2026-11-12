@@ -238,3 +238,10 @@ have to come back together (`tisp_event_init` caller + queue path in
     `ldc_core_ops_init` (14; owned by the LDC work, Lu-Fi/openimp#365).
   Not changed in the #274 pass: any of them changes what -O0 executes
   today, and there is no T30 device test available to compare.
+  Fixed in Lu-Fi/openimp#371 (vendor-equal, Unicorn oracle
+  `tests/t30_lift_oracle.sh`): all of the above except the LDC sites, plus
+  five more lost-base-register loads in `frame_channel_unlocked_ioctl_raw`
+  and the rest of the AWB mesh chain. `-Os` warnings now 21: 20 LDC
+  array-bounds (#365) and the 3 KB frame of
+  `awb_calc_avg_weighted_gr_gb_mesh` (vendor frame 3080 bytes). Check:
+  `make ... TX_ISP_T30_OS=y TX_ISP_T30_WARN=y`.
