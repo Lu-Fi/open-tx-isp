@@ -766,6 +766,12 @@ static void t32_clks_deactivate(void)
 	}
 }
 
+/* ISP clocks on (an open /dev/tx-isp); rmmod runs with them off */
+int t32_core_clk_active(void)
+{
+	return t32_clk_users != 0;
+}
+
 static int t32_isp_open(struct inode *inode, struct file *file)
 {
 	mutex_lock(&core.lock);

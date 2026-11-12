@@ -29,6 +29,7 @@
 #include "tx_isp_t32_vic.h"
 #include "tx_isp_t32_rcfg.h"
 #include "tx_isp_t32_rcfg33.h"
+#include "tx_isp_t33_blk.h"
 #include "tx_isp_t32_lsc.h"
 #include "tx_isp_t32_stats.h"
 #include "tx_isp_t32_iq.h"
@@ -166,29 +167,56 @@ static unsigned long t33_mod_page[T33_MODULES];
 static u64 t33_mod_built;
 u32 t33_rcfg_runs, t33_rcfg_timeouts;
 
-static void t33_mod_set(unsigned int id, const struct t32_front_write *w, unsigned int n)
+/* a module's list page, uncached (the core reads it by DMA); NULL without memory */
+static u32 *t33_mod_buf(unsigned int id)
 {
-	struct t32_rcfg_list l;
-	int len;
-
-	if (id >= T33_MODULES || !n)
-		return;
+	if (id >= T33_MODULES)
+		return NULL;
 	if (!t33_mod_page[id])
 		t33_mod_page[id] = __get_free_page(GFP_KERNEL | __GFP_ZERO);
 	if (!t33_mod_page[id]) {
 		isp_printf(2, "tx-isp-t33: no memory for register list %u\n", id);
-		return;
+		return NULL;
 	}
-	/* the core reads the list by DMA: write it uncached */
-	len = t33_rcfg_build(&l, (u32 *)CKSEG1ADDR(virt_to_phys((void *)t33_mod_page[id])),
-			     T33_SLOT_WORDS, w, n);
+	return (u32 *)CKSEG1ADDR(virt_to_phys((void *)t33_mod_page[id]));
+}
+
+static void t33_mod_done(unsigned int id, int len)
+{
 	if (len < 0) {
-		isp_printf(2, "tx-isp-t33: register list %u overflow\n", id);
+		isp_printf(2, "tx-isp-t33: register list %u not built\n", id);
 		t33_mod_built &= ~(1ULL << id);
 		return;
 	}
 	t33_mod_built |= 1ULL << id;
 }
+
+/* list from the block's writes in ascending register order (top, CSC, CSCCR, CDNS) */
+static void t33_mod_set(unsigned int id, const struct t32_front_write *w, unsigned int n)
+{
+	struct t32_rcfg_list l;
+	u32 *buf;
+
+	if (!n || !(buf = t33_mod_buf(id)))
+		return;
+	t33_mod_done(id, t33_rcfg_build(&l, buf, T33_SLOT_WORDS, w, n));
+}
+
+/* list in the module's fixed layout (tx_isp_t33_blk.h) */
+static void __maybe_unused t33_mod_set_tmpl(unsigned int id, const struct t33_tcmd *t, unsigned int nt,
+			     const struct t32_front_write *w, int n)
+{
+	u32 *buf;
+
+	if (n <= 0) {
+		isp_printf(1, "tx-isp-t33: block of list %u not built (%d)\n", id, n);
+		return;
+	}
+	if (!(buf = t33_mod_buf(id)))
+		return;
+	t33_mod_done(id, t33_rcfg_build_tmpl(buf, T33_SLOT_WORDS, t, nt, w, (unsigned int)n));
+}
+#define T33_TMPL(t) (t), ARRAY_SIZE(t)
 
 static void t33_mod_free(void)
 {
@@ -438,6 +466,32 @@ static int t32_mdns_build(u8 *sec, u32 width, u32 height)
 	return n;
 }
 
+#ifdef TX_ISP_T33
+/*
+ * T33 blocks in their module layouts (tx_isp_t33_blk.h), at the init gain
+ * 0x10000 as the vendor's tisp_*_init.  A section of another size than the
+ * PRJ008 one is skipped (the block keeps its reset state).
+ */
+#define T33_INIT_GAIN	0x10000U
+static void t33_tisp_init(const u8 *bin, u32 bytes)
+{
+	u32 off, len, code;
+
+	off = t32_iq_section(bin, bytes, T33_SEC_BLC, &len);
+	if (off && len == T33_BLC_SEC_BYTES && !t32_core_sensor_mbus(&code) && t32_mbus_to_bayer(code) >= 0)
+		t33_mod_set_tmpl(T33_MOD_BLC, T33_TMPL(t33_blc_tmpl), tisp_w,
+				 t33_blc_init(bin + off, (u32)t32_mbus_to_bayer(code), T33_INIT_GAIN, tisp_w));
+	off = t32_iq_section(bin, bytes, T33_SEC_YDNS, &len);
+	if (off && len == T33_YDNS_SEC_BYTES)
+		t33_mod_set_tmpl(T33_MOD_YDNS, T33_TMPL(t33_ydns_tmpl), tisp_w,
+				 t33_ydns_init(bin + off, T33_INIT_GAIN, tisp_w));
+	off = t32_iq_section(bin, bytes, T33_SEC_SDNS, &len);
+	if (off && len == T33_SDNS_SEC_BYTES)
+		t33_mod_set_tmpl(T33_MOD_SDNS, T33_TMPL(t33_sdns_tmpl), tisp_w,
+				 t33_sdns_init(bin + off, T33_INIT_GAIN, tisp_w));
+}
+#endif
+
 static void t32_tisp_init(void)
 {
 	const u8 *bin;
@@ -466,6 +520,7 @@ static void t32_tisp_init(void)
 #ifdef TX_ISP_T33
 	if (off && len == T33_CDNS_SEC_BYTES)
 		t33_mod_set(T33_MOD_CDNS, tisp_w, t33_cdns_init(bin + off, tisp_w));
+	t33_tisp_init(bin, bytes);
 #else
 	if (off && T32_IQ_SEC_OK(len, T32_CDNS_SEC_BYTES))
 		t32_tisp_flush("cdns", t32_cdns_init(bin + off, tisp_w));
@@ -998,21 +1053,32 @@ err:
 
 void t32_hw_exit(void)
 {
-	int i;
+	int i, regs;
 
 	if (!isp_base)
 		return;
-	t32_hw_stream_off();
-	for (i = 0; i < T32_MSCA_CHANNELS; i++)
-		t32_hw_msca_stop(i);
-	t32_stats_off();	/* no statistics DMA into the buffers freed below */
+	/*
+	 * T33: rmmod runs after the last close, with the ISP clock gated; the
+	 * vendor module does not touch the ISP there (the streams and engines
+	 * were stopped at stream-off / close).  Register writes into a gated
+	 * block are lost or hang the bus, so only the software teardown runs.
+	 * T32 unchanged.
+	 */
+	regs = !T32_SOC_LIST_IRQ || t32_core_clk_active();
+	if (regs) {
+		t32_hw_stream_off();
+		for (i = 0; i < T32_MSCA_CHANNELS; i++)
+			t32_hw_msca_stop(i);
+		t32_stats_off();	/* no statistics DMA into the buffers freed below */
+	}
 	if (irqs_requested) {
 		free_irq(vic_irq, &csi_base);
 		free_irq(isp_irq, &isp_base);
 		irqs_requested = 0;
 	}
 	cancel_work_sync(&t32_bringup_ae_w);	/* it reads registers and the AE buffer */
-	writel(0, csi_base + 0x0c);		/* CSI host back into reset */
+	if (regs)
+		writel(0, csi_base + 0x0c);	/* CSI host back into reset */
 	csi_reset_done = 0;
 	iounmap(dphy_base);
 	iounmap(csi_base);

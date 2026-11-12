@@ -3,7 +3,8 @@
  * Without arguments: list builder checks.  With T33_IQ_BIN (a cv2005
  * PRJ008 bin) and T33_LIST_REF (lines "list reg val" of the vendor module's
  * first run of each list, from a local QEMU trace) the top, CSC, CSCCR and
- * CDNS lists must give the vendor's writes (1920x1080, RGGB10). */
+ * CDNS lists, and BLC / YDNS / SDNS in their module layouts, must give the
+ * vendor's writes (1920x1080, RGGB10). */
 #define TX_ISP_T33
 #include <stdint.h>
 #include <stdio.h>
@@ -12,6 +13,7 @@
 #include "../driver/t32/tx_isp_t32_rcfg33.h"
 #include "../driver/t32/tx_isp_t32_iq.h"
 #include "../driver/t32/tx_isp_t32_cdns.h"
+#include "../driver/t32/tx_isp_t33_blk.h"
 
 static int bad;
 #define CHECK(c) do { if (!(c)) { bad++; printf("FAIL line %d: %s\n", __LINE__, #c); } } while (0)
@@ -57,6 +59,36 @@ static void vs_ref(const char *what, unsigned int id, const struct t32_front_wri
 		}
 	printf("  %s: list %u, %u writes vs vendor %u\n", what, id, m, ref_n[id]);
 }
+
+/* a module layout filled with the block's writes against the vendor's list */
+static void vs_tmpl(const char *what, unsigned int id, const struct t33_tcmd *t, unsigned int nt,
+		    const struct t32_front_write *w, int n)
+{
+	static u32 buf[T33_SLOT_WORDS], reg[1024], val[1024];
+	unsigned int m, i;
+	int len;
+
+	CHECK(n > 0);
+	len = t33_rcfg_build_tmpl(buf, T33_SLOT_WORDS, t, nt, w, n > 0 ? (unsigned int)n : 0);
+	CHECK(len > 0);
+	if (len <= 0)
+		return;
+	m = decode(buf, reg, val, 1024);
+	if (!ref_n[id]) {
+		printf("  %s: list %u, %u writes (no reference)\n", what, id, m);
+		return;
+	}
+	CHECK(m == ref_n[id]);
+	for (i = 0; i < m && i < ref_n[id]; i++)
+		if (reg[i] != ref_reg[id][i] || val[i] != ref_val[id][i]) {
+			bad++;
+			printf("FAIL %s #%u: %05x=%08x vendor %05x=%08x\n", what, i, reg[i], val[i],
+			       ref_reg[id][i], ref_val[id][i]);
+		}
+	printf("  %s: list %u, %u words, %u writes vs vendor %u\n", what, id, len, m, ref_n[id]);
+}
+
+#define TMPL(x) x, sizeof(x) / sizeof(x[0])
 
 int main(void)
 {
@@ -116,6 +148,19 @@ int main(void)
 		off = t32_iq_section(bin, bytes, T32_SEC_CDNS, &len);
 		CHECK(off && len == T33_CDNS_SEC_BYTES);
 		vs_ref("cdns", T33_MOD_CDNS, w, t33_cdns_init(bin + off, w));
+		/* tparamsP offsets of the vendor's block pointers */
+		CHECK(t33_tp_offset(bin, T33_SEC_YDNS) == 0x88ac);
+		CHECK(t33_tp_offset(bin, T33_SEC_SDNS) == 0x9b20);
+		CHECK(t33_tp_offset(bin, T33_SEC_BLC) == 0x44e8);
+		off = t32_iq_section(bin, bytes, T33_SEC_YDNS, &len);
+		CHECK(off && len == T33_YDNS_SEC_BYTES);
+		vs_tmpl("ydns", T33_MOD_YDNS, TMPL(t33_ydns_tmpl), w, t33_ydns_init(bin + off, 0x10000, w));
+		off = t32_iq_section(bin, bytes, T33_SEC_SDNS, &len);
+		CHECK(off && len == T33_SDNS_SEC_BYTES);
+		vs_tmpl("sdns", T33_MOD_SDNS, TMPL(t33_sdns_tmpl), w, t33_sdns_init(bin + off, 0x10000, w));
+		off = t32_iq_section(bin, bytes, T33_SEC_BLC, &len);
+		CHECK(off && len == T33_BLC_SEC_BYTES);
+		vs_tmpl("blc", T33_MOD_BLC, TMPL(t33_blc_tmpl), w, t33_blc_init(bin + off, 0, 0x10000, w));
 	}
 	printf("tx_isp_t33_rcfg_test: %s\n", bad ? "FAIL" : "PASS");
 	return bad != 0;

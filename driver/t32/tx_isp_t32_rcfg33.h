@@ -21,8 +21,11 @@
  *  21 CDNS 0x12xxx         22 CSCCR 0x14xxx        23 MSCA 0xf0/0xf2xxx
  *  29 AWB 0x16xxx          30 AE 0x17xxx           31 0x18xxx
  *  33 top 0x00xxx
- * This file has the list builder and the blocks done so far (top, CSC,
- * CSCCR); the other blocks are open (#388).
+ * Vendor block names: 2 DPC, 3 RDNS, 4 BLC, 5 DG, 6 LSC, 7 AWB gain, 8 TMO,
+ * 9 DMSC, 10 CCM, 11 gamma, 12 defog, 14 YSP, 15 MDNS, 16 LCE, 17 YDNS,
+ * 18 BCSH, 19 CLM, 20 SDNS, 31 AF.
+ * This file has the ascending-order builder and top, CSC, CSCCR; the fixed
+ * module layouts and further blocks are in tx_isp_t33_blk.h (#388).
  */
 #ifndef TX_ISP_T32_RCFG33_H
 #define TX_ISP_T32_RCFG33_H

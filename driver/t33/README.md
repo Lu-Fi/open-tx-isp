@@ -30,12 +30,14 @@ vendor libimp 2.0.2.1 runs ISP open, sensor, FrameSource frames and the full
 teardown on this module; DRIVER_VERSION `PRJ008` / `20251107a` and the clocks
 match the vendor module. Register lists (openimp #388): the T33 programs its
 blocks through one register list per block (`../t32/tx_isp_t32_rcfg33.h`);
-done so far: top (list 33), CSC (13), CDNS (21), CSCCR (22), each equal to
-the vendor module's list word for word in QEMU. The PRJ008 IQ bin walk uses
+done so far: top (list 33), CSC (13), CDNS (21), CSCCR (22), and in the
+fixed module layouts of `../t32/tx_isp_t33_blk.h` BLC (4), YDNS (17) and SDNS
+(20), each equal to the vendor module's list word for word in QEMU. The PRJ008 IQ bin walk uses
 the T33 payload rules; T32 block code runs only on sections of the T32 size.
-Not done yet: the other ~20 block lists, AE/AWB statistics (#389), the MSCA
+Not done yet: the other ~16 block lists, AE/AWB statistics (#389), the MSCA
 list, per-frame list refresh and IVDC direct mode (`direct_mode` is accepted
-but the buffered path is used). Not tested on a camera.
+but the buffered path is used). rmmod writes no ISP register while the
+ISP clock is off (as the vendor module). Not tested on a camera.
 
 Build (3.10.14 kernel tree):
 
