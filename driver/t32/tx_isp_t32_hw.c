@@ -28,6 +28,7 @@
 #include "tx_isp_t32_msca_curve.h"
 #include "tx_isp_t32_vic.h"
 #include "tx_isp_t32_rcfg.h"
+#include "tx_isp_t32_rcfg33.h"
 #include "tx_isp_t32_lsc.h"
 #include "tx_isp_t32_stats.h"
 #include "tx_isp_t32_iq.h"
@@ -157,6 +158,101 @@ static unsigned long rcfg_pages;	/* table (256 B) + list */
 static u32 rcfg_pa;
 u32 t32_rcfg_runs, t32_rcfg_timeouts, t32_rcfg_last_len;
 
+/*
+ * T33 per-block lists (tx_isp_t32_rcfg33.h): one page per module, built at
+ * stream-on, started all at once.  Unused on the T32.
+ */
+static unsigned long t33_mod_page[T33_MODULES];
+static u64 t33_mod_built;
+u32 t33_rcfg_runs, t33_rcfg_timeouts;
+
+static void t33_mod_set(unsigned int id, const struct t32_front_write *w, unsigned int n)
+{
+	struct t32_rcfg_list l;
+	int len;
+
+	if (id >= T33_MODULES || !n)
+		return;
+	if (!t33_mod_page[id])
+		t33_mod_page[id] = __get_free_page(GFP_KERNEL | __GFP_ZERO);
+	if (!t33_mod_page[id]) {
+		isp_printf(2, "tx-isp-t33: no memory for register list %u\n", id);
+		return;
+	}
+	/* the core reads the list by DMA: write it uncached */
+	len = t33_rcfg_build(&l, (u32 *)CKSEG1ADDR(virt_to_phys((void *)t33_mod_page[id])),
+			     T33_SLOT_WORDS, w, n);
+	if (len < 0) {
+		isp_printf(2, "tx-isp-t33: register list %u overflow\n", id);
+		t33_mod_built &= ~(1ULL << id);
+		return;
+	}
+	t33_mod_built |= 1ULL << id;
+}
+
+static void t33_mod_free(void)
+{
+	unsigned int i;
+
+	for (i = 0; i < T33_MODULES; i++) {
+		if (t33_mod_page[i])
+			free_page(t33_mod_page[i]);
+		t33_mod_page[i] = 0;
+	}
+	t33_mod_built = 0;
+}
+
+/* tisp_rcfg_init: table, control and masks; at the core init */
+static void t33_rcfg_core_init(void)
+{
+	isp_wr(T33_RCFG_MODE, 0);
+	isp_wr(T33_RCFG_TABLE, rcfg_pa);
+	isp_wr(T33_RCFG_CTRL, 1);
+	isp_wr(T33_RCFG_MASK0, 0xffffffff);
+	isp_wr(T33_RCFG_MASK1, 0xffffffff);
+}
+
+/*
+ * tisp_rcfg_t33_write_all_reg + lib_tisp_stream_on: every built list into
+ * its table word, all but the top list started together, then the top list,
+ * then wait until both trigger words read 0.
+ */
+static void t33_rcfg_write_all(void)
+{
+	u32 *table = (u32 *)CKSEG1ADDR(rcfg_pa);
+	u32 lo = 0, hi = 0;
+	unsigned int i;
+
+	if (!rcfg_pages || !t33_mod_built)
+		return;
+	memset(table, 0, T32_RCFG_TABLE_WORDS * 4);
+	for (i = 0; i < T33_MODULES; i++) {
+		if (!(t33_mod_built & (1ULL << i)))
+			continue;
+		table[i] = virt_to_phys((void *)t33_mod_page[i]);
+		if (i < 32)
+			lo |= 1U << i;
+		else
+			hi |= 1U << (i - 32);
+	}
+	wmb();
+	if (lo)
+		isp_wr(T33_RCFG_TRIG, lo);
+	if (hi)
+		isp_wr(T33_RCFG_TRIG_HI, hi);
+	for (i = 0; i < 1000; i++) {
+		if (!isp_rd(T33_RCFG_TRIG) && !isp_rd(T33_RCFG_TRIG_HI))
+			break;
+		udelay(1);
+	}
+	if (i == 1000) {
+		t33_rcfg_timeouts++;
+		isp_printf(2, "tx-isp-t33: register lists did not finish (%#x %#x)\n",
+			   isp_rd(T33_RCFG_TRIG), isp_rd(T33_RCFG_TRIG_HI));
+	}
+	t33_rcfg_runs++;
+}
+
 static unsigned int lsc_ct = 5000;
 module_param(lsc_ct, uint, 0644);
 MODULE_PARM_DESC(lsc_ct, "colour temperature for the LSC mesh at stream-on (vendor init: 5000)");
@@ -233,19 +329,39 @@ static void t32_front_init(void)
 		return;
 	}
 	off = t32_iq_section(bin, bytes, T32_IQ_SEC_CSC, &len);
-	if (off && len >= T32_CSC_BYTES) {
+	if (off && T32_IQ_SEC_OK(len, T32_CSC_BYTES)) {
 		n = t32_csc_init(bin + off, w);
-		for (i = 0; i < n; i++)
+		if (T32_SOC_LIST_IRQ)
+			t33_mod_set(T33_MOD_CSC, w, n);
+		for (i = 0; !T32_SOC_LIST_IRQ && i < n; i++)
 			isp_wr(w[i].reg, w[i].val);
 	}
 	off = t32_iq_section(bin, bytes, T32_IQ_SEC_CSCCR, &len);
-	if (off && len >= T32_CSCCR_BYTES) {
+	if (off && T32_IQ_SEC_OK(len, T32_CSCCR_BYTES)) {
 		r = t32_csccr_init(bin + off, w);
-		for (i = 0; r > 0 && i < (unsigned int)r; i++)
+		if (T32_SOC_LIST_IRQ && r > 0) {
+			for (i = 0; i < (unsigned int)r; i++)
+				if (w[i].reg == 0x14010)
+					w[i].val = T33_CSCCR_EN;
+			t33_mod_set(T33_MOD_CSCCR, w, r);
+		}
+		for (i = 0; !T32_SOC_LIST_IRQ && r > 0 && i < (unsigned int)r; i++)
 			isp_wr(w[i].reg, w[i].val);
 	}
+#ifdef TX_ISP_T33
 	off = t32_iq_section(bin, bytes, T32_IQ_SEC_TOP, &len);
-	if (off && len >= T32_TOP_BYTES) {
+	if (off && len == T33_TOP_BYTES) {
+		struct t32_front_write dw[T33_TOP_DIRECT_WRITES];
+
+		t33_top_init(bin + off, width, height, (u32)bayer, w, dw);
+		for (i = 0; i < T33_TOP_DIRECT_WRITES; i++)
+			isp_wr(dw[i].reg, dw[i].val);
+		t33_mod_set(T33_MOD_TOP, w, T33_TOP_LIST_WRITES);
+	}
+	return;
+#endif
+	off = t32_iq_section(bin, bytes, T32_IQ_SEC_TOP, &len);
+	if (off && T32_IQ_SEC_OK(len, T32_TOP_BYTES)) {
 		n = t32_top_init(bin + off, width, height, (u32)bayer, w);
 		for (i = 0; i < n; i++)
 			isp_wr(w[i].reg, w[i].val);
@@ -330,7 +446,7 @@ static void t32_tisp_init(void)
 	if (!tisp_w)
 		return;
 	off = t32_iq_section(bin, bytes, T32_SEC_DMSC, &len);
-	if (off && len >= T32_DMSC_SEC_BYTES) {
+	if (off && T32_IQ_SEC_OK(len, T32_DMSC_SEC_BYTES)) {
 		u8 *cp = kmemdup(bin + off, len, GFP_KERNEL);	/* the block edits its section */
 
 		if (cp) {
@@ -339,13 +455,13 @@ static void t32_tisp_init(void)
 		}
 	}
 	off = t32_iq_section(bin, bytes, T32_SEC_GAMMA, &len);
-	if (off && len >= T32_GAMMA_SEC_BYTES)
+	if (off && T32_IQ_SEC_OK(len, T32_GAMMA_SEC_BYTES))
 		t32_tisp_flush("gamma", t32_gamma_init(bin + off, bin + off + len, bytes - off - len, tisp_w));
 	off = t32_iq_section(bin, bytes, T32_SEC_CDNS, &len);
-	if (off && len >= T32_CDNS_SEC_BYTES)
+	if (off && T32_IQ_SEC_OK(len, T32_CDNS_SEC_BYTES))
 		t32_tisp_flush("cdns", t32_cdns_init(bin + off, tisp_w));
 	off = t32_iq_section(bin, bytes, T32_SEC_GIB, &len);
-	if (off && len >= T32_GIB_SEC_BYTES && !t32_core_sensor_mbus(&code) && t32_mbus_to_bayer(code) >= 0) {
+	if (off && T32_IQ_SEC_OK(len, T32_GIB_SEC_BYTES) && !t32_core_sensor_mbus(&code) && t32_mbus_to_bayer(code) >= 0) {
 		u8 *cp = kmemdup(bin + off, len, GFP_KERNEL);	/* the block stores into its section */
 
 		if (cp) {
@@ -354,13 +470,13 @@ static void t32_tisp_init(void)
 		}
 	}
 	off = t32_iq_section(bin, bytes, T32_SEC_DPC, &len);
-	if (off && len >= T32_DPC_SEC_BYTES)
+	if (off && T32_IQ_SEC_OK(len, T32_DPC_SEC_BYTES))
 		t32_tisp_flush("dpc", t32_dpc_init(bin + off, 0, tisp_w));	/* wide: ISP reg 0x88 & 0x1f > 4, never with this front end */
 	off = t32_iq_section(bin, bytes, T32_SEC_YDNS, &len);
-	if (off && len >= T32_YDNS_SEC_BYTES)
+	if (off && T32_IQ_SEC_OK(len, T32_YDNS_SEC_BYTES))
 		t32_tisp_flush("ydns", t32_ydns_init(bin + off, tisp_w));
 	off = t32_iq_section(bin, bytes, T32_SEC_CCM, &len);
-	if (off && len >= T32_CCM_SEC_BYTES) {
+	if (off && T32_IQ_SEC_OK(len, T32_CCM_SEC_BYTES)) {
 		u8 *cp = kmemdup(bin + off, len, GFP_KERNEL);	/* the block clears two bytes of its section */
 
 		if (cp) {
@@ -369,7 +485,7 @@ static void t32_tisp_init(void)
 		}
 	}
 	off = t32_iq_section(bin, bytes, T32_SEC_BCSH, &len);
-	if (off && len >= T32_BCSH_SEC_BYTES) {
+	if (off && T32_IQ_SEC_OK(len, T32_BCSH_SEC_BYTES)) {
 		u32 clen = 0, coff = t32_iq_section(bin, bytes, T32_IQ_SEC_CSC, &clen);
 		u8 *cp = kmemdup(bin + off, len, GFP_KERNEL);	/* the block clears ten bytes of its section */
 
@@ -378,13 +494,13 @@ static void t32_tisp_init(void)
 		kfree(cp);
 	}
 	off = t32_iq_section(bin, bytes, T32_SEC_LCE, &len);
-	if (off && len >= T32_LCE_SEC_BYTES && !t32_core_sensor_size(&width, &height))
+	if (off && T32_IQ_SEC_OK(len, T32_LCE_SEC_BYTES) && !t32_core_sensor_size(&width, &height))
 		t32_tisp_flush("lce", t32_lce_build(bin + off, width, height));
 	off = t32_iq_section(bin, bytes, T32_SEC_SDNS, &len);
-	if (off && len >= T32_SDNS_SEC_BYTES)
+	if (off && T32_IQ_SEC_OK(len, T32_SDNS_SEC_BYTES))
 		t32_tisp_flush("sdns", t32_sdns_init(bin + off, tisp_w));
 	off = t32_iq_section(bin, bytes, T32_SEC_YSP, &len);
-	if (off && len >= T32_YSP_SEC_BYTES) {
+	if (off && T32_IQ_SEC_OK(len, T32_YSP_SEC_BYTES)) {
 		u8 *cp = kmemdup(bin + off, len, GFP_KERNEL);
 
 		if (cp) {
@@ -393,7 +509,7 @@ static void t32_tisp_init(void)
 		}
 	}
 	off = t32_iq_section(bin, bytes, T32_SEC_MDNS, &len);
-	if (off && len >= T32_MDNS_SEC_BYTES && !t32_core_sensor_size(&width, &height)) {
+	if (off && T32_IQ_SEC_OK(len, T32_MDNS_SEC_BYTES) && !t32_core_sensor_size(&width, &height)) {
 		u8 *cp = kmemdup(bin + off, len, GFP_KERNEL);	/* the block stores into its section */
 
 		if (cp) {
@@ -403,7 +519,7 @@ static void t32_tisp_init(void)
 	}
 	coff = t32_iq_section(bin, bytes, T32_IQ_SEC_CSC, &len);
 	off = t32_iq_section(bin, bytes, T32_SEC_CLM, &len);
-	if (coff && off && len >= T32_CLM_SEC_BYTES && bin[coff + 0x5b] < 6) {
+	if (coff && off && T32_IQ_SEC_OK(len, T32_CLM_SEC_BYTES) && bin[coff + 0x5b] < 6) {
 		mode = bin[coff + 0x5b];
 		t32_tisp_flush("clm", t32_clm_init(bin + off, bin + off + len, bytes - off - len, mode,
 						   t32_csc_modes[mode].m, tisp_w));
@@ -544,10 +660,12 @@ int t32_hw_input_setup(const void *attr, u32 w, u32 h)
 	if (T32_SOC_LIST_IRQ) {
 		isp_wr(T32_INT5_EN, 0xffffffff);
 		isp_wr(T32_INT4_EN, 0xffffffff);
+		t33_rcfg_core_init();
+	} else {
+		isp_wr(0x0070, size);
+		isp_wr(0x0078, 0x100);
 	}
-	isp_wr(0x0070, size);
 	isp_wr(0x0080, size);
-	isp_wr(0x0078, 0x100);
 	isp_wr(0x0088, 0x100);
 	t32_vic_wr(0, 0x1a8, 0x4444);
 	t32_vic_wr(1, 0x1a8, 0x4444);
@@ -629,8 +747,12 @@ void t32_hw_stream_on(void)
 	t32_front_init();
 	t32_stats_init();
 	t32_tisp_init();
-	t32_hw_rcfg_run_stream_on();
-	isp_wr(0x002c, 2);
+	if (T32_SOC_LIST_IRQ) {
+		t33_rcfg_write_all();
+	} else {
+		t32_hw_rcfg_run_stream_on();
+		isp_wr(0x002c, 2);
+	}
 	isp_wr(0x1040, 1);
 	t32_vic_wr(0, T32_VIC_INT_MSK, 0);
 	t32_vic_wr(0, T32_VIC_INT_MSK2, 0);
@@ -898,6 +1020,7 @@ void t32_hw_exit(void)
 	lce_work = lce_curve = 0;
 	kfree(tisp_w);
 	tisp_w = NULL;
+	t33_mod_free();
 	free_pages(rcfg_pages, get_order((T32_RCFG_TABLE_WORDS + T32_RCFG_LIST_WORDS) * 4));
 	rcfg_pages = 0;
 }
