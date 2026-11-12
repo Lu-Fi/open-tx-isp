@@ -46,6 +46,7 @@
 #include "tx_isp_t33_clm.h"
 #include "tx_isp_t33_msca.h"
 #include "tx_isp_t33_mdns.h"
+#include "tx_isp_t33_ae.h"
 #include "tx_isp_t32_lsc.h"
 #include "tx_isp_t32_stats.h"
 #include "tx_isp_t32_iq.h"
@@ -266,6 +267,7 @@ static u8 t33_af_sec[T33_AF_SEC_BYTES];
 #define T33_AF_ORDER	get_order(T33_AF_DMA_BYTES)
 /* TMO V table (0x70e0, read by the core; also written through 0x32260 / 0x32264) */
 static unsigned long t33_tmo_pages;
+static unsigned long t33_ae_stat_pages, t33_ae_hist_pages;	/* AE statistics / histograms (DMA) */
 #define T33_TMO_ORDER	get_order(T33_TMO_V_BYTES)
 
 static void t33_mod_free(void)
@@ -290,6 +292,12 @@ static void t33_mod_free(void)
 	if (t33_tmo_pages)
 		free_pages(t33_tmo_pages, T33_TMO_ORDER);
 	t33_tmo_pages = 0;
+	if (t33_ae_stat_pages)
+		free_pages(t33_ae_stat_pages, get_order(T33_AE_STAT_BYTES));
+	t33_ae_stat_pages = 0;
+	if (t33_ae_hist_pages)
+		free_pages(t33_ae_hist_pages, get_order(T33_AE_HIST_BYTES));
+	t33_ae_hist_pages = 0;
 
 	for (i = 0; i < T33_MODULES; i++) {
 		if (t33_mod_page[i])
@@ -553,7 +561,6 @@ static struct t33_lsc t33_lsc_m;
 static u8 t33_bcsh_sec[T33_BCSH_SEC_BYTES], t33_bcsh_st[T33_BCSH_ST_BYTES];
 static u32 t33_tmo_v[T33_TMO_WORDS], t33_mdns_v[T33_MDNS_WORDS];
 #define T33_INIT_EV	0xffffffffU	/* the vendor's EV before the first AE run */
-#define T33_DG_UNITY	0x04000400U	/* DG list 0x4060 at init (DG 1.0), until #389 builds list 5 */
 
 #define T33_MOD_VB(blk, BLK, v)								\
 	do {										\
@@ -652,10 +659,36 @@ static noinline_for_stack void t33_tisp_init_mdns(const u8 *bin, u32 bytes)
 		t33_mdns_decode(t33_ysp_v, buf);
 }
 
+/*
+ * tisp_ae_init's lists: AE statistics set-up (list 30) on our statistics
+ * and histogram buffers, DG (list 5) at 1.0.
+ */
+static noinline_for_stack void t33_tisp_init_ae(const u8 *bin, u32 bytes)
+{
+	u32 off, len, width, height, *buf;
+
+	buf = t33_mod_buf(T33_MOD_DG);
+	if (buf)
+		t33_mod_done(T33_MOD_DG, t33_dg_init(T33_AE_DG_INIT, buf, T33_SLOT_WORDS));
+	off = t32_iq_section(bin, bytes, T33_SEC_AE, &len);
+	if (!off || len < T33_AE_SEC_MIN || t32_core_sensor_size(&width, &height))
+		return;
+	if (!t33_ae_stat_pages)
+		t33_ae_stat_pages = __get_free_pages(GFP_KERNEL | __GFP_ZERO, get_order(T33_AE_STAT_BYTES));
+	if (!t33_ae_hist_pages)
+		t33_ae_hist_pages = __get_free_pages(GFP_KERNEL | __GFP_ZERO, get_order(T33_AE_HIST_BYTES));
+	buf = t33_mod_buf(T33_MOD_AE);
+	if (buf && t33_ae_stat_pages && t33_ae_hist_pages)
+		t33_mod_done(T33_MOD_AE, t33_ae_init(bin + off, width, height,
+						     (u32)virt_to_phys((void *)t33_ae_stat_pages),
+						     (u32)virt_to_phys((void *)t33_ae_hist_pages), buf, T33_SLOT_WORDS));
+}
+
 static void t33_tisp_init(const u8 *bin, u32 bytes)
 {
 	u32 off, len, code, width, height;
 
+	t33_tisp_init_ae(bin, bytes);
 	off = t32_iq_section(bin, bytes, T33_SEC_BLC, &len);
 	if (off && len == T33_BLC_SEC_BYTES && !t32_core_sensor_mbus(&code) && t32_mbus_to_bayer(code) >= 0)
 		t33_mod_set_tmpl(T33_MOD_BLC, T33_TMPL(t33_blc_tmpl), tisp_w,
@@ -672,15 +705,18 @@ static void t33_tisp_init(const u8 *bin, u32 bytes)
 	T33_MOD_VB(dmsc, DMSC, t33_dmsc_v);
 	T33_MOD_VB(ysp, YSP, t33_ysp_v);
 	{
-		u32 *buf, blc = 0;
+		u32 *buf, blc = 0, dg = 0;
 
 		/* tisp_reg_read_t33(BLC list, slot 3): our BLC list word 4 (0x3044) */
 		if ((t33_mod_built & (1ULL << T33_MOD_BLC)) && (buf = t33_mod_buf(T33_MOD_BLC)))
 			blc = buf[4];
+		/* and the DG list, slot 3 (0x4060) */
+		if ((t33_mod_built & (1ULL << T33_MOD_DG)) && (buf = t33_mod_buf(T33_MOD_DG)))
+			dg = buf[4];
 		off = t32_iq_section(bin, bytes, T33_SEC_RDNS, &len);
 		if (off && len == T33_RDNS_SEC_BYTES && (buf = t33_mod_buf(T33_MOD_RDNS)))
 			t33_mod_done(T33_MOD_RDNS, t33_rdns_init(bin + off, T33_INIT_GAIN, T33_INIT_EV, blc,
-								 T33_DG_UNITY, t33_rdns_v, buf, T33_SLOT_WORDS));
+								 dg, t33_rdns_v, buf, T33_SLOT_WORDS));
 	}
 	{
 		u32 *buf;

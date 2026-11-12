@@ -29,6 +29,7 @@
 #include "../driver/t32/tx_isp_t33_clm.h"
 #include "../driver/t32/tx_isp_t33_msca.h"
 #include "../driver/t32/tx_isp_t33_mdns.h"
+#include "../driver/t32/tx_isp_t33_ae.h"
 
 static int bad;
 #define CHECK(c) do { if (!(c)) { bad++; printf("FAIL line %d: %s\n", __LINE__, #c); } } while (0)
@@ -321,6 +322,39 @@ int main(void)
 					t33_mdns_decode(yv, lb);
 				vs_list("mdns", T33_MOD_MDNS, lb, n);
 				CHECK(d[0] == 8102 && d[1] == 2);
+			}
+			{
+				/* AE (list 30): buffer addresses as the vendor's; 0x1708c is not in the
+				 * QEMU trace (dropped before the compare); 0x170b8: no store in the
+				 * vendor code, its list word is stale memory.  DG (list 5) at 1.0. */
+				static u32 al[T33_SLOT_WORDS], reg[64], val[64];
+				u32 st = 0, hi = 0;
+				unsigned int m, i, j;
+
+				for (id = 0; id < ref_n[T33_MOD_AE]; id++) {
+					if (ref_reg[T33_MOD_AE][id] == 0x17068)
+						st = ref_val[T33_MOD_AE][id];
+					if (ref_reg[T33_MOD_AE][id] == 0x17078)
+						hi = ref_val[T33_MOD_AE][id];
+				}
+				off = t32_iq_section(bin, bytes, T33_SEC_AE, &len);
+				CHECK(off && len >= T33_AE_SEC_MIN && t33_tp_offset(bin, T33_SEC_AE) == 0x70);
+				CHECK(t33_ae_init(bin + off, 1920, 1080, st, hi, al, T33_SLOT_WORDS) > 0);
+				m = decode(al, reg, val, 64);
+				for (i = j = 0; i < m; i++)
+					if (reg[i] != 0x1708c) {
+						reg[j] = reg[i];
+						val[j++] = val[i];
+					}
+				CHECK(j == ref_n[T33_MOD_AE]);
+				for (i = 0; i < j && i < ref_n[T33_MOD_AE]; i++)
+					if (reg[i] != ref_reg[T33_MOD_AE][i] ||
+					    (val[i] != ref_val[T33_MOD_AE][i] && reg[i] != 0x170b8)) {
+						bad++;
+						printf("FAIL ae #%u: %05x=%08x vendor %05x=%08x\n", i, reg[i], val[i],
+						       ref_reg[T33_MOD_AE][i], ref_val[T33_MOD_AE][i]);
+					}
+				vs_list("dg", T33_MOD_DG, al, t33_dg_init(T33_AE_DG_INIT, al, T33_SLOT_WORDS));
 			}
 			{
 				/* CLM: CT 5000 K, the csc section */
