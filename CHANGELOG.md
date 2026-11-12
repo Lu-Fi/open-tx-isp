@@ -4,6 +4,10 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD[-rcN]` are set on the `aperto` branch, the same tag in open-tx-isp and OpenIMP: RC1 `v2026.10.11-rc1`, RC2 `v2026.10.25-rc2`, RC3 `v2026.11.07-rc3` (2026-11-07). Gate SoCs of RC3 and Release 1: T10, T20, T21, T23, T30, T31, T40, T41 (T32/T33 planned, QEMU only); release notes: [docs/releases/ in OpenIMP](https://github.com/Lu-Fi/openimp/blob/next/docs/releases/README.md). Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-11-12: t31_ipu Kbuild only builds on mainline-based kernels (openimp #264; host test)
+
+- `driver/ipu/Kbuild` sets `obj-m` only when the kernel `VERSION` is 5 or newer. The vendor 3.10 kernel keeps its built-in jz_ipu driver, so `make M=driver/ipu` there builds nothing instead of a second /dev/ipu provider. Checked by evaluating the Kbuild with VERSION=3 (empty obj-m) and VERSION=7 (`t31_ipu.o`). No code change; k7 build path unchanged.
+
 ## 2026-11-12: T30 g_ctrl ids 0x8000020 and 0x800002c served (openimp #379; host test, oracle)
 
 - The vendor ko (SDK build 4ea12e1f) has real code for G_CTRL 0x8000020 (jump table 1 arm 0x8bec) and 0x800002c (arm 0x8ec8, a tail call of `apical_isp_stab_g_attr`); the #375 dispatch kept both at -1 and the lift of 0x8bec was unreachable (its `apical_command` calls had no result pointer). Now `0x8000020` runs the three `apical_command(3, 0x58/0x5b/0x5a, -1, 1, &tmp)` calls, sets the tuning words +0x828 / +0x82a (u16) and +0x830 (u32) to all ones and copies 0xf0 bytes of tuning+0x828 to the user pointer (result ignored, returns 0, as the vendor); `0x800002c` copies the 0x70 byte system table like the vendor (the tuning-control wrapper already served it for libimp). libimp 1.0.5 (T30) sends 0x800002c from EnableMovestate / DisableMovestate / Get/SetIntegrationTime; no libimp function sends 0x8000020 (it is the AE attribute id of the newer SoCs).
