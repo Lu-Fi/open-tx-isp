@@ -41,6 +41,7 @@
 #include "tx_isp_t33_defog.h"
 #include "tx_isp_t33_lce.h"
 #include "tx_isp_t33_af.h"
+#include "tx_isp_t33_bcsh.h"
 #include "tx_isp_t32_lsc.h"
 #include "tx_isp_t32_stats.h"
 #include "tx_isp_t32_iq.h"
@@ -522,6 +523,7 @@ static int t32_mdns_build(u8 *sec, u32 width, u32 height)
 static u32 t33_dmsc_v[T33_DMSC_WORDS], t33_dpc_v[T33_DPC_WORDS], t33_ysp_v[T33_YSP_WORDS];
 static u32 t33_rdns_v[T33_RDNS_WORDS], t33_ccm_v[T33_CCM_WORDS], t33_lsc_v[T33_LSC_WORDS];
 static struct t33_lsc t33_lsc_m;
+static u8 t33_bcsh_sec[T33_BCSH_SEC_BYTES], t33_bcsh_st[T33_BCSH_ST_BYTES];
 #define T33_INIT_EV	0xffffffffU	/* the vendor's EV before the first AE run */
 #define T33_DG_UNITY	0x04000400U	/* DG list 0x4060 at init (DG 1.0), until #389 builds list 5 */
 
@@ -634,6 +636,19 @@ static void t33_tisp_init(const u8 *bin, u32 bytes)
 						  (u32)virt_to_phys((void *)t33_lce_curve_pages),
 						  (u32)virt_to_phys((void *)t33_lce_stat_pages), buf, T33_SLOT_WORDS));
 		}
+	}
+	off = t32_iq_section(bin, bytes, T33_SEC_BCSH, &len);
+	if (off && len == T33_BCSH_SEC_BYTES) {
+		u32 *buf = t33_mod_buf(T33_MOD_BCSH), coff, clen;
+
+		/* CT 5000 K, EV 0 as the CCM; the colour space section for the csc set */
+		coff = t32_iq_section(bin, bytes, T32_IQ_SEC_CSC, &clen);
+		memcpy(t33_bcsh_sec, bin + off, sizeof(t33_bcsh_sec));
+		if (buf && coff && clen == T32_CSC_BYTES)
+			t33_mod_done(T33_MOD_BCSH,
+				     t33_bcsh_init(t33_bcsh_sec, bin + off + len,
+						   t32_iq_payload(bin + off, bytes - off, T33_SEC_BCSH), bin + coff,
+						   T33_CCM_INIT_CT, T33_CCM_INIT_EV, t33_bcsh_st, buf, T33_SLOT_WORDS));
 	}
 	off = t32_iq_section(bin, bytes, T33_SEC_LSC, &len);
 	if (off && len == T33_LSC_SEC_BYTES && !t32_core_sensor_size(&width, &height)) {

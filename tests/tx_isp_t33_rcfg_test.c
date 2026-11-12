@@ -24,6 +24,7 @@
 #include "../driver/t32/tx_isp_t33_defog.h"
 #include "../driver/t32/tx_isp_t33_lce.h"
 #include "../driver/t32/tx_isp_t33_af.h"
+#include "../driver/t32/tx_isp_t33_bcsh.h"
 
 static int bad;
 #define CHECK(c) do { if (!(c)) { bad++; printf("FAIL line %d: %s\n", __LINE__, #c); } } while (0)
@@ -292,6 +293,22 @@ int main(void)
 				/* 0x1812c: no store in the vendor code, its list word is stale memory */
 				vs_list_skip("af", T33_MOD_AF, lb, t33_af_init(asec, 1920, 1080, dma, lb, T33_SLOT_WORDS),
 					     0x1812c);
+			}
+			{
+				/* BCSH: CT 5000 K, EV 0 (T33_BCSH_CT / T33_BCSH_EV override) */
+				static u8 bsec[T33_BCSH_SEC_BYTES], bst[T33_BCSH_ST_BYTES];
+				u32 coff, clen;
+				const char *ce = getenv("T33_BCSH_CT"), *ee = getenv("T33_BCSH_EV");
+
+				off = t32_iq_section(bin, bytes, T33_SEC_BCSH, &len);
+				CHECK(off && len == T33_BCSH_SEC_BYTES);
+				CHECK(t33_tp_offset(bin, T33_SEC_BCSH) == 0x8b78);
+				coff = t32_iq_section(bin, bytes, T32_IQ_SEC_CSC, &clen);
+				memcpy(bsec, bin + off, sizeof(bsec));
+				vs_list("bcsh", T33_MOD_BCSH, lb,
+					t33_bcsh_init(bsec, bin + off + len, t32_iq_payload(bin + off, bytes - off, T33_SEC_BCSH),
+						      bin + coff, ce ? atoi(ce) : 5000, ee ? strtoull(ee, NULL, 0) : 0, bst, lb,
+						      T33_SLOT_WORDS));
 			}
 			{
 				/* LSC: the DMA table address (slot 16) as the vendor's; 0x507c is slab slack there */
