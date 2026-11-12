@@ -851,6 +851,9 @@ static unsigned int t20_awb_last_gain_11 = 0x100;
 module_param(t20_awb_last_gain_11, uint, 0444);
 static unsigned int t20_awb_last_color_temperature = 5000;
 module_param(t20_awb_last_color_temperature, uint, 0444);
+/* openimp #358: AWB updates that took the OEM "no zone counted" point */
+static unsigned int t20_awb_fallback_updates;
+module_param(t20_awb_fallback_updates, uint, 0444);
 /* CCM light source in use (ccm ctx +92: 1 = A, 2 = D40, 3 = D50, 0 = identity at high gain), openimp #246 */
 static unsigned int t20_ccm_last_light_source = 3;
 module_param(t20_ccm_last_light_source, uint, 0444);
@@ -18935,6 +18938,55 @@ static u32 tx_isp_t20_awb_manual_ct(u32 red_q8, u32 blue_q8)
 	return mesh > 0 ? 1000000U / (u32)mesh : 0;
 }
 
+/*
+ * CT of an AWB point (mesh R/G, B/G) from the IQ CT mesh, and the CCM/shading
+ * light source for it.
+ */
+static void t20_awb_ct_update(int32_t *awb_fsm, const u16 *rg_pos,
+			      const u16 *bg_pos, const u16 *ct_mesh,
+			      u32 average_rg, u32 average_bg)
+{
+	u32 x_index = 13;
+	u32 y_index = 13;
+	u32 x_fraction;
+	u32 y_fraction;
+	u32 row0;
+	u32 row1;
+	u32 mired;
+	u32 i;
+
+	for (i = 0; i < 14; i++) {
+		if (average_rg <= rg_pos[i + 1]) {
+			x_index = i;
+			break;
+		}
+	}
+	for (i = 0; i < 14; i++) {
+		if (average_bg <= bg_pos[i + 1]) {
+			y_index = i;
+			break;
+		}
+	}
+	x_fraction = ((average_rg - rg_pos[x_index]) << 8) /
+		max_t(u32, 1, rg_pos[x_index + 1] - rg_pos[x_index]);
+	y_fraction = ((average_bg - bg_pos[y_index]) << 8) /
+		max_t(u32, 1, bg_pos[y_index + 1] - bg_pos[y_index]);
+	row0 = (ct_mesh[y_index * 15 + x_index] *
+		 (256 - x_fraction) +
+		 ct_mesh[y_index * 15 + x_index + 1] * x_fraction +
+		 128) >> 8;
+	row1 = (ct_mesh[(y_index + 1) * 15 + x_index] *
+		 (256 - x_fraction) +
+		 ct_mesh[(y_index + 1) * 15 + x_index + 1] *
+		 x_fraction + 128) >> 8;
+	mired = (row0 * (256 - y_fraction) +
+		 row1 * y_fraction + 128) >> 8;
+	if (mired)
+		t20_simple_awb_color_temperature = min_t(u32,
+			1000000U / mired, 0xffff);
+	tx_isp_t20_awb_light_source(awb_fsm, t20_simple_awb_color_temperature);
+}
+
 static void tx_isp_t20_simple_awb_update(int32_t *awb_fsm)
 {
 	const u16 *static_wb;
@@ -18952,6 +19004,8 @@ static void tx_isp_t20_simple_awb_update(int32_t *awb_fsm)
 	u64 total_weight = 0;
 	u32 accepted_population = 0;
 	u32 active_zones = 0;
+	u32 all_zone_rg = 0;
+	bool no_zone = false;
 	u32 average_rg;
 	u32 average_bg;
 	u32 coefficient;
@@ -19073,6 +19127,10 @@ static void tx_isp_t20_simple_awb_update(int32_t *awb_fsm)
 		u32 mesh_weight;
 		u32 i;
 
+		/* #358: OEM awb_read_statistics() inverse of every zone, for
+		 * the no-zone fallback below (a 0 product reads as 1) */
+		all_zone_rg += 0xffffU / max_t(u32, 1,
+			((raw_rg * t20_simple_awb_red_q8) >> 8) & 0xffff);
 		if (population <= 0x100 || !raw_rg || !raw_bg ||
 		    raw_rg == 0xfff || raw_bg == 0xfff)
 			continue;
@@ -19106,51 +19164,54 @@ static void tx_isp_t20_simple_awb_update(int32_t *awb_fsm)
 		accepted_population += population;
 		active_zones++;
 	}
-	if (!active_zones || !total_weight)
-		return;
-	average_rg = div64_u64(weighted_rg + total_weight / 2, total_weight);
-	average_bg = div64_u64(weighted_bg + total_weight / 2, total_weight);
-	{
-		u32 x_index = 13;
-		u32 y_index = 13;
-		u32 x_fraction;
-		u32 y_fraction;
-		u32 row0;
-		u32 row1;
-		u32 mired;
-		u32 i;
+	if (!active_zones || !total_weight) {
+		/*
+		 * openimp #358: no zone counted (IR night: every zone outside the
+		 * light-source box or under the mesh weight).  This returned and
+		 * held the gains of whatever scene came before, so the IR scene
+		 * ran at a history-dependent WB (and CT-selected shading bank);
+		 * the AE histogram is taken after both, and the AE settled
+		 * 7-17 % off the vendor.  OEM awb_calc_avg_weighted_gr_gb_mesh
+		 * (libt20-firmware 3.12.0, weight sum 0): the mean inverse R/G
+		 * of all zones above the IQ point table 224[row] (row = table
+		 * 216[0]) takes that point (with table 228[row] for B/G), else
+		 * 256/256, and the gains follow it as for counted zones.
+		 */
+		const u16 *row_table = (const u16 *)(uintptr_t)
+			_GET_USHORT_PTR(216);
+		const u16 *point_rg = (const u16 *)(uintptr_t)
+			_GET_USHORT_PTR(224);
+		const u16 *point_bg = (const u16 *)(uintptr_t)
+			_GET_USHORT_PTR(228);
+		u32 row = row_table && _GET_WIDTH(216) == sizeof(u16) &&
+			_GET_LEN(216) ? row_table[0] : 0xffff;
 
-		for (i = 0; i < 14; i++) {
-			if (average_rg <= rg_pos[i + 1]) {
-				x_index = i;
-				break;
-			}
+		average_rg = 256;
+		average_bg = 256;
+		if (point_rg && point_bg &&
+		    _GET_WIDTH(224) == sizeof(u16) &&
+		    _GET_WIDTH(228) == sizeof(u16) &&
+		    row < _GET_LEN(224) && row < _GET_LEN(228) &&
+		    point_rg[row] < all_zone_rg / 225) {
+			average_rg = point_rg[row];
+			average_bg = point_bg[row];
 		}
-		for (i = 0; i < 14; i++) {
-			if (average_bg <= bg_pos[i + 1]) {
-				y_index = i;
-				break;
-			}
-		}
-		x_fraction = ((average_rg - rg_pos[x_index]) << 8) /
-			max_t(u32, 1, rg_pos[x_index + 1] - rg_pos[x_index]);
-		y_fraction = ((average_bg - bg_pos[y_index]) << 8) /
-			max_t(u32, 1, bg_pos[y_index + 1] - bg_pos[y_index]);
-		row0 = (ct_mesh[y_index * 15 + x_index] *
-			 (256 - x_fraction) +
-			 ct_mesh[y_index * 15 + x_index + 1] * x_fraction +
-			 128) >> 8;
-		row1 = (ct_mesh[(y_index + 1) * 15 + x_index] *
-			 (256 - x_fraction) +
-			 ct_mesh[(y_index + 1) * 15 + x_index + 1] *
-			 x_fraction + 128) >> 8;
-		mired = (row0 * (256 - y_fraction) +
-			 row1 * y_fraction + 128) >> 8;
-		if (mired)
-			t20_simple_awb_color_temperature = min_t(u32,
-				1000000U / mired, 0xffff);
+		accepted_population = 0;
+		no_zone = true;
+		t20_awb_fallback_updates++;
+	} else {
+		average_rg = div64_u64(weighted_rg + total_weight / 2,
+				       total_weight);
+		average_bg = div64_u64(weighted_bg + total_weight / 2,
+				       total_weight);
 	}
-	tx_isp_t20_awb_light_source(awb_fsm, t20_simple_awb_color_temperature);
+	/* #358: as OEM (CT from the fifo-smoothed point, get_point()), the
+	 * fallback point takes its CT after the filter below: per update it
+	 * flips with the zone mean around table 224[row] (2865 K / 5000 K on
+	 * jxh42 IR), which toggled the CCM and the shading bank every frame. */
+	if (!no_zone)
+		t20_awb_ct_update(awb_fsm, rg_pos, bg_pos, ct_mesh,
+				  average_rg, average_bg);
 
 	desired_red_scale = clamp_t(u32,
 		0xffffU / max_t(u32, 1, average_rg), 0x40, 0x400);
@@ -19178,6 +19239,10 @@ static void tx_isp_t20_simple_awb_update(int32_t *awb_fsm)
 	 * SYSTEM_AWB_RED/BLUE_GAIN and GetWB read them. */
 	stab[49] = (uint8_t)min_t(u32, t20_simple_awb_red_q8 >> 1, 0xff);
 	stab[50] = (uint8_t)min_t(u32, t20_simple_awb_blue_q8 >> 1, 0xff);
+	if (no_zone)
+		t20_awb_ct_update(awb_fsm, rg_pos, bg_pos, ct_mesh,
+				  0xffffU / t20_simple_awb_red_q8,
+				  0xffffU / t20_simple_awb_blue_q8);
 	red_scale = t20_simple_awb_red_q8;
 	blue_scale = t20_simple_awb_blue_q8;
 

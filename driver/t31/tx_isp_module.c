@@ -47,6 +47,7 @@
 #include "include/tx_isp_vic.h"
 #include "include/tx_isp_csi.h"
 #include "tx_isp_t31_framedrop.h"
+#include "tx_isp_t31_gpio.h"
 #include "include/tx_isp_vin.h"
 #include "include/tx_isp_tuning.h"
 #include "include/tx_isp_device.h"
@@ -1309,8 +1310,6 @@ static uint32_t vic_mdma_ch1_set_buff_index = 0;
 static struct list_head vic_buffer_fifo;
 
 /* GPIO switch state for VIC frame done - Binary Ninja reference */
-static uint32_t gpio_switch_state = 0;
-static uint32_t gpio_info[10] = {0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff};
 
 /* VIC event callback structure for Binary Ninja event system */
 struct vic_event_callback {
@@ -1703,6 +1702,13 @@ extern int tx_isp_set_ae_algo_close(void __user *arg);
 extern int tisp_ae_algo_handle(void *attr);
 extern void tx_isp_ae_algo_close_internal(void);
 extern bool tx_isp_ae_algo_is_open(void);
+/* Custom AWB algorithm interface - OEM ioctls 0xc00456e1-0xc00456e4 */
+extern int tx_isp_get_awb_algo_handle(void __user *arg);
+extern int tx_isp_set_awb_algo_open(void);
+extern int tx_isp_set_awb_algo_handle(void __user *arg);
+extern int tx_isp_set_awb_algo_close(void __user *arg);
+extern void tx_isp_awb_algo_close_internal(void);
+extern bool tx_isp_awb_algo_is_open(void);
 extern int tisp_event_drain(unsigned int timeout_ms);
 extern void t31_awb_selftest_cancel(void);
 
@@ -2579,6 +2585,8 @@ static char isp_tuning_buffer[0x500c]; // Tuning parameter buffer from reference
 /* Forward declaration for sensor registration handler */
 /* VIC sensor operations IOCTL - EXACT Binary Ninja implementation */
 static int vic_sensor_ops_ioctl(struct tx_isp_subdev *sd, unsigned int cmd, void *arg);
+int tx_isp_vic_gpio_event(unsigned int cmd, void *arg);
+int tx_isp_notify(struct tx_isp_module *module, unsigned int notification, void *data);
 /* VIC core s_stream - EXACT Binary Ninja implementation */
 int vic_core_s_stream(struct tx_isp_subdev *sd, int enable);
 
@@ -5787,6 +5795,11 @@ static void tx_isp_last_close_teardown(struct tx_isp_dev *isp)
         tx_isp_ae_algo_close_internal();
         did = true;
     }
+    if (tx_isp_awb_algo_is_open()) {
+        pr_info("last close: closing the custom AWB algorithm\n");
+        tx_isp_awb_algo_close_internal();
+        did = true;
+    }
 
     if (tx_isp_uapi_links_streaming) {
         pr_info("last close: DISABLE_LINKS\n");
@@ -6420,6 +6433,18 @@ static long tx_isp_unlocked_ioctl(struct file *file, unsigned int cmd, unsigned 
     case TX_ISP_SET_FRAME_DROP_CMD:
     case TX_ISP_GET_FRAME_DROP_CMD:
         return tx_isp_frame_drop_ioctl(cmd, argp);
+    case TX_ISP_SET_GPIO_INIT_OR_FREE_CMD:   /* stock 0xecbc */
+    case TX_ISP_SET_GPIO_STA_CMD: {          /* stock 0xed10 */
+        struct t31_gpio_rec rec;
+        int gate;
+
+        if (copy_from_user(&rec, argp, T31_GPIO_REC_SIZE))
+            return -EFAULT;
+        gate = t31_gpio_ioctl_gate(isp_dev != NULL, isp_dev && isp_dev->sensor);
+        if (gate)
+            return gate;
+        return tx_isp_notify(NULL, t31_gpio_cmd_event(cmd), &rec);
+    }
     case 0x800456d8: { // TX_ISP_WDR_ENABLE - Enable WDR mode
         int wdr_enable = 1;
 
@@ -6463,6 +6488,14 @@ static long tx_isp_unlocked_ioctl(struct file *file, unsigned int cmd, unsigned 
     case 0x800456de: { /* TX_ISP_SET_AE_ALGO_CLOSE — OEM custom AE close */
         return tx_isp_set_ae_algo_close(argp);
     }
+    case 0xc00456e1: /* TX_ISP_GET_AWB_ALGO_HANDLE - OEM custom AWB statistics */
+        return tx_isp_get_awb_algo_handle(argp);
+    case 0xc00456e2: /* TX_ISP_SET_AWB_ALGO_HANDLE - OEM custom AWB result */
+        return tx_isp_set_awb_algo_handle(argp);
+    case 0xc00456e3: /* TX_ISP_SET_AWB_ALGO_OPEN (vendor: no argument) */
+        return tx_isp_set_awb_algo_open();
+    case 0xc00456e4: /* TX_ISP_SET_AWB_ALGO_CLOSE */
+        return tx_isp_set_awb_algo_close(argp);
     /* 0xc008561b/0xc008561c/0xc00c56c6 belong to /dev/isp-m0 (stock has no
      * /dev/tx-isp handler).  The former pass-through forwarded a
      * user-chosen event number and value straight into the sensor
@@ -7419,19 +7452,9 @@ static int vic_sensor_ops_ioctl(struct tx_isp_subdev *sd, unsigned int cmd, void
         }
         return 0;
 
-    case 0x2000017:  /* Binary Ninja: GPIO configuration */
-        pr_debug("vic_sensor_ops_ioctl: GPIO configuration command\n");
-        /* Binary Ninja implementation for GPIO setup - complex, return success for now */
-        return 0;
-
-    case 0x2000018:  /* Binary Ninja: GPIO state change */
-        pr_debug("vic_sensor_ops_ioctl: GPIO state change command\n");
-        /* Binary Ninja: gpio_switch_state = 1; memcpy(&gpio_info, arg3, 0x2a) */
-        gpio_switch_state = 1;
-        if (arg) {
-            memcpy(&gpio_info, arg, 0x2a);
-        }
-        return 0;
+    case 0x2000017:  /* GPIO init/free: stock vic_sensor_ops_ioctl 0x121c */
+    case 0x2000018:  /* GPIO state: stock vic_sensor_ops_ioctl 0x12e4 */
+        return tx_isp_vic_gpio_event(cmd, arg);
 
     default:
         pr_debug("vic_sensor_ops_ioctl: Unhandled IOCTL 0x%x\n", cmd);

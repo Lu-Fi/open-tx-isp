@@ -20,7 +20,7 @@ end, and stores land behind the object (#186: tisp_g/s_mscaler_mask_attr).  Clas
          if/else/for/while): the lift put the MIPS `jr ra` in front of its branch delay slot and lost that
          instruction (#189: vic_core_ops_init lost its `state = 2` store).  Hand-written early-return dispatchers
          (cut_hard_returns) and `#if 0` / non-Kbuild text are not scanned.  Also run on the extra lifted files
-         (EXTRA_FILES: t21 / t30 recovered, t23 core)
+         (EXTRA_FILES: t21 recovered; t30 is in FILES since #375)
   tailcall  an unmatched `jr[.hb] t9` fragment (`asm: ... jr.hb t9`) with no `tail call` note after it: the lift dropped the MIPS tail call
          (`jr t9` + delay slot), so the callee (usually `system_reg_write(reg, val)`, or a deinit/refresh function) never runs
          (#189: tisp_msca_ir_init lost its stride register write).  Only the tail call is gone, so every hit needs the OEM
@@ -48,9 +48,9 @@ import os, re, sys, argparse, collections
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 FILES = (("t40", "../driver/t40/tx_isp_t40_recovered.c"), ("t41", "../driver/t41/tx_isp_t41_recovered.c"),
-         ("t23", "../driver/t23/tx_isp_t23_core.c"))
-EXTRA_FILES = (("t21", "../driver/t21/tx_isp_t21_recovered.c"),
-               ("t30", "../driver/t30/tx_isp_t30_recovered.c"))   # only the postret / tailcall / argc classes are scanned here
+         ("t23", "../driver/t23/tx_isp_t23_core.c"),
+         ("t30", "../driver/t30/tx_isp_t30_recovered.c"))     # t30: all classes since #375
+EXTRA_FILES = (("t21", "../driver/t21/tx_isp_t21_recovered.c"),)   # only the postret / tailcall / argc classes are scanned here
 SZ = {"uintptr_t": 4, "uint32_t": 4, "int32_t": 4, "int": 4, "uint16_t": 2, "int16_t": 2,
       "int64_t": 8, "uint64_t": 8, "long": 4, "unsigned": 4}
 DECL = re.compile(r"\b(uintptr_t|uint32_t|int32_t|int|uint16_t|int16_t|int64_t|uint64_t|long|unsigned)\s*\*\s*(\w+)")
@@ -63,10 +63,15 @@ RE_BACK = re.compile(r"if \((\w+) (!=|==) (\w+)\) \{ goto (\w+); \}")
 RE_UNAL = re.compile(r"\(\s*(uint32_t|int32_t|uint16_t|int16_t)\s*\*\s*\)\s*\(\s*\(\s*(?:char|uint8_t)\s*\*\s*\)\s*\w+\s*\+\s*" + NUM + r"\s*\)")
 
 
+ALWAYS_DEFINED = re.compile(r"(REGTRACE_KERNEL_TREE_BUILD|TX_ISP_T30_SHARED_[A-Z_]+)\b")
+
+
 def mask_inactive(lines):
     """Blank the lines the real (Kbuild: -DREGTRACE_KERNEL_TREE_BUILD) build does not compile: `#if 0`, the #else
     side of `#ifdef REGTRACE_KERNEL_TREE_BUILD` and the body of `#ifndef REGTRACE_KERNEL_TREE_BUILD` (the old lifted
-    code behind the hand-written kernel-tree replacements).  Other conditionals count as taken on both sides."""
+    code behind the hand-written kernel-tree replacements).  TX_ISP_T30_SHARED_* are always defined (driver/t30/Kbuild:
+    the shared common implementations replace the lifted ones), so their #ifndef bodies are blanked too (#375).
+    Other conditionals count as taken on both sides."""
     out = []
     stack = []  # entries: [parent_active, this_branch_active]
     act = True
@@ -76,15 +81,14 @@ def mask_inactive(lines):
             d, arg = m.group(1), re.sub(r"/\*.*?\*/|//.*$", "", m.group(2)).strip()
             if d in ("ifdef", "ifndef", "if"):
                 br = True
-                if d == "ifdef" and arg.startswith("REGTRACE_KERNEL_TREE_BUILD"):
+                defd = ALWAYS_DEFINED.match(arg) is not None
+                if d == "ifdef" and defd:
                     br = True
-                elif d == "ifndef" and arg.startswith("REGTRACE_KERNEL_TREE_BUILD"):
+                elif d == "ifndef" and defd:
                     br = False
                 elif d == "if" and arg in ("0", "(0)"):
                     br = False
-                stack.append((act, br, d == "ifdef" and arg.startswith("REGTRACE_KERNEL_TREE_BUILD") or
-                              d == "ifndef" and arg.startswith("REGTRACE_KERNEL_TREE_BUILD") or
-                              d == "if" and arg in ("0", "(0)")))
+                stack.append((act, br, d in ("ifdef", "ifndef") and defd or d == "if" and arg in ("0", "(0)")))
                 act = act and br
             elif d == "else" and stack:
                 pa, br, known = stack.pop()

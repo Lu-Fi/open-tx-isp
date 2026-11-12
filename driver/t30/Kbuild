@@ -61,7 +61,14 @@ LDFLAGS_MODULE += --gc-sections --undefined=init_module --undefined=cleanup_modu
 endif
 ccflags-y += $(call cc-option,-Wa$(comma)-mno-pdr)
 LDFLAGS_MODULE += -x
+# TX_ISP_T30_WARN=y: lift-defect check (Lu-Fi/openimp#274), use with
+# TX_ISP_T30_OS=y; the -Os optimiser sees the uninitialised / out-of-bounds sites.
+ifeq ($(TX_ISP_T30_WARN),y)
+ccflags-y += -std=gnu99 -Wmaybe-uninitialized -Warray-bounds -Wreturn-type \
+	-Wreturn-local-addr -Wframe-larger-than=1024
+else
 ccflags-y += -std=gnu99 -w
+endif
 ccflags-y += -Wno-error=strict-prototypes
 ccflags-y += -Wno-error=implicit-function-declaration
 ccflags-y += -Wno-error=implicit-int

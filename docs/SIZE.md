@@ -216,3 +216,32 @@ have to come back together (`tisp_event_init` caller + queue path in
   a 4.4 KB stack frame in `awb_calc_avg_weighted_gr_gb_mesh`). Needs those
   fixed and a host or QEMU -O0 vs -Os equivalence run (like
   `tests/t20_fw`) before -Os can be the default.
+  Site list (`-Wmaybe-uninitialized -Warray-bounds -Wreturn-type
+  -Wreturn-local-addr -Wframe-larger-than=1024`, `-w` removed from
+  `driver/t30/Kbuild` for the check; none of these is a pure rewrite, each
+  one is a lift defect whose vendor behaviour has to be read first):
+  - uninitialised use: `general_frame_start` (`quotient`/`val` in the
+    `count == 0` branch are never computed, the lift dropped the divide),
+    `sinter_strength`/`temper`/`temper_strength` (`result`/`ret` on the
+    non-0/1 selector path), `sensor_fsm_switch_state` (`result`),
+    `crop_fsm_process_event` (`new_state`), `apical_sbus_write_u8` (`a1`,
+    `fn`), `AWB_mesh_isra_1` (`cx`/`cy`), `awb_calc_avg_weighted_gr_gb_mesh`
+    (`result`).
+  - missing return: `cmos_fsm_switch_state`, `color_matrix_fsm_switch_state`,
+    `iridix_fsm_switch_state` (fall off the end for unhandled states).
+  - returned stack address: `awb_normalise` (returns `&sum0`, callers read
+    the int).
+  - 4.4 KB frame: `awb_calc_avg_weighted_gr_gb_mesh`.
+  - out of bounds: `apical_isp_table_s_attr` (6), `apical_isp_stab_g_attr`,
+    `apical_event_queue_push` (2), `__enqueue_in_driver_isra_0` (4), and the
+    LDC functions `ldc_frame_channel_streamoff`, `ldc_pad_event_handle`,
+    `ldc_core_ops_init` (14; owned by the LDC work, Lu-Fi/openimp#365).
+  Not changed in the #274 pass: any of them changes what -O0 executes
+  today, and there is no T30 device test available to compare.
+  Fixed in Lu-Fi/openimp#371 (vendor-equal, Unicorn oracle
+  `tests/t30_lift_oracle.sh`): all of the above except the LDC sites, plus
+  five more lost-base-register loads in `frame_channel_unlocked_ioctl_raw`
+  and the rest of the AWB mesh chain. `-Os` warnings now 21: 20 LDC
+  array-bounds (#365) and the 3 KB frame of
+  `awb_calc_avg_weighted_gr_gb_mesh` (vendor frame 3080 bytes). Check:
+  `make ... TX_ISP_T30_OS=y TX_ISP_T30_WARN=y`.
