@@ -215,6 +215,9 @@ int main(void)
 		if (ro == 0 && t32_g_rd32(save1, T32_DQ_QCOUNT) != t32_g_rd32(save0, T32_DQ_QCOUNT))
 			rq++;
 	}
+	/* DQBUF word 22 (#414): vendor runs (QEMU, vendor libimp): 3 in every IVDC direct-mode DQBUF, 0 in memory mode */
+	if (t32_dq_frame_type(1) != 3 || t32_dq_frame_type(0) != 0 || t32_dq_frame_type(2) != 3)
+		return fail("frame type: direct 3 / memory 0", 0);
 	printf("t32_fchdq_oracle: %u cases, 0 mismatches; 0 / -22 / -12 / wait error: %u %u %u %u; requeued: %u\n",
 	       n, hit[0], hit[1], hit[2], hit[3], rq);
 	return 0;

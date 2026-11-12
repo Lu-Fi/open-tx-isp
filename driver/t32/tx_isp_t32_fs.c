@@ -58,6 +58,7 @@ static u32 t32_fs_copy_to_user(u32 user, const u8 *src, u32 n)
 #undef copy_from_user
 #undef copy_to_user
 #include "tx_isp_t32_fch.h"
+#include "tx_isp_t32_fch_dq.h"
 #pragma pop_macro("copy_to_user")
 #pragma pop_macro("copy_from_user")
 
@@ -244,7 +245,7 @@ static int t32_fs_dqbuf(struct t32_fchan *f, u32 *w)
 	w[11] = b->seq;
 	w[15] = t32_core_sensor_fps();
 	w[20] = 2;
-	w[22] = 0;
+	w[22] = t32_dq_frame_type(f->direct);	/* 3 = IVDC in direct mode (vendor; libimp then encodes from the IVDC, #414) */
 	return 0;
 }
 

@@ -4,6 +4,11 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD` on the `aperto` branch are planned (the first one after the long soak of the release candidate); until then dates are the reference. Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-11-12: T32 IVDC direct mode: DQBUF frame type 3 (openimp #414; planned, QEMU only)
+
+- The T32 frame channel returns DQBUF word 22 = 3 (frame type IVDC) in IVDC direct mode and 0 otherwise, as the vendor modules do; without it the vendor libimp encodes from DDR and the stream is garbage (found on the T33 port). `t32_fchdq_oracle` checks the value (new mutants: direct returns 0 / memory returns 3 / constant changed; 20/20 detected).
+- Evidence: QEMU `-M ingenic-t32`, vendor libimp, direct_mode=1: H.264 1080p 5/5 streams, colour bars in the encoder input. Not tested on a camera.
+
 ## 2026-11-12: T32 oracle hangs (openimp #378)
 
 - T32 host oracles: the 6 mutants that were caught only by run.sh's time limit (af #3, aev #11, ssior #1, ispioctl #88, ispfw #1, wdr2 #17, real hangs) now die by a compare mismatch (openimp #378; planned, host only, not device-tested). `t32_ispfw_oracle` counts the scripted `kthread_should_stop` polls (a loop of either polarity is cut after 200 polls and reported); the others run the call that can loop (ours, or the vendor walk of a mutated world for ssior / af) under a new CPU-time runaway guard (`t32o_guard` / `t32o_gcall` in `t32_oracle_env.h`, 2 s ITIMER_VIRTUAL) that turns a hang into a mismatch and exit 1. The unmutated oracles never reach the limits; the oracle is not weakened.

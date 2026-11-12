@@ -66,6 +66,19 @@ struct t32_fchdq_os {
 	const u32 *d9950;				/* ISP core */
 };
 
+/*
+ * DQBUF frame type (v4l2_buffer word 22): the vendor modules (T32 and T33)
+ * return 3 (IVDC) in IVDC direct mode and 0 otherwise; the vendor libimp
+ * encodes from the IVDC only with the 3, else from DDR (garbage in direct
+ * mode, openimp #414).  Used by tx_isp_t32_fs.c, checked by t32_fchdq_oracle.
+ */
+#define T32_DQ_FTYPE_DDR	0U
+#define T32_DQ_FTYPE_IVDC	3U
+static inline u32 t32_dq_frame_type(int direct)
+{
+	return direct ? T32_DQ_FTYPE_IVDC : T32_DQ_FTYPE_DDR;
+}
+
 static inline int t32_dq_requeue(u32 mode, u32 frame)
 {
 	switch (mode) {
