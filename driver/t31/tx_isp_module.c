@@ -1703,6 +1703,13 @@ extern int tx_isp_set_ae_algo_close(void __user *arg);
 extern int tisp_ae_algo_handle(void *attr);
 extern void tx_isp_ae_algo_close_internal(void);
 extern bool tx_isp_ae_algo_is_open(void);
+/* Custom AWB algorithm interface - OEM ioctls 0xc00456e1-0xc00456e4 */
+extern int tx_isp_get_awb_algo_handle(void __user *arg);
+extern int tx_isp_set_awb_algo_open(void);
+extern int tx_isp_set_awb_algo_handle(void __user *arg);
+extern int tx_isp_set_awb_algo_close(void __user *arg);
+extern void tx_isp_awb_algo_close_internal(void);
+extern bool tx_isp_awb_algo_is_open(void);
 extern int tisp_event_drain(unsigned int timeout_ms);
 extern void t31_awb_selftest_cancel(void);
 
@@ -5787,6 +5794,11 @@ static void tx_isp_last_close_teardown(struct tx_isp_dev *isp)
         tx_isp_ae_algo_close_internal();
         did = true;
     }
+    if (tx_isp_awb_algo_is_open()) {
+        pr_info("last close: closing the custom AWB algorithm\n");
+        tx_isp_awb_algo_close_internal();
+        did = true;
+    }
 
     if (tx_isp_uapi_links_streaming) {
         pr_info("last close: DISABLE_LINKS\n");
@@ -6463,6 +6475,14 @@ static long tx_isp_unlocked_ioctl(struct file *file, unsigned int cmd, unsigned 
     case 0x800456de: { /* TX_ISP_SET_AE_ALGO_CLOSE — OEM custom AE close */
         return tx_isp_set_ae_algo_close(argp);
     }
+    case 0xc00456e1: /* TX_ISP_GET_AWB_ALGO_HANDLE - OEM custom AWB statistics */
+        return tx_isp_get_awb_algo_handle(argp);
+    case 0xc00456e2: /* TX_ISP_SET_AWB_ALGO_HANDLE - OEM custom AWB result */
+        return tx_isp_set_awb_algo_handle(argp);
+    case 0xc00456e3: /* TX_ISP_SET_AWB_ALGO_OPEN (vendor: no argument) */
+        return tx_isp_set_awb_algo_open();
+    case 0xc00456e4: /* TX_ISP_SET_AWB_ALGO_CLOSE */
+        return tx_isp_set_awb_algo_close(argp);
     /* 0xc008561b/0xc008561c/0xc00c56c6 belong to /dev/isp-m0 (stock has no
      * /dev/tx-isp handler).  The former pass-through forwarded a
      * user-chosen event number and value straight into the sensor

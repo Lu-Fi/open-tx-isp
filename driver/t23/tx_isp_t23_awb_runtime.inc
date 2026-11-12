@@ -733,6 +733,9 @@ static void regtrace_t23_source_awb_hlil_work_body(struct work_struct *work)
     ret = regtrace_t23_awb_hlil_calculate(
         &regtrace_t23_awb_hlil_snapshot_data, &result);
     regtrace_t23_source_awb_hlil_runs++;
+    /* stock JZ_Isp_Awb: complete(&awb_algo_comp) while tawb_custom_en == 1 */
+    if (ACCESS_ONCE(t23_algo_awb_on))
+        complete(&t23_algo_awb_comp);
     regtrace_t23_source_awb_hlil_status = ret ? 1U : 0U;
 
     if (!ret) {
