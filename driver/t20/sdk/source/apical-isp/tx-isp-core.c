@@ -1953,6 +1953,17 @@ static int isp_core_frame_channel_streamoff(struct tx_isp_core_device *core, int
 
 	spin_lock_irqsave(&chan->slock, flags);
 	if (chan->state == TX_ISP_STATE_STOP) {
+		/*
+		 * openimp #406: the core stream-off (isp_core_video_s_stream(0))
+		 * may have stopped this channel while its frame channel was still
+		 * streaming; a QBUF after that (streamer exiting) still pushed the
+		 * vb2 buffer onto chan->fifo.  Returning here kept those entries:
+		 * the next streamer's REQBUFS freed the vb2 buffers and its
+		 * STREAMON queued new ones behind the stale ones, and the frame
+		 * IRQ (isp_configure_base_addr -> pop_buffer_fifo) then did a
+		 * list_del on freed memory (oops in IRQ, panic, reset).  Drop them.
+		 */
+		cleanup_buffer_fifo(&chan->fifo);
 		spin_unlock_irqrestore(&chan->slock, flags);
 		return ISP_SUCCESS;
 	}
