@@ -19305,7 +19305,7 @@ int tx_isp_ncu_show(struct seq_file *m)
 
 	flags = arch_local_irq_save();
 	{
-		*(uint32_t *)((char *)entry_gp + 0x14) += 1;
+		preempt_disable();	/* #365: OEM gp->preempt_count++ (entry_gp is a stub array) */
 	}
 
 	iter = *(void **)((char *)ncu + 0x194);
@@ -20736,7 +20736,7 @@ int ldc_frame_channel_streamoff(void *arg1)
 	if (s4_state == 4 && *(uint8_t *)((char *)arg1 + 7) == s4_state) {
 		((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))tx_isp_send_event_to_remote)((uintptr_t)(s4), (uintptr_t)(TX_ISP_T30_FRAME_EVENT_FREE_BUFFER), (uintptr_t)(0));
 		unsigned long flags = arch_local_irq_save();
-		*(uint32_t *)(entry_gp + 0x14) += 1;
+		preempt_disable();	/* #365: OEM gp->preempt_count++ (entry_gp is a stub array) */
 		*(uint32_t *)((char *)s0 + 0x178) = 3;
 		tx_isp_reg_set(s0, 0, 2, 2, 1);
 		private_spin_unlock_irqrestore((spinlock_t *)((char *)s0 + 0x1dc), flags);
@@ -20778,10 +20778,11 @@ int ldc_frame_channel_streamoff(void *arg1)
 		tx_isp_reg_set(s0, 0, 3, 3, 0);
 
 		if (*(uint32_t *)((char *)s0 + 0x80) != 0)
-			(*(void (**)(void *))( *(uint32_t *)((char *)s0 + 0x88) ))((char *)s0 + 0x80);
+			/* #365: OEM lw v0,136(s0); jalr v0 (one load; was a second through the code) */
+			((void (*)(void *))(uintptr_t)*(uint32_t *)((char *)s0 + 0x88))((char *)s0 + 0x80);
 
 		unsigned long flags2 = arch_local_irq_save();
-		*(uint32_t *)(entry_gp + 0x14) += 1;
+		preempt_disable();	/* #365: OEM gp->preempt_count++ (entry_gp is a stub array) */
 		*(uint8_t *)((char *)s4 + 7) = 3;
 		*(uint8_t *)((char *)arg1 + 7) = 3;
 		private_spin_unlock_irqrestore((spinlock_t *)((char *)s0 + 0x1dc), flags2);
@@ -21628,9 +21629,10 @@ int32_t ldc_pad_event_handle(int32_t *arg1, int32_t arg2, int32_t *arg3)
         *(int32_t *)((char *)dev + 0x1b0) = *(int32_t *)((char *)reg + 0x24);
         *(int32_t *)((char *)dev + 0x1b4) = *(int32_t *)((char *)dev + 0x128);
         if (*(int32_t *)((char *)dev + 0x80) != 0)
-            (*(void (**)(void *))(*(int32_t *)((char *)dev + 0x84)))((void *)((char *)dev + 0x80));
+            /* #365: OEM lw v0,132(s0); jalr v0 (one load; the second one jumped into the code) */
+            ((void (*)(void *))(uintptr_t)*(uint32_t *)((char *)dev + 0x84))((void *)((char *)dev + 0x80));
         unsigned long flags = arch_local_irq_save();
-        *(int32_t *)(entry_gp + 0x14) += 1;
+        preempt_disable();	/* #365: OEM gp->preempt_count++ (entry_gp is a stub array) */
         *(uint8_t *)((char *)remote + 7) = 4;
         *(uint8_t *)((char *)arg1 + 7) = 4;
         *(int32_t *)((char *)dev + 0x178) = 4;
@@ -21644,7 +21646,7 @@ int32_t ldc_pad_event_handle(int32_t *arg1, int32_t arg2, int32_t *arg3)
             return 0;
         }
         if (*(int32_t *)((char *)dev + 0x80) != 0)
-            (*(void (**)(void *))(*(int32_t *)((char *)dev + 0x88)))((void *)((char *)dev + 0x80));
+            ((void (*)(void *))(uintptr_t)*(uint32_t *)((char *)dev + 0x88))((void *)((char *)dev + 0x80));
         if (*(int32_t *)((char *)dev + 0x1c0) != 0) {
             ((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))tx_isp_send_event_to_remote)((uintptr_t)(remote), (uintptr_t)(TX_ISP_T30_FRAME_EVENT_FREE_BUFFER), (uintptr_t)(0));
             isp_free_buffer(buf);
@@ -21671,7 +21673,7 @@ int32_t ldc_pad_event_handle(int32_t *arg1, int32_t arg2, int32_t *arg3)
             return 0;
         dev = *(char **)((char *)arg1 + 0x20);
         flags = arch_local_irq_save();
-        *(int32_t *)(entry_gp + 0x14) += 1;
+        preempt_disable();	/* #365: OEM gp->preempt_count++ (entry_gp is a stub array) */
         if (node != 0 && dev != 0) {
             uint32_t *head;
 
@@ -21708,9 +21710,7 @@ int32_t ldc_pad_event_handle(int32_t *arg1, int32_t arg2, int32_t *arg3)
             *(int32_t *)(dev + 0x188) == 0)
             ldc_restart_module(dev);
         arch_local_irq_restore(flags);
-        *(int32_t *)(entry_gp + 0x14) -= 1;
-        if (*(int32_t *)(entry_gp + 8) & 4)
-            preempt_schedule();
+        preempt_enable();	/* #365: OEM gp->preempt_count--, resched check */
         return 0;
     }
     case TX_ISP_T30_FRAME_EVENT_FREE_BUFFER: {
@@ -21721,7 +21721,7 @@ int32_t ldc_pad_event_handle(int32_t *arg1, int32_t arg2, int32_t *arg3)
             uint32_t *head = (uint32_t *)(dev + 0x1d0);
             uint32_t *node;
 
-            *(int32_t *)(entry_gp + 0x14) += 1;
+            preempt_disable();	/* #365: OEM gp->preempt_count++ (entry_gp is a stub array) */
             while ((node = (uint32_t *)(uintptr_t)head[0]) != head) {
                 uint32_t *next = (uint32_t *)(uintptr_t)node[1];
                 uint32_t *prev = (uint32_t *)(uintptr_t)node[0];
