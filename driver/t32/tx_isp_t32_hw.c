@@ -36,6 +36,7 @@
 #include "tx_isp_t33_rdns.h"
 #include "tx_isp_t33_ccm.h"
 #include "tx_isp_t33_lsc.h"
+#include "tx_isp_t33_gamma.h"
 #include "tx_isp_t32_lsc.h"
 #include "tx_isp_t32_stats.h"
 #include "tx_isp_t32_iq.h"
@@ -544,6 +545,16 @@ static void t33_tisp_init(const u8 *bin, u32 bytes)
 							       t32_iq_payload(bin + off, bytes - off, T33_SEC_CCM),
 							       T33_CCM_INIT_CT, T33_CCM_INIT_EV, 0, t33_ccm_v, buf,
 							       T33_SLOT_WORDS));
+	}
+	off = t32_iq_section(bin, bytes, T33_SEC_GAMMA, &len);
+	if (off && len == T33_GAMMA_SEC_BYTES) {
+		u32 *buf = t33_mod_buf(T33_MOD_GAMMA);
+
+		if (buf)
+			t33_mod_done(T33_MOD_GAMMA,
+				     t33_gamma_init(bin + off, bin + off + len,
+						    t32_iq_payload(bin + off, bytes - off, T33_SEC_GAMMA),
+						    T33_CCM_INIT_EV, 0, buf, T33_SLOT_WORDS));
 	}
 	off = t32_iq_section(bin, bytes, T33_SEC_LSC, &len);
 	if (off && len == T33_LSC_SEC_BYTES && !t32_core_sensor_size(&width, &height)) {

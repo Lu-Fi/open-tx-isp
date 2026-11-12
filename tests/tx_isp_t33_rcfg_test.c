@@ -20,6 +20,7 @@
 #include "../driver/t32/tx_isp_t33_rdns.h"
 #include "../driver/t32/tx_isp_t33_ccm.h"
 #include "../driver/t32/tx_isp_t33_lsc.h"
+#include "../driver/t32/tx_isp_t33_gamma.h"
 
 static int bad;
 #define CHECK(c) do { if (!(c)) { bad++; printf("FAIL line %d: %s\n", __LINE__, #c); } } while (0)
@@ -218,6 +219,11 @@ int main(void)
 			vs_list("ccm", T33_MOD_CCM, lb, t33_ccm_init(bin + off, bin + off + len,
 								 t32_iq_payload(bin + off, bytes - off, T33_SEC_CCM),
 								 T33_CCM_INIT_CT, 0, 0, v, lb, T33_SLOT_WORDS));
+			off = t32_iq_section(bin, bytes, T33_SEC_GAMMA, &len);
+			CHECK(off && len == T33_GAMMA_SEC_BYTES);
+			vs_list("gamma", T33_MOD_GAMMA, lb, t33_gamma_init(bin + off, bin + off + len,
+								     t32_iq_payload(bin + off, bytes - off, T33_SEC_GAMMA),
+								     0, 0, lb, T33_SLOT_WORDS));
 			{
 				/* LSC: the DMA table address (slot 16) as the vendor's; 0x507c is slab slack there */
 				static struct t33_lsc m;

@@ -216,6 +216,11 @@ static inline u32 t33_le32(const u8 *p)
 	return p[0] | p[1] << 8 | p[2] << 16 | (u32)p[3] << 24;
 }
 
+static inline int t33_s32(const u8 *p)
+{
+	return (int)t33_le32(p);
+}
+
 /* tisp_sub_interp: a + (b - a) * f / 4096, rounded */
 static inline int t33_sub_interp(u32 f, int a, int b)
 {

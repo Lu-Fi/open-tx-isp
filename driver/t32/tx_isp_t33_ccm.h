@@ -34,11 +34,6 @@ static const struct t33_tcmd t33_ccm_tmpl[] = {
 	{ 0x090b4, 3, 1 },
 };
 
-static inline int t33_s32(const u8 *p)
-{
-	return (int)t33_le32(p);
-}
-
 /* tisp_ccm_interp_by_ct (init: force) into v[0x5f..0x70] */
 static inline void t33_ccm_ct(u32 *v, const u8 *sec, const u8 *lut, u32 ct)
 {
