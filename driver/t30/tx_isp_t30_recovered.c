@@ -25027,8 +25027,9 @@ static int tx_isp_t30_frame_dqbuf(struct tx_isp_t30_frame_channel *chan,
 			break;
 		ret = wait_event_interruptible(queue->done_wq,
 			!list_empty(&queue->done_list) || !queue->streaming);
-		if (ret == -ERESTARTSYS)
-			continue;
+		/* Beyond vendor (user OK 2026-11-12, #365): a pending signal ends
+		 * the wait (-ERESTARTSYS, user space sees EINTR or restarts).
+		 * The vendor loops on it and spins with the signal pending. */
 		if (ret)
 			return ret;
 	}
