@@ -40,7 +40,10 @@ ccflags-y += -I$(src)/../include
 # and a -Os build warns at about 50 places that may rely on -O0 (uninitialised
 # locals, returns of stack addresses, out-of-bounds lifted accesses).
 # TX_ISP_T30_OS=y builds at the kernel default -Os instead (text ~244 KB
-# instead of ~565 KB); untested, for A/B runs only.
+# instead of ~565 KB).  Tested 2026-11-12 (Lu-Fi/openimp#418): it builds (ko 408 KB, 115 undefined
+# symbols resolved), but tests/t30_lift_oracle.sh FAILS against the vendor ko (nr_selectors 600, fsm_switch_state 37,
+# awb_calc_mesh 200, gp_lock_paths 16, ptr_scale 338, fci_args 33 differences; dqbuf_signal aborts, the function
+# is inlined).  The lift still relies on -O0 stack/register behaviour: keep it off for any image.
 TX_ISP_T30_OS ?= n
 ifneq ($(TX_ISP_T30_OS),y)
 ccflags-y += -O0 -fno-tree-dce -fno-ipa-pure-const -fno-ipa-reference
@@ -52,7 +55,9 @@ endif
 #    .text.  No -fdata-sections: the static data layout of the lifted unit
 #    stays as it was tested.  TX_ISP_GC=n builds the old layout.
 #  - no .pdr (procedure descriptors, never loaded by the kernel)
-#  - -x: no local symbols in the .ko (exports resolve through __ksymtab)
+#  - -x: no local symbols in the .ko (exports resolve through __ksymtab).  Static function names then
+#    show only as offsets in oops traces; TX_ISP_T30_KEEPSYMS=y keeps them (.text/.data/.bss identical,
+#    file +35 KB, and the module loader keeps that symtab in RAM), for debug builds.
 TX_ISP_GC ?= y
 ifneq ($(TX_ISP_GC),n)
 ccflags-y += -ffunction-sections
@@ -60,7 +65,9 @@ LDFLAGS_MODULE += --gc-sections --undefined=init_module --undefined=cleanup_modu
 	-T $(abspath $(src)/../tx_isp_merge.lds)
 endif
 ccflags-y += $(call cc-option,-Wa$(comma)-mno-pdr)
+ifneq ($(TX_ISP_T30_KEEPSYMS),y)
 LDFLAGS_MODULE += -x
+endif
 # TX_ISP_T30_WARN=y: lift-defect check (Lu-Fi/openimp#274), use with
 # TX_ISP_T30_OS=y; the -Os optimiser sees the uninitialised / out-of-bounds sites.
 ifeq ($(TX_ISP_T30_WARN),y)

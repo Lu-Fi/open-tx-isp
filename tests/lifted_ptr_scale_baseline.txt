@@ -250,10 +250,6 @@ t30 ispcore_pad_event_handle loop 21 dead #375: lifted case bodies behind the ha
 t30 ispcore_pad_event_handle off 6 dead #375: lifted case bodies behind the hand-written event wrappers (tx_isp_t30_recovered.c:13845-13868: GET/SET_FORMAT, STREAM_ON, QUEUE/FREE_BUFFER, SET_BANKS return first; STREAMOFF is case 12); label-CFG from the switch: no finding reachable
 t30 ispcore_pad_event_handle step 6 dead #375: lifted case bodies behind the hand-written event wrappers (tx_isp_t30_recovered.c:13845-13868: GET/SET_FORMAT, STREAM_ON, QUEUE/FREE_BUFFER, SET_BANKS return first; STREAMOFF is case 12); label-CFG from the switch: no finding reachable
 t30 ispcore_pad_event_handle var 1 dead #375: lifted case bodies behind the hand-written event wrappers (tx_isp_t30_recovered.c:13845-13868: GET/SET_FORMAT, STREAM_ON, QUEUE/FREE_BUFFER, SET_BANKS return first; STREAMOFF is case 12); label-CFG from the switch: no finding reachable
-t30 ldc_core_interrupt_service_routine off 1 open #375: LDC functions belong to #365
-t30 ldc_core_interrupt_service_routine var 1 open #375: LDC functions belong to #365
-t30 ldc_core_ops_init off 2 open #375: LDC functions belong to #365
-t30 ldc_core_ops_init step 2 open #375: LDC functions belong to #365
 t30 ncu_pad_event_handle tailcall 1 ok #189: unreachable epilogue leftover; the OEM tail call (t9 = 0x1264c = ncu_frame_channel_streamoff, switch slot 12) is the hand-written `case 12: return ncu_frame_channel_streamoff(a0)`; nothing to fix
 t40 Tisp_lce_soft ctr 1 unreach
 t40 Tisp_lce_soft loop 7 unreach

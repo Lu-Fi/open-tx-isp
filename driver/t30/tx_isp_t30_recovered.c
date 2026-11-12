@@ -20825,7 +20825,7 @@ ldc_core_ops_init0x1d0:
     a2 = *(uint32_t *)((char *)s0 + 376);
     v1 = (uintptr_t)&private_spin_unlock_irqrestore;
     v0 = 2;
-    a0 = s0 + 476;
+    a0 = (uintptr_t)((char *)s0 + 476);	/* #375: byte offset (OEM addiu a0,s0,476) */
 
     /* fragment 36: Branch */
     v1 = (uintptr_t)&private_spin_unlock_irqrestore;
@@ -20851,10 +20851,10 @@ ldc_core_ops_init0x230:
     /* fragment 42: MemoryAccess */
     (void)0;
     a1 = *(uint32_t *)((char *)s0 + 508);
-    v0 = s1 - 24;
+    v0 = (uintptr_t *)((uintptr_t)s1 - 24);	/* #375: integer arithmetic (OEM addiu v0,s1,-24) */
     s1 = v0 < s1;
     a2 = *(uint32_t *)((char *)a1 + 16);
-    s3 = s3 - 1;
+    s3 = (uint32_t *)((uintptr_t)s3 - 1);	/* #375: counter, not a pointer step */
 
     /* fragment 43: Branch */
     s1 = (uintptr_t)s1 + (uintptr_t)s3;
@@ -20910,7 +20910,7 @@ ldc_core_ops_init0x2d0:
 ldc_core_ops_init0x300:
     /* fragment 55: MemoryAccess */
     a0 = *(uint32_t *)((char *)a3 + 24);
-    a3 = a3 + 4;
+    a3 = (uintptr_t *)((char *)a3 + 4);	/* #375: OEM addiu a3,a3,4 (byte step) */
     v0 = (uintptr_t)v0 ^ a0;
     a0 = (uintptr_t)v0 & 7;
     a0 = a0 << 2;
@@ -23254,6 +23254,8 @@ int32_t __enqueue_in_driver_isra_0(void *arg1)
  * 0xb48) reads all of them from s8 (the frame channel): +52 buffer size,
  * +532 irq flags, +560 state byte, +656 subdev, +660 channel index.
  */
+/* Dead path (review L1, #418): tx_isp_t30_frame_ioctl handles VIDIOC_REQBUFS/QBUF/DQBUF/... itself and only
+ * unknown commands reach this lifted body.  The REQBUFS arm keeps the vendor count = min(req, 64) (#369). */
 static long frame_channel_unlocked_ioctl_raw(struct file *a0_file,
 					     unsigned int a1,
 					     unsigned long a2)
