@@ -7868,7 +7868,7 @@ int tx_isp_vic_probe(struct platform_device *pdev)
     if (v0 != 0) { goto tx_isp_vic_probe0x6c; }
 
     /* fragment 3: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(int32_t *)isp_printf)(2, &LC5); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(int32_t *)isp_printf)(2, &LC5, (uintptr_t)a2);	/* #369 "%s" arg a2 */ /* jalr target resolved by relocation */
 
     /* fragment 4: Arithmetic */
     v0 = -1;
@@ -14501,7 +14501,7 @@ ispcore_pad_event_handle0x598:
 
 ispcore_pad_event_handle0x5cc:
     /* fragment 143: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(int32_t *))(uintptr_t)isp_core_config_top_ctl_register)(a0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)isp_core_config_top_ctl_register)(a0, a1);	/* #369 OEM 0xcba0/0xccec a1 = bit */ /* jalr target resolved by relocation */
 
 ispcore_pad_event_handle0x5dc:
     /* fragment 144: MemoryAccess */
@@ -14605,7 +14605,7 @@ ispcore_pad_event_handle0x6e4:
     if (v1 != v0) { goto ispcore_pad_event_handle0x510; }
 
     /* fragment 167: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(int32_t *))(uintptr_t)isp_core_config_top_ctl_register)(16); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)isp_core_config_top_ctl_register)(16, 0);	/* #369 OEM 0xccc8 move a1,zero */ /* jalr target resolved by relocation */
 
     /* fragment 168: Branch */
     a1 = *(uint32_t *)((char *)(s3) + 40);
@@ -14618,7 +14618,7 @@ ispcore_pad_event_handle0x708:
 
 ispcore_pad_event_handle0x710:
     /* fragment 170: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(int32_t *))(uintptr_t)isp_core_config_top_ctl_register)(a0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)isp_core_config_top_ctl_register)(a0, a1);	/* #369 OEM 0xcce4 li a1,1 */ /* jalr target resolved by relocation */
 
     /* fragment 171: Branch */
     v1 = *(uint32_t *)((char *)(s5) + 336);
@@ -14687,7 +14687,7 @@ ispcore_pad_event_handle0x780:
 ispcore_pad_event_handle0x784:
     /* fragment 187: CallSetup */
     local_10 = (uint32_t *)&local_20;
-    v0 = (uintptr_t *)((uintptr_t (*)(int32_t *))(uintptr_t)apical_command)(4); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)apical_command)(4, a1, a2, 0, (uintptr_t)&local_20);	/* #369 OEM 0xcd5c-0xcd74: a1 = subcmd, a2 = value, a3 = 0, 16(sp) = &local_20 */ /* jalr target resolved by relocation */
 
     /* fragment 188: Branch */
     v0 = *(uint32_t *)((char *)(s1) + 76);
@@ -14804,7 +14804,7 @@ ispcore_pad_event_handle0x834:
 
 ispcore_pad_event_handle0x8a4:
     /* fragment 214: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)isp_lfb_config_resolution)(*(uint32_t *)((char *)(s0) + 4)); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)isp_lfb_config_resolution)(*(uint32_t *)((char *)(s0) + 4), a1);	/* #369 OEM 0xce7c lw a1,8(s0) */ /* jalr target resolved by relocation */
 
     /* fragment 215: CallSetup */
     v0 = (uintptr_t *)((uintptr_t (*)(int32_t *))(uintptr_t)isp_lfb_ctrl_hw_recovery)(1); /* jalr target resolved by relocation */
@@ -23273,7 +23273,7 @@ frame_channel_unlocked_ioctl0x9c:
 
 frame_channel_unlocked_ioctl0xac:
     /* fragment 20: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(int32_t *))(uintptr_t)isp_printf)(2); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)isp_printf)(2, (uintptr_t)a1);	/* #369 fmt in a1 */ /* jalr target resolved by relocation */
 
     /* fragment 21: Branch */
     s0 = -22;
@@ -23345,7 +23345,7 @@ frame_channel_unlocked_ioctl0x138:
 
 frame_channel_unlocked_ioctl0x144:
     /* fragment 38: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(int32_t *))(uintptr_t)isp_printf)(a0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(a0, (uintptr_t)a1, (uintptr_t)a2);	/* #369 fmt a1, arg a2 */ /* jalr target resolved by relocation */
 
 frame_channel_unlocked_ioctl0x14c:
     /* fragment 39: Epilogue */
@@ -23500,7 +23500,7 @@ frame_channel_unlocked_ioctl0x294:
 
 frame_channel_unlocked_ioctl0x2f8:
     /* fragment 76: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(int32_t *))(uintptr_t)isp_printf)(2); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)isp_printf)(2, (uintptr_t)a1);	/* #369 fmt in a1 */ /* jalr target resolved by relocation */
 
     /* fragment 77: Branch */
     s0 = -16;
@@ -23527,7 +23527,7 @@ frame_channel_unlocked_ioctl0x310:
 
 frame_channel_unlocked_ioctl0x334:
     /* fragment 83: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(int32_t *))(uintptr_t)__vb2_queue_free)(s6); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)__vb2_queue_free)(s6, a1);	/* #369 OEM 0x18814 lw a1,524(s8) is the count */ /* jalr target resolved by relocation */
 
     /* fragment 84: StackAccess */
     v0 = local_10;
@@ -23550,8 +23550,9 @@ frame_channel_unlocked_ioctl0x334:
 
 frame_channel_unlocked_ioctl0x364:
     /* fragment 89: CallSetup */
-    a1 = v0 < 65;
+    a1 = (uintptr_t)v0 < 65;
     a0 = 64;
+    if (a1 != 0) { a0 = (uintptr_t)v0; }	/* #369 OEM 0x18860 movn a0,v0,a1: count = min(req, 64) */
     s3 = (int32_t *)&__kmalloc;
     s3 = s3;
     s0 = a0;
@@ -23584,7 +23585,7 @@ frame_channel_unlocked_ioctl0x3a8:
 
 frame_channel_unlocked_ioctl0x3d0:
     /* fragment 97: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(int32_t *))(uintptr_t)isp_printf)(2); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)isp_printf)(2, (uintptr_t)a1);	/* #369 fmt in a1 */ /* jalr target resolved by relocation */
 
     /* fragment 98: Branch */
     s0 = -12;
@@ -23813,7 +23814,7 @@ frame_channel_unlocked_ioctl0x620:
 
 frame_channel_unlocked_ioctl0x640:
     /* fragment 152: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(int32_t *))(uintptr_t)isp_printf)(2); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(2, (uintptr_t)a1, (uintptr_t)a2, (uintptr_t)a3);	/* #369 fmt a1, args a2/a3 */ /* jalr target resolved by relocation */
 
 frame_channel_unlocked_ioctl0x650:
     /* fragment 153: Branch */
@@ -24611,7 +24612,7 @@ frame_channel_unlocked_ioctl0xea8:
 
 frame_channel_unlocked_ioctl0xeb0:
     /* fragment 342: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(int32_t *))(uintptr_t)isp_printf)(2); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)isp_printf)(2, (uintptr_t)a1);	/* #369 fmt in a1 */ /* jalr target resolved by relocation */
 
     /* fragment 343: Branch */
     s0 = -12;
@@ -26653,7 +26654,7 @@ tx_isp_unlocked_ioctl0x25c:
 
 tx_isp_unlocked_ioctl0x264:
     /* fragment 64: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(int32_t *))(uintptr_t)isp_printf)(2); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(2, (uintptr_t)a1, (uintptr_t)a2, (uintptr_t)a3);	/* #369 fmt a1, args a2/a3 */ /* jalr target resolved by relocation */
 
     /* fragment 65: Branch */
     s8 = -14;
@@ -27072,7 +27073,7 @@ tx_isp_unlocked_ioctl0x6a8:
     if (v0 != 0) { goto tx_isp_unlocked_ioctl0x704; }
 
     /* fragment 171: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(int32_t *)isp_printf)(2, &LC7); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(int32_t *)isp_printf)(2, &LC7, (uintptr_t)a2);	/* #369 "%u" arg a2 = local_60 */ /* jalr target resolved by relocation */
 
     /* fragment 172: Arithmetic */
     s8 = -22;
@@ -28380,7 +28381,7 @@ tx_isp_sinfo_sensor_bind0x14c:
     /* fragment 32: CallSetup */
     *(uint16_t *)((char *)((a1 * 160) + a2) + 12) = v1;
     *(uint32_t *)((char *)((a1 * 160) + a2) + 16) = (uintptr_t)s0;
-    v0 = (uintptr_t *)((uintptr_t (*)(int32_t *))(uintptr_t)sinfo_slot_publish)(a0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)sinfo_slot_publish)(a0, a1);	/* #369 slot index a1 (as tx_isp_sinfo_driver_add) */ /* jalr target resolved by relocation */
 
     /* fragment 33: Branch */
     v0 = (uintptr_t *)&mutex_unlock;
