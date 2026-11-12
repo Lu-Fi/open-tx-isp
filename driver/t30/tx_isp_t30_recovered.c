@@ -836,6 +836,16 @@ typedef char t30_gp_layout_check[(offsetof(struct thread_info, task) == 0 &&
 	offsetof(struct thread_info, flags) == 8 &&
 	offsetof(struct thread_info, preempt_count) == 20 &&
 	offsetof(struct thread_info, addr_limit) == 24) ? 1 : -1];
+/*
+ * The OEM inlined spin_lock_irqsave() as irq_save + gp->preempt_count++, and
+ * the lift pairs that with private_spin_unlock_irqrestore() (real unlock, i.e.
+ * preempt_enable()).  That only balances on a UP kernel with
+ * CONFIG_PREEMPT_COUNT=y and no spinlock debugging (qemu_t30x and the T30
+ * board configs).  Review L2, #365.
+ */
+#if !defined(CONFIG_PREEMPT_COUNT) || defined(CONFIG_SMP) || defined(CONFIG_DEBUG_SPINLOCK)
+#error "T30 GP macros assume UP, CONFIG_PREEMPT_COUNT=y, !CONFIG_DEBUG_SPINLOCK (OEM inlined spin_lock_irqsave)"
+#endif
 
 /* WHOLE_DRIVER_SUPPORT_DECLARATIONS */
 static const char LC3[] = "active";
@@ -20232,7 +20242,9 @@ ncu_pad_event_handle0x7e0:
     if (a2 == 0) { goto ncu_pad_event_handle0x854; }
 
     /* fragment 152: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tx_isp_send_event_to_remote)(s0, TX_ISP_FRAME_EVENT_QUEUE_BUFFER); /* jalr target resolved by relocation */
+    /* OEM 0x1372c lw a2,412(s1): the held buffer goes to the remote pad as the 3rd argument
+     * (the lift dropped it; ispcore's fifo handler list_add_tail()s it). Review M1, #365. */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tx_isp_send_event_to_remote)(s0, TX_ISP_FRAME_EVENT_QUEUE_BUFFER, a2); /* jalr target resolved by relocation */
 
     /* fragment 153: MemoryAccess */
     v0 = *(uint32_t *)((char *)s1 + 448);
@@ -20401,7 +20413,7 @@ int tx_isp_ldc_show(struct seq_file *m)
 
 	flags = arch_local_irq_save();
 	/* #365: OEM spin_lock_irqsave (gp->preempt_count++); was a store through current + 0x14 */
-	preempt_disable();
+	T30_GP_PREEMPT() += 1;	/* OEM 0x13b64 lw/addiu/sw 20(gp): preempt_count (#365, review M2) */
 
 	list_head = *(void **)((char *)ldc + 0x1c4);
 	list_end = (char *)ldc + 0x1c4;
@@ -20460,7 +20472,7 @@ int ldc_frame_channel_streamoff(void *arg1)
 	if (s4_state == 4 && *(uint8_t *)((char *)arg1 + 7) == s4_state) {
 		((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))tx_isp_send_event_to_remote)((uintptr_t)(s4), (uintptr_t)(TX_ISP_T30_FRAME_EVENT_FREE_BUFFER), (uintptr_t)(0));
 		unsigned long flags = arch_local_irq_save();
-		preempt_disable();	/* #365: OEM gp->preempt_count++ (entry_gp is a stub array) */
+		T30_GP_PREEMPT() += 1;	/* OEM 0x13d70 lw/addiu/sw 20(gp): preempt_count (#365, review M2) */
 		*(uint32_t *)((char *)s0 + 0x178) = 3;
 		tx_isp_reg_set(s0, 0, 2, 2, 1);
 		private_spin_unlock_irqrestore((spinlock_t *)((char *)s0 + 0x1dc), flags);
@@ -20506,7 +20518,7 @@ int ldc_frame_channel_streamoff(void *arg1)
 			((void (*)(void *))(uintptr_t)*(uint32_t *)((char *)s0 + 0x88))((char *)s0 + 0x80);
 
 		unsigned long flags2 = arch_local_irq_save();
-		preempt_disable();	/* #365: OEM gp->preempt_count++ (entry_gp is a stub array) */
+		T30_GP_PREEMPT() += 1;	/* OEM 0x13e7c lw/addiu/sw 20(gp): preempt_count (#365, review M2) */
 		*(uint8_t *)((char *)s4 + 7) = 3;
 		*(uint8_t *)((char *)arg1 + 7) = 3;
 		private_spin_unlock_irqrestore((spinlock_t *)((char *)s0 + 0x1dc), flags2);
@@ -21356,7 +21368,7 @@ int32_t ldc_pad_event_handle(int32_t *arg1, int32_t arg2, int32_t *arg3)
             /* #365: OEM lw v0,132(s0); jalr v0 (one load; the second one jumped into the code) */
             ((void (*)(void *))(uintptr_t)*(uint32_t *)((char *)dev + 0x84))((void *)((char *)dev + 0x80));
         unsigned long flags = arch_local_irq_save();
-        preempt_disable();	/* #365: OEM gp->preempt_count++ (entry_gp is a stub array) */
+        T30_GP_PREEMPT() += 1;	/* OEM 0x150c8 lw/addiu/sw 20(gp): preempt_count (#365, review M2) */
         *(uint8_t *)((char *)remote + 7) = 4;
         *(uint8_t *)((char *)arg1 + 7) = 4;
         *(int32_t *)((char *)dev + 0x178) = 4;
@@ -21397,7 +21409,7 @@ int32_t ldc_pad_event_handle(int32_t *arg1, int32_t arg2, int32_t *arg3)
             return 0;
         dev = *(char **)((char *)arg1 + 0x20);
         flags = arch_local_irq_save();
-        preempt_disable();	/* #365: OEM gp->preempt_count++ (entry_gp is a stub array) */
+        T30_GP_PREEMPT() += 1;	/* OEM 0x151e4 (BUFFER_DONE) / 0x15300 (QUEUE_BUFFER) 20(gp)++ (#365, review M2) */
         if (node != 0 && dev != 0) {
             uint32_t *head;
 
@@ -21434,7 +21446,9 @@ int32_t ldc_pad_event_handle(int32_t *arg1, int32_t arg2, int32_t *arg3)
             *(int32_t *)(dev + 0x188) == 0)
             ldc_restart_module(dev);
         arch_local_irq_restore(flags);
-        preempt_enable();	/* #365: OEM gp->preempt_count--, resched check */
+        T30_GP_PREEMPT() -= 1;	/* OEM 0x152ac 20(gp)--, 0x152b8 8(gp) & TIF_NEED_RESCHED -> preempt_schedule (#365, review M2) */
+        if (T30_GP_FLAGS() & 4)
+            preempt_schedule();
         return 0;
     }
     case TX_ISP_T30_FRAME_EVENT_FREE_BUFFER: {
@@ -21445,7 +21459,7 @@ int32_t ldc_pad_event_handle(int32_t *arg1, int32_t arg2, int32_t *arg3)
             uint32_t *head = (uint32_t *)(dev + 0x1d0);
             uint32_t *node;
 
-            preempt_disable();	/* #365: OEM gp->preempt_count++ (entry_gp is a stub array) */
+            T30_GP_PREEMPT() += 1;	/* OEM 0x15398 lw/addiu/sw 20(gp): preempt_count (#365, review M2) */
             while ((node = (uint32_t *)(uintptr_t)head[0]) != head) {
                 uint32_t *next = (uint32_t *)(uintptr_t)node[1];
                 uint32_t *prev = (uint32_t *)(uintptr_t)node[0];

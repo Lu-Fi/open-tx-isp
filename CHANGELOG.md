@@ -4,6 +4,12 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD[-rcN]` are set on the `aperto` branch, the same tag in open-tx-isp and OpenIMP: RC1 `v2026.10.11-rc1`, RC2 `v2026.10.25-rc2`, RC3 `v2026.11.07-rc3` (2026-11-07). Gate SoCs of RC3 and Release 1: T10, T20, T21, T23, T30, T31, T40, T41 (T32/T33 planned, QEMU only); release notes: [docs/releases/ in OpenIMP](https://github.com/Lu-Fi/openimp/blob/next/docs/releases/README.md). Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-11-12: T30 NCU QUEUE_BUFFER buffer argument, LDC preempt count vendor-equal (openimp #365, review M1/M2/L2; host oracle, QEMU T30)
+
+- `ncu_pad_event_handle` QUEUE_BUFFER sent `tx_isp_send_event_to_remote(pad, 0x3000005)` without the buffer; the OEM (SDK ko 0x1372c `lw a2,412(s1)`) passes the held buffer as the 3rd argument, which the ispcore fifo handler adds to its list (before: whatever was left in `$a2`).
+- LDC hand-lift (`tx_isp_ldc_show`, `ldc_frame_channel_streamoff`, `ldc_pad_event_handle` STREAM_ON / QUEUE_BUFFER / BUFFER_DONE / FREE_BUFFER): the inlined spin_lock_irqsave is now `T30_GP_PREEMPT() += 1` at the OEM sites 0x13b64, 0x13d70, 0x13e7c, 0x150c8, 0x151e4/0x15300, 0x15398, the QUEUE/DONE exit `T30_GP_PREEMPT() -= 1` + TIF_NEED_RESCHED check like OEM 0x152ac..0x152cc (fifo heads at byte offsets 0x1d0/0x1c4 since #365). A `#error` stops the build if the kernel config breaks the GP macros' assumption (needs UP, `CONFIG_PREEMPT_COUNT=y`, no `CONFIG_DEBUG_SPINLOCK`).
+- Evidence: `tests/t30_lift_oracle.sh` group `gp_lock_paths` has five LDC cases (ldc_qbuf/done/free/off/show) and now compares the 3rd send-event argument and the resched call; a mutation (M1 reverted, one LDC preempt step wrong) gives 35 diffs, the fix 0. `make -C tests check` rc 0; QEMU T30 sc4236 graph-0 `fs` 16 frames, no oops. Not device-tested.
+
 ## 2026-11-12: T30 LDC (SetISPLDC, graph 2) translation fixes, partial (openimp #365; QEMU only)
 
 - `IMP_ISP_Tuning_SetISPLDC(ENABLE)` hung the T30 QEMU guest. Chain: the LDC SET_FORMAT never matched a resolution (`ldc_params_nums` 0 instead of the OEM 6, table stride 0x45 instead of 0x450, remote read from pad + 0xd0), so graph 2 never started, frames stopped and the frame channel DQBUF loop (continue on -ERESTARTSYS, as the OEM) spun with a pending signal.
