@@ -1656,7 +1656,7 @@ static unsigned char __attribute__((aligned(4))) ldc_subdev_ops[20] = {
     0x00, 0x00, 0x00, 0x00,
 };
 static struct lock_class_key ldc_mlock_key;
-static uintptr_t ldc_params_nums;
+static uintptr_t ldc_params_nums = 6;	/* #365: OEM .data 0xb434 = 6 (was 0: no LDC resolution ever matched) */
 static unsigned char __attribute__((aligned(4))) ldc_default_params[6624] = {
     0x00, 0x05, 0x00, 0x00, 0xd0, 0x02, 0x00, 0x00, 0x00, 0x05, 0x00, 0x00, 0x00, 0x05, 0x00, 0x00,
     0x60, 0x01, 0x00, 0x00, 0x8b, 0x00, 0x00, 0x00, 0x60, 0x01, 0x00, 0x00, 0x8b, 0x00, 0x00, 0x00,
@@ -11475,7 +11475,7 @@ apical_isp_core_ops_g_ctrl0xd00:
     *(uint32_t *)((char *)((char *)&frame_done_cond)) = v0;
     *(uint32_t *)((char *)((char *)&frame_done_cond + 0x4)) = v1;
     local_3c = 0;
-    v0 = *(uint32_t *)((char *)&frame_delay_10417);
+    v0 = (uint32_t)(uintptr_t)current; /* #365: OEM lw v0,0(gp) (current), not a global */
     s5 = (uintptr_t)&frame_done_wq;
     local_40 = v0;
     v0 = (uintptr_t *)&autoremove_wake_function;
@@ -11509,7 +11509,7 @@ apical_isp_core_ops_g_ctrl0xd54:
 
 apical_isp_core_ops_g_ctrl0xd7c:
     /* fragment 258: MemoryAccess */
-    v0 = *(uint32_t *)((char *)&frame_delay_10417);
+    v0 = (uint32_t)(uintptr_t)current; /* #365: OEM lw v0,0(gp) (current), not a global */
     v0 = *(uint32_t *)((char *)v0 + 4);
     v0 = *(uint32_t *)((char *)v0 + 8);
     v0 = (uintptr_t)v0 & 2;
@@ -20185,26 +20185,26 @@ ncu_pad_event_handle0x388:
 ncu_pad_event_handle0x3c4:
     /* fragment 76: CallSetup */
     local_10 = 0;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(int32_t *)tx_isp_reg_set)(s0, 0, 0, 0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)(uintptr_t)tx_isp_reg_set((void *)(uintptr_t)s0, 0, 0, 0, (int)(uintptr_t)local_10); /* #365: the 5th argument (the value) is the o32 stack slot local_10 */
 
     /* fragment 77: CallSetup */
     local_10 = local_20;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(int32_t *)tx_isp_reg_set)(s0, 36, 0, 7); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)(uintptr_t)tx_isp_reg_set((void *)(uintptr_t)s0, 36, 0, 7, (int)(uintptr_t)local_10); /* #365: the 5th argument (the value) is the o32 stack slot local_10 */
 
     /* fragment 78: CallSetup */
     s7 = 1;
     *(uint32_t *)((char *)(*(uint32_t *)((char *)((uintptr_t)s0) + 184)) + 44) = (((*(uint32_t *)((char *)((uintptr_t)s0) + 300)) << 16) | (*(uint32_t *)((char *)((uintptr_t)s0) + 296)));
     local_10 = 0;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(int32_t *)tx_isp_reg_set)(s0, 8, 0, 0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)(uintptr_t)tx_isp_reg_set((void *)(uintptr_t)s0, 8, 0, 0, (int)(uintptr_t)local_10); /* #365: the 5th argument (the value) is the o32 stack slot local_10 */
 
     /* fragment 79: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(int32_t *)tx_isp_reg_set)(s0, 4, 1, 1); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)(uintptr_t)tx_isp_reg_set((void *)(uintptr_t)s0, 4, 1, 1, (int)(uintptr_t)local_10); /* #365: the 5th argument (the value) is the o32 stack slot local_10 */
 
     /* fragment 80: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(int32_t *)tx_isp_reg_set)(s0, 16, 0, 0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)(uintptr_t)tx_isp_reg_set((void *)(uintptr_t)s0, 16, 0, 0, (int)(uintptr_t)local_10); /* #365: the 5th argument (the value) is the o32 stack slot local_10 */
 
     /* fragment 81: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(int32_t *)tx_isp_reg_set)(s0, 12, 0, 0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)(uintptr_t)tx_isp_reg_set((void *)(uintptr_t)s0, 12, 0, 0, (int)(uintptr_t)local_10); /* #365: the 5th argument (the value) is the o32 stack slot local_10 */
 
     /* fragment 82: MemoryAccess */
     v0 = *(uint32_t *)((char *)s0 + 128);
@@ -20416,7 +20416,7 @@ ncu_pad_event_handle0x698:
     *(uint32_t *)((char *)(*(uint32_t *)((char *)(s0) + 184)) + 64) = ((*(uint32_t *)((char *)(v0) + 8)) + (*(uint32_t *)((char *)(s0) + 368)));
     *(uint32_t *)((char *)s0 + 412) = v0;
     local_10 = s2;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(int32_t *)tx_isp_reg_set)(s0, 4, 0, 0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)(uintptr_t)tx_isp_reg_set((void *)(uintptr_t)s0, 4, 0, 0, (int)(uintptr_t)local_10); /* #365: the 5th argument (the value) is the o32 stack slot local_10 */
 
     /* fragment 131: CallSetup */
     v0 = *(uint32_t *)((char *)s0 + 440);
@@ -20566,7 +20566,7 @@ ncu_pad_event_handle0x854:
     *(uint32_t *)((char *)(*(uint32_t *)((char *)(s1) + 184)) + 64) = ((*(uint32_t *)((char *)(v0) + 8)) + (*(uint32_t *)((char *)(s1) + 368)));
     *(uint32_t *)((char *)s1 + 412) = v0;
     local_10 = s0;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(int32_t *)tx_isp_reg_set)(s1, 4, 0, 0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)(uintptr_t)tx_isp_reg_set((void *)(uintptr_t)s1, 4, 0, 0, (int)(uintptr_t)local_10); /* #365: the 5th argument (the value) is the o32 stack slot local_10 */
 
     /* fragment 163: MemoryAccess */
     v0 = *(uint32_t *)((char *)s1 + 440);
@@ -20760,14 +20760,13 @@ int ldc_frame_channel_streamoff(void *arg1)
 
 		if (*(uint32_t *)((char *)s0 + 0x1c0) != 0) {
 			isp_free_buffer(*(int32_t *)((char *)s0 + 0x1bc));
-			int32_t *i = 0;
-			while (i < *(int32_t *)((char *)s0 + 0x1c0)) {
-				int32_t offset = (uintptr_t)i << 4;
-				uint32_t *entry = 0;
-				i = (void *)(uintptr_t)((uintptr_t)i + (1));
-				*entry = (uint32_t)entry;
-				((uint32_t *)entry)[1] = (uint32_t)entry;
-				*(uint32_t *)((char *)&_qlock2) = 0;
+			int32_t n;
+			/* #365: OEM 0x13ee4 resets entry n of the array at 0x1b8 (was a NULL store) */
+			for (n = 0; n < *(int32_t *)((char *)s0 + 0x1c0); n++) {
+				uint32_t *entry = (uint32_t *)(*(uintptr_t *)((char *)s0 + 0x1b8) + ((uintptr_t)n << 4));
+				entry[0] = (uint32_t)(uintptr_t)entry;
+				entry[1] = (uint32_t)(uintptr_t)entry;
+				entry[2] = 0;
 			}
 			*(uint32_t *)((char *)s0 + 0x1bc) = 0;
 		}
@@ -21137,6 +21136,8 @@ int tx_isp_ldc_probe(struct platform_device *pdev)
 	}
 
 	m1_bufs = isp_m1_bufs;
+	/* #365: OEM 0x143b4 keeps the count at 0x1c0 (STREAM_ON, BUFFER_DONE, streamoff) */
+	*(uint32_t *)((char *)ldc_dev + 0x1c0) = (uint32_t)m1_bufs;
 
 	if (m1_bufs != 0) {
 		bufs = __kmalloc(m1_bufs << 4, GFP_KERNEL);
@@ -21321,16 +21322,17 @@ int32_t *ldc_restart_module(void *arg1)
 	if (ptr2 == (uint32_t *)((char *)arg1 + 0x1c4)) {
 		ptr2 = NULL;
 	} else {
-		next = *(uint32_t **)((char *)&_qlock1);
-		prev = *(uint32_t **)((char *)&frame_delay_10417);
+		/* #365: OEM 0x14860 unlinks the in-fifo head itself (was globals) */
+		next = *(uint32_t **)((char *)ptr2 + 4);
+		prev = *(uint32_t **)((char *)ptr2 + 0);
 		*(uint32_t *)((char *)prev + 4) = (uint32_t)next;
 		*(uint32_t *)((char *)next + 0) = (uint32_t)prev;
-		*(uint32_t *)((char *)&frame_delay_10417) = 0x100100;
-		*(uint32_t *)((char *)&_qlock1) = 0x200200;
+		*(uint32_t *)((char *)ptr2 + 0) = 0x100100;
+		*(uint32_t *)((char *)ptr2 + 4) = 0x200200;
 	}
 
 	reg_base = *(uint32_t **)((char *)arg1 + 0xb8);
-	val = *(uint32_t *)((char *)&_qlock2);
+	val = *(uint32_t *)((char *)ptr2 + 8);
 	*(uint32_t *)((char *)reg_base + 0x2c) = val;
 	offset = *(uint32_t *)((char *)arg1 + 0x170);
 	*(uint32_t *)((char *)reg_base + 0x30) = val + offset;
@@ -21429,7 +21431,7 @@ ldc_core_interrupt_service_routine0x88:
 ldc_core_interrupt_service_routine0xbc:
     /* fragment 13: CallSetup */
     local_10 = 1;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(int32_t *)tx_isp_reg_set)(s0, 4, 0, 0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)(uintptr_t)tx_isp_reg_set((void *)(uintptr_t)s0, 4, 0, 0, (int)(uintptr_t)local_10); /* #365: the 5th argument (the value) is the o32 stack slot local_10 */
 
     /* fragment 14: Epilogue */
     /* function epilogue: restore registers and return */
@@ -21440,7 +21442,8 @@ ldc_core_interrupt_service_routine0xbc:
     /* fragment 16: Epilogue */
     /* function epilogue: restore registers and return */
 
-    return 0;
+    /* #365: the OEM returns v0 = 1 (IRQ_HANDLED) */
+    return 1;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000014a08 origin=model_output original=ldc_pad_event_handle */
@@ -21486,7 +21489,8 @@ int32_t ldc_pad_event_handle(int32_t *arg1, int32_t arg2, int32_t *arg3)
                 break;
             }
             idx++;
-            params = (void *)(uintptr_t)((uintptr_t)params + (0x114 / 4));
+            /* #365: OEM addiu v0,v0,1104: one entry is 0x450 bytes (was 0x45, only 1280x720 matched) */
+            params = (int32_t *)((char *)params + 0x450);
         }
         if (found == 0 || (uint32_t)found >= 0xfffff001) {
             isp_printf(2, "The module of %s couldn't support the resolution(%d*%d)\n",
@@ -21500,7 +21504,8 @@ int32_t ldc_pad_event_handle(int32_t *arg1, int32_t arg2, int32_t *arg3)
                        arg3[1], arg3[2], max_w, max_h);
             return -22;
         }
-        int32_t r = ((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))tx_isp_send_event_to_remote)((uintptr_t)(*(uint32_t *)((char *)arg1 + 0xd0)), (uintptr_t)(TX_ISP_FRAME_EVENT_SET_FORMAT), (uintptr_t)(arg3));
+        /* #365: OEM 0x14af4/0x14c34: the subdev's (pad->sd) sink pad at 0xd0, not pad + 0xd0 */
+        int32_t r = tx_isp_send_event_to_remote(*(void **)(*(char **)arg1 + 0xd0), TX_ISP_FRAME_EVENT_SET_FORMAT, arg3);
         if (r != 0 && r != -515)
             return r;
         memcpy((char *)dev + 0x124, arg3, 0x4c);
@@ -21537,163 +21542,170 @@ int32_t ldc_pad_event_handle(int32_t *arg1, int32_t arg2, int32_t *arg3)
         *(int32_t *)((char *)reg + 0x44) = base;
         *(int32_t *)((char *)reg + 0x48) = base;
         int32_t ddr_flag = *(int32_t *)((uintptr_t)remote + 0x14) & 0x10;
-        if (ddr_flag == 0) {
-            int32_t *f = fmt;
-            *(int32_t *)((uintptr_t)reg + 0xc) = (*(int32_t *)((uintptr_t)f + 0x14) << 16) | *(int32_t *)((uintptr_t)f + 0x10);
-            *(int32_t *)((uintptr_t)reg + 0x10) = (*(int32_t *)((uintptr_t)f + 0x1c) << 16) | *(int32_t *)((uintptr_t)f + 0x18);
-            *(int32_t *)((char *)reg + 0x14) = *(int32_t *)((char *)f + 0x4c);
-            *(int32_t *)((uintptr_t)reg + 0x18) = (*(int32_t *)((uintptr_t)f + 0x30) << 8) | (*(int32_t *)((uintptr_t)f + 0x34) << 16) | *(int32_t *)((uintptr_t)f + 0x2c) | (*(int32_t *)((uintptr_t)f + 0x38) << 24);
-            *(int32_t *)((uintptr_t)reg + 0x1c) = (*(int32_t *)((uintptr_t)f + 0x24) << 16) | *(int32_t *)((uintptr_t)f + 0x20);
-            *(int32_t *)((char *)reg + 0x20) = *(int32_t *)((char *)f + 0x28);
-            *(int32_t *)((uintptr_t)reg + 0x24) = (*(int32_t *)((uintptr_t)f + 0x40) << 8) | (*(int32_t *)((uintptr_t)f + 0x3c) << 16) | *(int32_t *)((uintptr_t)f + 0x44);
-            int16_t *src = (int16_t *)((char *)f + 0x50);
-            int32_t *i;
-            for (i = 0x100; (uintptr_t)i != 0x500; i = (uintptr_t)i + 4) {
-                *(int32_t *)((uintptr_t)reg + (uintptr_t)i) = *(int16_t *)(uintptr_t)src;
-                src++;
-            }
-            int16_t *src2 = (int16_t *)((char *)f + 0x250);
-            do {
-                *(int32_t *)((uintptr_t)reg + (uintptr_t)i) = *(int16_t *)(uintptr_t)src2;
-                src2++;
-                i = (void *)(uintptr_t)((uintptr_t)i + (4));
-            } while (i != 0x900);
-            *(int32_t *)((uintptr_t)reg + 8) = (*(int32_t *)((uintptr_t)dev + 0x12c) << 16) | *(int32_t *)((uintptr_t)dev + 0x128);
-            *reg = 0x38;
-            *(int32_t *)((char *)dev + 0x190) = *reg;
-            *(int32_t *)((char *)dev + 0x194) = *(int32_t *)((char *)reg + 8);
-            *(int32_t *)((char *)dev + 0x198) = *(int32_t *)((char *)reg + 0xc);
-            *(int32_t *)((char *)dev + 0x19c) = *(int32_t *)((char *)reg + 0x10);
-            *(int32_t *)((char *)dev + 0x1a0) = *(int32_t *)((char *)reg + 0x14);
-            *(int32_t *)((char *)dev + 0x1a4) = *(int32_t *)((char *)reg + 0x18);
-            *(int32_t *)((char *)dev + 0x1a8) = *(int32_t *)((char *)reg + 0x1c);
-            *(int32_t *)((char *)dev + 0x1ac) = *(int32_t *)((char *)reg + 0x20);
-            *(int32_t *)((char *)dev + 0x1b0) = *(int32_t *)((char *)reg + 0x24);
-            *(int32_t *)((char *)dev + 0x1b4) = *(int32_t *)((char *)dev + 0x128);
-            if (*(int32_t *)((char *)dev + 0x80) != 0)
-                (*(void (**)(void *))(*(int32_t *)((char *)dev + 0x84)))((void *)((char *)dev + 0x80));
-            unsigned long flags = arch_local_irq_save();
-            *(int32_t *)(entry_gp + 0x14) += 1;
-            *(uint8_t *)((char *)remote + 7) = 4;
-            *(uint8_t *)((char *)arg1 + 7) = 4;
-            *(int32_t *)((char *)dev + 0x178) = 4;
-            memset((char *)dev + 0x1e8, 0, 0x14);
-            *(int32_t *)((char *)dev + 0x1d8) = 0;
-            *(int32_t *)((char *)dev + 0x1cc) = 0;
-            private_spin_unlock_irqrestore((spinlock_t *)((char *)dev + 0x1dc), flags);
-            int32_t r = ((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))tx_isp_send_event_to_remote)((uintptr_t)(remote), (uintptr_t)(TX_ISP_FRAME_EVENT_STREAM_ON), (uintptr_t)(0));
-            if (r == 0 || r == -515) {
+        int32_t buf = 0;
+        /*
+         * #365: a DDR source (OEM 0x14da0..0x14f1c) first gets the m1 buffers
+         * queued and the bank count, then the job is programmed like the
+         * direct one (the translation returned before programming, queued
+         * NULL entries and never sent SET_BANKS).
+         */
+        if (ddr_flag != 0) {
+            int32_t buf_count = *(int32_t *)((char *)dev + 0x1c0);
+            int32_t buf_size = *(int32_t *)((char *)dev + 0x13c);
+            int32_t j;
+            int32_t r = 0;
+
+            if (buf_count == 0) {
+                isp_printf(2, "Please config isp_m1_bufs when insmod driver!\n", 0);
                 private_mutex_unlock((struct mutex *)((char *)dev + 0x1dc));
                 return 0;
             }
-            if (*(int32_t *)((char *)dev + 0x80) != 0)
-                (*(void (**)(void *))(*(int32_t *)((char *)dev + 0x88)))((void *)((char *)dev + 0x80));
-            if (*(int32_t *)((char *)dev + 0x1c0) != 0) {
-                ((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))tx_isp_send_event_to_remote)((uintptr_t)(remote), (uintptr_t)(TX_ISP_T30_FRAME_EVENT_FREE_BUFFER), (uintptr_t)(0));
-                isp_free_buffer(ddr_flag);
-            }
-            private_mutex_unlock((struct mutex *)((char *)dev + 0x1dc));
-            return r;
-        }
-        int32_t buf_count = *(int32_t *)((char *)dev + 0x1c0);
-        if (buf_count != 0) {
-            int32_t buf_size = *(int32_t *)((char *)dev + 0x13c);
-            int32_t buf = isp_malloc_buffer(buf_count * buf_size);
-            if (buf != 0) {
-                int32_t j = 0;
-                while (j < buf_count) {
-                    int32_t off = j << 4;
-                    int32_t *entry = 0;
-                    *entry = (int32_t)entry;
-                    ((uint32_t *)entry)[1] = (int32_t)entry;
-                    *(int32_t *)(uintptr_t)&_qlock2 = j * buf_size + buf;
-                    int32_t r = ((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))tx_isp_send_event_to_remote)((uintptr_t)(remote), (uintptr_t)(TX_ISP_FRAME_EVENT_QUEUE_BUFFER), (uintptr_t)(0));
-                    if (r != 0 && r != -515)
-                        break;
-                    j++;
-                }
-                if (j < buf_count) {
-                    if (*(int32_t *)((char *)dev + 0x80) != 0)
-                        (*(void (**)(void *))(*(int32_t *)((char *)dev + 0x88)))((void *)((char *)dev + 0x80));
-                    if (*(int32_t *)((char *)dev + 0x1c0) != 0) {
-                        ((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))tx_isp_send_event_to_remote)((uintptr_t)(remote), (uintptr_t)(TX_ISP_T30_FRAME_EVENT_FREE_BUFFER), (uintptr_t)(0));
-                        isp_free_buffer(ddr_flag);
-                    }
-                    private_mutex_unlock((struct mutex *)((char *)dev + 0x1dc));
-                    return -1;
-                }
-                *(int32_t *)((char *)dev + 0x1bc) = buf;
-            } else {
+            buf = isp_malloc_buffer(buf_count * buf_size);
+            if (buf == 0) {
                 isp_printf(2, "ispmem isn't enough!\n", 0);
-                ret = 0;
+                private_mutex_unlock((struct mutex *)((char *)dev + 0x1dc));
+                return 0;
             }
-        } else {
-            isp_printf(2, "Please config isp_m1_bufs when insmod driver!\n", 0);
+            for (j = 0; j < *(int32_t *)((char *)dev + 0x1c0); j++) {
+                uint32_t *entry = (uint32_t *)(*(uintptr_t *)((char *)dev + 0x1b8) + ((uintptr_t)j << 4));
+
+                entry[0] = (uint32_t)(uintptr_t)entry;
+                entry[1] = (uint32_t)(uintptr_t)entry;
+                entry[2] = (uint32_t)(j * buf_size + buf);
+                r = tx_isp_send_event_to_remote(remote, TX_ISP_FRAME_EVENT_QUEUE_BUFFER, entry);
+                if (r != 0 && r != -515)
+                    break;
+                r = 0;
+            }
+            if (r == 0) {
+                r = tx_isp_send_event_to_remote(remote, TX_ISP_T30_FRAME_EVENT_SET_BANKS, (char *)dev + 0x1c0);
+                if (r != 0 && r != -515)
+                    isp_printf(2, "streamon: driver refused to start streaming\n", 0);
+                else
+                    r = 0;
+            }
+            if (r != 0) {
+                if (*(int32_t *)((char *)dev + 0x1c0) != 0) {
+                    tx_isp_send_event_to_remote(remote, TX_ISP_T30_FRAME_EVENT_FREE_BUFFER, 0);
+                    isp_free_buffer(buf);
+                }
+                private_mutex_unlock((struct mutex *)((char *)dev + 0x1dc));
+                return r;
+            }
+            *(int32_t *)((char *)dev + 0x1bc) = buf;
+        }
+        {
+        int32_t *f = fmt;
+        *(int32_t *)((uintptr_t)reg + 0xc) = (*(int32_t *)((uintptr_t)f + 0x14) << 16) | *(int32_t *)((uintptr_t)f + 0x10);
+        *(int32_t *)((uintptr_t)reg + 0x10) = (*(int32_t *)((uintptr_t)f + 0x1c) << 16) | *(int32_t *)((uintptr_t)f + 0x18);
+        *(int32_t *)((char *)reg + 0x14) = *(int32_t *)((char *)f + 0x4c);
+        *(int32_t *)((uintptr_t)reg + 0x18) = (*(int32_t *)((uintptr_t)f + 0x30) << 8) | (*(int32_t *)((uintptr_t)f + 0x34) << 16) | *(int32_t *)((uintptr_t)f + 0x2c) | (*(int32_t *)((uintptr_t)f + 0x38) << 24);
+        *(int32_t *)((uintptr_t)reg + 0x1c) = (*(int32_t *)((uintptr_t)f + 0x24) << 16) | *(int32_t *)((uintptr_t)f + 0x20);
+        *(int32_t *)((char *)reg + 0x20) = *(int32_t *)((char *)f + 0x28);
+        *(int32_t *)((uintptr_t)reg + 0x24) = (*(int32_t *)((uintptr_t)f + 0x40) << 8) | (*(int32_t *)((uintptr_t)f + 0x3c) << 16) | *(int32_t *)((uintptr_t)f + 0x44);
+        int16_t *src = (int16_t *)((char *)f + 0x50);
+        int32_t *i;
+        for (i = 0x100; (uintptr_t)i != 0x500; i = (uintptr_t)i + 4) {
+            *(int32_t *)((uintptr_t)reg + (uintptr_t)i) = *(int16_t *)(uintptr_t)src;
+            src++;
+        }
+        int16_t *src2 = (int16_t *)((char *)f + 0x250);
+        do {
+            *(int32_t *)((uintptr_t)reg + (uintptr_t)i) = *(int16_t *)(uintptr_t)src2;
+            src2++;
+            i = (void *)(uintptr_t)((uintptr_t)i + (4));
+        } while (i != 0x900);
+        *(int32_t *)((uintptr_t)reg + 8) = (*(int32_t *)((uintptr_t)dev + 0x12c) << 16) | *(int32_t *)((uintptr_t)dev + 0x128);
+        *reg = 0x38;
+        *(int32_t *)((char *)dev + 0x190) = *reg;
+        *(int32_t *)((char *)dev + 0x194) = *(int32_t *)((char *)reg + 8);
+        *(int32_t *)((char *)dev + 0x198) = *(int32_t *)((char *)reg + 0xc);
+        *(int32_t *)((char *)dev + 0x19c) = *(int32_t *)((char *)reg + 0x10);
+        *(int32_t *)((char *)dev + 0x1a0) = *(int32_t *)((char *)reg + 0x14);
+        *(int32_t *)((char *)dev + 0x1a4) = *(int32_t *)((char *)reg + 0x18);
+        *(int32_t *)((char *)dev + 0x1a8) = *(int32_t *)((char *)reg + 0x1c);
+        *(int32_t *)((char *)dev + 0x1ac) = *(int32_t *)((char *)reg + 0x20);
+        *(int32_t *)((char *)dev + 0x1b0) = *(int32_t *)((char *)reg + 0x24);
+        *(int32_t *)((char *)dev + 0x1b4) = *(int32_t *)((char *)dev + 0x128);
+        if (*(int32_t *)((char *)dev + 0x80) != 0)
+            (*(void (**)(void *))(*(int32_t *)((char *)dev + 0x84)))((void *)((char *)dev + 0x80));
+        unsigned long flags = arch_local_irq_save();
+        *(int32_t *)(entry_gp + 0x14) += 1;
+        *(uint8_t *)((char *)remote + 7) = 4;
+        *(uint8_t *)((char *)arg1 + 7) = 4;
+        *(int32_t *)((char *)dev + 0x178) = 4;
+        memset((char *)dev + 0x1e8, 0, 0x14);
+        *(int32_t *)((char *)dev + 0x1d8) = 0;
+        *(int32_t *)((char *)dev + 0x1cc) = 0;
+        private_spin_unlock_irqrestore((spinlock_t *)((char *)dev + 0x1dc), flags);
+        int32_t r = ((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))tx_isp_send_event_to_remote)((uintptr_t)(remote), (uintptr_t)(TX_ISP_FRAME_EVENT_STREAM_ON), (uintptr_t)(0));
+        if (r == 0 || r == -515) {
+            private_mutex_unlock((struct mutex *)((char *)dev + 0x1dc));
+            return 0;
+        }
+        if (*(int32_t *)((char *)dev + 0x80) != 0)
+            (*(void (**)(void *))(*(int32_t *)((char *)dev + 0x88)))((void *)((char *)dev + 0x80));
+        if (*(int32_t *)((char *)dev + 0x1c0) != 0) {
+            ((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))tx_isp_send_event_to_remote)((uintptr_t)(remote), (uintptr_t)(TX_ISP_T30_FRAME_EVENT_FREE_BUFFER), (uintptr_t)(0));
+            isp_free_buffer(buf);
         }
         private_mutex_unlock((struct mutex *)((char *)dev + 0x1dc));
-        return ret;
+        return r;
+        }
     }
     case TX_ISP_FRAME_EVENT_STREAM_OFF:
         return ldc_frame_channel_streamoff(arg1);
-    case TX_ISP_FRAME_EVENT_QUEUE_BUFFER: {
-        if (*(int32_t *)((char *)arg1 + 0x14) & 0x20)
-            return 0;
-        int32_t *dev = *(int32_t **)((char *)arg1 + 0x20);
-        unsigned long flags = arch_local_irq_save();
-        *(int32_t *)(entry_gp + 0x14) += 1;
-        if (arg3 != 0 && dev != 0) {
-            int32_t **prev = *(int32_t ***)((char *)dev + 0x1d4);
-            *(int32_t **)((char *)dev + 0x1d4) = (int32_t **)arg3;
-            *arg3 = (int32_t)(dev + 0x1d0);
-            ((uint32_t *)arg3)[1] = (int32_t)prev;
-            *prev = (int32_t *)arg3;
-        }
-        if (*(int32_t *)((char *)dev + 0x178) == 4 &&
-            ((*(int32_t **)((uintptr_t)dev + 0xb8))[1] & 6) != 2 &&
-            *(int32_t *)((char *)dev + 0x188) == 0)
-            ldc_restart_module(dev);
-        arch_local_irq_restore(flags);
-        *(int32_t *)(entry_gp + 0x14) -= 1;
-        if (*(int32_t *)(entry_gp + 8) & 4)
-            preempt_schedule();
-        return 0;
-    }
+    /*
+     * #365: QUEUE_BUFFER, BUFFER_DONE and FREE_BUFFER as the OEM (0x152dc,
+     * 0x151c0, 0x15380). The translation took the fifo heads as an int32_t *
+     * plus 0x1d0/0x1c4 (four times the byte offset) and walked the entry
+     * array through a NULL pointer.
+     */
+    case TX_ISP_FRAME_EVENT_QUEUE_BUFFER:
     case TX_ISP_FRAME_EVENT_BUFFER_DONE: {
+        char *dev;
+        unsigned long flags;
+        uint32_t *node = (uint32_t *)arg3;
+
         if (*(int32_t *)((char *)arg1 + 0x14) & 0x20)
             return 0;
-        int32_t *dev = *(int32_t **)((char *)arg1 + 0x20);
-        unsigned long flags = arch_local_irq_save();
+        dev = *(char **)((char *)arg1 + 0x20);
+        flags = arch_local_irq_save();
         *(int32_t *)(entry_gp + 0x14) += 1;
-        int32_t state;
-        if (arg3 == 0) {
-            state = *(int32_t *)((char *)dev + 0x178);
-        } else {
-            int32_t target = arg3[2];
-            int32_t *i = 0;
-            int32_t *found = 0;
-            while (i < *(int32_t *)((char *)dev + 0x1c0)) {
-                int32_t *entry = 0;
-                i++;
-                if (target == entry[2]) {
-                    found = entry;
-                    break;
-                }
-            }
-            if (found == 0) {
-                isp_printf(2, "Can't find the addr(0x%08x) in bufs\n", target);
-                state = *(int32_t *)((char *)dev + 0x178);
+        if (node != 0 && dev != 0) {
+            uint32_t *head;
+
+            if (arg2 == TX_ISP_FRAME_EVENT_QUEUE_BUFFER) {
+                head = (uint32_t *)(dev + 0x1d0);       /* out fifo */
             } else {
-                int32_t **prev = *(int32_t ***)((char *)dev + 0x1c8);
-                *(int32_t **)((char *)dev + 0x1c8) = (int32_t **)found;
-                *found = (int32_t)(dev + 0x1c4);
-                ((uint32_t *)found)[1] = (int32_t)prev;
-                *prev = (int32_t *)found;
-                state = *(int32_t *)((char *)dev + 0x178);
+                uint32_t target = node[2];
+                int32_t n;
+
+                head = (uint32_t *)(dev + 0x1c4);       /* in fifo */
+                node = 0;
+                for (n = 0; n < *(int32_t *)(dev + 0x1c0); n++) {
+                    uint32_t *e = (uint32_t *)(*(uintptr_t *)(dev + 0x1b8) + ((uintptr_t)n << 4));
+
+                    if (e[2] == target) {
+                        node = e;
+                        break;
+                    }
+                }
+                if (node == 0)
+                    isp_printf(2, "Can't find the addr(0x%08x) in bufs\n", target);
+            }
+            if (node != 0) {
+                uint32_t *prev = (uint32_t *)(uintptr_t)head[1];
+
+                head[1] = (uint32_t)(uintptr_t)node;
+                node[0] = (uint32_t)(uintptr_t)head;
+                node[1] = (uint32_t)(uintptr_t)prev;
+                prev[0] = (uint32_t)(uintptr_t)node;
             }
         }
-        if (state == 4 &&
-            ((*(int32_t **)((uintptr_t)dev + 0xb8))[1] & 6) != 2 &&
-            *(int32_t *)((char *)dev + 0x188) == 0)
+        if (dev != 0 && *(int32_t *)(dev + 0x178) == 4 &&
+            ((*(int32_t **)(dev + 0xb8))[1] & 6) != 2 &&
+            *(int32_t *)(dev + 0x188) == 0)
             ldc_restart_module(dev);
         arch_local_irq_restore(flags);
         *(int32_t *)(entry_gp + 0x14) -= 1;
@@ -21702,21 +21714,24 @@ int32_t ldc_pad_event_handle(int32_t *arg1, int32_t arg2, int32_t *arg3)
         return 0;
     }
     case TX_ISP_T30_FRAME_EVENT_FREE_BUFFER: {
-        int32_t *dev = *(int32_t **)((char *)arg1 + 0x20);
+        char *dev = *(char **)((char *)arg1 + 0x20);
+
         if (dev != 0) {
             unsigned long flags = arch_local_irq_save();
+            uint32_t *head = (uint32_t *)(dev + 0x1d0);
+            uint32_t *node;
+
             *(int32_t *)(entry_gp + 0x14) += 1;
-            int32_t *node = *(int32_t **)((char *)dev + 0x1d0);
-            while ((int32_t)(dev + 0x1d0) != (int32_t)node) {
-                int32_t *next = node[1];
-                int32_t *prev = *node;
-                *(int32_t *)((char *)prev + 4) = (int32_t)next;
-                *next = prev;
-                *node = 0x100100;
-                ((uint32_t *)node)[1] = 0x200200;
-                node = *(int32_t **)((char *)dev + 0x1d0);
+            while ((node = (uint32_t *)(uintptr_t)head[0]) != head) {
+                uint32_t *next = (uint32_t *)(uintptr_t)node[1];
+                uint32_t *prev = (uint32_t *)(uintptr_t)node[0];
+
+                prev[1] = (uint32_t)(uintptr_t)next;
+                next[0] = (uint32_t)(uintptr_t)prev;
+                node[0] = 0x100100;
+                node[1] = 0x200200;
             }
-            private_spin_unlock_irqrestore((spinlock_t *)((char *)dev + 0x1dc), flags);
+            private_spin_unlock_irqrestore((spinlock_t *)(dev + 0x1dc), flags);
         }
         return 0;
     }
@@ -22334,7 +22349,7 @@ int32_t mscaler_frame_channel_streamoff_isra_0(uintptr_t a0)
 mscaler_frame_channel_streamoff_isra_00xc0:
     /* fragment 14: CallSetup */
     local_10 = 0;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tx_isp_reg_set)(s2, 4, *(uint32_t *)((char *)(s0) + 76), *(uint32_t *)((char *)(s0) + 76)); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)(uintptr_t)tx_isp_reg_set((void *)(uintptr_t)s2, 4, *(uint32_t *)((char *)(s0) + 76), *(uint32_t *)((char *)(s0) + 76), (int)(uintptr_t)local_10); /* #365: the 5th argument (the value) is the o32 stack slot local_10 */
 
     /* fragment 15: CallSetup */
     *(uint32_t *)((char *)s0 + 80) = 3;
@@ -24277,7 +24292,7 @@ frame_channel_unlocked_ioctl0x894:
 
     /* fragment 204: CallSetup */
     local_5c = 0;
-    v0 = *(uint32_t *)((char *)&frame_delay_10417);
+    v0 = (uint32_t)(uintptr_t)current; /* #365: OEM lw v0,0(gp) (current), not a global */
     local_60 = v0;
     v0 = (uintptr_t *)&local_68;
     local_68 = v0;
@@ -24307,7 +24322,7 @@ frame_channel_unlocked_ioctl0x8cc:
     if (v0 == 0) { goto frame_channel_unlocked_ioctl0x91c; }
 
     /* fragment 210: MemoryAccess */
-    v0 = *(uint32_t *)((char *)&frame_delay_10417);
+    v0 = (uint32_t)(uintptr_t)current; /* #365: OEM lw v0,0(gp) (current), not a global */
     v0 = *(uint32_t *)((char *)v0 + 4);
     v0 = *(uint32_t *)((char *)v0 + 8);
     v0 = (uintptr_t)v0 & 2;
