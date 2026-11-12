@@ -28,6 +28,7 @@
 #include "../driver/t32/tx_isp_t33_tmo.h"
 #include "../driver/t32/tx_isp_t33_clm.h"
 #include "../driver/t32/tx_isp_t33_msca.h"
+#include "../driver/t32/tx_isp_t33_mdns.h"
 
 static int bad;
 #define CHECK(c) do { if (!(c)) { bad++; printf("FAIL line %d: %s\n", __LINE__, #c); } } while (0)
@@ -300,6 +301,27 @@ int main(void)
 			off = t32_iq_section(bin, bytes, T33_SEC_MSCA, &len);
 			CHECK(off && len > 0x30);
 			vs_list("msca", T33_MOD_MSCA, lb, t33_msca_init(1920, 1080, bin + off, lb, T33_SLOT_WORDS));
+			{
+				/* MDNS: gain 1.0, zip ratio 15, the ISP memory address (0xd040) as the vendor's;
+				 * then the decode words from the YSP block state */
+				static u32 yv[T33_YSP_WORDS], mv[T33_MDNS_WORDS], yl[T33_SLOT_WORDS];
+				u32 pa = 0, d[2] = { 0, 0 };
+				int n;
+
+				for (id = 0; id < ref_n[T33_MOD_MDNS]; id++)
+					if (ref_reg[T33_MOD_MDNS][id] == 0xd040)
+						pa = ref_val[T33_MOD_MDNS][id];
+				off = t32_iq_section(bin, bytes, T33_SEC_YSP, &len);
+				t33_ysp_init(bin + off, 0x10000, yv, yl, T33_SLOT_WORDS);
+				off = t32_iq_section(bin, bytes, T33_SEC_MDNS, &len);
+				CHECK(off && len == T33_MDNS_SEC_BYTES);
+				CHECK(t33_tp_offset(bin, T33_SEC_MDNS) == 0x6238);
+				n = t33_mdns_init(bin + off, 0x10000, 1920, 1080, 1500, pa, mv, lb, T33_SLOT_WORDS, d);
+				if (n > 0)
+					t33_mdns_decode(yv, lb);
+				vs_list("mdns", T33_MOD_MDNS, lb, n);
+				CHECK(d[0] == 8102 && d[1] == 2);
+			}
 			{
 				/* CLM: CT 5000 K, the csc section */
 				u32 coff, clen;

@@ -45,6 +45,7 @@
 #include "tx_isp_t33_tmo.h"
 #include "tx_isp_t33_clm.h"
 #include "tx_isp_t33_msca.h"
+#include "tx_isp_t33_mdns.h"
 #include "tx_isp_t32_lsc.h"
 #include "tx_isp_t32_stats.h"
 #include "tx_isp_t32_iq.h"
@@ -533,7 +534,7 @@ static u32 t33_dmsc_v[T33_DMSC_WORDS], t33_dpc_v[T33_DPC_WORDS], t33_ysp_v[T33_Y
 static u32 t33_rdns_v[T33_RDNS_WORDS], t33_ccm_v[T33_CCM_WORDS], t33_lsc_v[T33_LSC_WORDS];
 static struct t33_lsc t33_lsc_m;
 static u8 t33_bcsh_sec[T33_BCSH_SEC_BYTES], t33_bcsh_st[T33_BCSH_ST_BYTES];
-static u32 t33_tmo_v[T33_TMO_WORDS];
+static u32 t33_tmo_v[T33_TMO_WORDS], t33_mdns_v[T33_MDNS_WORDS];
 #define T33_INIT_EV	0xffffffffU	/* the vendor's EV before the first AE run */
 #define T33_DG_UNITY	0x04000400U	/* DG list 0x4060 at init (DG 1.0), until #389 builds list 5 */
 
@@ -607,6 +608,31 @@ static noinline_for_stack void t33_tisp_init_tone(const u8 *bin, u32 bytes)
 						   t32_iq_payload(bin + off, bytes - off, T33_SEC_BCSH), bin + coff,
 						   T33_CCM_INIT_CT, T33_CCM_INIT_EV, t33_bcsh_st, buf, T33_SLOT_WORDS));
 	}
+}
+
+/*
+ * MDNS: init gain, the driver's memopt as the zip ratio, the ISP working
+ * memory libimp handed over (SET_ISP_MEM_INFO); 0xd080 / 0xd084 direct
+ * (single sensor); then the decode words from the YSP block state.
+ */
+static noinline_for_stack void t33_tisp_init_mdns(const u8 *bin, u32 bytes)
+{
+	u32 off, len, width, height, pa, d[2], *buf;
+
+	off = t32_iq_section(bin, bytes, T33_SEC_MDNS, &len);
+	if (!off || len != T33_MDNS_SEC_BYTES || t32_core_sensor_size(&width, &height) || t32_core_isp_mem(&pa))
+		return;
+	buf = t33_mod_buf(T33_MOD_MDNS);
+	if (!buf)
+		return;
+	t33_mod_done(T33_MOD_MDNS, t33_mdns_init(bin + off, T33_INIT_GAIN, width, height, t32_core_memopt(), pa,
+						 t33_mdns_v, buf, T33_SLOT_WORDS, d));
+	if (!(t33_mod_built & (1ULL << T33_MOD_MDNS)))
+		return;
+	isp_wr(0xd084, d[1]);
+	isp_wr(0xd080, d[0]);
+	if (t33_mod_built & (1ULL << T33_MOD_YSP))
+		t33_mdns_decode(t33_ysp_v, buf);
 }
 
 static void t33_tisp_init(const u8 *bin, u32 bytes)
@@ -711,6 +737,7 @@ static void t33_tisp_init(const u8 *bin, u32 bytes)
 		}
 	}
 	t33_tisp_init_tone(bin, bytes);
+	t33_tisp_init_mdns(bin, bytes);
 	off = t32_iq_section(bin, bytes, T33_SEC_LSC, &len);
 	if (off && len == T33_LSC_SEC_BYTES && !t32_core_sensor_size(&width, &height)) {
 		u32 *buf = t33_mod_buf(T33_MOD_LSC);

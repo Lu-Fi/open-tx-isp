@@ -1013,6 +1013,17 @@ unsigned int t32_core_memopt(void)
 	return isp_memopt;
 }
 
+/* the ISP working memory libimp handed over (SET_ISP_MEM_INFO) */
+int t32_core_isp_mem(u32 *pa)
+{
+	struct t32_vi *vi = &core.vi[0];
+
+	if (!vi->isp_mem_pa || !vi->isp_mem_size)
+		return -ENODEV;
+	*pa = vi->isp_mem_pa;
+	return 0;
+}
+
 static int t32_proc_open(struct inode *inode, struct file *file)
 {
 	return single_open(file, t32_proc_show, NULL);
