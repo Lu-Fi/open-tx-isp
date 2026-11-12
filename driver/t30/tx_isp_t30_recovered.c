@@ -6458,6 +6458,8 @@ int32_t ncu_sync_sensor_attr(void *arg1, void *arg2, int32_t arg3);
 int32_t ncu_slake_module(void *arg1);
 int ncu_activate_module(void *arg1);
 int64_t ncu_pad_event_handle(uintptr_t a0, uint32_t a1, uintptr_t a2);
+void tx_isp_sync_ncu(void);
+void tx_isp_sync_ldc(void);
 int32_t ldc_core_ops_ioctl(void *subdev, uint32_t event, void *data);
 int32_t ldc_link_setup(void);
 int tx_isp_ldc_open(struct inode *inode, struct file *file);
@@ -15658,6 +15660,8 @@ static int tx_isp_t30_ispcore_interrupt(struct tx_isp_t30_subdev *sd)
 						      0x4000003, 0);
 			core->daynight_switch = 0;
 		}
+		/* OEM 0xdd9c: the LDC/NCU watchdog after the tuning events (#377) */
+		tx_isp_sync_ldc();
 	}
 	tx_isp_t30_core_direct_irq(core, irq_status);
 	tx_isp_t30_dispatch_firmware_irqs(irq_status);
@@ -19064,8 +19068,9 @@ int tx_isp_ncu_show(struct seq_file *m)
 	iter = *(void **)((char *)ncu + 0x194);
 	end = (char *)ncu + 0x194;
 	while (iter != end) {
+		/* OEM 0x12630 lw a2,8(s5): the entry's buffer address, not the list link (#377) */
 		result = (uintptr_t)result + seq_printf(m, "infifo addr: 0x%08x\n",
-				     *(uint32_t *)iter);
+				     *(uint32_t *)((char *)iter + 8));
 		iter = *(void **)iter;
 	}
 
@@ -19082,8 +19087,10 @@ int tx_isp_ncu_show(struct seq_file *m)
 	cnt1 = *(uint32_t *)((char *)ncu + 0x1bc);
 	cnt2 = *(uint32_t *)((char *)ncu + 0x1c0);
 	cnt3 = *(uint32_t *)((char *)ncu + 0x1c4);
+	/* OEM 0x125c0..0x125e4: two u64 counts, start (440/444) and done (448/452) (#377) */
 	result = (uintptr_t)result + seq_printf(m, "start cnt = %lld, done_cnt = %lld\n",
-			     (long long)cnt0, (long long)cnt1);
+			     (long long)(((u64)cnt1 << 32) | cnt0),
+			     (long long)(((u64)cnt3 << 32) | cnt2));
 	result = (void *)(uintptr_t)((uintptr_t)result + (((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))seq_printf)((uintptr_t)(m), (uintptr_t)("reset cnt = %d\n"), (uintptr_t)(*(int *)((char *)(uintptr_t)ncu + 0x1c8)))));
 
 	private_spin_unlock_irqrestore((spinlock_t *)((char *)ncu + 0x1a8), flags);
@@ -20347,6 +20354,113 @@ ncu_pad_event_handle0x92c:
     return ((int64_t)(uint32_t)v1 << 32) | (uint32_t)v0;
 }
 
+/*
+ * OEM tx_isp_sync_ncu (0x13850) and tx_isp_sync_ldc (0x153fc), called from
+ * ispcore_interrupt_service_routine at every frame end (0xdd9c, after the
+ * 0x4000002/0x4000003 tuning events). A watchdog for the DDR-fed LDC and
+ * NCU: when a job was started but its done count has not moved for 3 core
+ * frames, the block is restarted on the job it holds. Without it a frame
+ * the multi-scaler drops (no buffer: no channel interrupt, so no
+ * msclaer_notify_front_module QUEUE_BUFFER) leaves the NCU holding its
+ * input for good, the LDC's out fifo stays empty and graph 2 stops (#377).
+ * Lists: sync_ncu .bss 15776 g_ncu, 15780 stall count, 15784 last start;
+ * sync_ldc .bss 15808 g_ldc, 15796 stall count, 15800/15804 last done.
+ */
+static uint32_t tx_isp_sync_ncu_stall;		/* OEM .bss 15780 */
+static uint32_t tx_isp_sync_ncu_last;		/* OEM .bss 15784 */
+static uint32_t tx_isp_sync_ldc_stall;		/* OEM .bss 15796 */
+static uint32_t tx_isp_sync_ldc_last[2];	/* OEM .bss 15800 (lo), 15804 (hi) */
+
+void tx_isp_sync_ncu(void)
+{
+	char *ncu = (char *)(uintptr_t)g_ncu;		/* 0x13860 lw v0,15776 */
+	uint32_t start_lo, start_hi, done_lo, done_hi;
+
+	if (ncu == NULL || *(int32_t *)(ncu + 372) != 4)	/* 0x13864, 0x1386c state */
+		return;
+	start_lo = *(uint32_t *)(ncu + 440);		/* 0x1387c start cnt (u64) */
+	start_hi = *(uint32_t *)(ncu + 444);
+	if (tx_isp_sync_ncu_last != start_lo || start_hi != 0)	/* 0x13888, 0x13890 */
+		goto moved;
+	done_lo = *(uint32_t *)(ncu + 448);		/* 0x13898 done cnt (u64) */
+	done_hi = *(uint32_t *)(ncu + 452);
+	if (start_lo == done_lo && done_hi == 0)	/* 0x1389c, 0x138a4: nothing in flight */
+		goto moved;
+	if (++tx_isp_sync_ncu_stall < 3)		/* 0x138c8..0x138d8 */
+		return;
+	*(uint32_t *)(ncu + 440) = done_lo;		/* 0x138e0 start cnt = done cnt */
+	*(uint32_t *)(ncu + 444) = done_hi;
+	*(volatile uint32_t *)0xb30b0000 = 2;		/* 0x138e8 KSEG1 0x130b0000 (mscaler +0) = 2 */
+	tx_isp_reg_set(ncu, 4, 0, 0, 1);		/* 0x1390c NCU START bit 0: run the held job again */
+	start_lo = *(uint32_t *)(ncu + 440);		/* 0x13918 start cnt++ (u64) */
+	start_hi = *(uint32_t *)(ncu + 444);
+	*(uint32_t *)(ncu + 444) = start_hi + (start_lo + 1 < start_lo);
+	*(uint32_t *)(ncu + 416) = 1;			/* 0x13934 ms_flag (busy) */
+	*(uint32_t *)(ncu + 440) = start_lo + 1;
+	*(uint32_t *)(ncu + 456) += 1;			/* 0x13930..0x13944 reset cnt++ */
+	return;
+moved:
+	tx_isp_sync_ncu_last = start_lo;		/* 0x138ac */
+	tx_isp_sync_ncu_stall = 0;			/* 0x138b0 */
+}
+
+void tx_isp_sync_ldc(void)
+{
+	char *ldc = (char *)g_ldc;			/* 0x15400 lw a0,15808 */
+	uint32_t done_lo, done_hi, r52, r56, r44, r48, lo;
+	char *reg;
+
+	if (ldc == NULL || *(int32_t *)(ldc + 376) != 4)	/* 0x15404, 0x1540c state */
+		return;
+	done_lo = *(uint32_t *)(ldc + 496);		/* 0x15420 done cnt (u64) */
+	done_hi = *(uint32_t *)(ldc + 500);
+	if (tx_isp_sync_ldc_last[0] != done_lo || tx_isp_sync_ldc_last[1] != done_hi ||
+	    (*(uint32_t *)(ldc + 488) == done_lo && *(uint32_t *)(ldc + 492) == done_hi)) {
+		/* 0x1542c..0x15450: moved, or start cnt == done cnt (idle) */
+		tx_isp_sync_ldc_last[0] = done_lo;	/* 0x15458 */
+		tx_isp_sync_ldc_last[1] = done_hi;
+		tx_isp_sync_ldc_stall = 0;		/* 0x15460 */
+		tx_isp_sync_ncu();			/* 0x15464 tail call */
+		return;
+	}
+	if (++tx_isp_sync_ldc_stall < 3) {		/* 0x15470..0x15480 */
+		tx_isp_sync_ncu();
+		return;
+	}
+	reg = *(char **)(ldc + 184);			/* 0x154a4 */
+	r52 = *(uint32_t *)(reg + 52);			/* 0x154b0..0x154bc kept over the reset */
+	r56 = *(uint32_t *)(reg + 56);
+	r44 = *(uint32_t *)(reg + 44);
+	r48 = *(uint32_t *)(reg + 48);
+	*(uint32_t *)(ldc + 488) = done_lo;		/* 0x154c4 start cnt = done cnt */
+	*(uint32_t *)(ldc + 492) = done_hi;
+	tx_isp_reg_set(ldc, 0, 1, 1, 1);		/* 0x154d8 CTR bit 1: reset */
+	reg = *(char **)(ldc + 184);
+	*(uint32_t *)(reg + 8) = *(uint32_t *)(ldc + 404);	/* 0x154ec..0x15548 job registers back */
+	*(uint32_t *)(reg + 12) = *(uint32_t *)(ldc + 408);
+	*(uint32_t *)(reg + 16) = *(uint32_t *)(ldc + 412);
+	*(uint32_t *)(reg + 20) = *(uint32_t *)(ldc + 416);
+	*(uint32_t *)(reg + 24) = *(uint32_t *)(ldc + 420);
+	*(uint32_t *)(reg + 28) = *(uint32_t *)(ldc + 424);
+	*(uint32_t *)(reg + 32) = *(uint32_t *)(ldc + 428);
+	*(uint32_t *)(reg + 36) = *(uint32_t *)(ldc + 432);
+	*(uint32_t *)(reg + 60) = *(uint32_t *)(ldc + 436);	/* 0x1554c..0x15578 */
+	*(uint32_t *)(reg + 64) = *(uint32_t *)(ldc + 436);
+	*(uint32_t *)(reg + 68) = *(uint32_t *)(ldc + 436);
+	*(uint32_t *)(reg + 72) = *(uint32_t *)(ldc + 436);
+	*(uint32_t *)(reg + 52) = r52;			/* 0x1557c..0x15598 */
+	*(uint32_t *)(reg + 56) = r56;
+	*(uint32_t *)(reg + 44) = r44;
+	*(uint32_t *)(reg + 48) = r48;
+	*(uint32_t *)(reg + 0) = *(uint32_t *)(ldc + 400) | 1;	/* 0x1559c CTR | start */
+	lo = *(uint32_t *)(ldc + 488);			/* 0x155ac start cnt++ (u64) */
+	*(uint32_t *)(ldc + 492) += (lo + 1 < lo);
+	*(uint32_t *)(ldc + 392) = 1;			/* 0x155c8 busy */
+	*(uint32_t *)(ldc + 488) = lo + 1;
+	*(uint32_t *)(ldc + 504) += 1;			/* 0x155c4..0x155d4 reset cnt++ */
+	tx_isp_sync_ncu();				/* 0x155f4 tail call */
+}
+
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000013950 origin=fragment_seed original=ldc_core_ops_ioctl */
 int32_t ldc_core_ops_ioctl(void *subdev, uint32_t event, void *data)
 {
@@ -21144,9 +21258,11 @@ int32_t ldc_core_interrupt_service_routine(uintptr_t a0)
     /* fragment 5: MemoryAccess */
     v0 = *(uint32_t *)((char *)s0 + 496);
     a0 = *(uint32_t *)((char *)s0 + 500);
-    v1 = v0 + 1;
-    v0 = v1 < v0;
-    v0 = v0 + a0;
+    /* OEM 0x14970 addiu/sltu/addu: done cnt (u64) + 1 in bytes; on the typed v0 the lift added 4
+     * per job (start 2, done 8), so done never equalled start for the 0x153fc watchdog (#377) */
+    v1 = (uintptr_t)v0 + 1;
+    v0 = (uintptr_t *)(uintptr_t)(v1 < (uintptr_t)v0);
+    v0 = (uintptr_t *)((uintptr_t)v0 + a0);
     *(uint32_t *)((char *)s0 + 460) = 0;
     *(uint32_t *)((char *)s0 + 392) = 0;
     *(uint32_t *)((char *)s0 + 496) = v1;

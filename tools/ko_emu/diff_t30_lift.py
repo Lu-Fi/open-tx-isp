@@ -18,6 +18,7 @@ Runs functions of the SDK-built vendor tx-isp-t30.ko (4ea12e1f) and of our drive
   ldc_pad_event_handle / ldc_frame_channel_streamoff / tx_isp_ldc_show   same, LDC fifos (#365)
   tx_isp_unlocked_ioctl                         user vs kernel argument: return, copies to user (addr_limit, #371)
   frame_channel_unlocked_ioctl(_raw)            __vb2_queue_free(queue, count) arguments (#369)
+  tx_isp_sync_ldc / tx_isp_sync_ncu             frame-end watchdog: reg_set calls, counters, registers (#377)
 
 Callees outside the function under test are hooked at their entry in both modules and logged; the
 calibration getters return synthetic tables (no vendor data).  Return values are compared only where the
@@ -656,11 +657,107 @@ def t_fci_args(V, O, rnd, n):
     if "-v" in sys.argv: print("  fci hits", hits)
     return bad
 
+# ---------------------------------------------------------------- LDC/NCU frame-end watchdog (#377)
+# OEM tx_isp_sync_ldc (0x153fc, tail call to tx_isp_sync_ncu 0x13850), run by the core ISR at each frame end.
+# Vendor state in .bss (15776 g_ncu, 15780/15784 ncu stall/last start, 15796 ldc stall, 15800/15804 last
+# done, 15808 g_ldc); ours in named statics.  Compared: tx_isp_reg_set calls (with the stack value), the
+# devices' counters/registers, the watchdog state and the mscaler word at KSEG1 0x130b0000.
+SYNC_MSC = 0x130b0000                                # KSEG1 0xb30b0000 as Unicorn (no MMU) sees it
+def sync_state(m):
+    if "g_ldc" in m.e.symaddr and "tx_isp_sync_ldc_stall" in m.e.symaddr:
+        a = m.e.symaddr
+        return {"ldc": a["g_ldc"], "ncu": a["g_ncu"], "ldc_stall": a["tx_isp_sync_ldc_stall"],
+                "ldc_last": a["tx_isp_sync_ldc_last"], "ncu_stall": a["tx_isp_sync_ncu_stall"],
+                "ncu_last": a["tx_isp_sync_ncu_last"]}
+    bss = [b for i, b in m.e.secbase.items() if m.e.secname.get(i) == ".bss"][0]
+    return {"ldc": bss + 15808, "ncu": bss + 15776, "ldc_stall": bss + 15796, "ldc_last": bss + 15800,
+            "ncu_stall": bss + 15780, "ncu_last": bss + 15784}
+def t_sync(V, O, rnd, n):
+    V, O = Mod(V.path, {}), Mod(O.path, {})
+    for m in (V, O): m.e.uc.mem_map(SYNC_MSC, 0x1000)
+    bad = 0; kicks = [0, 0]
+    for k in range(n):
+        seed = rnd.getrandbits(32); res = []
+        for m in (V, O):
+            r = random.Random(seed); m.e.heap_reset(); st = sync_state(m); lg = m.log; del lg[:]
+            W = lambda a, v: m.e.write(a, struct.pack("<I", v & M32))
+            ldc, ncu, lr, nr = m.e.alloc(0x200), m.e.alloc(0x1d0), m.e.alloc(0x100), m.e.alloc(0x100)
+            m.e.write(ldc, bytes(r.getrandbits(8) for _ in range(0x200))); m.e.write(lr, bytes(r.getrandbits(8) for _ in range(0x100)))
+            m.e.write(ncu, bytes(r.getrandbits(8) for _ in range(0x1d0))); m.e.write(nr, bytes(r.getrandbits(8) for _ in range(0x100)))
+            W(ldc + 184, lr); W(ncu + 184, nr); W(ldc + 376, r.choice([4, 4, 4, 3])); W(ncu + 372, r.choice([4, 4, 4, 3]))
+            for dev, so, do, cnt in ((ldc, 488, 496, (st["ldc_last"], st["ldc_last"] + 4)), (ncu, 440, 448, (st["ncu_last"],))):
+                d = r.choice([0, 1, 5, 0xffffffff]); dh = r.choice([0, 0, 0, 1])
+                W(dev + do, d); W(dev + do + 4, dh)
+                sl = (d + r.choice([0, 0, 1])) & M32; W(dev + so, sl); W(dev + so + 4, dh + (sl < d))
+                W(cnt[0], r.choice([d, d, sl, 7]))
+                if len(cnt) > 1: W(cnt[1], r.choice([dh, dh, 1]))
+            W(st["ldc_stall"], r.choice([0, 1, 2, 2, 3, 6])); W(st["ncu_stall"], r.choice([0, 1, 2, 2, 3, 6]))
+            if r.random() < 0.5: W(st["ncu_last"], struct.unpack("<I", m.e.read(ncu + 440, 4))[0])   # NCU job held since the last frame
+            W(st["ldc"], r.choice([ldc, ldc, ldc, 0])); W(st["ncu"], r.choice([ncu, ncu, ncu, 0])); W(SYNC_MSC, 0)
+            def rs(e, lg=lg):
+                sp = e.get_reg(UC_MIPS_REG_SP)
+                lg.append(("tx_isp_reg_set",) + tuple(e.get_reg(x) for x in (UC_MIPS_REG_A0, UC_MIPS_REG_A1, UC_MIPS_REG_A2, UC_MIPS_REG_A3))
+                          + struct.unpack("<I", e.read(sp + 16, 4)))
+                return 0
+            m.hook("tx_isp_reg_set", rs)
+            rr = m.e.call("tx_isp_sync_ldc")
+            g = lambda a, nb=4: m.e.read(a, nb)
+            res.append((rr.stop, list(lg), g(ldc, 0x200), g(ncu, 0x1d0), g(lr, 0x100), g(nr, 0x100), g(SYNC_MSC),
+                        g(st["ldc_stall"]), g(st["ldc_last"], 8), g(st["ncu_stall"]), g(st["ncu_last"])))
+        for x in res[0][1]: kicks[x[2] == 0] += 1      # reg_set(ldc, 0, ...) / reg_set(ncu, 4, ...)
+        if res[0][0] or res[0] != res[1]:                 # a stop (unmapped, trap) counts too
+            bad += 1
+            if bad < 4:
+                d = [i for i in range(len(res[0])) if res[0][i] != res[1][i]]
+                print("DIFF sync fields %s: vendor %s open %s" % (d, res[0][:2], res[1][:2]))
+    if "-v" in sys.argv: print("  sync kicks: ncu %d, ldc %d" % (kicks[0], kicks[1]))
+    return bad
+
+# ldc_core_interrupt_service_routine (OEM 0x14904): the done count (u64 +1 at 0x14970) the watchdog compares;
+# tx_isp_ncu_show (OEM 0x12450): infifo entries' +8 address (0x12630) and the start/done u64 pair (0x125c0) (#377)
+def t_counts(V, O, rnd, n):
+    V, O = Mod(V.path, {}), Mod(O.path, {})
+    bad = 0
+    for k in range(n):
+        seed = rnd.getrandbits(32); res = []; isr = k % 2 == 0
+        for m in (V, O):
+            r = random.Random(seed); ti, b = gp_world(m, r); gp_hooks(m); lg = m.log
+            W = lambda a, o, v: m.e.write(a + o, struct.pack("<I", v & M32))
+            def sp(e, lg=lg):                          # the o32 words the format consumes (%lld: an even pair)
+                st = e.get_reg(UC_MIPS_REG_SP); fa = e.get_reg(UC_MIPS_REG_A1)
+                fmt = bytes(e.read(fa, 64)).split(b"\0")[0]
+                w = [e.get_reg(UC_MIPS_REG_A2), e.get_reg(UC_MIPS_REG_A3)] + list(struct.unpack("<4I", e.read(st + 16, 16)))
+                out, i = [], 0
+                for sp_ in fmt.split(b"%")[1:]:
+                    if sp_.startswith(b"ll"): i += i & 1; out += w[i:i + 2]; i += 2
+                    elif sp_ and not sp_.startswith(b"%"): out.append(w[i]); i += 1
+                lg.append(("seq_printf", fmt) + tuple(out))
+                return 1
+            m.hook("seq_printf", sp)
+            if "regtrace_seq_printf" in m.e.symaddr: m.hook("regtrace_seq_printf", sp)   # our seq_printf(...) shim
+            if isr:
+                W(b[0], 212, b[1]); W(b[0], 204, b[5]); W(b[0], 208, b[6]); W(b[1], 184, b[2])
+                W(b[2], 4, r.choice([0, 1, 3, 5, 7])); W(b[1], 376, r.choice([4, 3])); W(b[1], 392, r.choice([0, 1]))
+                W(b[1], 496, r.choice([0, 7, 0xffffffff])); W(b[1], 500, r.choice([0, 2]))
+                del lg[:]; rr = m.e.call("ldc_core_interrupt_service_routine", b[0])
+                res.append((rr.stop, rr.v0 if not rr.stop else None, list(lg), m.e.read(b[1], 0x200)))
+            else:
+                W(b[0], 0x3c, b[1]); W(b[1], 0xd4, b[2]); W(b[1], 0xd0, b[3]); W(b[2], 0x174, 4); W(b[3], 0x14, r.choice([0, 0x20]))
+                h = b[2] + 404; W(b[2], 404, b[4]); W(b[2], 408, b[4]); W(b[4], 0, h); W(b[4], 4, h); W(b[4], 8, r.getrandbits(32))
+                W(b[2], 412, r.choice([0, b[7]]))
+                for o in (440, 444, 448, 452, 456): W(b[2], o, r.choice([0, 1, 3, 0x80000000]))
+                del lg[:]; rr = m.e.call("tx_isp_ncu_show", b[0])
+                res.append((rr.stop, [x for x in lg if x[0] != "seq_printf"] , [x[1:] for x in lg if x[0] == "seq_printf"][1:]))
+        if res[0] != res[1]:
+            bad += 1
+            if bad < 4: print("DIFF %s: vendor %s open %s" % ("ldc_isr" if isr else "ncu_show", res[0][:3], res[1][:3]))
+    return bad
+
 TESTS = [("nr_selectors", t_nr), ("general_frame_start", t_general), ("fsm_switch_state", t_fsm), ("crop_event", t_crop),
          ("sbus_write_u8", t_sbus), ("awb_normalise", t_normalise), ("event_queue_push", t_queue),
          ("awb_mesh_chain", t_mesh), ("compute_weight", t_weight), ("awb_calc_mesh", t_calc),
          ("gp_lock_paths", t_gp_lock), ("ioctl_uaccess", t_uaccess),
-         ("ptr_scale", t_ptr_scale), ("fci_args", t_fci_args)]
+         ("ptr_scale", t_ptr_scale), ("fci_args", t_fci_args), ("sync_watchdog", t_sync), ("ldc_ncu_counts", t_counts)]
 
 def main():
     vko, oo = sys.argv[1], sys.argv[2]
