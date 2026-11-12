@@ -247,4 +247,58 @@ static inline u32 t32_bringup_ae_step(u32 it, u32 mean16, u32 target16, u32 max)
 	return next;
 }
 
+/* AWB per-frame helpers (from claude/t32-ds-batch, Matt Davis' PR #15 port; used by tx_isp_t32_awb*.h) */
+static inline int t32_awb_div(int a, int b)
+{
+	if (!b)
+		return a < 0 ? 1 : -1;
+	if (b == -1)
+		return (int)(0U - (u32)a);
+	return a / b;
+}
+
+static inline void t32_awb_params_refresh(u8 *loc, u32 width, u32 height)
+{
+	u32 x0 = t32_st16(loc, 0), x1 = t32_st16(loc, 2), x2 = t32_st16(loc, 4), x3 = t32_st16(loc, 6);
+	int a0 = t32_awb_div((int)(width - x2 + 1), 2), v1;
+	u32 a3, q0, i;
+
+	for (;;) {
+		a3 = (u32)t32_awb_div(a0, (int)x3) & 0xffff;
+		if (a3 < 127)
+			break;
+		x3 = (x3 + 1) & 0xffff;
+	}
+	v1 = t32_awb_div((int)(height - x0 + 1), 2);
+	for (;;) {
+		q0 = (u32)t32_awb_div(v1, (int)x1) & 0xffff;
+		if (q0 < 127)
+			break;
+		x1 = (x1 + 1) & 0xffff;
+	}
+	loc[2] = (u8)x1; loc[3] = (u8)(x1 >> 8);
+	loc[6] = (u8)x3; loc[7] = (u8)(x3 >> 8);
+	for (i = 0; i < 15; i++) {
+		loc[8 + 2 * i] = (u8)a3; loc[9 + 2 * i] = (u8)(a3 >> 8);
+		loc[38 + 2 * i] = (u8)q0; loc[39 + 2 * i] = (u8)(q0 >> 8);
+	}
+	loc[106] = (u8)a3; loc[107] = (u8)(a3 >> 8);
+	loc[108] = (u8)q0; loc[109] = (u8)(q0 >> 8);
+}
+
+static inline u32 t32_ld32(const u8 *p, u32 o)
+{
+	return p[o] | (u32)p[o + 1] << 8 | (u32)p[o + 2] << 16 | (u32)p[o + 3] << 24;
+}
+
+static inline void t32_wr32(u8 *p, u32 o, u32 v)
+{
+	p[o] = (u8)v; p[o + 1] = (u8)(v >> 8); p[o + 2] = (u8)(v >> 16); p[o + 3] = (u8)(v >> 24);
+}
+
+static inline void t32_wr16(u8 *p, u32 o, u32 v)
+{
+	p[o] = (u8)v; p[o + 1] = (u8)(v >> 8);
+}
+
 #endif /* TX_ISP_T32_STATS_H */
