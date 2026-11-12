@@ -491,7 +491,7 @@ static inline void t33_dmsc_para(u32 *v)
 	a = v[0x271];
 	b = v[0x272];
 	if (a + 2 < b || e != 0x40)
-		t33_itp_ks(t33_iabs(e), t33_iabs(b - a), 7, &v[0x274], &v[0x281]);
+		t33_itp_ks(t33_iabs(e), t33_iabs(b - a), 7, 13, &v[0x274], &v[0x281]);
 	else {
 		v[0x274] = 0x7f;
 		v[0x281] = 2;
@@ -501,7 +501,7 @@ static inline void t33_dmsc_para(u32 *v)
 		v[0x279] = 0x1ff;
 		v[0x282] = 2;
 	} else
-		t33_itp_ks(t33_iabs(d - c), t33_iabs(b - a), 9, &v[0x279], &v[0x282]);
+		t33_itp_ks(t33_iabs(d - c), t33_iabs(b - a), 9, 13, &v[0x279], &v[0x282]);
 	t33_slope(v[0x28e], v[0x28f], &v[0x290], &v[0x291]);
 	t33_slope(v[0x292], v[0x293], &v[0x294], &v[0x295]);
 	t33_slope(v[0x296], v[0x297], &v[0x298], &v[0x299]);

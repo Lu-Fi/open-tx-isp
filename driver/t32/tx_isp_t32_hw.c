@@ -32,6 +32,8 @@
 #include "tx_isp_t33_blk.h"
 #include "tx_isp_t33_dmsc.h"
 #include "tx_isp_t33_dpc.h"
+#include "tx_isp_t33_ysp.h"
+#include "tx_isp_t33_rdns.h"
 #include "tx_isp_t32_lsc.h"
 #include "tx_isp_t32_stats.h"
 #include "tx_isp_t32_iq.h"
@@ -477,7 +479,10 @@ static int t32_mdns_build(u8 *sec, u32 width, u32 height)
 #define T33_INIT_GAIN	0x10000U
 
 /* block state of the blocks filled the vendor's way (layout + slot stores) */
-static u32 t33_dmsc_v[T33_DMSC_WORDS], t33_dpc_v[T33_DPC_WORDS];
+static u32 t33_dmsc_v[T33_DMSC_WORDS], t33_dpc_v[T33_DPC_WORDS], t33_ysp_v[T33_YSP_WORDS];
+static u32 t33_rdns_v[T33_RDNS_WORDS];
+#define T33_INIT_EV	0xffffffffU	/* the vendor's EV before the first AE run */
+#define T33_DG_UNITY	0x04000400U	/* DG list 0x4060 at init (DG 1.0), until #389 builds list 5 */
 
 #define T33_MOD_VB(blk, BLK, v)								\
 	do {										\
@@ -506,6 +511,18 @@ static void t33_tisp_init(const u8 *bin, u32 bytes)
 				 t33_sdns_init(bin + off, T33_INIT_GAIN, tisp_w));
 	T33_MOD_VB(dpc, DPC, t33_dpc_v);
 	T33_MOD_VB(dmsc, DMSC, t33_dmsc_v);
+	T33_MOD_VB(ysp, YSP, t33_ysp_v);
+	{
+		u32 *buf, blc = 0;
+
+		/* tisp_reg_read_t33(BLC list, slot 3): our BLC list word 4 (0x3044) */
+		if ((t33_mod_built & (1ULL << T33_MOD_BLC)) && (buf = t33_mod_buf(T33_MOD_BLC)))
+			blc = buf[4];
+		off = t32_iq_section(bin, bytes, T33_SEC_RDNS, &len);
+		if (off && len == T33_RDNS_SEC_BYTES && (buf = t33_mod_buf(T33_MOD_RDNS)))
+			t33_mod_done(T33_MOD_RDNS, t33_rdns_init(bin + off, T33_INIT_GAIN, T33_INIT_EV, blc,
+								 T33_DG_UNITY, t33_rdns_v, buf, T33_SLOT_WORDS));
+	}
 }
 #endif
 

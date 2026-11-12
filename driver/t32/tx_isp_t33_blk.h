@@ -185,10 +185,10 @@ static inline int t33_iabs(int x)
 }
 
 /*
- * func_<blk>_isp_itp_update_ks via isp_<blk>_update_value_ks (12, bits - 1, 1):
- * the largest shift 13..2 with 0 <= (a << shift + b / 2) / b < 2^bits.
+ * func_<blk>_isp_itp_update_ks via isp_<blk>_update_value_ks (smax - 1, bits - 1, 1):
+ * the largest shift smax..2 with 0 <= (a << shift + b / 2) / b < 2^bits.
  */
-static inline void t33_itp_ks(int a, int b, u32 bits, u32 *val, u32 *shift)
+static inline void t33_itp_ks(int a, int b, u32 bits, int smax, u32 *val, u32 *shift)
 {
 	u32 max = (1U << bits) - 1, q;
 	int s;
@@ -201,7 +201,7 @@ static inline void t33_itp_ks(int a, int b, u32 bits, u32 *val, u32 *shift)
 		*shift = 2;
 		return;
 	}
-	for (s = 13; s >= 2; s--) {
+	for (s = smax; s >= 2; s--) {
 		q = (u32)((int)((a << s) + (b >> 1)) / b);
 		if ((int)q < 0 || q <= max) {
 			*val = q;
@@ -209,6 +209,73 @@ static inline void t33_itp_ks(int a, int b, u32 bits, u32 *val, u32 *shift)
 			return;
 		}
 	}
+}
+
+static inline u32 t33_le32(const u8 *p)
+{
+	return p[0] | p[1] << 8 | p[2] << 16 | (u32)p[3] << 24;
+}
+
+/* tisp_sub_interp: a + (b - a) * f / 4096, rounded */
+static inline int t33_sub_interp(u32 f, int a, int b)
+{
+	u32 x = (u32)(b - a) * f;
+
+	return a + ((int)x >> 12) + (int)((x >> 11) & 1);
+}
+
+/*
+ * tisp_ev_intp_uint8_t: 11-point table t over the EV points e (11 LE u32);
+ * EV at or above the last point gives t[10], below the first t[0].
+ */
+static inline u8 t33_ev_intp_u8(u32 ev, const u8 *e, const u8 *t)
+{
+	u32 k, lo, hi, d;
+	unsigned long long f;
+
+	for (k = 0; k < 11; k++)
+		if (ev < t33_le32(e + 4 * k))
+			break;
+	if (k == 11)
+		return t[10];
+	if (!k)
+		return t[0];
+	hi = t33_le32(e + 4 * k);
+	lo = t33_le32(e + 4 * k - 4);
+	d = hi - lo;
+	if (!d)
+		return 2;
+	f = (unsigned long long)(ev - lo) * 0x1000 + (d >> 1);
+	return (u8)t33_sub_interp((u32)t32_tp_div64(f, (unsigned long long)d), t[k - 1], t[k]);
+}
+
+static inline void t33_vb_evintp(u32 *v, const u8 *s, u32 ev, const u8 *e, const struct t33_vmap *m,
+				 unsigned int n)
+{
+	unsigned int k;
+
+	for (k = 0; k < n; k++)
+		v[m[k].word] = t33_ev_intp_u8(ev, e, s + m[k].off);
+}
+
+/* func_mdns_fixpoint_sqrt: Newton from g (at most iters steps), then rounded */
+static inline int t33_fix_sqrt(int x, int g, int iters)
+{
+	int k, y, c;
+
+	if (x < 2)
+		return x;
+	for (k = 0; k < iters; k++) {
+		y = (x / g + g + 1) / 2;
+		if (y == g)
+			break;
+		g = y;
+	}
+	c = 2 * g + 1;
+	if (c * c / 4 <= x)
+		return g + 1;
+	c = 2 * g - 1;
+	return g - (x < c * c / 4);
 }
 
 /* cti_func_slope_calc: (0x100 - x) * 0x1000 / y as mantissa (<= 0x100) and shift */

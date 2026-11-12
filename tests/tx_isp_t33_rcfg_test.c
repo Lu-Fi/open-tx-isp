@@ -16,6 +16,8 @@
 #include "../driver/t32/tx_isp_t33_blk.h"
 #include "../driver/t32/tx_isp_t33_dmsc.h"
 #include "../driver/t32/tx_isp_t33_dpc.h"
+#include "../driver/t32/tx_isp_t33_ysp.h"
+#include "../driver/t32/tx_isp_t33_rdns.h"
 
 static int bad;
 #define CHECK(c) do { if (!(c)) { bad++; printf("FAIL line %d: %s\n", __LINE__, #c); } } while (0)
@@ -184,7 +186,7 @@ int main(void)
 		CHECK(off && len == T33_BLC_SEC_BYTES);
 		vs_tmpl("blc", T33_MOD_BLC, TMPL(t33_blc_tmpl), w, t33_blc_init(bin + off, 0, 0x10000, w));
 		{
-			static u32 v[T33_DMSC_WORDS + T33_DPC_WORDS], lb[T33_SLOT_WORDS];
+			static u32 v[0x1000], lb[T33_SLOT_WORDS];
 
 			off = t32_iq_section(bin, bytes, T33_SEC_DMSC, &len);
 			CHECK(off && len == T33_DMSC_SEC_BYTES);
@@ -193,6 +195,16 @@ int main(void)
 			off = t32_iq_section(bin, bytes, T33_SEC_DPC, &len);
 			CHECK(off && len == T33_DPC_SEC_BYTES);
 			vs_list("dpc", T33_MOD_DPC, lb, t33_dpc_init(bin + off, 0x10000, v, lb, T33_SLOT_WORDS));
+#define VB(blk, BLK, name)								\
+			off = t32_iq_section(bin, bytes, T33_SEC_##BLK, &len);		\
+			CHECK(off && len == T33_##BLK##_SEC_BYTES);			\
+			vs_list(name, T33_MOD_##BLK, lb, t33_##blk##_init(bin + off, 0x10000, v, lb, T33_SLOT_WORDS))
+			VB(ysp, YSP, "ysp");
+			/* RDNS reads the BLC (0x3044) and DG (0x4060) list values: the vendor's */
+			off = t32_iq_section(bin, bytes, T33_SEC_RDNS, &len);
+			CHECK(off && len == T33_RDNS_SEC_BYTES);
+			vs_list("rdns", T33_MOD_RDNS, lb, t33_rdns_init(bin + off, 0x10000, 0xffffffffU, ref_val[4][1],
+								  ref_val[5][1], v, lb, T33_SLOT_WORDS));
 		}
 	}
 	printf("tx_isp_t33_rcfg_test: %s\n", bad ? "FAIL" : "PASS");
