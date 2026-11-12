@@ -178,6 +178,7 @@ class KoEmu:
         for r in range(UC_MIPS_REG_0, UC_MIPS_REG_31 + 1): self.uc.reg_write(r, 0)
         for r, v in zip((UC_MIPS_REG_A0, UC_MIPS_REG_A1, UC_MIPS_REG_A2, UC_MIPS_REG_A3), args): self.set_reg(r, v & 0xffffffff)
         self.set_reg(UC_MIPS_REG_SP, sp); self.set_reg(UC_MIPS_REG_RA, sentinel); self.set_reg(UC_MIPS_REG_T9, pc)
+        if getattr(self, "gp", 0): self.set_reg(UC_MIPS_REG_GP, self.gp)    # kernel $28 = current_thread_info(), set by the caller
         self.writes = []; self.insns = 0; self.stop = None; self.unmapped = None
         regions = self._regions(); before = [bytes(self.uc.mem_read(a, n)) for a, n in regions]
         try:

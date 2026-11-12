@@ -818,6 +818,25 @@ static int32_t num_all;
 static int32_t *num_all_ptr = &num_all;
 #endif
 
+/*
+ * OEM gp-relative accesses (Lu-Fi/openimp#371).  In the kernel $28 (gp) is
+ * current_thread_info(); the OEM SDK ko 4ea12e1f reads/writes gp+0 (task),
+ * gp+8 (flags, TIF_NEED_RESCHED test), gp+20 (preempt_count, inlined
+ * spin_lock_irqsave/preempt_enable) and gp+24 (addr_limit, inlined
+ * access_ok).  The lift resolved gp to the .sbss base (frame_delay.10417 =
+ * gp+0, _qlock2 = gp+8, sp.9007 = gp+20/+24) or to the constant 0, so the
+ * preempt count went to a static, wait entries got a NULL task and every
+ * access_ok() passed for kernel pointers.
+ */
+#define T30_GP_TASK()		((uintptr_t)current_thread_info()->task)
+#define T30_GP_FLAGS()		(current_thread_info()->flags)
+#define T30_GP_PREEMPT()	(current_thread_info()->preempt_count)
+#define T30_GP_ADDR_LIMIT()	((uintptr_t)current_thread_info()->addr_limit.seg)
+typedef char t30_gp_layout_check[(offsetof(struct thread_info, task) == 0 &&
+	offsetof(struct thread_info, flags) == 8 &&
+	offsetof(struct thread_info, preempt_count) == 20 &&
+	offsetof(struct thread_info, addr_limit) == 24) ? 1 : -1];
+
 /* WHOLE_DRIVER_SUPPORT_DECLARATIONS */
 static const char LC3[] = "active";
 static const char LC4[] = "loaded";
@@ -9609,7 +9628,7 @@ int32_t apical_isp_ae_weight_s_attr_isra_0(uint32_t a0)
     local_108 = s2;
     local_104 = s1;
     local_100 = s0;
-    v1 = 0;
+    v1 = T30_GP_ADDR_LIMIT();	/* OEM lw v1,24(gp): addr_limit (#371) */
     v0 = (uintptr_t)v0 | a0;
     v0 = (uintptr_t)v0 & v1;
 
@@ -9724,7 +9743,7 @@ apical_isp_gamma_s_attr_isra_00x4c:
 
 apical_isp_gamma_s_attr_isra_00x64:
     /* fragment 8: MemoryAccess */
-    v1 = 0;
+    v1 = T30_GP_ADDR_LIMIT();	/* OEM lw v1,24(gp): addr_limit (#371) */
     v0 = a0 + 258;
     v0 = (uintptr_t)v0 | a0;
     v0 = (uintptr_t)v0 & v1;
@@ -9911,7 +9930,7 @@ int32_t apical_isp_core_ops_s_ctrl(void **arg1, int32_t *arg2, int32_t arg3)
 				int32_t var_4c = 1;
 				int16_t var_48 = 0;
 				var_2c = 0;
-				if ((((uint32_t)((uintptr_t)s1 + 0xc) | (uint32_t)s1) & (uint32_t)entry_gp) == 0) {
+				if ((((uint32_t)((uintptr_t)s1 + 0xc) | (uint32_t)s1) & (uint32_t)T30_GP_ADDR_LIMIT()) == 0) {
 					__might_sleep("include/linux/kernel.h", 0xc9, 0);
 					copy_from_user(&var_50, (const void __user *)(uintptr_t)((void *)s1), 0xc);
 				}
@@ -10448,7 +10467,7 @@ apical_isp_core_ops_g_ctrl0xf8:
 apical_isp_core_ops_g_ctrl0x14c:
     /* fragment 40: Epilogue */
     /* function epilogue: restore registers and return */
-    return (int64_t)v0;
+    return (int64_t)s0;	/* OEM g_ctrl+0x14c: lw ra..; move v0,s0, the lift returned the stale v0 (#371) */
 
 apical_isp_core_ops_g_ctrl0x150:
     /* fragment 41: Epilogue */
@@ -10624,7 +10643,7 @@ apical_isp_core_ops_g_ctrl0x1a0:
     /* fragment 60: MemoryAccess */
     *(uint32_t *)((char *)s2 + 2096) = v0;
     s0 = *(uint32_t *)((char *)s1 + 4);
-    v1 = 0;
+    v1 = T30_GP_ADDR_LIMIT();	/* OEM lw v1,24(gp): addr_limit (#371) */
     v0 = s0 + 240;
     v0 = (uintptr_t)v0 | (uintptr_t)s0;
     v0 = (uintptr_t)v0 & v1;
@@ -10675,7 +10694,7 @@ apical_isp_core_ops_g_ctrl0x2d0:
     *(uint32_t *)((char *)s2 + 3788) = v1;
     *(uint8_t *)((char *)s2 + 3792) = v0;
     s0 = *(uint32_t *)((char *)s1 + 4);
-    v1 = 0;
+    v1 = T30_GP_ADDR_LIMIT();	/* OEM lw v1,24(gp): addr_limit (#371) */
     v0 = s0 + 8;
     v0 = (uintptr_t)v0 | (uintptr_t)s0;
     v0 = (uintptr_t)v0 & v1;
@@ -10723,7 +10742,7 @@ apical_isp_core_ops_g_ctrl0x320:
     /* fragment 81: MemoryAccess */
     *(uint16_t *)((char *)s2 + 3810) = v0;
     s0 = *(uint32_t *)((char *)s1 + 4);
-    v1 = 0;
+    v1 = T30_GP_ADDR_LIMIT();	/* OEM lw v1,24(gp): addr_limit (#371) */
     v0 = s0 + 12;
     v0 = (uintptr_t)v0 | (uintptr_t)s0;
     v0 = (uintptr_t)v0 & v1;
@@ -10883,7 +10902,7 @@ apical_isp_core_ops_g_ctrl0x548:
     local_20 = v0;
     v0 = *(uint16_t *)((char *)s2 + 128);
     local_22 = v0;
-    v1 = 0;
+    v1 = T30_GP_ADDR_LIMIT();	/* OEM lw v1,24(gp): addr_limit (#371) */
     v0 = s0 + 12;
     v0 = (uintptr_t)v0 | (uintptr_t)s0;
     v0 = (uintptr_t)v0 & v1;
@@ -10985,7 +11004,7 @@ apical_isp_core_ops_g_ctrl0x6d4:
     v0 = local_3c;
     s0 = *(uint32_t *)((char *)s1 + 4);
     local_1e = v0;
-    v1 = 0;
+    v1 = T30_GP_ADDR_LIMIT();	/* OEM lw v1,24(gp): addr_limit (#371) */
     v0 = s0 + 8;
     v0 = (uintptr_t)v0 | (uintptr_t)s0;
     v0 = (uintptr_t)v0 & v1;
@@ -11035,7 +11054,7 @@ apical_isp_core_ops_g_ctrl0x6d4:
     /* fragment 149: MemoryAccess */
     s0 = *(uint32_t *)((char *)s1 + 4);
     local_1c = v0;
-    v1 = 0;
+    v1 = T30_GP_ADDR_LIMIT();	/* OEM lw v1,24(gp): addr_limit (#371) */
     v0 = s0 + 6;
     v0 = (uintptr_t)v0 | (uintptr_t)s0;
     v0 = (uintptr_t)v0 & v1;
@@ -11250,7 +11269,7 @@ apical_isp_core_ops_g_ctrl0x9dc:
     s0 = *(uint32_t *)((char *)s1 + 4);
     v0 = a1 + v1;
     s2 = v0 + 52;
-    v1 = 0;
+    v1 = T30_GP_ADDR_LIMIT();	/* OEM lw v1,24(gp): addr_limit (#371) */
     v0 = s0 + 24;
     v0 = (uintptr_t)v0 | (uintptr_t)s0;
     v0 = (uintptr_t)v0 & v1;
@@ -11317,7 +11336,7 @@ apical_isp_core_ops_g_ctrl0xad0:
     local_1c = s0;
     local_20 = s6;
     local_24 = s5;
-    v1 = 0;
+    v1 = T30_GP_ADDR_LIMIT();	/* OEM lw v1,24(gp): addr_limit (#371) */
     v0 = s1 + 24;
     v0 = (uintptr_t)v0 | (uintptr_t)s1;
     v0 = (uintptr_t)v0 & v1;
@@ -11409,7 +11428,7 @@ apical_isp_core_ops_g_ctrl0xbf4:
     v0 = (uintptr_t)v0 | v1;
 
     /* fragment 236: MemoryAccess */
-    v1 = 0;
+    v1 = T30_GP_ADDR_LIMIT();	/* OEM lw v1,24(gp): addr_limit (#371) */
     v0 = (uintptr_t)v0 & v1;
 
     /* fragment 237: Branch */
@@ -11437,7 +11456,7 @@ apical_isp_core_ops_g_ctrl0xc5c:
     v0 = (uintptr_t)v0 | v1;
 
     /* fragment 243: MemoryAccess */
-    v1 = 0;
+    v1 = T30_GP_ADDR_LIMIT();	/* OEM lw v1,24(gp): addr_limit (#371) */
     v0 = (uintptr_t)v0 & v1;
 
     /* fragment 244: Branch */
@@ -11459,7 +11478,7 @@ apical_isp_core_ops_g_ctrl0xc5c:
 
     /* fragment 248: MemoryAccess */
     s0 = *(uint32_t *)((char *)s1 + 4);
-    v1 = 0;
+    v1 = T30_GP_ADDR_LIMIT();	/* OEM lw v1,24(gp): addr_limit (#371) */
     v0 = s0 + 24;
     v0 = (uintptr_t)v0 | (uintptr_t)s0;
     v0 = (uintptr_t)v0 & v1;
@@ -11484,7 +11503,7 @@ apical_isp_core_ops_g_ctrl0xd00:
     *(uint32_t *)((char *)((char *)&frame_done_cond)) = v0;
     *(uint32_t *)((char *)((char *)&frame_done_cond + 0x4)) = v1;
     local_3c = 0;
-    v0 = *(uint32_t *)((char *)&frame_delay_10417);
+    v0 = T30_GP_TASK();
     s5 = (uintptr_t)&frame_done_wq;
     local_40 = v0;
     v0 = (uintptr_t *)&autoremove_wake_function;
@@ -11518,7 +11537,7 @@ apical_isp_core_ops_g_ctrl0xd54:
 
 apical_isp_core_ops_g_ctrl0xd7c:
     /* fragment 258: MemoryAccess */
-    v0 = *(uint32_t *)((char *)&frame_delay_10417);
+    v0 = T30_GP_TASK();
     v0 = *(uint32_t *)((char *)v0 + 4);
     v0 = *(uint32_t *)((char *)v0 + 8);
     v0 = (uintptr_t)v0 & 2;
@@ -11560,11 +11579,13 @@ apical_isp_core_ops_g_ctrl0xdc4:
     a0 = *(uint32_t *)((char *)((char *)&frame_done_cnt));
     a1 = *(uint32_t *)((char *)((char *)&frame_done_cnt + 0x4));
     v0 = -145;
+    if (s0 != 0) v0 = 0;	/* OEM 9800 movn v0,zero,s0 (dropped by the lift, #371) */
     v1 = -512;
     v1 = (uintptr_t)s0 ^ v1;
+    if (v1 != 0) s0 = v0;	/* OEM 9814 movn s0,v0,v1: the 0x14c epilogue returns s0 */
     local_20 = a0;
     local_24 = a1;
-    v1 = 0;
+    v1 = T30_GP_ADDR_LIMIT();	/* OEM lw v1,24(gp): addr_limit (#371) */
     v0 = s1 + 24;
     v0 = (uintptr_t)v0 | (uintptr_t)s1;
     v0 = (uintptr_t)v0 & v1;
@@ -11650,7 +11671,7 @@ apical_isp_core_ops_g_ctrl0xf64:
     v0 = local_3c;
     s0 = *(uint32_t *)((char *)s1 + 4);
     local_2c = v0;
-    v1 = 0;
+    v1 = T30_GP_ADDR_LIMIT();	/* OEM lw v1,24(gp): addr_limit (#371) */
     v0 = s0 + 24;
     v0 = (uintptr_t)v0 | (uintptr_t)s0;
     v0 = (uintptr_t)v0 & v1;
@@ -11757,7 +11778,7 @@ apical_isp_core_ops_g_ctrl0xf64:
     /* fragment 311: MemoryAccess */
     s0 = *(uint32_t *)((char *)s1 + 4);
     local_27 = v0;
-    v1 = 0;
+    v1 = T30_GP_ADDR_LIMIT();	/* OEM lw v1,24(gp): addr_limit (#371) */
     v0 = s0 + 16;
     v0 = (uintptr_t)v0 | (uintptr_t)s0;
     v0 = (uintptr_t)v0 & v1;
@@ -11831,7 +11852,7 @@ apical_isp_core_ops_g_ctrl0xf64:
     /* fragment 329: MemoryAccess */
     s0 = *(uint32_t *)((char *)s1 + 4);
     local_31 = v0;
-    v1 = 0;
+    v1 = T30_GP_ADDR_LIMIT();	/* OEM lw v1,24(gp): addr_limit (#371) */
     v0 = s0 + 28;
     v0 = (uintptr_t)v0 | (uintptr_t)s0;
     v0 = (uintptr_t)v0 & v1;
@@ -11937,7 +11958,7 @@ apical_isp_core_ops_g_ctrl0xf64:
     /* fragment 355: MemoryAccess */
     s0 = *(uint32_t *)((char *)s1 + 4);
     local_3b = v0;
-    v1 = 0;
+    v1 = T30_GP_ADDR_LIMIT();	/* OEM lw v1,24(gp): addr_limit (#371) */
     v0 = s0 + 36;
     v0 = (uintptr_t)v0 | (uintptr_t)s0;
     v0 = (uintptr_t)v0 & v1;
@@ -12876,7 +12897,7 @@ int32_t isp_info_show(struct seq_file *m)
 		sensor_name = *(const char **)((char *)sensor + 0x120);
 		sensor_w = *(uint32_t *)((char *)sensor + 0xec);
 		sensor_h = *(uint32_t *)((char *)sensor + 0xf0);
-		integ_time = *(uint16_t *)((char *)((char *)&sp_9007 + 0x4));
+		integ_time = *(uint16_t *)(stab + 0x18);	/* OEM abe4 lhu a2,24(s8), s8 = stab (#371) */
 		isp_top = APICAL_READ_32(0x40);
 
 		total += ((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))seq_printf)((uintptr_t)(m), (uintptr_t)("Software Version : %s\n"), (uintptr_t)("H20190523a"));
@@ -14215,11 +14236,11 @@ ispcore_pad_event_handle_get_fmt:
     v1 = v1 + 3796;
     v0 = a2 + v1;
     v0 = *(uint32_t *)((char *)v0 + 32);
-    *(uint32_t *)((char *)&rg_avg) = v0;
+    *(uint32_t *)((char *)s0 + 12) = v0;	/* OEM c684 sw v0,12(s0) (#371) */
     v0 = *(uint32_t *)((char *)a1 + 24);
-    *(uint8_t *)((char *)&csp_9009) = 0;
-    *(uint32_t *)((char *)((char *)&sp_9007 + 0x4)) = v0;
-    *(uint8_t *)((char *)((char *)&fsp_9016 + 0x4)) = 0;
+    *(uint8_t *)((char *)s0 + 36) = 0;
+    *(uint32_t *)((char *)s0 + 24) = v0;
+    *(uint8_t *)((char *)s0 + 56) = 0;
 
 ispcore_pad_event_handle0xbc:
     /* fragment 14: Arithmetic */
@@ -14228,7 +14249,7 @@ ispcore_pad_event_handle0xbc:
 ispcore_pad_event_handle0xc0:
     /* fragment 15: Epilogue */
     /* function epilogue: restore registers and return */
-    return (int64_t)v0;
+    return (int64_t)s2;	/* OEM c69c: move v0,s2, the lift returned the stale v0 (#371) */
 
 ispcore_pad_event_handle0xc4:
     /* fragment 16: Epilogue */
@@ -15260,7 +15281,7 @@ ispcore_pad_event_handle0xaa4:
     v0 = (uintptr_t *)arch_local_irq_save(); /* jalr target resolved by relocation */
 
     /* fragment 264: CallSetup */
-    *(uint32_t *)((char *)&sp_9007) = ((*(uint32_t *)((char *)(gp) + 20)) + 1);
+    T30_GP_PREEMPT() += 1;	/* OEM gp+20 (#371) */
     *(uint32_t *)((char *)s0 + 80) = 4;
     *(uint8_t *)((char *)s1 + 7) = 4;
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(int32_t *)private_spin_unlock_irqrestore)(s5, v0); /* jalr target resolved by relocation */
@@ -15319,9 +15340,7 @@ ispcore_pad_event_handle_queue_buffer:
     v0 = (uintptr_t *)arch_local_irq_save(); /* jalr target resolved by relocation */
 
     /* fragment 280: CallSetup */
-    v1 = *(uint32_t *)((char *)&sp_9007);
-    v1 = v1 + 1;
-    *(uint32_t *)((char *)&sp_9007) = v1;
+    T30_GP_PREEMPT() += 1;	/* OEM lw/addiu/sw 20(gp): preempt_count (#371) */
     v1 = *(uint32_t *)((char *)s1 + 116);
     a0 = s1 + 112;
     *(uint32_t *)((char *)s1 + 116) = s0;
@@ -15334,7 +15353,7 @@ ispcore_pad_event_handle_queue_buffer:
 ispcore_pad_event_handle0xba8:
     /* fragment 281: CallSetup */
     s2 = 0;
-    v0 = (uintptr_t *)((uintptr_t (*)(int32_t *))(uintptr_t)private_spin_unlock_irqrestore)(a0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)private_spin_unlock_irqrestore)(a0, a1);	/* OEM a1 = flags (#371) */ /* jalr target resolved by relocation */
 
     /* fragment 282: Branch */
     goto ispcore_pad_event_handle0xc4;
@@ -15359,9 +15378,7 @@ ispcore_pad_event_handle_free_buffers:
     v0 = (uintptr_t *)arch_local_irq_save(); /* jalr target resolved by relocation */
 
     /* fragment 288: MemoryAccess */
-    v1 = *(uint32_t *)((char *)&sp_9007);
-    v1 = v1 + 1;
-    *(uint32_t *)((char *)&sp_9007) = v1;
+    T30_GP_PREEMPT() += 1;	/* OEM lw/addiu/sw 20(gp): preempt_count (#371) */
     a0 = 1048576;
     a2 = 2097152;
     a1 = s0 + 112;
@@ -19314,7 +19331,7 @@ int tx_isp_ncu_show(struct seq_file *m)
 
 	flags = arch_local_irq_save();
 	{
-		*(uint32_t *)((char *)entry_gp + 0x14) += 1;
+		T30_GP_PREEMPT() += 1;	/* OEM gp+20 (#371) */
 	}
 
 	iter = *(void **)((char *)ncu + 0x194);
@@ -19900,7 +19917,7 @@ ncu_pad_event_handle0x70:
 ncu_pad_event_handle0x74:
     /* fragment 10: Epilogue */
     /* function epilogue: restore registers and return */
-    return (int64_t)v0;
+    return (int64_t)s2;	/* OEM 12f8c: move v0,s2, the lift returned the stale v0 (#371) */
 
 ncu_pad_event_handle0x78:
     /* fragment 11: Epilogue */
@@ -20300,7 +20317,7 @@ ncu_pad_event_handle0x580:
     v0 = (uintptr_t *)arch_local_irq_save(); /* jalr target resolved by relocation */
 
     /* fragment 104: CallSetup */
-    *(uint32_t *)((char *)&sp_9007) = ((*(uint32_t *)((char *)(gp) + 20)) + 1);
+    T30_GP_PREEMPT() += 1;	/* OEM gp+20 (#371) */
     *(uint8_t *)((char *)s5 + 7) = 4;
     *(uint8_t *)((char *)s1 + 7) = 4;
     *(uint32_t *)((char *)s0 + 444) = 0;
@@ -20355,11 +20372,9 @@ ncu_pad_event_handle_dqueue_buffer:
     s1 = v0;
 
     /* fragment 116: MemoryAccess */
-    v0 = *(uint32_t *)((char *)&sp_9007);
-    v0 = v0 + 1;
+    T30_GP_PREEMPT() += 1;	/* OEM lw/addiu/sw 20(gp): preempt_count (#371) */
 
     /* fragment 117: Branch */
-    *(uint32_t *)((char *)&sp_9007) = v0;
     if (s3 == 0) { goto ncu_pad_event_handle0x698; }
 
     /* fragment 118: Branch */
@@ -20430,9 +20445,9 @@ ncu_pad_event_handle0x698:
     /* fragment 131: CallSetup */
     v0 = *(uint32_t *)((char *)s0 + 440);
     a0 = *(uint32_t *)((char *)s0 + 444);
-    v1 = v0 + 1;
-    v0 = v1 < v0;
-    v0 = v0 + a0;
+    v1 = (uintptr_t)v0 + 1;	/* OEM 64-bit frame count ++ (addiu/sltu/addu): byte math on the typed v0 (#371) */
+    v0 = (uintptr_t *)(uintptr_t)(v1 < (uintptr_t)v0);
+    v0 = (uintptr_t *)((uintptr_t)v0 + a0);
     *(uint32_t *)((char *)s0 + 416) = s2;
     *(uint32_t *)((char *)s0 + 440) = v1;
     *(uint32_t *)((char *)s0 + 444) = v0;
@@ -20448,10 +20463,8 @@ ncu_pad_event_handle0x774:
     arch_local_irq_restore(a0); /* jalr target resolved by relocation */
 
     /* fragment 134: MemoryAccess */
-    v0 = *(uint32_t *)((char *)&sp_9007);
-    v0 = v0 - 1;
-    *(uint32_t *)((char *)&sp_9007) = v0;
-    v0 = *(uint32_t *)((char *)&_qlock2);
+    T30_GP_PREEMPT() -= 1;	/* OEM lw/addiu/sw 20(gp): preempt_count (#371) */
+    v0 = T30_GP_FLAGS();
     v0 = (uintptr_t)v0 & 4;
 
     /* fragment 135: Branch */
@@ -20507,9 +20520,7 @@ ncu_pad_event_handle0x7e0:
     s2 = v0;
 
     /* fragment 150: MemoryAccess */
-    v0 = *(uint32_t *)((char *)&sp_9007);
-    v0 = v0 + 1;
-    *(uint32_t *)((char *)&sp_9007) = v0;
+    T30_GP_PREEMPT() += 1;	/* OEM lw/addiu/sw 20(gp): preempt_count (#371) */
     a2 = *(uint32_t *)((char *)s1 + 412);
 
     /* fragment 151: Branch */
@@ -20522,9 +20533,9 @@ ncu_pad_event_handle0x7e0:
     /* fragment 153: MemoryAccess */
     v0 = *(uint32_t *)((char *)s1 + 448);
     a0 = *(uint32_t *)((char *)s1 + 452);
-    v1 = v0 + 1;
-    v0 = v1 < v0;
-    v0 = v0 + a0;
+    v1 = (uintptr_t)v0 + 1;	/* OEM 64-bit frame count ++ (addiu/sltu/addu): byte math on the typed v0 (#371) */
+    v0 = (uintptr_t *)(uintptr_t)(v1 < (uintptr_t)v0);
+    v0 = (uintptr_t *)((uintptr_t)v0 + a0);
     *(uint32_t *)((char *)s1 + 412) = 0;
     *(uint32_t *)((char *)s1 + 448) = v1;
     *(uint32_t *)((char *)s1 + 452) = v0;
@@ -20580,9 +20591,9 @@ ncu_pad_event_handle0x854:
     /* fragment 163: MemoryAccess */
     v0 = *(uint32_t *)((char *)s1 + 440);
     a0 = *(uint32_t *)((char *)s1 + 444);
-    v1 = v0 + 1;
-    v0 = v1 < v0;
-    v0 = v0 + a0;
+    v1 = (uintptr_t)v0 + 1;	/* OEM 64-bit frame count ++ (addiu/sltu/addu): byte math on the typed v0 (#371) */
+    v0 = (uintptr_t *)(uintptr_t)(v1 < (uintptr_t)v0);
+    v0 = (uintptr_t *)((uintptr_t)v0 + a0);
     *(uint32_t *)((char *)s1 + 416) = s0;
     *(uint32_t *)((char *)s1 + 440) = v1;
     *(uint32_t *)((char *)s1 + 444) = v0;
@@ -22307,9 +22318,7 @@ int32_t mscaler_frame_channel_streamoff_isra_0(uintptr_t a0)
     s4 = v0;
 
     /* fragment 6: MemoryAccess */
-    v0 = *(uint32_t *)((char *)&sp_9007);
-    v0 = v0 + 1;
-    *(uint32_t *)((char *)&sp_9007) = v0;
+    T30_GP_PREEMPT() += 1;	/* OEM lw/addiu/sw 20(gp): preempt_count (#371) */
     v0 = *(uint32_t *)((char *)s0 + 80);
     s1 = (uintptr_t *)&arch_local_irq_restore;
 
@@ -22321,10 +22330,8 @@ int32_t mscaler_frame_channel_streamoff_isra_0(uintptr_t a0)
     arch_local_irq_restore(s4); /* jalr target resolved by relocation */
 
     /* fragment 9: MemoryAccess */
-    v0 = *(uint32_t *)((char *)&sp_9007);
-    v0 = v0 - 1;
-    *(uint32_t *)((char *)&sp_9007) = v0;
-    v0 = *(uint32_t *)((char *)&_qlock2);
+    T30_GP_PREEMPT() -= 1;	/* OEM lw/addiu/sw 20(gp): preempt_count (#371) */
+    v0 = T30_GP_FLAGS();
     v0 = (uintptr_t)v0 & 4;
 
     /* fragment 10: Branch */
@@ -22350,10 +22357,8 @@ mscaler_frame_channel_streamoff_isra_00xc0:
     arch_local_irq_restore(s4); /* jalr target resolved by relocation */
 
     /* fragment 16: MemoryAccess */
-    v0 = *(uint32_t *)((char *)&sp_9007);
-    v0 = v0 - 1;
-    *(uint32_t *)((char *)&sp_9007) = v0;
-    v0 = *(uint32_t *)((char *)&_qlock2);
+    T30_GP_PREEMPT() -= 1;	/* OEM lw/addiu/sw 20(gp): preempt_count (#371) */
+    v0 = T30_GP_FLAGS();
     v0 = (uintptr_t)v0 & 4;
 
     /* fragment 17: Branch */
@@ -22396,12 +22401,10 @@ mscaler_frame_channel_streamoff_isra_00x150:
     a0 = v0;
 
     /* fragment 27: MemoryAccess */
-    v0 = *(uint32_t *)((char *)&sp_9007);
-    v0 = v0 + 1;
-    *(uint32_t *)((char *)&sp_9007) = v0;
+    T30_GP_PREEMPT() += 1;	/* OEM lw/addiu/sw 20(gp): preempt_count (#371) */
     v0 = 877789184;
     v1 = *(uint32_t *)((char *)s0 + 12);
-    v0 = v0 + 18242;
+    v0 = (uintptr_t *)(uintptr_t)0x34524742;	/* OEM 168ec: lui 0x3452 + 18242 (the typed v0 scaled it, #371) */
 
     /* fragment 28: Branch */
     int _bc_v1_28 = v1 == v0;
@@ -22409,7 +22412,7 @@ mscaler_frame_channel_streamoff_isra_00x150:
     if (_bc_v1_28) { goto mscaler_frame_channel_streamoff_isra_00x188; }
 
     /* fragment 29: Arithmetic */
-    v0 = v0 + 18258;
+    v0 = (uintptr_t *)(uintptr_t)0x50424752;	/* OEM 168f8 */
 
     /* fragment 30: Branch */
     int _bc_v1_30 = v1 != v0;
@@ -22424,11 +22427,11 @@ mscaler_frame_channel_streamoff_isra_00x188:
 mscaler_frame_channel_streamoff_isra_00x190:
     /* fragment 32: MemoryAccess */
     *(uint8_t *)((char *)s3 + 7) = v0;
-    a1 = 2097152;
-    v0 = 1048576;
-    t0 = s0 + 124;
-    v0 = v0 + 256;
-    a1 = a1 + 512;
+    /* OEM 16910..16920: LIST_POISON1/2 = 0x00100100 / 0x00200200; on the typed
+     * pointers v0/a1 the lift's "+ 256" / "+ 512" scaled to 0x100400 / 0x200800 (#371) */
+    a1 = (uint32_t *)(uintptr_t)0x00200200;
+    v0 = (uintptr_t *)(uintptr_t)0x00100100;
+    t0 = (uintptr_t)s0 + 124;	/* OEM 16918 addiu t0,s0,124: byte offset of the list head (#371) */
 
 mscaler_frame_channel_streamoff_isra_00x1a8:
     /* fragment 33: MemoryAccess */
@@ -22443,10 +22446,8 @@ mscaler_frame_channel_streamoff_isra_00x1a8:
     arch_local_irq_restore(a0); /* jalr target resolved by relocation */
 
     /* fragment 36: MemoryAccess */
-    v0 = *(uint32_t *)((char *)&sp_9007);
-    v0 = v0 - 1;
-    *(uint32_t *)((char *)&sp_9007) = v0;
-    v0 = *(uint32_t *)((char *)&_qlock2);
+    T30_GP_PREEMPT() -= 1;	/* OEM lw/addiu/sw 20(gp): preempt_count (#371) */
+    v0 = T30_GP_FLAGS();
     v0 = (uintptr_t)v0 & 4;
 
     /* fragment 37: Branch */
@@ -22455,9 +22456,8 @@ mscaler_frame_channel_streamoff_isra_00x1a8:
     /* fragment 38: CallSetup */
     preempt_schedule(); /* jalr target resolved by relocation */
 
-    /* fragment 39: Epilogue */
-    /* function epilogue: restore registers and return */
-    return (int32_t)v0;
+    /* fragment 39: OEM 16984..16990 falls through into the memset tail call
+     * after preempt_schedule; the lift returned here and skipped it (#371) */
 
 mscaler_frame_channel_streamoff_isra_00x214:
     /* fragment 40: Epilogue */
@@ -23604,7 +23604,7 @@ frame_channel_unlocked_ioctl0x144:
 frame_channel_unlocked_ioctl0x14c:
     /* fragment 39: Epilogue */
     /* function epilogue: restore registers and return */
-    return (int64_t)v0;
+    return (int64_t)s0;	/* OEM 18640: move v0,s0, the lift returned the stale v0 (#371) */
 
 frame_channel_unlocked_ioctl0x150:
     /* fragment 40: Epilogue */
@@ -23619,7 +23619,7 @@ frame_channel_unlocked_ioctl0x150:
 
 frame_channel_unlocked_ioctl0x180:
     /* fragment 43: MemoryAccess */
-    v0 = 0;
+    v0 = T30_GP_ADDR_LIMIT();	/* OEM lw v0,24(gp): addr_limit (#371) */
     s2 = (uintptr_t)s2 & (uintptr_t)v0;
 
     /* fragment 44: Branch */
@@ -23681,7 +23681,7 @@ frame_channel_unlocked_ioctl0x208:
     local_20 = v0;
     v0 = 1;
     local_10 = v0;
-    a0 = 0;
+    a0 = T30_GP_ADDR_LIMIT();	/* OEM lw a0,24(gp): addr_limit (#371) */
     v0 = s1 + 76;
     v0 = (uintptr_t)v0 | (uintptr_t)s1;
     v0 = (uintptr_t)v0 & a0;
@@ -23723,7 +23723,7 @@ frame_channel_unlocked_ioctl0x288:
 
 frame_channel_unlocked_ioctl0x294:
     /* fragment 68: MemoryAccess */
-    s2 = 0;
+    s2 = T30_GP_ADDR_LIMIT();	/* OEM lw s2,24(gp): addr_limit (#371) */
     s4 = s4 | (uintptr_t)s1;
     s2 = s4 & (uintptr_t)s2;
 
@@ -23908,7 +23908,7 @@ frame_channel_unlocked_ioctl0x464:
 
 frame_channel_unlocked_ioctl0x4b0:
     /* fragment 112: MemoryAccess */
-    v0 = 0;
+    v0 = T30_GP_ADDR_LIMIT();	/* OEM lw v0,24(gp): addr_limit (#371) */
     s4 = s4 & (uintptr_t)v0;
 
     /* fragment 113: Branch */
@@ -23992,7 +23992,7 @@ frame_channel_unlocked_ioctl0x568:
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)__fill_v4l2_buffer)(*(uint32_t *)((char *)(s8 + ((uintptr_t)v0 << 2)) + 36), &local_10); /* jalr target resolved by relocation */
 
     /* fragment 134: MemoryAccess */
-    v0 = 0;
+    v0 = T30_GP_ADDR_LIMIT();	/* OEM lw v0,24(gp): addr_limit (#371) */
     s0 = (uintptr_t)s0 & (uintptr_t)v0;
 
     /* fragment 135: Branch */
@@ -24021,7 +24021,7 @@ frame_channel_unlocked_ioctl0x5ac:
     if (v0 == 0) { goto frame_channel_unlocked_ioctl0x288; }
 
     /* fragment 141: MemoryAccess */
-    v0 = 0;
+    v0 = T30_GP_ADDR_LIMIT();	/* OEM lw v0,24(gp): addr_limit (#371) */
     s2 = (uintptr_t)s2 | (uintptr_t)s1;
     v0 = (uintptr_t)s2 & (uintptr_t)v0;
 
@@ -24176,7 +24176,7 @@ frame_channel_unlocked_ioctl0x714:
     v0 = (uintptr_t *)arch_local_irq_save(); /* jalr target resolved by relocation */
 
     /* fragment 175: CallSetup */
-    *(uint32_t *)((char *)&sp_9007) = ((*(uint32_t *)((char *)(gp) + 20)) + 1);
+    T30_GP_PREEMPT() += 1;	/* OEM gp+20 (#371) */
     *(uint32_t *)((char *)s8 + 532) = (s0 + 76);
     *(uint32_t *)((char *)s0 + 76) = (s8 + 528);
     *(uint32_t *)((char *)s0 + 80) = (*(uint32_t *)((char *)(s8) + 532));
@@ -24202,7 +24202,7 @@ frame_channel_unlocked_ioctl0x7a4:
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(int32_t *)__fill_v4l2_buffer)(s0, &local_10); /* jalr target resolved by relocation */
 
     /* fragment 180: MemoryAccess */
-    v0 = 0;
+    v0 = T30_GP_ADDR_LIMIT();	/* OEM lw v0,24(gp): addr_limit (#371) */
     s2 = (uintptr_t)s2 & (uintptr_t)v0;
 
     /* fragment 181: Branch */
@@ -24237,7 +24237,7 @@ frame_channel_unlocked_ioctl0x800:
     if (v0 == 0) { goto frame_channel_unlocked_ioctl0x288; }
 
     /* fragment 189: MemoryAccess */
-    v0 = 0;
+    v0 = T30_GP_ADDR_LIMIT();	/* OEM lw v0,24(gp): addr_limit (#371) */
     s0 = (uintptr_t)s0 | (uintptr_t)s1;
     v0 = (uintptr_t)s0 & (uintptr_t)v0;
 
@@ -24293,7 +24293,7 @@ frame_channel_unlocked_ioctl0x894:
 
     /* fragment 204: CallSetup */
     local_5c = 0;
-    v0 = *(uint32_t *)((char *)&frame_delay_10417);
+    v0 = T30_GP_TASK();
     local_60 = v0;
     v0 = (uintptr_t *)&local_68;
     local_68 = v0;
@@ -24323,7 +24323,7 @@ frame_channel_unlocked_ioctl0x8cc:
     if (v0 == 0) { goto frame_channel_unlocked_ioctl0x91c; }
 
     /* fragment 210: MemoryAccess */
-    v0 = *(uint32_t *)((char *)&frame_delay_10417);
+    v0 = T30_GP_TASK();
     v0 = *(uint32_t *)((char *)v0 + 4);
     v0 = *(uint32_t *)((char *)v0 + 8);
     v0 = (uintptr_t)v0 & 2;
@@ -24351,9 +24351,7 @@ frame_channel_unlocked_ioctl0x934:
     v0 = (uintptr_t *)arch_local_irq_save(); /* jalr target resolved by relocation */
 
     /* fragment 217: MemoryAccess */
-    a0 = *(uint32_t *)((char *)&sp_9007);
-    a0 = a0 + 1;
-    *(uint32_t *)((char *)&sp_9007) = a0;
+    T30_GP_PREEMPT() += 1;	/* OEM lw/addiu/sw 20(gp): preempt_count (#371) */
     s3 = *(uint32_t *)((char *)s8 + 540);
     a1 = v0;
     v0 = (uintptr_t *)&private_spin_unlock_irqrestore;
@@ -24373,14 +24371,14 @@ frame_channel_unlocked_ioctl0x934:
     *(uint32_t *)((char *)s8 + 548) = a0;
 
     /* fragment 218: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_spin_unlock_irqrestore)(s8 + 548); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)private_spin_unlock_irqrestore)(s8 + 548, a1);	/* OEM 18e48 move a1,v0 = flags (#371) */ /* jalr target resolved by relocation */
 
     /* fragment 219: CallSetup */
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)__fill_v4l2_buffer)(s3 - 84, &local_10); /* jalr target resolved by relocation */
 
     /* fragment 220: MemoryAccess */
     *(uint32_t *)((char *)s3 + -12) = 0;
-    v0 = 0;
+    v0 = T30_GP_ADDR_LIMIT();	/* OEM lw v0,24(gp): addr_limit (#371) */
     s0 = (uintptr_t)s0 & (uintptr_t)v0;
 
     /* fragment 221: Branch */
@@ -24421,7 +24419,7 @@ frame_channel_unlocked_ioctl0xa00:
     if (_bc_v0_229) { goto frame_channel_unlocked_ioctl0x288; }
 
     /* fragment 230: MemoryAccess */
-    a0 = 0;
+    a0 = T30_GP_ADDR_LIMIT();	/* OEM lw a0,24(gp): addr_limit (#371) */
     v0 = (uintptr_t)v0 | (uintptr_t)s1;
     v0 = (uintptr_t)v0 & a0;
 
@@ -24541,7 +24539,7 @@ frame_channel_unlocked_ioctl0xb48:
     if (v0 == 0) { goto frame_channel_unlocked_ioctl0x288; }
 
     /* fragment 260: MemoryAccess */
-    a0 = 0;
+    a0 = T30_GP_ADDR_LIMIT();	/* OEM lw a0,24(gp): addr_limit (#371) */
     v0 = s1 + 4;
     v0 = (uintptr_t)v0 | (uintptr_t)s1;
     v0 = (uintptr_t)v0 & a0;
@@ -24600,7 +24598,7 @@ frame_channel_unlocked_ioctl0xc00:
 frame_channel_unlocked_ioctl0xc24:
     /* fragment 275: StackAccess */
     local_10 = v0;
-    v1 = 0;
+    v1 = T30_GP_ADDR_LIMIT();	/* OEM lw v1,24(gp): addr_limit (#371) */
     v0 = s1 + 4;
     v0 = (uintptr_t)v0 | (uintptr_t)s1;
     v0 = (uintptr_t)v0 & v1;
@@ -24727,7 +24725,7 @@ frame_channel_unlocked_ioctl0xd14:
     if (_bc_v0_306) { goto frame_channel_unlocked_ioctl0x288; }
 
     /* fragment 307: MemoryAccess */
-    a0 = 0;
+    a0 = T30_GP_ADDR_LIMIT();	/* OEM lw a0,24(gp): addr_limit (#371) */
     v0 = (uintptr_t)v0 | (uintptr_t)s1;
     v0 = (uintptr_t)v0 & a0;
 
@@ -24789,7 +24787,7 @@ frame_channel_unlocked_ioctl0xd9c:
     if (v0 == 0) { goto frame_channel_unlocked_ioctl0x288; }
 
     /* fragment 323: MemoryAccess */
-    v0 = 0;
+    v0 = T30_GP_ADDR_LIMIT();	/* OEM lw v0,24(gp): addr_limit (#371) */
     s0 = (uintptr_t)s0 | (uintptr_t)s1;
     v0 = (uintptr_t)s0 & (uintptr_t)v0;
 
@@ -24840,7 +24838,7 @@ frame_channel_unlocked_ioctl0xe40:
     if (a1 != v0) { goto frame_channel_unlocked_ioctl0x94; }
 
     /* fragment 336: MemoryAccess */
-    v0 = 0;
+    v0 = T30_GP_ADDR_LIMIT();	/* OEM lw v0,24(gp): addr_limit (#371) */
     s2 = (uintptr_t)s2 | (uintptr_t)s1;
     v0 = (uintptr_t)s2 & (uintptr_t)v0;
 
@@ -26770,7 +26768,7 @@ tx_isp_unlocked_ioctl0xac:
     if (_bc_a1_27) { goto tx_isp_unlocked_ioctl0x88; }
 
     /* fragment 28: MemoryAccess */
-    v1 = 0;
+    v1 = T30_GP_ADDR_LIMIT();	/* OEM lw v1,24(gp): addr_limit (#371) */
     v0 = (uintptr_t)v0 | a2;
     v0 = (uintptr_t)v0 & v1;
 
@@ -26814,7 +26812,7 @@ tx_isp_unlocked_ioctl0x148:
     if (a1 != v0) { goto tx_isp_unlocked_ioctl0x88; }
 
     /* fragment 39: MemoryAccess */
-    v0 = 0;
+    v0 = T30_GP_ADDR_LIMIT();	/* OEM lw v0,24(gp): addr_limit (#371) */
     s2 = (uintptr_t)s2 | a2;
     v0 = (uintptr_t)s2 & (uintptr_t)v0;
 
@@ -26877,7 +26875,7 @@ tx_isp_unlocked_ioctl0x204:
     if (s4 != s0) { goto tx_isp_unlocked_ioctl0x1c4; }
 
     /* fragment 57: MemoryAccess */
-    v0 = 0;
+    v0 = T30_GP_ADDR_LIMIT();	/* OEM lw v0,24(gp): addr_limit (#371) */
     s2 = (uintptr_t)s2 & (uintptr_t)v0;
 
     /* fragment 58: Branch */
@@ -26971,7 +26969,7 @@ tx_isp_unlocked_ioctl0x2e4:
     if (s2 != s0) { goto tx_isp_unlocked_ioctl0x2a4; }
 
     /* fragment 81: MemoryAccess */
-    v1 = 0;
+    v1 = T30_GP_ADDR_LIMIT();	/* OEM lw v1,24(gp): addr_limit (#371) */
     v0 = (uintptr_t)v0 | (uintptr_t)s1;
     v0 = (uintptr_t)v0 & v1;
 
@@ -27000,7 +26998,7 @@ tx_isp_unlocked_ioctl0x340:
 
 tx_isp_unlocked_ioctl0x350:
     /* fragment 88: MemoryAccess */
-    v0 = 0;
+    v0 = T30_GP_ADDR_LIMIT();	/* OEM lw v0,24(gp): addr_limit (#371) */
     s2 = a2 + 4;
     s2 = (uintptr_t)s2 | a2;
     v0 = (uintptr_t)s2 & (uintptr_t)v0;
@@ -27064,7 +27062,7 @@ tx_isp_unlocked_ioctl0x3f4:
     if (s0 != s3) { goto tx_isp_unlocked_ioctl0x3b4; }
 
     /* fragment 106: MemoryAccess */
-    v0 = 0;
+    v0 = T30_GP_ADDR_LIMIT();	/* OEM lw v0,24(gp): addr_limit (#371) */
     s2 = (uintptr_t)s2 & (uintptr_t)v0;
 
     /* fragment 107: Branch */
@@ -27101,7 +27099,7 @@ tx_isp_unlocked_ioctl0x450:
 
 tx_isp_unlocked_ioctl0x460:
     /* fragment 115: MemoryAccess */
-    v1 = 0;
+    v1 = T30_GP_ADDR_LIMIT();	/* OEM lw v1,24(gp): addr_limit (#371) */
     v0 = a2 + 80;
     v0 = (uintptr_t)v0 | a2;
     v0 = (uintptr_t)v0 & v1;
@@ -27177,7 +27175,7 @@ tx_isp_unlocked_ioctl0x50c:
 
 tx_isp_unlocked_ioctl0x520:
     /* fragment 135: MemoryAccess */
-    v1 = 0;
+    v1 = T30_GP_ADDR_LIMIT();	/* OEM lw v1,24(gp): addr_limit (#371) */
     v0 = a2 + 80;
     v0 = (uintptr_t)v0 | a2;
     v0 = (uintptr_t)v0 & v1;
@@ -27286,7 +27284,7 @@ tx_isp_unlocked_ioctl0x630:
     /* fragment 162: StackAccess */
     local_78 = v0;
     local_10 = 0;
-    v0 = 0;
+    v0 = T30_GP_ADDR_LIMIT();	/* OEM lw v0,24(gp): addr_limit (#371) */
     v1 = local_78;
     v0 = v1 & (uintptr_t)v0;
 
@@ -27333,8 +27331,9 @@ tx_isp_unlocked_ioctl0x6a8:
 
 tx_isp_unlocked_ioctl0x6d0:
     /* fragment 173: Epilogue */
-    /* function epilogue: restore registers and return */
-    return (int32_t)v0;
+    /* OEM 0x1a5f8..0x1a618 returns s8 (move v0,s8) like 0x6d4; the lift returned the
+     * stale v0, e.g. the cmd constant 0x40055898 for unknown commands (#371) */
+    return (int32_t)s8;
 
 tx_isp_unlocked_ioctl0x6d4:
     /* fragment 174: Epilogue */
@@ -27507,7 +27506,7 @@ tx_isp_unlocked_ioctl0x868:
     v0 = (uintptr_t)v0 << 16;
     v0 = (uintptr_t)v0 | v1;
     local_10 = v0;
-    v0 = 0;
+    v0 = T30_GP_ADDR_LIMIT();	/* OEM lw v0,24(gp): addr_limit (#371) */
     v1 = local_78;
     v0 = v1 & (uintptr_t)v0;
 
@@ -27614,7 +27613,7 @@ tx_isp_unlocked_ioctl0x98c:
 
 tx_isp_unlocked_ioctl0x9a0:
     /* fragment 235: MemoryAccess */
-    v0 = 0;
+    v0 = T30_GP_ADDR_LIMIT();	/* OEM lw v0,24(gp): addr_limit (#371) */
     s2 = a2 + 56;
     s2 = (uintptr_t)s2 | a2;
     v0 = (uintptr_t)s2 & (uintptr_t)v0;
@@ -27703,7 +27702,7 @@ tx_isp_unlocked_ioctl0xa6c:
     v0 = local_64;
     local_44 = v1;
     local_34 = v0;
-    v0 = 0;
+    v0 = T30_GP_ADDR_LIMIT();	/* OEM lw v0,24(gp): addr_limit (#371) */
     s2 = (uintptr_t)s2 & (uintptr_t)v0;
 
     /* fragment 256: Branch */
