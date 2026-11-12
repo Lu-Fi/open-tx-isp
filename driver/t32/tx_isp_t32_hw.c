@@ -30,6 +30,8 @@
 #include "tx_isp_t32_rcfg.h"
 #include "tx_isp_t32_rcfg33.h"
 #include "tx_isp_t33_blk.h"
+#include "tx_isp_t33_dmsc.h"
+#include "tx_isp_t33_dpc.h"
 #include "tx_isp_t32_lsc.h"
 #include "tx_isp_t32_stats.h"
 #include "tx_isp_t32_iq.h"
@@ -473,6 +475,19 @@ static int t32_mdns_build(u8 *sec, u32 width, u32 height)
  * PRJ008 one is skipped (the block keeps its reset state).
  */
 #define T33_INIT_GAIN	0x10000U
+
+/* block state of the blocks filled the vendor's way (layout + slot stores) */
+static u32 t33_dmsc_v[T33_DMSC_WORDS], t33_dpc_v[T33_DPC_WORDS];
+
+#define T33_MOD_VB(blk, BLK, v)								\
+	do {										\
+		u32 *buf_;								\
+		off = t32_iq_section(bin, bytes, T33_SEC_##BLK, &len);			\
+		if (off && len == T33_##BLK##_SEC_BYTES && (buf_ = t33_mod_buf(T33_MOD_##BLK)))	\
+			t33_mod_done(T33_MOD_##BLK, t33_##blk##_init(bin + off, T33_INIT_GAIN, v,	\
+								     buf_, T33_SLOT_WORDS));	\
+	} while (0)
+
 static void t33_tisp_init(const u8 *bin, u32 bytes)
 {
 	u32 off, len, code;
@@ -489,6 +504,8 @@ static void t33_tisp_init(const u8 *bin, u32 bytes)
 	if (off && len == T33_SDNS_SEC_BYTES)
 		t33_mod_set_tmpl(T33_MOD_SDNS, T33_TMPL(t33_sdns_tmpl), tisp_w,
 				 t33_sdns_init(bin + off, T33_INIT_GAIN, tisp_w));
+	T33_MOD_VB(dpc, DPC, t33_dpc_v);
+	T33_MOD_VB(dmsc, DMSC, t33_dmsc_v);
 }
 #endif
 

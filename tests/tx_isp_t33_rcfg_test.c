@@ -14,6 +14,8 @@
 #include "../driver/t32/tx_isp_t32_iq.h"
 #include "../driver/t32/tx_isp_t32_cdns.h"
 #include "../driver/t32/tx_isp_t33_blk.h"
+#include "../driver/t32/tx_isp_t33_dmsc.h"
+#include "../driver/t32/tx_isp_t33_dpc.h"
 
 static int bad;
 #define CHECK(c) do { if (!(c)) { bad++; printf("FAIL line %d: %s\n", __LINE__, #c); } } while (0)
@@ -86,6 +88,26 @@ static void vs_tmpl(const char *what, unsigned int id, const struct t33_tcmd *t,
 			       ref_reg[id][i], ref_val[id][i]);
 		}
 	printf("  %s: list %u, %u words, %u writes vs vendor %u\n", what, id, len, m, ref_n[id]);
+}
+
+/* a list filled the vendor's way (layout + slot stores) against the vendor's list */
+static void vs_list(const char *what, unsigned int id, const u32 *buf, int len)
+{
+	static u32 reg[1024], val[1024];
+	unsigned int m, i;
+
+	CHECK(len > 0);
+	if (len <= 0)
+		return;
+	m = decode(buf, reg, val, 1024);
+	CHECK(m == ref_n[id]);
+	for (i = 0; i < m && i < ref_n[id]; i++)
+		if (reg[i] != ref_reg[id][i] || val[i] != ref_val[id][i]) {
+			bad++;
+			printf("FAIL %s #%u: %05x=%08x vendor %05x=%08x\n", what, i, reg[i], val[i],
+			       ref_reg[id][i], ref_val[id][i]);
+		}
+	printf("  %s: list %u, %d words, %u writes vs vendor %u\n", what, id, len, m, ref_n[id]);
 }
 
 #define TMPL(x) x, sizeof(x) / sizeof(x[0])
@@ -161,6 +183,17 @@ int main(void)
 		off = t32_iq_section(bin, bytes, T33_SEC_BLC, &len);
 		CHECK(off && len == T33_BLC_SEC_BYTES);
 		vs_tmpl("blc", T33_MOD_BLC, TMPL(t33_blc_tmpl), w, t33_blc_init(bin + off, 0, 0x10000, w));
+		{
+			static u32 v[T33_DMSC_WORDS + T33_DPC_WORDS], lb[T33_SLOT_WORDS];
+
+			off = t32_iq_section(bin, bytes, T33_SEC_DMSC, &len);
+			CHECK(off && len == T33_DMSC_SEC_BYTES);
+			vs_list("dmsc", T33_MOD_DMSC, lb, t33_dmsc_init(bin + off, 0x10000, v, lb, T33_SLOT_WORDS));
+			CHECK(t33_tp_offset(bin, T33_SEC_DPC) == 0x3e2c);
+			off = t32_iq_section(bin, bytes, T33_SEC_DPC, &len);
+			CHECK(off && len == T33_DPC_SEC_BYTES);
+			vs_list("dpc", T33_MOD_DPC, lb, t33_dpc_init(bin + off, 0x10000, v, lb, T33_SLOT_WORDS));
+		}
 	}
 	printf("tx_isp_t33_rcfg_test: %s\n", bad ? "FAIL" : "PASS");
 	return bad != 0;

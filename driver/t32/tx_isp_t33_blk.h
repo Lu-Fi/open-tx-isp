@@ -83,6 +83,32 @@ static inline int t33_rcfg_build_tmpl(u32 *buf, u32 cap, const struct t33_tcmd *
 	return (int)len;
 }
 
+/*
+ * The vendor's own fill: tisp_rcfg_<blk>_reg_init writes the command words
+ * of the layout, and the block code stores each value at its slot
+ * (tisp_reg_write_t33(id, list, slot, val): word slot + 1 of the list, the
+ * <blk>CfgMode path; the last store to a slot wins).  t33_rcfg_tmpl_init
+ * writes the layout with all values 0 and returns its length in words.
+ */
+static inline int t33_rcfg_tmpl_init(u32 *buf, u32 cap, const struct t33_tcmd *t, unsigned int nt)
+{
+	u32 len = 0;
+	unsigned int c, k;
+
+	for (c = 0; c < nt; c++) {
+		if (!t[c].n || len + 1 + t[c].n + 1 > cap)
+			return -1;
+		buf[++len] = (t[c].port ? 0 : T32_RCFG_CMD) | (u32)(t[c].n - 1) << T32_RCFG_COUNT_SHIFT |
+			     t[c].reg >> 2;
+		for (k = 0; k < t[c].n; k++)
+			buf[++len] = 0;
+	}
+	buf[0] = len;
+	return (int)len;
+}
+
+#define T33_SW(l, s, x)	((l)[(s) + 1] = (x))
+
 /* tparamsP offset of section idx (vendor block pointers), from the bin's table */
 static inline u32 t33_tp_offset(const u8 *bin, unsigned int idx)
 {
@@ -96,6 +122,114 @@ static inline u32 t33_tp_offset(const u8 *bin, unsigned int idx)
 			off += e[2] | e[3] << 8;
 	}
 	return off;
+}
+
+#ifndef ARRAY_SIZE
+#define ARRAY_SIZE(a)	(sizeof(a) / sizeof((a)[0]))
+#endif
+
+/*
+ * Block state as the vendor keeps it: a word array (the vendor's kmalloc'ed
+ * <blk>Info, indexed by word).  Section copies and gain interpolations of the
+ * vendor's tisp_<blk>_bin_par_update / tisp_<blk>_par_refresh are tables of
+ * { bits (8 / 16), section byte offset, word }.
+ */
+#define T33_VB_S8	0x88	/* signed section byte / half word */
+#define T33_VB_S16	0x90
+struct t33_vmap {
+	u8 bits;
+	u16 off;
+	u16 word;
+};
+
+/* v[word] = v[from] << shift + add (func_<blk>_para_update copies) */
+struct t33_vcopy {
+	u16 word;
+	u16 from;
+	u8 shift;
+	u8 add;
+};
+
+static inline void t33_vb_bin(u32 *v, const u8 *s, const struct t33_vmap *m, unsigned int n)
+{
+	unsigned int k;
+
+	for (k = 0; k < n; k++)
+		v[m[k].word] = m[k].bits == 8 ? s[m[k].off] :
+			       m[k].bits == 16 ? t32_tp_le16(s + m[k].off) :
+			       m[k].bits == T33_VB_S8 ? (u32)(int)(signed char)s[m[k].off] :
+			       (u32)(int)(short)t32_tp_le16(s + m[k].off);
+}
+
+static inline void t33_vb_intp(u32 *v, const u8 *s, u32 gain, const struct t33_vmap *m, unsigned int n)
+{
+	u32 i = gain >> 16, f = gain & 0xffff;
+	unsigned int k;
+
+	for (k = 0; k < n; k++)
+		v[m[k].word] = m[k].bits == 8 ? t32_tp_intp_u8(i, f, s + m[k].off) :
+						t32_tp_intp_u16(i, f, s + m[k].off);
+}
+
+static inline void t33_vb_copy(u32 *v, const struct t33_vcopy *c, unsigned int n)
+{
+	unsigned int k;
+
+	for (k = 0; k < n; k++)
+		v[c[k].word] = (v[c[k].from] << c[k].shift) + c[k].add;
+}
+
+static inline int t33_iabs(int x)
+{
+	return x < 0 ? -x : x;
+}
+
+/*
+ * func_<blk>_isp_itp_update_ks via isp_<blk>_update_value_ks (12, bits - 1, 1):
+ * the largest shift 13..2 with 0 <= (a << shift + b / 2) / b < 2^bits.
+ */
+static inline void t33_itp_ks(int a, int b, u32 bits, u32 *val, u32 *shift)
+{
+	u32 max = (1U << bits) - 1, q;
+	int s;
+
+	*val = 0;
+	*shift = 0;
+	if (b < 1)
+		return;
+	if (b == 1) {
+		*shift = 2;
+		return;
+	}
+	for (s = 13; s >= 2; s--) {
+		q = (u32)((int)((a << s) + (b >> 1)) / b);
+		if ((int)q < 0 || q <= max) {
+			*val = q;
+			*shift = (u32)s;
+			return;
+		}
+	}
+}
+
+/* cti_func_slope_calc: (0x100 - x) * 0x1000 / y as mantissa (<= 0x100) and shift */
+static inline void t33_slope(int x, int y, u32 *val, u32 *shift)
+{
+	int q, k;
+
+	if (y < 1)
+		y = 1;
+	q = ((0x100 - x) * 0x1000 + (y >> 1)) / y;
+	if (q < 0x101) {
+		*shift = 12;
+		*val = (u32)q;
+		return;
+	}
+	for (k = 1; k <= 12; k++)
+		if (q <= 0x100 << k) {
+			*shift = (u32)(12 - k);
+			*val = (u32)((q + (1 << (k - 1))) >> k);
+			return;
+		}
 }
 
 #define T33_FWR(w, n, r, v) do { (w)[(n)].reg = (r); (w)[(n)].val = (v); (n)++; } while (0)
