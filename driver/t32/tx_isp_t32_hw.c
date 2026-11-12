@@ -177,6 +177,7 @@ static irqreturn_t t32_isp_irq(int irq, void *dev)
 			t33_mod_dirty = 0;
 			t33_rcfg_runs++;
 		}
+		t32_tunctl_frame_done(0);	/* isp_frame_done_wakeup (tuning id 0x08000091) */
 #else
 		t32_tunctl_frame_done(0);	/* isp_frame_done_wakeup (tuning id 0x08000091) */
 #endif

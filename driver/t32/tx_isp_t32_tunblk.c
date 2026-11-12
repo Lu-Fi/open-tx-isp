@@ -87,6 +87,19 @@ static u8 *tb_tattr(void)
 	return tb_tattr_buf;
 }
 
+#ifdef TX_ISP_T33
+/*
+ * T33: the four AE histogram bounds (vendor tisp_ae_hist_last + 0x414, which
+ * api_ae_long_process copies into each frame's 5-bin split) for a new AE
+ * context: the statistics config bounds (tattr), so a Set before stream-on
+ * and the defaults both reach the AE as in the vendor module.
+ */
+void t33_tunblk_hist_bins(u32 ch, u8 *bins)
+{
+	memcpy(bins, tb_tattr() + ch * 72 + T32_STAT_ATTR + 20, 4);
+}
+#endif
+
 /* ---- the AE / AWB block calls on the live contexts ---- */
 
 #define TB_AE(c, none)	struct t32_aea_ctx c; if (!t32_aec_api_get(&c)) { none; }

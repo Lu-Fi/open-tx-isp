@@ -238,3 +238,52 @@ void t33_awbc_show(struct seq_file *m)
 		   ready ? ai.a.st->tgain : 0, awbc_st.ev_updates, ready ? ai.a.st->ev : 0);
 	mutex_unlock(&awbc_lock);
 }
+
+/*
+ * The tuning controls (../t32/tx_isp_t32_tunblk.c) on the live T33 AWB
+ * blocks, as in ../t32/tx_isp_t32_awbc.c (same t32_awb_init state).
+ */
+bool t32_awbc_api_get(struct t32_awb_ctx *c)
+{
+	mutex_lock(&awbc_lock);
+	if (!ready) {
+		mutex_unlock(&awbc_lock);
+		return false;
+	}
+	c->tune = (u8 *)ai.a.par;
+	c->sec = ai.a.st->raw;
+	c->mode = (u32 *)ai.mode;
+	c->base = (u8 *)ai.a.par - T32_AWBI_PAR_OFF;
+	return true;
+}
+
+void t32_awbc_api_put(void)
+{
+	mutex_unlock(&awbc_lock);
+}
+
+/*
+ * tisp_awb_set_start's tail call tisp_awb_set_gain (lock held): the T33
+ * takes the gain words (0x6040 / 0x6044 of the T32 write list) into the
+ * AWBG list 7 and keeps the inverses in the history pair (t33_awb_process).
+ */
+void t32_awbc_api_set_gain(void)
+{
+	struct t32_stats_write w[T32_AWB_MAX_WRITES];
+	unsigned int i, n = t32_awb_set_gain(&ai.a, w);
+	u32 r = 0, b = 0;
+	bool set = false;
+
+	ai.a.st->hist[0] = ai.a.hw->inv_r;
+	ai.a.st->hist[1] = ai.a.hw->inv_b;
+	for (i = 0; i < n; i++) {
+		if (w[i].reg == 0x6040) {
+			r = w[i].val;
+			set = true;
+		} else if (w[i].reg == 0x6044) {
+			b = w[i].val & 0xffff;
+		}
+	}
+	if (set)
+		t33_awb_list_gain(r, b);
+}

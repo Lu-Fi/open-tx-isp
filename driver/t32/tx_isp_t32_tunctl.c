@@ -451,6 +451,16 @@ static bool t32_tc_served(u32 id)
 	case 0x81: case 0x91: case 0x92: case 0x93: case 0x94: case 0x95: case 0x96: case 0x97:
 	case 0x9b: case 0xa4: case 0xa6: case 0xa7:
 		return true;
+#ifdef TX_ISP_T33
+	/*
+	 * T33: no ported MSCA OSD path in the module yet (t32_isposd_ctrl is off):
+	 * mask / draw / OSD attribute / OSD block as the vendor dispatcher's
+	 * tisp_s_* / tisp_g_* store (tx_isp_core_ops_s_ctrl / _g_ctrl @ 0x18170 /
+	 * 0x19dfc of the vendor T33 module), not drawn into the picture.
+	 */
+	case 0x74: case 0xa0: case 0xa1: case 0xa2:
+		return true;
+#endif
 	}
 	return false;
 }

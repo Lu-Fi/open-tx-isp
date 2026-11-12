@@ -4,6 +4,12 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD[-rcN]` are set on the `aperto` branch, the same tag in open-tx-isp and OpenIMP: RC1 `v2026.10.11-rc1`, RC2 `v2026.10.25-rc2`, RC3 `v2026.11.07-rc3` (2026-11-07). Gate SoCs of RC3 and Release 1: T10, T20, T21, T23, T30, T31, T40, T41 (T32/T33 planned, QEMU only); release notes: [docs/releases/ in OpenIMP](https://github.com/Lu-Fi/openimp/blob/next/docs/releases/README.md). Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-11-12: T33 tuning controls (openimp #389, #429, #431; planned, QEMU only)
+
+- `tx-isp-t33.ko` now builds the T32 tuning controls (`tx_isp_t32_tunctl.c`, `tx_isp_t32_tunblk.c`); the AE / AWB / statistics ids run on the T33 AE / AWB blocks (`t32_aec_api_*` / `t32_awbc_api_*` in `driver/t33`). Vendor T33 dispatcher id set = T32 set minus 0x9b (Ghidra, vendor `tx_isp_core_ops_s_ctrl` 0x18170 / `_g_ctrl` 0x19dfc). Frame-done wakeup (0x91) on T33 too; mask / draw / OSD ids stored as the vendor's (no MSCA OSD path on T33 yet).
+- Fix (#431): the AE 5-bin histogram bounds were 0 on a new T33 AE context (5-bin answer 0/0/0/0/65535); they now come from the statistics config as in the vendor module.
+- QEMU apitest (OpenIMP libimp): 207 PASS / 58 FAIL -> 255 / 16 (vendor module 254 / 17; no FAIL of ours that the vendor passes). Vendor libimp 2.0.2.1: only the four /dev/tx-isp commands of #429 differ. Checks: T33 list tests, T32/T33 host tests, 418 T32 oracles, T32 module code unchanged.
+
 ## 2026-11-12: T33 driver merged into the T32/T33 integration branch (openimp #383-#389, #413; planned, QEMU only)
 
 - `claude/t33-driver-skeleton` merged into `claude/t32-ds-batch` (real 3-way merge). Both modules now share one IVDC direct-mode path (`tx_isp_t32_ivdcdrv.c`, #349 / #413): the `TX_ISP_IVDC_DIRECT` build switch is gone, the T32 frame channel keeps its DQBUF frame type 3 (#414) and gains the T33 FrameSource crop helper and the 3.10.14 `.open`.

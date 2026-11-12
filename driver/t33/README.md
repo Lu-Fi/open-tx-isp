@@ -45,6 +45,24 @@ module's except the DDR ring address. FrameSource input crop (vendor
 format words 13..17) reaches the MSCA list 23 as the vendor's. rmmod writes no ISP register while the
 ISP clock is off (as the vendor module). Not tested on a camera.
 
+Tuning controls (`/dev/isp-m0` 0xc0105467, openimp #389): the T32 dispatchers
+(`../t32/tx_isp_t32_txsctrl.h:297`, `txgctrl.h:177`, glue
+`tx_isp_t32_tunctl.c` / `tx_isp_t32_tunblk.c`) are built into this module.
+The vendor T33 dispatcher (`isp_core_tunning_default_ioctl` 0x1aea8,
+`tx_isp_core_ops_s_ctrl` 0x18170, `tx_isp_core_ops_g_ctrl` 0x19dfc of the
+vendor module) serves the T32 id set minus 0x9b (BCSH RGB offset: no
+`tisp_s/g_coefft_wb` call). The AE / AWB / statistics ids run on the live T33
+AE / AWB blocks (`tx_isp_t33_aec.c`, `tx_isp_t33_awbc.c`: the same T32 block
+layout; an AWB start gain goes to list 7). The AE 5-bin histogram bounds of a
+new AE context come from the statistics config (vendor
+`tisp_ae_hist_last + 0x414`). Mask / draw / OSD ids (0x74, 0xa0..0xa2) are
+stored and read back as the vendor's, not drawn (no MSCA OSD path yet); AF ids
+answer the stored weight / zeros (no AF block). QEMU apitest with the OpenIMP
+libimp: 255 PASS / 16 FAIL on this module, 254 / 17 on the vendor module, no
+FAIL of this module that the vendor module passes. With the vendor libimp
+2.0.2.1 four /dev/tx-isp commands are still missing (G_REGISTER, frame drop
+set / get, internal channel attribute; openimp #429).
+
 Build (3.10.14 kernel tree):
 
     make -C $KDIR M=$PWD/driver/t33 ARCH=mips CROSS_COMPILE=mipsel-linux- modules

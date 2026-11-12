@@ -12,6 +12,8 @@ tx-isp-t33-objs := tx_isp_t33_sinfo.o \
 		   tx_isp_t33_awbc.o \
 		   tx_isp_t33_aec.o \
 		   tx_isp_t33_ivdcdrv.o \
+		   tx_isp_t33_tunctl.o \
+		   tx_isp_t33_tunblk.o \
 		   tx_isp_t33_t32off.o
 obj-m += tx-isp-t33.o
 

@@ -90,11 +90,7 @@ static u32 ivdc_copy_to_user(u32 user, const u8 *src, u32 n)
 #pragma pop_macro("copy_to_user")
 #pragma pop_macro("copy_from_user")
 
-#ifdef TX_ISP_T33
-u32 t32_tx_link_mode;	/* vendor d9014 (the T33 module has no tuning code reading it yet) */
-#else
 extern u32 t32_tx_link_mode;	/* vendor d9014 for the ported tuning code (vertical flip) */
-#endif
 
 static struct t32_ivdc iv = { .flag = { 1, 1, 1 } };
 static struct t32_ivdc_mem ivm = { .stride = 3840 };

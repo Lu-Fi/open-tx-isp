@@ -24,6 +24,9 @@
 #include <linux/mutex.h>
 #include <linux/workqueue.h>
 #include <linux/seq_file.h>
+#include <linux/sched.h>
+#include <linux/wait.h>
+#include <linux/delay.h>
 #include "tx_isp_t32.h"
 #include "tx_isp_t33_aealg.h"
 #include "tx_isp_t32_aesns.h"
@@ -31,7 +34,8 @@
 
 int isp_printf(unsigned int level, const char *fmt, ...);
 u32 t33_hw_rd(u32 reg);
-void t33_dg_list_set(u32 v);				/* tx_isp_t32_hw.c: list 5 slots 3 / 4, run */
+void t33_dg_list_set(u32 v);
+void t33_tunblk_hist_bins(u32 ch, u8 *bins);		/* ../t32/tx_isp_t32_tunblk.c: statistics config bounds */				/* tx_isp_t32_hw.c: list 5 slots 3 / 4, run */
 
 static unsigned int aec_trace;
 module_param(aec_trace, uint, 0644);
@@ -43,6 +47,9 @@ static u8 sblk[T32_SENSOR_ATTR_COPY];
 static const u8 *zbufs, *hbufs;
 static DEFINE_MUTEX(aec_lock);
 static bool ready;
+static u8 aec_wsel[2];			/* vendor e1570[ch]: the two AE weight selectors */
+static unsigned int aec_api_busy;	/* tuning API calls on the blocks (t32_aec_api_get .. _put) */
+static DECLARE_WAIT_QUEUE_HEAD(aec_api_wq);
 static u32 aec_it, aec_ag, aec_sent;
 static u32 tgain_old;	/* tisp_long_tgain_update's last gain (vendor .bss, not reset per stream) */
 static u32 ev_last[2];	/* tisp_long_ev_update's last EV */
@@ -253,6 +260,7 @@ void t33_aec_detach(void)
 {
 	ACCESS_ONCE(ready) = false;
 	cancel_work_sync(&aec_work);
+	wait_event(aec_api_wq, !ACCESS_ONCE(aec_api_busy));	/* a tuning call may be in t32_aec_api_sleep */
 	mutex_lock(&aec_lock);
 	aec_free();
 	mutex_unlock(&aec_lock);
@@ -301,6 +309,7 @@ int t33_aec_attach(const u8 *sec, u32 len, u32 width, u32 height, const u8 *zb, 
 		goto out;
 	}
 	t32_ae_state_tmpl(aec.b.R);
+	t33_tunblk_hist_bins(0, aec.hist + T32_AEA_HIST_BIN);
 	t32_wr32(info, 0, width);
 	t32_wr32(info, 4, height);
 	t32_wr32(info, 12, t32_core_sensor_fps());
@@ -326,6 +335,7 @@ int t33_aec_attach(const u8 *sec, u32 len, u32 width, u32 height, const u8 *zb, 
 			t32_ld32(aec.b.B, 7552), t32_ld32(aec.b.B, 7556), t32_ld32(aec.b.B, 7560), t32_ld32(aec.b.B, 7564));
 	aec_it = aec_ag = 0;
 	aec_sent = ~0U;
+	aec_wsel[0] = aec_wsel[1] = 0;
 out:
 	if (ret)
 		aec_free();
@@ -344,4 +354,59 @@ void t33_aec_show(struct seq_file *m)
 		   aec_it, aec_ag, aec_sent, st.mean, st.target, st.tgain, st.ev_hi, st.ev_lo, st.bv, front.zbad,
 		   front.hbad);
 	mutex_unlock(&aec_lock);
+}
+
+/*
+ * The tuning controls (../t32/tx_isp_t32_tunblk.c) on the live T33 AE
+ * blocks, as in ../t32/tx_isp_t32_ae.c: the vendor T33 AE API keeps the same
+ * { T, B }, R, S, hist / comp / lum blocks and weight selectors (the T33 AE
+ * is the T32 algorithm with the T33 statistics front).  False and unlocked
+ * while the per-frame AE is not attached.
+ */
+bool t32_aec_api_get(struct t32_aea_ctx *c)
+{
+	mutex_lock(&aec_lock);
+	if (!ready) {
+		mutex_unlock(&aec_lock);
+		return false;
+	}
+	aec_api_busy++;
+	memset(c, 0, sizeof(*c));
+	c->tune = aec.b.T;
+	c->buf = aec.b.B;
+	c->st = aec.b.R;
+	c->fps = aec.S;
+	c->hist = aec.hist;
+	c->wsel = aec_wsel;
+	c->comp = aec.comp;
+	c->lum = aec.lum;
+	return true;
+}
+
+void t32_aec_api_put(void)
+{
+	aec_api_busy--;
+	mutex_unlock(&aec_lock);
+	wake_up(&aec_api_wq);
+}
+
+/* the msleep of api_ae_get_exprinfo_attr: the AE frames run meanwhile */
+void t32_aec_api_sleep(u32 ms)
+{
+	mutex_unlock(&aec_lock);
+	msleep(ms);
+	mutex_lock(&aec_lock);
+}
+
+/* tisp_g_bv -> tisp_ae_get_bv on the live blocks (lock held) */
+u32 t32_aec_api_bv(void)
+{
+	t32_aec_bind(&aec);
+	return t32_aec_bv(0);
+}
+
+/* tisp_ae_api_set_exp_list: the pipeline word dc284 + 900 */
+u32 t32_aec_api_dcw(void)
+{
+	return aec.dcw;
 }

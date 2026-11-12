@@ -6,7 +6,8 @@
  * module.  The T33 runs its own per-frame AE / AWB (tx_isp_t33_aec.c,
  * tx_isp_t33_awbc.c) and register lists; the T32 objects are not built
  * here.  t32_pp_on() is false, so the shared tisp init skips every T32
- * per-frame attach; the tuning control falls back to the core's own ids.
+ * per-frame attach.  The tuning controls (tx_isp_t33_tunctl.c / _tunblk.c)
+ * are built: their AE / AWB ids run on the T33 AE / AWB blocks.
  */
 #include <linux/module.h>
 #include <linux/kernel.h>
@@ -39,6 +40,14 @@ void t32_pf_exit(void) { }
 void t32_afgsm_attach_af(const u8 *bin, u32 bytes, u32 width, u32 height) { }
 void t32_afgsm_attach_gsm(u32 width, u32 height) { }
 void t32_afgsm_exit(void) { }
+/* the tuning API on the AF / GSM blocks: not attached on the T33 yet (tunblk answers the stored / zero words) */
+bool t32_afgsm_af_get_attr(u32 ch, u8 *out) { return false; }
+bool t32_afgsm_af_set_attr(u32 ch, const u8 *in) { return false; }
+bool t32_afgsm_af_set_weight(u32 ch, const u8 *buf) { return false; }
+bool t32_afgsm_af_get_weight(u32 ch, u8 *buf) { return false; }
+bool t32_afgsm_af_get_statis(u32 ch, u8 *buf) { return false; }
+bool t32_afgsm_af_get_metric(u32 ch, u8 *buf) { return false; }
+bool t32_afgsm_gsm_api_set(u32 ch, const u8 *scratch) { return false; }
 void t32_awbc_detach(void) { }
 void t32_blk_exit(void) { }
 void t32_blk_lce_bufs(void *curve, void *stat, void *hist) { }
@@ -59,5 +68,3 @@ void t32_isposd_msca_start(u32 in_w, u32 in_h) { }
 unsigned long t32_isposd_ram_lock(void) { return 0; }
 void t32_isposd_ram_unlock(unsigned long flags) { }
 
-long t32_tunctl_ctrl(u32 *w, unsigned long arg) { return -ENOIOCTLCMD; }
-long t32_tunctl_ae_start(unsigned int cmd, unsigned long arg) { return -ENOTTY; }
