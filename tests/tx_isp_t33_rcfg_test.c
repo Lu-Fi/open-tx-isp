@@ -26,6 +26,7 @@
 #include "../driver/t32/tx_isp_t33_af.h"
 #include "../driver/t32/tx_isp_t33_bcsh.h"
 #include "../driver/t32/tx_isp_t33_tmo.h"
+#include "../driver/t32/tx_isp_t33_clm.h"
 
 static int bad;
 #define CHECK(c) do { if (!(c)) { bad++; printf("FAIL line %d: %s\n", __LINE__, #c); } } while (0)
@@ -294,6 +295,18 @@ int main(void)
 				/* 0x1812c: no store in the vendor code, its list word is stale memory */
 				vs_list_skip("af", T33_MOD_AF, lb, t33_af_init(asec, 1920, 1080, dma, lb, T33_SLOT_WORDS),
 					     0x1812c);
+			}
+			{
+				/* CLM: CT 5000 K, the csc section */
+				u32 coff, clen;
+
+				off = t32_iq_section(bin, bytes, T33_SEC_CLM, &len);
+				CHECK(off && len == T33_CLM_SEC_BYTES);
+				CHECK(t33_tp_offset(bin, T33_SEC_CLM) == 0x903c);
+				coff = t32_iq_section(bin, bytes, T32_IQ_SEC_CSC, &clen);
+				vs_list("clm", T33_MOD_CLM, lb,
+					t33_clm_init(bin + off, bin + off + len, t32_iq_payload(bin + off, bytes - off, T33_SEC_CLM),
+						     bin + coff, 5000, lb, T33_SLOT_WORDS));
 			}
 			{
 				/* TMO: EV 0, the V table DMA address (0x70e0) as the vendor's */

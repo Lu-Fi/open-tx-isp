@@ -43,6 +43,7 @@
 #include "tx_isp_t33_af.h"
 #include "tx_isp_t33_bcsh.h"
 #include "tx_isp_t33_tmo.h"
+#include "tx_isp_t33_clm.h"
 #include "tx_isp_t32_lsc.h"
 #include "tx_isp_t32_stats.h"
 #include "tx_isp_t32_iq.h"
@@ -664,6 +665,17 @@ static void t33_tisp_init(const u8 *bin, u32 bytes)
 				isp_wr(0x32264, vt[i]);
 			isp_wr(0x32260, 0x10102);
 		}
+	}
+	off = t32_iq_section(bin, bytes, T33_SEC_CLM, &len);
+	if (off && len == T33_CLM_SEC_BYTES) {
+		u32 *buf = t33_mod_buf(T33_MOD_CLM), coff, clen;
+
+		/* CT 5000 K as the CCM; the colour space section for the csc set */
+		coff = t32_iq_section(bin, bytes, T32_IQ_SEC_CSC, &clen);
+		if (buf && coff && clen == T32_CSC_BYTES)
+			t33_mod_done(T33_MOD_CLM, t33_clm_init(bin + off, bin + off + len,
+							       t32_iq_payload(bin + off, bytes - off, T33_SEC_CLM),
+							       bin + coff, T33_CCM_INIT_CT, buf, T33_SLOT_WORDS));
 	}
 	off = t32_iq_section(bin, bytes, T33_SEC_BCSH, &len);
 	if (off && len == T33_BCSH_SEC_BYTES) {
