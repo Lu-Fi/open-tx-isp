@@ -57,6 +57,7 @@ static double t_exp2(double x)
 
 struct cam {
 	u32 it, ag, dg;			/* commanded */
+	u32 dgw, dgq, queued;		/* ISP dgain register, the driver's one-frame queue (t40_ae_dg_delay) */
 	u32 hit[3], hag[3], hdg[3];	/* applied history: [0] = this frame */
 };
 
@@ -76,7 +77,7 @@ static void cam_push(struct cam *c)
 	}
 	c->hit[0] = c->it;
 	c->hag[0] = c->ag;
-	c->hdg[0] = c->dg;
+	c->hdg[0] = c->dgw;
 }
 
 static void cam_set(struct cam *c, u32 it, u32 ag, u32 dg)
@@ -86,6 +87,8 @@ static void cam_set(struct cam *c, u32 it, u32 ag, u32 dg)
 	c->it = it;
 	c->ag = ag;
 	c->dg = dg;
+	c->dgw = dg;
+	c->queued = 0;
 	for (i = 0; i < 3; i++) {
 		c->hit[i] = it;
 		c->hag[i] = ag;
@@ -95,6 +98,7 @@ static void cam_set(struct cam *c, u32 it, u32 ag, u32 dg)
 
 static struct t40_aet_bank bank;
 static int dg_delay = 1;	/* ISP dgain latency (frames); the sensor part: 2 */
+static int dg_queue = 1;	/* driver t40_ae_dg_delay: dgain of a step with a sensor change written one frame later */
 static u32 evl[T40_AET_N], tgl[T40_AET_N];
 
 static void bank_init(void)
@@ -142,8 +146,24 @@ static u32 frame(struct cam *c, struct t40_aet_tune *st, double k, double clip, 
 	ev0 = t40_aet_ev_q10(c->it, q10_gain(c->ag), c->dg);
 	ev1 = t40_aet_tune2(&bank, evl, tgl, st, ev0, luma, band);
 	st->refresh = 0;
-	if (ev1 != ev0)
-		(void)t40_ae_oem_alloc(ev1, &c->it, &c->ag, &c->dg, &lim, t_log2_gain);
+	{
+		u32 r = ev1 != ev0 ? t40_ae_oem_alloc(ev1, &c->it, &c->ag, &c->dg, &lim, t_log2_gain) : 0U;
+		int defer = (r & 2U) && (r & 1U) && dg_queue;	/* as recovered.c dg_defer */
+
+		if (c->queued) {
+			c->queued = 0;
+			if (!(r & 2U) || defer)
+				c->dgw = c->dgq;
+		}
+		if (r & 2U) {
+			if (defer) {
+				c->dgq = c->dg;
+				c->queued = 1;
+			} else {
+				c->dgw = c->dg;
+			}
+		}
+	}
 	assert(c->dg >= 1024U && c->dg <= 4096U && c->ag <= 20U && c->it >= 450U && c->it <= 2241U);
 	assert(c->it == 2241U || c->it % 450U == 0U);
 	if (tgt_out)
@@ -311,23 +331,32 @@ static void step_run(const char *name, double ev_start, double k, int max_frames
 			printf("  %3d %3u %3u\n", f, l[f], rl[f]);
 	assert(l[N - 1] + 2U >= t && l[N - 1] <= t + 2U);
 	/*
-	 * Same sensor / ISP latency: as fast as the OEM step itself.  ISP dgain one frame earlier than the sensor: a
-	 * rung / index change that lowers the dgain shows one darker frame (the rising run loses a few frames).
+	 * Same sensor / ISP latency, or the ISP dgain one frame earlier with the driver's one-frame queue: as fast as
+	 * the OEM step itself.  Without the queue an analog index / rung step shows one wrong frame (rising: darker,
+	 * the run loses a few frames; device: +12..14 % single frames falling).
 	 */
-	assert(settle <= rsettle + (dg_delay == 2 ? 3 : 10) && settle <= max_frames);
+	assert(settle <= rsettle + (dg_delay == 2 || dg_queue ? 3 : 10) && settle <= max_frames);
 	assert(over <= 0.03);
 }
 
 int main(void)
 {
+	int i;
+
 	setvbuf(stdout, NULL, _IONBF, 0);
 	bank_init();
 	test_alloc();
 	test_path(4700.0);	/* IT at the ceiling, analog gain + ISP dgain (Eufy comp 128) */
 	test_path(1500.0);	/* below the ceiling: IT rungs (Eufy comp 40: vendor IT 1500) */
 	/* lamps on: dark state 2241 lines x 32x x 1.2 -> scene needs ~1/20 of it (frames clipped at the start) */
-	for (dg_delay = 2; dg_delay >= 1; dg_delay--) {
-		printf("ISP dgain latency %d frame(s), sensor 2:\n", dg_delay);
+	/* (ISP dgain latency, driver dgain queue): equal latencies without queue, the T40 case (1 / 2 frames) with
+	 * and without it; equal latencies + queue would delay the dgain past the sensor and is not a driver case */
+	for (i = 0; i < 3; i++) {
+		static const int cfg[3][2] = { { 2, 0 }, { 1, 1 }, { 1, 0 } };
+
+		dg_delay = cfg[i][0];
+		dg_queue = cfg[i][1];
+		printf("ISP dgain latency %d frame(s), sensor 2, dgain queue %d:\n", dg_delay, dg_queue);
 		step_run("lamps on", 2241.0 * 32.0 * 1.2, 60.0 / (2241.0 * 32.0 * 1.2 / 20.0), 60);
 		/* lamps off: from ~1/8 of the needed exposure */
 		step_run("lamps off", 4000.0, 60.0 / 32000.0, 80);

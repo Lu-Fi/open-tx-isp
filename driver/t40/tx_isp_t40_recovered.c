@@ -9483,6 +9483,15 @@ static uint32_t t40_ae_tune_irqs T40C2;         /* hardware zone interrupt count
 static uintptr_t t40_ae_tune_bank T40C2;        /* tuning bank of the last step (day / night switch = refresh) */
 static uint32_t t40_ae_tune_comp T40C2;
 static bool t40_ae_tune_on T40C2;
+/*
+ * #412: the ISP digital gain acts on the next frame, the sensor IT / analog gain one frame later (light box .184
+ * run-t40-1112-ae5000: a single +12..14 % frame at every analog index step of the per-frame AE).  An OEM step that
+ * moves the sensor part writes its ISP dgain one AE frame later, so both land on the same frame.  0 = at once.
+ */
+static uint t40_ae_dg_delay T40C2 = 1;
+module_param_named(t40_ae_dg_delay, t40_ae_dg_delay, uint, 0644);
+static uint32_t t40_ae_dg_queue T40C2;
+static bool t40_ae_dg_queued T40C2;
 
 static uint32_t regtrace_t40_frame_3a_target_eff(void)
 {
@@ -12072,11 +12081,9 @@ static int regtrace_gib_main_init_lit(void)
 
 /* T40-AE-ISPDGAIN: push the current AE digital gain into the GIB final gain
  * (the literal GIB path reads regtrace_ae_isp_dgain_cur). */
-static int regtrace_t40_ae_isp_dgain_apply(void)
+static int regtrace_t40_ae_isp_dgain_write(uint32_t dg)
 {
-    uint32_t dg = clamp_t(uint32_t, READ_ONCE(regtrace_ae_isp_dgain_cur),
-                          1024U, 32767U);
-
+    dg = clamp_t(uint32_t, dg, 1024U, 32767U);
     if (!regtrace_isp_block_init_ran)
         return -ENODEV;
     /* With the OEM gates (t40_gates_oem_offset) the OEM GIB context is
@@ -12089,6 +12096,11 @@ static int regtrace_t40_ae_isp_dgain_apply(void)
     if (!regtrace_enable_gib_lit)
         return -ENODEV;
     return regtrace_gib_main_gain_update_lit(regtrace_gib_lit_gain, false);
+}
+
+static int regtrace_t40_ae_isp_dgain_apply(void)
+{
+    return regtrace_t40_ae_isp_dgain_write(READ_ONCE(regtrace_ae_isp_dgain_cur));
 }
 
 /*
@@ -77762,10 +77774,25 @@ ae_meter:
             dgain_changed = true;
             WRITE_ONCE(t40_ae_split_moves, t40_ae_split_moves + 1U);
         }
-        if (dgain_changed) {
-            WRITE_ONCE(regtrace_ae_isp_dgain_cur, dgain);
-            regtrace_ae_isp_dgain_updates++;
-            (void)regtrace_t40_ae_isp_dgain_apply();
+        {
+            /* #412: with a sensor change in this OEM step the ISP dgain is written one AE frame later */
+            bool dg_defer = dgain_changed && oem_step && changed && READ_ONCE(t40_ae_dg_delay);
+
+            if (t40_ae_dg_queued) {
+                t40_ae_dg_queued = false;
+                if (!dgain_changed || dg_defer)   /* else this step's own write supersedes it */
+                    (void)regtrace_t40_ae_isp_dgain_write(t40_ae_dg_queue);
+            }
+            if (dgain_changed) {
+                WRITE_ONCE(regtrace_ae_isp_dgain_cur, dgain);
+                regtrace_ae_isp_dgain_updates++;
+                if (dg_defer) {
+                    t40_ae_dg_queue = dgain;
+                    t40_ae_dg_queued = true;
+                } else {
+                    (void)regtrace_t40_ae_isp_dgain_apply();
+                }
+            }
         }
         if (changed) {
             regtrace_ae_soft_cur_it = it;
