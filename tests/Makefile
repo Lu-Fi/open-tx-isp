@@ -3,7 +3,7 @@ CC ?= cc
 CFLAGS ?= -O2
 CFLAGS += -std=c99 -Wall -Wextra -Werror
 
-.PHONY: all check check-oracles clean t30_ae_fsm_check t30_ae_balanced_check t30_ae_init_check t40_vic_layout_check t40_lost_tail_host lifted_ptr_scale_check t40_hardcoded_anchor_check t30_storage_audit t30_fw_irq_gate t30_fmt5c_check t30_awb_preset_check t30_temper_check t30_core_slake_oracle t30_tuning_ctl_check t30_system_items_check t30_sdk_oracle t30_symval_check t30_callarg_check t40_af_stats_host t40_bcsh_dn_host t40_tstp_host t40_ccm_conv_host t40_ccm_chain_host t40_ct_chain_host t40_dmsc_chain_host t40_mdns_chain_host t40_ysp_chain_host t40_ydns_host t40_gib_host t40_lsc_host t40_blc_host t40_vawb_oracle t40_clm_host t40_ae_leaf_host t40_bitexact_host t40_callarg_check t41_sensor_barrier_check t40_hardcoded_anchor_check t40_clk_teardown_check t40_tstp_init_check t40_custom_algo_wake_check t41_custom_ae_check t41_custom_awb_check t41_awb_algo_host t41_af_gate_check t41_raw_teardown_check lifted_ptr_scale_check t40_algo_handle_host t40_wdr_log2_host t40_gamma_ev_host t40_ae_target_host t40_ko_libgcc_check t23_bypass_host t31_defog_bank_host t23_awb_lum_oracle
+.PHONY: all check check-oracles clean t30_ae_fsm_check t30_ae_balanced_check t30_ae_init_check t40_vic_layout_check t40_lost_tail_host lifted_ptr_scale_check t40_hardcoded_anchor_check t30_storage_audit t30_fw_irq_gate t30_fmt5c_check t30_awb_preset_check t30_temper_check t30_core_slake_oracle t30_tuning_ctl_check t30_system_items_check t30_sdk_oracle t30_symval_check t30_callarg_check t40_af_stats_host t40_bcsh_dn_host t40_tstp_host t40_ccm_conv_host t40_ccm_chain_host t40_ct_chain_host t40_dmsc_chain_host t40_mdns_chain_host t40_ysp_chain_host t40_ydns_host t40_gib_host t40_lsc_host t40_blc_host t40_vawb_oracle t40_clm_host t40_ae_leaf_host t40_bitexact_host t40_callarg_check t41_sensor_barrier_check t40_hardcoded_anchor_check t40_clk_teardown_check t40_tstp_init_check t40_custom_algo_wake_check t41_custom_ae_check t41_custom_awb_check t41_awb_algo_host t41_af_gate_check t41_raw_teardown_check lifted_ptr_scale_check t40_algo_handle_host t40_wdr_log2_host t40_gamma_ev_host t40_ae_target_host t40_ko_libgcc_check t23_bypass_host t31_defog_bank_host t23_awb_lum_oracle t20_fw_check
 
 # Every host test binary.  A new test is registered with "TESTS += name"
 # (plus its build rule); `check` builds and runs all of them, keeps going
@@ -883,6 +883,13 @@ t41_awb_algo_host:
 
 t41_ae_algo_host:
 	sh ./t41_ae_algo_host.sh
+
+# T20/T10 firmware -O0 vs -Os harness (builds driver/t20/tx_isp_t20_firmware.c as a host unit, so a
+# missing include/type there breaks the build; openimp #373).  Needs the ingenic-sdk submodule and -m32.
+t20_fw_check:
+	@if [ ! -f ../external/ingenic-sdk/3.10.14/isp/t20/apical-isp/apical_static_calibrations.c ]; then \
+		echo "t20_fw_check: SKIP (ingenic-sdk submodule not checked out)"; \
+	else $(MAKE) --no-print-directory -C t20_fw check; fi
 
 # T41 AF block stays off unless t41_af=1 (#179)
 t41_af_gate_check:
