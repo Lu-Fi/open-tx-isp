@@ -16,6 +16,7 @@ Runs functions of the SDK-built vendor tx-isp-t30.ko (4ea12e1f) and of our drive
   ispcore/ncu_pad_event_handle, mscaler_frame_channel_streamoff   gp = thread_info: preempt_count, flags,
                                                 unlock sequence, heap, GET_FORMAT buffer (#371)
   tx_isp_unlocked_ioctl                         user vs kernel argument: return, copies to user (addr_limit, #371)
+  frame_channel_unlocked_ioctl(_raw)            __vb2_queue_free(queue, count) arguments (#369)
 
 Callees outside the function under test are hooked at their entry in both modules and logged; the
 calibration getters return synthetic tables (no vendor data).  Return values are compared only where the
@@ -594,11 +595,37 @@ def t_ptr_scale(V, O, rnd, n):
                 if bad < 8: print("DIFF %s k=%d: vendor %s open %s" % (nm, k, str(res[0])[:300], str(res[1])[:300]))
     return bad
 
+# frame_channel_unlocked_ioctl(_raw): __vb2_queue_free(queue, count) (#369: the lift passed the queue only, count = stale a1)
+FCI_CMDS = (0xc0145608, 0x40045613, 0x40045612, 0x80045613, 0xc0505609, 0x40445611)
+def t_fci_args(V, O, rnd, n):
+    V, O = Mod(V.path, {}), Mod(O.path, {})
+    bad = 0; hits = 0
+    for k in range(n):
+        cmd = FCI_CMDS[k % len(FCI_CMDS)]; seed = rnd.getrandbits(32); res = []
+        for m in (V, O):
+            r0 = random.Random(seed); ti, b = gp_world(m, r0); gp_hooks(m); lg = m.log
+            m.hook("__vb2_queue_free", lambda e: (lg.append(("vb2_free", e.get_reg(UC_MIPS_REG_A0), e.get_reg(UC_MIPS_REG_A1))), 0)[1])
+            m.hook("__copy_user", lambda e: (e.write(e.get_reg(UC_MIPS_REG_A0), e.read(e.get_reg(UC_MIPS_REG_A1), e.get_reg(UC_MIPS_REG_A2))), e.set_reg(UC_MIPS_REG_A2, 0), 0)[2])
+            ub = m.e.alloc(0x100, bytes((r0.getrandbits(8) & (7 if i % 4 == 0 else 0xff)) | (1 if i == 0 else 0) for i in range(0x100)))   # req.count != 0 (the lifted stack aliasing of 16(sp) is not modelled)
+            filp = m.e.alloc(0x100); m.e.write(filp + 112, struct.pack("<I", b[0]))
+            for off in (524, 60, 36, 660, 664, 548, 532, 676):
+                m.e.write(b[0] + off, struct.pack("<I", r0.choice([0, 1, 2, 3, 4, 8, 16])))
+            del m.log[:]
+            r = m.e.call("frame_channel_unlocked_ioctl_raw" if "frame_channel_unlocked_ioctl_raw" in m.e.symaddr else "frame_channel_unlocked_ioctl", filp, cmd, ub)
+            res.append(([x for x in m.log if x[0] == "vb2_free"], r.stop if r.stop else s32(r.v0)))
+            hits += len(res[-1][0])
+        if res[1][1] == '__kmalloc': continue          # lifted stack aliasing of the 20-byte request (16(sp) vs local_10): other path, not an argument
+        if res[0][0] != res[1][0]:
+            bad += 1
+            if bad < 5: print("DIFF fci cmd=%#x: vendor %s open %s" % (cmd, res[0], res[1]))
+    if "-v" in sys.argv: print("  fci hits", hits)
+    return bad
+
 TESTS = [("nr_selectors", t_nr), ("general_frame_start", t_general), ("fsm_switch_state", t_fsm), ("crop_event", t_crop),
          ("sbus_write_u8", t_sbus), ("awb_normalise", t_normalise), ("event_queue_push", t_queue),
          ("awb_mesh_chain", t_mesh), ("compute_weight", t_weight), ("awb_calc_mesh", t_calc),
          ("gp_lock_paths", t_gp_lock), ("ioctl_uaccess", t_uaccess),
-         ("ptr_scale", t_ptr_scale)]
+         ("ptr_scale", t_ptr_scale), ("fci_args", t_fci_args)]
 
 def main():
     vko, oo = sys.argv[1], sys.argv[2]
