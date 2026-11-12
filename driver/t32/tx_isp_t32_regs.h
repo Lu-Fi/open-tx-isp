@@ -52,6 +52,11 @@
 #define T32_INT3_EN			0x300b0
 #define T32_INT3_CLR			0x300b4
 #define T32_INT3_STA			0x300b8
+/* 0x300c0 / 0x300d0: register-list done, bit N = list N / list 32 + N
+ * (T33: the vendor enables and clears both; the T32 driver only 0x300d0) */
+#define T32_INT5_EN			0x300c0
+#define T32_INT5_CLR			0x300c4
+#define T32_INT5_STA			0x300c8
 #define T32_INT4_EN			0x300d0
 #define T32_INT4_CLR			0x300d4
 #define T32_INT4_STA			0x300d8

@@ -34,6 +34,13 @@
 #define T32_CLK_LDC		357000000UL
 #define T32_CLK_VPU_PROBE	340000000UL
 #define T32_CLK_VPU		340000000UL
+/*
+ * T33 interrupts (QEMU trace of the vendor module): nothing is written to
+ * the ISP before its clock is on (no masking at probe), the list-done word
+ * 0x300c0 is enabled and cleared like 0x300d0, and stream-off masks the
+ * VIC interrupts again.
+ */
+#define T32_SOC_LIST_IRQ	1
 #else
 #define T32_SOC_NAME		"PRJ007"
 #define T32_SOC_DRV		"tx-isp-t32"
@@ -47,6 +54,7 @@
 #define T32_CLK_LDC		588000000UL
 #define T32_CLK_VPU_PROBE	500000000UL
 #define T32_CLK_VPU		500000000UL
+#define T32_SOC_LIST_IRQ	0
 #endif
 
 #endif /* TX_ISP_T32_SOC_H */

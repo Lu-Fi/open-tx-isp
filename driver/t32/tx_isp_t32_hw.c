@@ -23,6 +23,7 @@
 
 #include "tx_isp_t32.h"
 #include "tx_isp_t32_regs.h"
+#include "tx_isp_t32_soc.h"
 #include "tx_isp_t32_msca.h"
 #include "tx_isp_t32_msca_curve.h"
 #include "tx_isp_t32_vic.h"
@@ -87,19 +88,23 @@ static int t32_wait_clear(u32 off, u32 mask, int us)
 
 static irqreturn_t t32_isp_irq(int irq, void *dev)
 {
-	u32 sta, done, msca, s3, s4;
+	u32 sta, done, msca, s3, s4, s5 = 0;
 
 	sta = isp_rd(T32_INT_STA);
 	done = isp_rd(T32_CHDONE_STA);
 	msca = isp_rd(T32_MSCADONE_STA);
 	s3 = isp_rd(T32_INT3_STA);
 	s4 = isp_rd(T32_INT4_STA);
-	if (!(sta | done | msca | s3 | s4))
+	if (T32_SOC_LIST_IRQ)
+		s5 = isp_rd(T32_INT5_STA);
+	if (!(sta | done | msca | s3 | s4 | s5))
 		return IRQ_NONE;
 	isp_wr(T32_INT_CLR, sta);
 	isp_wr(T32_CHDONE_CLR, done);
 	isp_wr(T32_MSCADONE_CLR, msca);
 	isp_wr(T32_INT3_CLR, s3);
+	if (T32_SOC_LIST_IRQ)
+		isp_wr(T32_INT5_CLR, s5);
 	isp_wr(T32_INT4_CLR, s4);
 	isp_wr(T32_RDMA_IRQ_CLR, 0);
 	t32_hw_stats.isp_irqs++;
@@ -536,6 +541,10 @@ int t32_hw_input_setup(const void *attr, u32 w, u32 h)
 	isp_wr(T32_RDMA_IRQ_CLR, 0xffffffff);
 	isp_wr(T32_CORE_IDLE_REQ, 1);
 	isp_wr(0x0024, 0x40000001);
+	if (T32_SOC_LIST_IRQ) {
+		isp_wr(T32_INT5_EN, 0xffffffff);
+		isp_wr(T32_INT4_EN, 0xffffffff);
+	}
 	isp_wr(0x0070, size);
 	isp_wr(0x0080, size);
 	isp_wr(0x0078, 0x100);
@@ -614,6 +623,8 @@ void t32_hw_stream_on(void)
 	isp_wr(T32_INT2_EN, 0xffffffff);
 	isp_wr(T32_MSCADONE_EN, 0xffffffff);
 	isp_wr(T32_INT3_EN, 0xffffffff);
+	if (T32_SOC_LIST_IRQ)
+		isp_wr(T32_INT5_EN, 0xffffffff);
 	isp_wr(T32_INT4_EN, 0xffffffff);
 	t32_front_init();
 	t32_stats_init();
@@ -644,11 +655,17 @@ void t32_hw_stream_off(void)
 	t32_vic_wr(1, T32_VIC_CTRL, 4);
 	t32_wait_clear(T32_VIC_RESET_BUSY, 0xf, 1000);
 	t32_csi_stop();
+	if (T32_SOC_LIST_IRQ) {
+		t32_vic_wr(0, T32_VIC_INT_MSK, 0xffffffff);
+		t32_vic_wr(0, T32_VIC_INT_MSK2, 0xffffffff);
+	}
 	isp_wr(T32_INT_EN, 0);
 	isp_wr(T32_CHDONE_EN, 0);
 	isp_wr(T32_INT2_EN, 0);
 	isp_wr(T32_MSCADONE_EN, 0);
 	isp_wr(T32_INT3_EN, 0);
+	if (T32_SOC_LIST_IRQ)
+		isp_wr(T32_INT5_EN, 0);
 	isp_wr(T32_INT4_EN, 0);
 	/* drop what is latched so a later start begins clean */
 	isp_wr(T32_INT_CLR, isp_rd(T32_INT_STA));
@@ -807,14 +824,21 @@ int t32_hw_init(void)
 		goto err;
 	}
 	rcfg_pa = virt_to_phys((void *)rcfg_pages);
-	/* nothing latched from an earlier load may fire before we are ready */
-	isp_wr(T32_INT_EN, 0);
-	isp_wr(T32_CHDONE_EN, 0);
-	isp_wr(T32_MSCADONE_EN, 0);
-	isp_wr(T32_INT3_EN, 0);
-	isp_wr(T32_INT4_EN, 0);
-	t32_vic_wr(0, T32_VIC_INT_MSK, 0xffffffff);
-	t32_vic_wr(0, T32_VIC_INT_MSK2, 0xffffffff);
+	/*
+	 * Nothing latched from an earlier load may fire before we are ready.
+	 * T33: the ISP clock is still off here and the vendor module does not
+	 * touch the ISP before the first open; stream-off and module exit
+	 * leave the same state (enables 0, VIC masked).
+	 */
+	if (!T32_SOC_LIST_IRQ) {
+		isp_wr(T32_INT_EN, 0);
+		isp_wr(T32_CHDONE_EN, 0);
+		isp_wr(T32_MSCADONE_EN, 0);
+		isp_wr(T32_INT3_EN, 0);
+		isp_wr(T32_INT4_EN, 0);
+		t32_vic_wr(0, T32_VIC_INT_MSK, 0xffffffff);
+		t32_vic_wr(0, T32_VIC_INT_MSK2, 0xffffffff);
+	}
 	ret = request_irq(isp_irq, t32_isp_irq, 0, "isp-m0", &isp_base);
 	if (ret)
 		goto err;
