@@ -19,6 +19,7 @@
 #include <linux/delay.h>
 #include <linux/gfp.h>
 #include <linux/slab.h>
+#include <linux/vmalloc.h>
 #include <linux/workqueue.h>
 
 #include "tx_isp_t32.h"
@@ -231,6 +232,7 @@ static unsigned long t33_lsc_pages;
 #define T33_LSC_ORDER	get_order(T33_LSC_LUT_BYTES)
 /* defog statistics area (four 2 KiB parts, 0xa210..0xa21c), written by the core */
 static unsigned long t33_defog_pages;
+static u8 t33_defog_sec[T33_DEFOG_SEC_BYTES];
 #define T33_DEFOG_ORDER	get_order(T33_DEFOG_DMA_BYTES)
 
 static void t33_mod_free(void)
@@ -569,8 +571,17 @@ static void t33_tisp_init(const u8 *bin, u32 bytes)
 
 		if (!t33_defog_pages)
 			t33_defog_pages = __get_free_pages(GFP_KERNEL | __GFP_ZERO, T33_DEFOG_ORDER);
+		/* a copy: weights for another size / zoom are recomputed into it */
+		memcpy(t33_defog_sec, bin + off, sizeof(t33_defog_sec));
+		if (t33_defog_weights_needed(t33_defog_sec, width, height)) {
+			u8 *m = vzalloc(t33_defog_scratch_bytes(width, height));
+
+			if (m)
+				t33_defog_count_weight(t33_defog_sec, width, height, m);
+			vfree(m);
+		}
 		if (buf && t33_defog_pages)
-			t33_mod_done(T33_MOD_DEFOG, t33_defog_init(bin + off, width, height,
+			t33_mod_done(T33_MOD_DEFOG, t33_defog_init(t33_defog_sec, width, height,
 								   (u32)virt_to_phys((void *)t33_defog_pages),
 								   buf, T33_SLOT_WORDS));
 	}

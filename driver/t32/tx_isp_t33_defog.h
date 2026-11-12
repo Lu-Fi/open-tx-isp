@@ -9,8 +9,9 @@
  * (the 180 initial block entries 0x80 0x80 0x80 0 through the port
  * 0x320a4).  The weights are the section's own when it was made for the
  * sensor size (sec[0x1b1] = 0x80 and 0xbe / 0xc0 = width / height);
- * otherwise the vendor recomputes them (defog_count_weight35abc, not done
- * here: the list is not built).  tisp_defog_interp_trans_k only feeds the
+ * otherwise they are recomputed for the size and zoom sec[0x1b1]
+ * (defog_count_weight35abc, t33_defog_count_weight on a copy of the
+ * section; same algorithm and base tables as the T40 port).  tisp_defog_interp_trans_k only feeds the
  * per-frame soft path, not the init list.  QEMU trace of the vendor module
  * (openimp #388): list 12 word-equal but for the DMA addresses.
  */
@@ -157,18 +158,149 @@ static inline void t33_defog_para3(u32 *l)
 #undef S8
 #undef S16
 
+/* defog_count_weight35abc base tables (equal to the T40 module's) */
+static const u16 t33_defog_w24_base[24] = {
+	255, 521, 799, 1090, 1395, 1717, 2057, 2417, 2799, 3207, 3643, 4114,
+	4624, 5180, 5792, 6471, 7237, 8111, 9133, 10359, 11896, 13953, 17075, 23792
+};
+static const u16 t33_defog_dist_base[63] = {
+	133, 269, 407, 547, 689, 834, 982, 1132, 1285, 1440, 1599, 1761, 1926, 2094, 2266, 2442,
+	2621, 2804, 2991, 3183, 3379, 3580, 3785, 3996, 4213, 4435, 4663, 4898, 5140, 5389, 5645, 5910,
+	6183, 6465, 6758, 7061, 7375, 7702, 8042, 8397, 8767, 9155, 9562, 9989, 10440, 10916, 11421, 11959,
+	12534, 13152, 13819, 14544, 15338, 16216, 17197, 18130, 19595, 21114, 22974, 25371, 28750, 34526, 40368
+};
+
+/* the section's weights are not for this size / zoom: defog_count_weight35abc needed */
+static inline int t33_defog_weights_needed(const u8 *sec, u32 w, u32 h)
+{
+	return sec[0x1b1] != 0x80 || t32_tp_le16(sec + 0xbe) != w || t32_tp_le16(sec + 0xc0) != h;
+}
+
+/* scratch bytes t33_defog_count_weight needs (13 maps of the cells) */
+static inline u32 t33_defog_scratch_bytes(u32 w, u32 h)
+{
+	return 13U * ((h + 5) / 10) * ((w + 9) / 18);
+}
+
+static inline void t33_defog_put16(u8 *p, u16 v)
+{
+	p[0] = (u8)v;
+	p[1] = (u8)(v >> 8);
+}
+
+/* defog_wei_interpcot: mean value per index, clipped to 31, non-decreasing */
+static inline void t33_defog_wtab(u32 n, const u8 *idx, const u8 *val, u8 *out)
+{
+	u32 sum[32], cnt[32], i, v;
+
+	memset(sum, 0, sizeof(sum));
+	memset(cnt, 0, sizeof(cnt));
+	for (i = 0; i < n; i++) {
+		sum[idx[i] & 31] += val[i];
+		cnt[idx[i] & 31]++;
+	}
+	for (i = 0; i < 32; i++) {
+		v = cnt[i] ? (((cnt[i] >> 1) + sum[i]) / cnt[i]) & 0xff : 0;
+		out[i] = v < 32 ? v : 31;
+		if (i && out[i] < out[i - 1])
+			out[i] = out[i - 1];
+	}
+}
+
+/*
+ * defog_count_weight35abc on a writable copy of section 14: the position
+ * weights 0x50 (u16[24]), 0x80 (u16[31]) and 0x1b2 (5 x 32) for the size
+ * w x h and the zoom sec[0x1b1]; m = zeroed scratch of
+ * t33_defog_scratch_bytes(w, h).  0xbe / 0xc0 then hold w / h.
+ */
+static inline void t33_defog_count_weight(u8 *sec, u32 w, u32 h, u8 *m)
+{
+	u32 rows = (h + 5) / 10, cols = (w + 9) / 18, n = rows * cols, scale, i, j;
+	static const u8 ref[8][2] = { { 0, 0 }, { 0, 1 }, { 0, 2 }, { 1, 0 }, { 1, 1 }, { 1, 2 }, { 2, 0 }, { 2, 1 } };
+	u16 dist[63], v;
+	u8 *mm[8], *ix[5];
+	int row, col, yy, xx;
+
+	scale = ((h * w + 0x3f4) / 0x7e9 * sec[0x1b1] + 0x40) >> 7;
+	for (i = 0; i < 24; i++)
+		t33_defog_put16(sec + 0x50 + 2 * i, (u16)((t33_defog_w24_base[i] * scale + 0x2000) >> 14));
+	for (i = 0; i < 63; i++)
+		dist[i] = (u16)((t33_defog_dist_base[i] * scale + 0x1000) >> 13);
+	for (i = 0; i < 31; i++)
+		t33_defog_put16(sec + 0x80 + 2 * i, dist[2 * i + 1]);
+	/* keep the tables inside their fields, strictly increasing at the top */
+	if (t32_tp_le16(sec + 0x50 + 46) >> 13) {
+		t33_defog_put16(sec + 0x50 + 46, 0x1fff);
+		for (i = 22; i > 0; i--) {
+			v = t32_tp_le16(sec + 0x50 + 2 * i + 2);
+			if (t32_tp_le16(sec + 0x50 + 2 * i) < v)
+				break;
+			t33_defog_put16(sec + 0x50 + 2 * i, v - 1);
+		}
+	}
+	if (t32_tp_le16(sec + 0x80 + 60) >> 14) {
+		t33_defog_put16(sec + 0x80 + 60, 0x3fff);
+		for (i = 29; i > 0; i--) {
+			v = t32_tp_le16(sec + 0x80 + 2 * i + 2);
+			if (t32_tp_le16(sec + 0x80 + 2 * i) < v)
+				break;
+			t33_defog_put16(sec + 0x80 + 2 * i, v - 1);
+		}
+	}
+	for (i = 0; i < 8; i++)
+		mm[i] = m + i * n;
+	for (i = 0; i < 5; i++)
+		ix[i] = m + (8 + i) * n;
+	/* distance class of each cell to eight reference points (half cells) */
+	for (row = 0, yy = 5 * rows - 1; row < (int)rows; row++, yy -= 2) {
+		int y2[3] = { yy * yy, (yy - 2 * (int)rows) * (yy - 2 * (int)rows),
+			      (yy - 4 * (int)rows) * (yy - 4 * (int)rows) };
+
+		for (col = 0, xx = 5 * cols - 1; col < (int)cols; col++, xx -= 2) {
+			int x2[3] = { xx * xx, (xx - 2 * (int)cols) * (xx - 2 * (int)cols),
+				      (xx - 4 * (int)cols) * (xx - 4 * (int)cols) };
+
+			for (i = 0; i < 8; i++) {
+				u32 d = (u32)(y2[ref[i][0]] + x2[ref[i][1]] + 32) >> 6;
+
+				for (j = 0; j < 63; j++)
+					if (d < dist[j]) {
+						mm[i][row * cols + col] = (u8)(63 - j);
+						break;
+					}
+			}
+		}
+	}
+	for (i = 0; i < n; i++) {
+		ix[0][i] = mm[4][i] >> 1;
+		ix[1][i] = (mm[4][i] + mm[5][i]) >> 2;
+		ix[2][i] = (mm[4][i] + mm[7][i]) >> 2;
+		ix[3][i] = mm[5][i] >> 1;
+		ix[4][i] = mm[7][i] >> 1;
+	}
+	t33_defog_wtab(n, ix[0], mm[0], sec + 0x1b2);
+	t33_defog_wtab(n, ix[1], mm[1], sec + 0x1d2);
+	t33_defog_wtab(n, ix[2], mm[3], sec + 0x1f2);
+	t33_defog_wtab(n, ix[3], mm[2], sec + 0x212);
+	t33_defog_wtab(n, ix[4], mm[6], sec + 0x232);
+	t33_defog_put16(sec + 0xbe, (u16)w);
+	t33_defog_put16(sec + 0xc0, (u16)h);
+}
+
 /*
  * Block init into list l (capacity cap words): sec section 14, w / h the
  * sensor size, dma the physical address of the statistics area
  * (T33_DEFOG_DMA_BYTES).  Returns the list length, -1 when the section's
- * weights are not for this size.
+ * weights are not for this size: when t33_defog_weights_needed, run
+ * t33_defog_count_weight on a copy of the section first.
  */
 static inline int t33_defog_init(const u8 *sec, u32 w, u32 h, u32 dma, u32 *l, u32 cap)
 {
 	u32 rows = ((h >> 1) / 10) * 2, cols = ((w >> 1) / 18) * 2, n = (rows + 2) * (cols + 2), sz;
 	int len;
 
-	if (sec[0x1b1] != 0x80 || t32_tp_le16(sec + 0xbe) != w || t32_tp_le16(sec + 0xc0) != h)
+	/* the zoom (sec[0x1b1]) is the caller's: t33_defog_weights_needed */
+	if (t32_tp_le16(sec + 0xbe) != w || t32_tp_le16(sec + 0xc0) != h)
 		return -1;
 	len = t33_rcfg_tmpl_init(l, cap, t33_defog_tmpl, ARRAY_SIZE(t33_defog_tmpl));
 	if (len <= 0)

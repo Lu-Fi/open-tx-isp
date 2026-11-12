@@ -232,9 +232,22 @@ int main(void)
 				for (id = 0; id < ref_n[T33_MOD_DEFOG]; id++)
 					if (ref_reg[T33_MOD_DEFOG][id] == 0xa210)
 						phys = ref_val[T33_MOD_DEFOG][id];
+				static u8 dsec[T33_DEFOG_SEC_BYTES];
+
 				off = t32_iq_section(bin, bytes, T33_SEC_DEFOG, &len);
 				CHECK(off && len == T33_DEFOG_SEC_BYTES);
-				vs_list("defog", T33_MOD_DEFOG, lb, t33_defog_init(bin + off, 1920, 1080, phys, lb,
+				memcpy(dsec, bin + off, sizeof(dsec));
+				/* weights for another size / zoom: recomputed (defog_count_weight35abc) */
+				if (t33_defog_weights_needed(dsec, 1920, 1080)) {
+					u8 *m = calloc(1, t33_defog_scratch_bytes(1920, 1080));
+
+					CHECK(m != NULL);
+					if (m)
+						t33_defog_count_weight(dsec, 1920, 1080, m);
+					free(m);
+					printf("  defog: weights recomputed (zoom 0x%02x)\n", dsec[0x1b1]);
+				}
+				vs_list("defog", T33_MOD_DEFOG, lb, t33_defog_init(dsec, 1920, 1080, phys, lb,
 										   T33_SLOT_WORDS));
 			}
 			{
