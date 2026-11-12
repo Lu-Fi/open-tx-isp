@@ -30,7 +30,7 @@ static u32 rnd(void)
 }
 struct lg { unsigned int n; u32 e[MAXL][6]; };
 static struct lg lg, lg_ours;
-static unsigned int polls_left;
+static unsigned int polls_left, polls_total, runaway;
 static void L(u32 id, u32 a, u32 b, u32 c, u32 d, u32 e)
 {
 	if (lg.n < MAXL) {
@@ -44,6 +44,10 @@ u64 private_kthread_should_stop(u32 a0, u32 a1, u32 a2, u32 a3)
 {
 	(void)a0; (void)a1; (void)a2; (void)a3;
 	L(1, 0, 0, 0, 0, 0);
+	if (++polls_total > 200) {	/* the scripted loops poll <= 41 times: a runaway loop ends here by compare, not by the time limit */
+		runaway++;
+		return polls_total & 1;	/* alternate, so a loop of either polarity ends */
+	}
 	if (!polls_left)
 		return 0xbad00000001ull;	/* v1 garbage */
 	polls_left--;
@@ -76,6 +80,7 @@ static void build(u32 seed)
 	}
 	t32_ic_w32(W, T32_SD_PRIV, W + 0x400 + (rnd() % 0x40) * 4);
 	memset(&lg, 0, sizeof(lg));
+	polls_total = 0;
 	rs = save;
 }
 
@@ -89,16 +94,18 @@ int main(void)
 	for (it = 0; it < 12000; it++) {
 		u32 seed = rnd(), ch = it % 4, n = it % 7 == 0 ? 0 : rnd() % 40, a0 = rnd(), a2 = rnd(), a3 = rnd(), a4 = rnd();
 		int r, rr;
+		unsigned int ro;
 
 		build(seed);
 		polls_left = n;
 		r = t32_isp_fw_process(&ops, ch);
 		lg_ours = lg;
+		ro = runaway;
 		build(seed);
 		polls_left = n;
 		rr = REF5(fw[ch], rnd(), rnd(), rnd(), rnd(), 0);
 		compared++;
-		if (r != rr || lg.n != lg_ours.n || memcmp(&lg, &lg_ours, sizeof(lg))) {
+		if (ro || runaway || r != rr || lg.n != lg_ours.n || memcmp(&lg, &lg_ours, sizeof(lg))) {
 			if (failed++ < 5)
 				printf("t32_ispfw_oracle: MISMATCH fw_process%u seed %08x\n", ch, seed);
 		}

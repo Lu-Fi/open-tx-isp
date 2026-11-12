@@ -233,6 +233,24 @@ static void build_list(void)
 	t32_g_wr32(img + O_SD, T32_SSIO_HEAD + 4, prev);
 }
 
+static u32 g_sdw, g_cmd, g_argw, g_ro;
+static const struct t32_ssio_os *g_os;
+static void ours_run(void *p)
+{
+	(void)p;
+	g_ro = (u32)t32_subdev_sensor_ops_ioctl(g_os, T32O_HOST(g_sdw), g_cmd, T32O_HOST(g_argw));
+}
+/* our ioctl under the runaway guard: a mutant that no longer returns dies by mismatch, not by the time limit */
+static u32 ours_g(const struct t32_ssio_os *os, u32 sdw, u32 cmd, u32 argw)
+{
+	g_os = os; g_sdw = sdw; g_cmd = cmd; g_argw = argw;
+	if (t32o_guard(ours_run, 0)) {
+		printf("%s: MISMATCH cmd %u: does not return (runaway loop)\n", SSIO_NAME, cmd);
+		exit(1);
+	}
+	return g_ro;
+}
+
 int main(void)
 {
 	unsigned int c, i, n = 60000, hit[4] = { 0 }, nspi = 0, spi;
@@ -346,7 +364,7 @@ int main(void)
 		if (spi) {
 			EV[0].n = 0;
 			ninit = nreg = 0;
-			ro = (u32)t32_subdev_sensor_ops_ioctl(&os, T32O_HOST(sdw), cmd, T32O_HOST(argw));
+			ro = ours_g(&os, sdw, cmd, argw);
 			dbg[0] = cmd; dbg[1] = ro; dbg[2] = 0; dbg[3] = sdw;
 			if (ro != (u32)-22 || memcmp(img, save0, IMGSZ) || EV[0].n)
 				return fail("SPI register guard (beyond vendor)", c);
@@ -360,11 +378,20 @@ int main(void)
 			ninit = nreg = 0;
 			memset(EV[side].e, 0, sizeof(EV[side].e));
 			if (!side) {
-				ro = (u32)t32_subdev_sensor_ops_ioctl(&os, T32O_HOST(sdw), cmd, T32O_HOST(argw));
+				ro = ours_g(&os, sdw, cmd, argw);
 				memcpy(save1, img, IMGSZ);
 				memcpy(g1, t32_data_d9450, sizeof(g1));
 			} else {
-				rr = (u32)t32o_call(R(subdev_sensor_ops_ioctl), sdw, cmd, argw, 0, 0);
+				{
+					u64 gr;
+
+					/* the vendor walks the list our (mutated) world builds: guarded as well */
+					if (t32o_gcall(R(subdev_sensor_ops_ioctl), &gr, sdw, cmd, argw, 0, 0)) {
+						printf("%s: MISMATCH cmd %u: vendor walk of the world does not end (runaway list)\n", SSIO_NAME, cmd);
+						exit(1);
+					}
+					rr = (u32)gr;
+				}
 			}
 		}
 		dbg[0] = cmd; dbg[1] = ro; dbg[2] = rr; dbg[3] = sdw;

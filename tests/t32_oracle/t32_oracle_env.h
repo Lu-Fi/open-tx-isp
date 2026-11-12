@@ -16,6 +16,49 @@ typedef uint16_t u16;
 #endif
 typedef uint64_t u64;
 
+/*
+ * Runaway guard (#364 follow-up): run one call of OUR code with a CPU-time budget (ITIMER_VIRTUAL, so host load
+ * does not matter).  A mutant that no longer ends in a call that always ends in the unmutated driver comes back
+ * as 1 here and the oracle reports a mismatch and exits 1, instead of being cut off by run.sh's time limit.
+ * The budget (2 s CPU) is orders of magnitude above any case of the unmutated oracles.
+ */
+#include <setjmp.h>
+#include <signal.h>
+#include <string.h>
+#include <sys/time.h>
+static sigjmp_buf t32o_gjmp;
+static volatile sig_atomic_t t32o_gon;
+static void t32o_galrm(int sig)
+{
+	(void)sig;
+	if (t32o_gon)
+		siglongjmp(t32o_gjmp, 1);
+}
+/* 0 = fn returned, 1 = runaway (fn was abandoned; the state it touched is undefined, do not compare it) */
+static __attribute__((unused)) int t32o_guard(void (*fn)(void *), void *arg)
+{
+	struct sigaction sa;
+	struct itimerval it, off;
+
+	memset(&sa, 0, sizeof(sa));
+	sa.sa_handler = t32o_galrm;
+	sigaction(SIGVTALRM, &sa, 0);
+	memset(&it, 0, sizeof(it));
+	memset(&off, 0, sizeof(off));
+	it.it_value.tv_sec = 2;
+	if (sigsetjmp(t32o_gjmp, 1)) {
+		t32o_gon = 0;
+		setitimer(ITIMER_VIRTUAL, &off, 0);
+		return 1;
+	}
+	t32o_gon = 1;
+	setitimer(ITIMER_VIRTUAL, &it, 0);
+	fn(arg);
+	t32o_gon = 0;
+	setitimer(ITIMER_VIRTUAL, &off, 0);
+	return 0;
+}
+
 #define T32O_MAX_WRITES	4096
 
 struct t32o_log {
@@ -56,6 +99,22 @@ extern u8 t32_data_e1690[4];
 extern u32 t32o_pr_stop, t32o_pr_reg[28];
 extern u32 t32o_lg_stop, t32o_lg_stack[116], t32o_lg_reg[28];
 u64 t32o_call(t32o_fn fn, u32 a0, u32 a1, u32 a2, u32 a3, u32 a4);
+struct t32o_gc { t32o_fn fn; u32 a[5]; u64 r; };
+static void t32o_gc_run(void *p)
+{
+	struct t32o_gc *g = p;
+
+	g->r = t32o_call(g->fn, g->a[0], g->a[1], g->a[2], g->a[3], g->a[4]);
+}
+/* t32o_call of OUR function under the runaway guard: 1 = runaway, else the result is in *r */
+static __attribute__((unused)) int t32o_gcall(t32o_fn fn, u64 *r, u32 a0, u32 a1, u32 a2, u32 a3, u32 a4)
+{
+	struct t32o_gc g = { fn, { a0, a1, a2, a3, a4 }, 0 };
+	int hung = t32o_guard(t32o_gc_run, &g);
+
+	*r = g.r;
+	return hung;
+}
 
 /* reference functions (ref/, o32 shape) */
 u64 tisp_lce_init(u32 a0, u32 a1, u32 a2, u32 a3);

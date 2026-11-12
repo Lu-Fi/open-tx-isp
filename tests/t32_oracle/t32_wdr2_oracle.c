@@ -133,7 +133,8 @@ static u64 run_vendor(int f)
 	return 0;
 }
 
-static u64 run_ours(int f)
+static int cur_f;
+static u64 run_ours_(int f)
 {
 	u8 *b = OA;
 
@@ -146,6 +147,20 @@ static u64 run_ours(int f)
 	case F_PX: t32_wdr_paixu((u16 *)(b + OFF[0]), A[1], A[2]); return 0;
 	}
 	return 0;
+}
+
+static u64 ours_ret;
+static void run_ours_g(void *p) { (void)p; ours_ret = run_ours_(cur_f); }
+/* our sort / loops run under the runaway guard: a mutant that no longer ends dies here by mismatch */
+static u64 run_ours(int f)
+{
+	cur_f = f;
+	if (t32o_guard(run_ours_g, 0)) {
+		fprintf(stderr, "t32_wdr2_oracle: %s does not return (runaway loop)\n", fname[f]);
+		printf("t32_wdr2_oracle: MISMATCH, runaway loop in %s\n", fname[f]);
+		exit(1);
+	}
+	return ours_ret;
 }
 
 int main(void)

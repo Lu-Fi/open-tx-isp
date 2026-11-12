@@ -60,7 +60,8 @@ extern u64 tisp_af_api_get_statis_info(u32, u32, u32, u32);
 extern u64 tisp_af_wake_up(u32, u32, u32, u32);
 extern u64 fix_point_mult2_32(u32, u32, u32, u32);
 
-#define RC(f, a, b, c, d) t32o_call((t32o_fn)(void (*)(void))(f), (u32)(a), (u32)(b), (u32)(c), (u32)(d), 0)
+static u64 rc_g(t32o_fn f, u32 a, u32 b, u32 c, u32 d);
+#define RC(f, a, b, c, d) rc_g((t32o_fn)(void (*)(void))(f), (u32)(a), (u32)(b), (u32)(c), (u32)(d))
 
 struct rec {
 	unsigned int vm_n, km_n, vf_n, kf_n, dma_n, ev_n, irq_n, rd_n, cb_n;
@@ -165,6 +166,16 @@ static void die(const char *what)
 	exit(1);
 }
 #define DIE(what, ...) do { snprintf(dmsg, sizeof(dmsg), __VA_ARGS__); die(what); } while (0)
+/* vendor call under the runaway guard: the unmutated oracle never needs it, a mutant that feeds the vendor code
+ * a world it cannot finish on (tuning offset, parameter image) dies here by mismatch, not by the time limit */
+static u64 rc_g(t32o_fn f, u32 a, u32 b, u32 c, u32 d)
+{
+	u64 r;
+
+	if (t32o_gcall(f, &r, a, b, c, d, 0))
+		DIE("runaway", "vendor call %p does not return (runaway loop)", (void *)f);
+	return r;
+}
 
 static u8 *frame(u32 n)
 {

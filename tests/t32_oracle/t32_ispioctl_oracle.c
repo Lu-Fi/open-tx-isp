@@ -332,6 +332,7 @@ static u64 ours(u32 sd, u32 cmd, u32 arg, u32 a3)
 int main(void)
 {
 	unsigned int it, compared = 0, failed = 0;
+	u64 gr;
 
 	ops.fmt_err = T32O_PTR(t32_data_cd71c);
 	ops.func = T32O_PTR(t32_data_c34a0);
@@ -360,7 +361,11 @@ int main(void)
 		u32 seed = rnd(), r, rr;
 
 		build(seed);
-		r = (u32)t32o_call((t32o_fn)(void (*)(void))ours, SD, CMD, ARG, 0, 0);
+		if (t32o_gcall((t32o_fn)(void (*)(void))ours, &gr, SD, CMD, ARG, 0, 0)) {
+			printf("t32_ispioctl_oracle: MISMATCH seed %08x cmd %x sd %x: does not return (runaway loop)\n", seed, CMD, SD);
+			return 1;
+		}
+		r = (u32)gr;
 		L(18, t32_data_f3354[0], 0, 0);
 		lg_ours = lg;
 		memcpy(snap, world, WSZ);
@@ -392,7 +397,11 @@ int main(void)
 
 		build(seed);
 		cmd = it % 3 ? T32_IO_CMD0 + it % 2 : rnd();
-		r = (u32)t32o_call((t32o_fn)(void (*)(void))ours, ep, cmd, ARG, 0, 0);
+		if (t32o_gcall((t32o_fn)(void (*)(void))ours, &gr, ep, cmd, ARG, 0, 0)) {
+			printf("t32_ispioctl_oracle: MISMATCH error pointer sd %x cmd %x: does not return (runaway loop)\n", ep, cmd);
+			return 1;
+		}
+		r = (u32)gr;
 		lg_ours = lg;
 		memcpy(snap, world, WSZ);
 		build(seed);
