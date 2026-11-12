@@ -55,6 +55,9 @@ void t32_fs_exit(void);
 void t32_fs_stop_all(void);
 void t32_fs_done_irq(u32 done);
 void t32_fs_show(struct seq_file *m);
+#ifdef TX_ISP_T33
+void t33_stats_show(struct seq_file *m);	/* tx_isp_t32_hw.c */
+#endif
 
 /* tx_isp_t32_sinfo.c (shared registry, driver/common/tx_isp_sinfo.c) */
 int tx_isp_sinfo_init(void);

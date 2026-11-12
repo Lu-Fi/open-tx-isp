@@ -48,6 +48,8 @@
 #include "tx_isp_t33_mdns.h"
 #include "tx_isp_t33_ae.h"
 #include "tx_isp_t33_awb.h"
+#include "tx_isp_t33_stats.h"
+#include <linux/seq_file.h>
 #include "tx_isp_t32_lsc.h"
 #include "tx_isp_t32_stats.h"
 #include "tx_isp_t32_iq.h"
@@ -67,6 +69,9 @@
 #include "tx_isp_t32_lce.h"
 
 static void t32_bringup_ae_kick(void);
+#ifdef TX_ISP_T33
+static struct work_struct t33_stats_w;
+#endif
 
 /* Linux IRQ numbers: INTC source + XBURST_SOC_IRQ_BASE (8) on PRJ007 */
 static int isp_irq = 8 + T32_IRQ_ISP_M0;
@@ -152,6 +157,10 @@ static irqreturn_t t32_isp_irq(int irq, void *dev)
 		t32_hw_stats.ae_hist_irqs++;
 		t32_bringup_ae_kick();
 	}
+#ifdef TX_ISP_T33
+	if (sta & (T32_INT_AWB | T32_INT_AE | T32_INT_AE_HIST))
+		schedule_work(&t33_stats_w);
+#endif
 	if (done)
 		t32_fs_done_irq(done);
 	return IRQ_HANDLED;
@@ -270,6 +279,13 @@ static u8 t33_af_sec[T33_AF_SEC_BYTES];
 static unsigned long t33_tmo_pages;
 static unsigned long t33_ae_stat_pages, t33_ae_hist_pages;	/* AE statistics / histograms (DMA) */
 static unsigned long t33_awb_stat_pages;	/* AWB zone statistics (DMA, 4 x 0x7400) */
+static u32 t33_awb_rows, t33_awb_cols, t33_ae_rows, t33_ae_cols;	/* statistics grids (init) */
+/* T33 statistics read-out (tx_isp_t33_stats.h): last frame and counts, for the proc file */
+static struct {
+	u32 awb_frames, awb_bad, ae_frames, ae_bad, hist_frames, hist_bad, mean16;
+	struct t33_awb_sum awb;
+	struct t33_ae_sum ae;
+} t33_st;
 #define T33_TMO_ORDER	get_order(T33_TMO_V_BYTES)
 
 static void t33_mod_free(void)
@@ -682,11 +698,78 @@ static noinline_for_stack void t33_tisp_init_ae(const u8 *bin, u32 bytes)
 		t33_ae_stat_pages = __get_free_pages(GFP_KERNEL | __GFP_ZERO, get_order(T33_AE_STAT_BYTES));
 	if (!t33_ae_hist_pages)
 		t33_ae_hist_pages = __get_free_pages(GFP_KERNEL | __GFP_ZERO, get_order(T33_AE_HIST_BYTES));
+	/* tisp_ae_weight_mean's grid: rows 0xad2, columns 0xad6 (15 a row in the buffer) */
+	t33_ae_rows = min_t(u32, t32_tp_le16(bin + off + 0xad2), T33_AE_GRID);
+	t33_ae_cols = min_t(u32, t32_tp_le16(bin + off + 0xad6), T33_AE_GRID);
 	buf = t33_mod_buf(T33_MOD_AE);
 	if (buf && t33_ae_stat_pages && t33_ae_hist_pages)
 		t33_mod_done(T33_MOD_AE, t33_ae_init(bin + off, width, height,
 						     (u32)virt_to_phys((void *)t33_ae_stat_pages),
 						     (u32)virt_to_phys((void *)t33_ae_hist_pages), buf, T33_SLOT_WORDS));
+}
+
+/* a statistics buffer, uncached: the engines write by DMA */
+static const u8 *t33_stat_va(unsigned long pages, u32 off)
+{
+	unsigned long pa = virt_to_phys((void *)pages) + off;
+
+#ifdef CONFIG_MIPS
+	return (const u8 *)CKSEG1ADDR(pa);
+#else
+	return phys_to_virt(pa);
+#endif
+}
+
+/*
+ * The statistics frames the engines finished, read as the vendor's
+ * interrupt handlers pick them (current buffer from 0x1608c / 0x1708c);
+ * the AE / AWB algorithms will run on them (openimp #389).
+ */
+static void t33_stats_work(struct work_struct *w)
+{
+	struct t33_awb_sum as;
+	struct t33_ae_sum es;
+	u32 idx, tag, m16;
+
+	if (t33_awb_stat_pages && t33_awb_rows) {
+		idx = t33_awb_buf_idx(isp_rd(T33_AWB_IDX_REG));
+		if (!t33_awb_read(t33_stat_va(t33_awb_stat_pages, idx * T33_AWB_STAT_ONE), T33_AWB_STAT_ONE,
+				  t33_awb_rows, t33_awb_cols, &as)) {
+			t33_st.awb = as;
+			t33_st.awb_frames++;
+		} else {
+			t33_st.awb_bad++;
+		}
+	}
+	if (t33_ae_stat_pages && t33_ae_rows) {
+		idx = isp_rd(T33_AE_IDX_REG);
+		if (!t33_ae_read(t33_stat_va(t33_ae_stat_pages, t33_ae_zbuf_idx(idx) * T33_AE_ZBUF_BYTES),
+				 t33_ae_rows, t33_ae_cols, &es)) {
+			t33_st.ae = es;
+			t33_st.ae_frames++;
+		} else {
+			t33_st.ae_bad++;
+		}
+		if (t33_ae_hist_pages &&
+		    !t33_ae_hist_read(t33_stat_va(t33_ae_hist_pages, t33_ae_hbuf_idx(idx) * T33_AE_HBUF_BYTES),
+				      &tag, &m16)) {
+			t33_st.mean16 = m16;
+			t33_st.hist_frames++;
+		} else if (t33_ae_hist_pages) {
+			t33_st.hist_bad++;
+		}
+	}
+}
+static DECLARE_WORK(t33_stats_w, t33_stats_work);
+
+void t33_stats_show(struct seq_file *m)
+{
+	seq_printf(m, "t33 statistics: awb %u (bad %u) grid %ux%u white %u/%u rg %u bg %u tag %u\n",
+		   t33_st.awb_frames, t33_st.awb_bad, t33_awb_cols, t33_awb_rows, t33_st.awb.white,
+		   t33_st.awb.zones, t33_st.awb.rg, t33_st.awb.bg, t33_st.awb.tag);
+	seq_printf(m, "t33 statistics: ae %u (bad %u) grid %ux%u luma %u lo %u hi %u tag %u, hist %u (bad %u) mean %u/16\n",
+		   t33_st.ae_frames, t33_st.ae_bad, t33_ae_cols, t33_ae_rows, t33_st.ae.luma, t33_st.ae.lo,
+		   t33_st.ae.hi, t33_st.ae.tag, t33_st.hist_frames, t33_st.hist_bad, t33_st.mean16);
 }
 
 /*
@@ -708,6 +791,12 @@ static noinline_for_stack void t33_tisp_init_awb(const u8 *bin, u32 bytes)
 		t33_mod_done(T33_MOD_AWB, t33_awb_init(bin + off, width, height, T33_AWB_INIT_TGAIN,
 						       (u32)virt_to_phys((void *)t33_awb_stat_pages), buf,
 						       T33_SLOT_WORDS));
+	{
+		u32 zs;
+
+		t33_awb_cols = t33_awb_zones(width, t33_awb_s16(bin + off, 0xc74), t33_awb_s16(bin + off, 0xc76), &zs);
+		t33_awb_rows = t33_awb_zones(height, t33_awb_s16(bin + off, 0xc70), t33_awb_s16(bin + off, 0xc72), &zs);
+	}
 	t33_awb_start_gain(bin + off, 0, &r, &b);
 	buf = t33_mod_buf(T33_MOD_AWBG);
 	if (buf)
@@ -980,6 +1069,9 @@ static DECLARE_WORK(t32_bringup_ae_w, t32_bringup_ae_work);
 
 static void t32_bringup_ae_kick(void)
 {
+#ifdef TX_ISP_T33
+	return;		/* it reads the T32 statistics layout */
+#endif
 	if (bringup_ae)
 		schedule_work(&t32_bringup_ae_w);
 }
@@ -1519,6 +1611,9 @@ void t32_hw_exit(void)
 		irqs_requested = 0;
 	}
 	cancel_work_sync(&t32_bringup_ae_w);	/* it reads registers and the AE buffer */
+#ifdef TX_ISP_T33
+	cancel_work_sync(&t33_stats_w);	/* it reads registers and the statistics buffers */
+#endif
 	if (regs)
 		writel(0, csi_base + 0x0c);	/* CSI host back into reset */
 	csi_reset_done = 0;

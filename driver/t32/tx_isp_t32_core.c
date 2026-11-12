@@ -954,6 +954,9 @@ static int t32_proc_show(struct seq_file *m, void *v)
 		   t32_hw_stats.bringup_steps, t32_hw_stats.bringup_mean16, t32_hw_stats.bringup_it);
 	seq_printf(m, "sensor fps %#x, stream-on list runs %u (last %u words) timeouts %u\n",
 		   t32_core_sensor_fps(), t32_rcfg_runs, t32_rcfg_last_len, t32_rcfg_timeouts);
+#ifdef TX_ISP_T33
+	t33_stats_show(m);
+#endif
 	t32_fs_show(m);
 	return 0;
 }

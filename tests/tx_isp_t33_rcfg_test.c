@@ -31,6 +31,7 @@
 #include "../driver/t32/tx_isp_t33_mdns.h"
 #include "../driver/t32/tx_isp_t33_ae.h"
 #include "../driver/t32/tx_isp_t33_awb.h"
+#include "../driver/t32/tx_isp_t33_stats.h"
 
 static int bad;
 #define CHECK(c) do { if (!(c)) { bad++; printf("FAIL line %d: %s\n", __LINE__, #c); } } while (0)
@@ -145,6 +146,61 @@ static void vs_list(const char *what, unsigned int id, const u32 *buf, int len)
 
 #define TMPL(x) x, sizeof(x) / sizeof(x[0])
 
+static void put16(u8 *p, u32 v) { p[0] = v & 0xff; p[1] = (v >> 8) & 0xff; }
+static void put32(u8 *p, u32 v) { put16(p, v & 0xffff); put16(p + 2, v >> 16); }
+
+/* T33 statistics read-out on buffers laid out as the vendor reads them (and the QEMU model writes) */
+static void test_stats(void)
+{
+	static u8 awb[T33_AWB_STAT_ONE], ae[T33_AE_ZBUF_BYTES], hist[T33_AE_HBUF_BYTES];
+	struct t33_awb_sum as = { 0 };
+	struct t33_ae_sum es = { 0 };
+	struct t33_awb_zone z;
+	u32 r, c, tag, mean16;
+
+	CHECK(T33_AE_ZTAG == 0xe18 && T33_AE_HTAG == 0x408);
+	CHECK(t33_awb_row_bytes(15) == 424 && t33_awb_row_bytes(16) == 448);
+	CHECK(t33_ae_zbuf_idx(0x21) == 2 && t33_ae_hbuf_idx(0x21) == 1 && t33_awb_buf_idx(0x7) == 3);
+	/* AWB 15 x 15: every zone white, R = 2 G, B = G / 2 */
+	put16(awb, 0x1234);
+	for (r = 0; r < 15; r++)
+		for (c = 0; c < 15; c++) {
+			u8 *p = awb + 8 + r * 424 + c * 28;
+
+			put32(p, 300); put32(p + 4, 200); put32(p + 8, 100);
+			put32(p + 12, 0x2000); put32(p + 16, 0x1000); put32(p + 20, 0x800);
+			put16(p + 24, 64); put16(p + 26, r == 0 ? 0 : 32);
+		}
+	put16(awb + t33_awb_tag_off(15, 15), 0x1234);
+	CHECK(t33_awb_tag_off(15, 15) == 8 + 15 * 424);
+	t33_awb_zone_get(awb, 15, 14, 14, &z);
+	CHECK(z.r == 300 && z.g == 200 && z.b == 100 && z.wr == 0x2000 && z.wn == 32 && z.n == 64);
+	CHECK(t33_awb_read(awb, sizeof(awb), 15, 15, &as) == 0);
+	CHECK(as.tag == 0x1234 && as.zones == 225 && as.white == 210 && as.rg == 2048 && as.bg == 512);
+	put16(awb + t33_awb_tag_off(15, 15), 0x1235);
+	CHECK(t33_awb_read(awb, sizeof(awb), 15, 15, &as) < 0);
+	CHECK(t33_awb_read(awb, sizeof(awb), 33, 15, &as) < 0);
+	/* AE 15 x 15 zones, histogram */
+	put16(ae, 7);
+	put16(ae + T33_AE_ZTAG, 7);
+	for (r = 0; r < 15; r++)
+		for (c = 0; c < 15; c++) {
+			u8 *p = ae + 8 + (r * 15 + c) * 16;
+
+			put32(p, 256); put32(p + 4, 256); put32(p + 8, 256);
+			put16(p + 12, 1); put16(p + 14, 2);
+		}
+	CHECK(t33_ae_read(ae, 15, 15, &es) == 0);
+	CHECK(es.tag == 7 && es.zones == 225 && es.luma == 675 && es.lo == 225 && es.hi == 450);
+	put16(hist, 9);
+	put16(hist + T33_AE_HTAG, 9);
+	put32(hist + 8 + 4 * 100, 10);
+	put32(hist + 8 + 4 * 200, 10);
+	CHECK(t33_ae_hist_read(hist, &tag, &mean16) == 0 && tag == 9 && mean16 == 150 * 16);
+	put16(hist + T33_AE_HTAG, 8);
+	CHECK(t33_ae_hist_read(hist, &tag, &mean16) < 0);
+}
+
 int main(void)
 {
 	static struct t32_front_write w[256];
@@ -152,6 +208,7 @@ int main(void)
 	struct t32_rcfg_list l;
 	const char *bp = getenv("T33_IQ_BIN"), *rp = getenv("T33_LIST_REF");
 
+	test_stats();
 	/* builder: ascending, block id dropped, runs merged */
 	{
 		struct t32_front_write in[] = { { 0xb048, 3 }, { 0xb010, 1 }, { 0xb000, 0x1234 }, { 0xb040, 2 },
