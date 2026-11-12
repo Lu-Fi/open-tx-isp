@@ -20,6 +20,7 @@ Runs functions of the SDK-built vendor tx-isp-t30.ko (4ea12e1f) and of our drive
   frame_channel_unlocked_ioctl(_raw)            __vb2_queue_free(queue, count) arguments (#369)
   VIDIOC_DQBUF + pending signal                 EXPECTED difference (beyond vendor, #365): vendor spins, ours returns -ERESTARTSYS
   tx_isp_sync_ldc / tx_isp_sync_ncu             frame-end watchdog: reg_set calls, counters, registers (#377)
+  ldc_core_ops_init                             spin lock address, param file size check, checksum loop step, memcpy (#418)
 
 Callees outside the function under test are hooked at their entry in both modules and logged; the
 calibration getters return synthetic tables (no vendor data).  Return values are compared only where the
@@ -28,7 +29,8 @@ OEM function returns one.  Exit 1 on any difference.
 import sys, os, random, struct
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from ko_emu import KoEmu, HEAP, HEAP_SZ
-from unicorn.mips_const import UC_MIPS_REG_A0, UC_MIPS_REG_A1, UC_MIPS_REG_A2, UC_MIPS_REG_A3, UC_MIPS_REG_SP
+from unicorn import UC_HOOK_CODE
+from unicorn.mips_const import UC_MIPS_REG_V0, UC_MIPS_REG_A0, UC_MIPS_REG_A1, UC_MIPS_REG_A2, UC_MIPS_REG_A3, UC_MIPS_REG_SP
 
 ALIAS = {"AWB_mesh": ("AWB_mesh.isra.1", "AWB_mesh_isra_1")}
 CB = 0x71000000
@@ -790,11 +792,71 @@ def t_counts(V, O, rnd, n):
             if bad < 4: print("DIFF %s: vendor %s open %s" % ("ldc_isr" if isr else "ncu_show", res[0][:3], res[1][:3]))
     return bad
 
+LDC_STEP = 0x2d4                                  # OEM ldc_core_ops_init 0x2d4: v0 = running checksum at each loop test
+def c_ldc_init(m, r, k):                # ldc_core_ops_init (OEM 0x13f0c, #418): spin lock at +476, param file size/checksum loop
+    t375_world(m, r, {}); lg = m.log
+    for f in ("arch_local_irq_save", "arch_local_irq_restore", "private_spin_unlock_irqrestore", "private_reset_tx_isp_module",
+              "filp_open", "vfs_read", "filp_close", "__kmalloc", "kfree", "snprintf", "memcpy", "ldc_frame_channel_streamoff"):
+        m.hook(f, m.rec(f, 3))
+    W = lambda a, o, v: m.e.write(a + o, struct.pack("<I", v & M32))
+    dev, s0, buf, fil, f1, f2 = (m.e.alloc(0x300, bytes(0x300)) for _ in range(6))
+    size = r.choice([24, 24 + 4 * r.randrange(1, 40), 24 + 4 * r.randrange(1, 40), 24 + 4 * r.randrange(0, 40)])   # a file below 24 bytes returns an undefined register in the OEM
+    for i in range(0, 0x300, 4): W(buf, i, r.getrandbits(32))
+    W(dev, 212, s0); W(s0, 376, r.choice([0, 2, 2, 3, 4])); W(s0, 508, r.choice([buf, buf, 0])); W(s0, 272, buf + 0x200)
+    W(fil, 12, f1); W(f1, 40, f2); W(f2, 48, size); W(f2, 52, r.choice([0, 0, 0, 1]))
+    W(buf, 16, size - 24 if r.random() < 0.85 else size)
+    m.e.write(m.e.symaddr[fname(m, "ldc_user_params")], struct.pack("<I", r.choice([0, 0, 0, 1])))
+    m.hook("filp_open", lambda e: (lg.append(("filp_open",)), fil)[1])
+    m.hook("__kmalloc", lambda e: (lg.append(("kmalloc", e.get_reg(UC_MIPS_REG_A0))), buf)[1])
+    m.hook("vfs_read", lambda e: (lg.append(("vfs_read", e.get_reg(UC_MIPS_REG_A1), e.get_reg(UC_MIPS_REG_A2))), 0)[1])
+    m.hook("private_reset_tx_isp_module", lambda e: 0)
+    for f in ("sprintf", "snprintf"): m.hook(f, lambda e: (lg.append(("sprintf",)), 0)[1])     # vendor sprintf, ours snprintf
+    m.hook("private_spin_unlock_irqrestore", lambda e: (lg.append(("unlock", e.get_reg(UC_MIPS_REG_A0))), 0)[1])
+    for f in ("kfree", "filp_close"): m.hook(f, m.rec(f, 1))
+    m.hook("arch_local_irq_save", lambda e: (lg.append(("irqsave",)), 0x55)[1])      # a0 is a stale register here
+    def mset(e):
+        a, c, kk = (e.get_reg(x) for x in (UC_MIPS_REG_A0, UC_MIPS_REG_A1, UC_MIPS_REG_A2))
+        lg.append(("memset", kk)); e.write(a, bytes([c & 0xff]) * kk); return a
+    m.hook("memset", mset)
+    def mc(e):
+        d, sr, c = (e.get_reg(x) for x in (UC_MIPS_REG_A0, UC_MIPS_REG_A1, UC_MIPS_REG_A2))
+        lg.append(("memcpy", c, bytes(e.read(sr, c)))); e.write(d, e.read(sr, c)); return d
+    m.hook("memcpy", mc)
+    return dev, s0, buf, size
+
+def ldc_init_run(m, dev, s0, buf, chk=None):
+    pd = m.e.symaddr["ldc_params_version"]; up = m.e.symaddr[fname(m, "ldc_user_params")]; nm = m.e.symaddr["ldc_params_nums"]
+    m.e.write(pd, bytes(16)); m.e.write(nm, struct.pack("<I", 6)); pdd = m.e.symaddr["tx_isp_platform_device"]; pdb = m.e.read(pdd, 16)
+    if chk is not None: m.e.write(buf + 20, struct.pack("<I", chk))
+    rr = m.e.call("ldc_core_ops_init", dev, 1)
+    return (rr.stop, None if rr.stop else s32(rr.v0), list(m.log), m.e.read(s0, 0x300), m.e.read(buf, 0x300), m.e.read(pd, 16), m.e.read(up, 4), m.e.read(nm, 4), m.e.read(pdd, 16) == pdb)
+
+def t_ldc_init(V, O, rnd, n):
+    V, O = Mod(V.path, {}), Mod(O.path, {})
+    bad = 0; okp = 0; sums = []
+    V.e.uc.hook_add(UC_HOOK_CODE, lambda uc, a, sz, ud: sums.append(uc.reg_read(UC_MIPS_REG_V0)), None,
+                    V.e.symaddr["ldc_core_ops_init"] + LDC_STEP, V.e.symaddr["ldc_core_ops_init"] + LDC_STEP)
+    for k in range(n):
+        seed = rnd.getrandbits(32); res = []
+        # probe the vendor's running checksum once so the success path (OEM 0x324: memcpy of the 16 header bytes) is reached
+        del sums[:]
+        pr = random.Random(seed); dev, s0, buf, sz = c_ldc_init(V, pr, k); ldc_init_run(V, dev, s0, buf)
+        chk = sums[-1] if sums and pr.random() < 0.8 else None
+        for m in (V, O):
+            r = random.Random(seed); dev, s0, buf, sz = c_ldc_init(m, r, k)
+            res.append(ldc_init_run(m, dev, s0, buf, chk))
+        okp += any(x[0] == "memcpy" for x in res[0][2])
+        if res[0] != res[1]:
+            bad += 1
+            if bad < 4: print("DIFF ldc_init k=%d fields %s: vendor %s open %s" % (k, [i for i in range(9) if res[0][i] != res[1][i]], str(res[0][:3])[:200], str(res[1][:3])[:200]))
+    if "-v" in sys.argv: print("  ldc_init: %d/%d reached the memcpy (checksum ok)" % (okp, n))
+    return bad
+
 TESTS = [("nr_selectors", t_nr), ("general_frame_start", t_general), ("fsm_switch_state", t_fsm), ("crop_event", t_crop),
          ("sbus_write_u8", t_sbus), ("awb_normalise", t_normalise), ("event_queue_push", t_queue),
          ("awb_mesh_chain", t_mesh), ("compute_weight", t_weight), ("awb_calc_mesh", t_calc),
          ("gp_lock_paths", t_gp_lock), ("ioctl_uaccess", t_uaccess),
-         ("ptr_scale", t_ptr_scale), ("fci_args", t_fci_args), ("sync_watchdog", t_sync), ("ldc_ncu_counts", t_counts),
+         ("ptr_scale", t_ptr_scale), ("fci_args", t_fci_args), ("sync_watchdog", t_sync), ("ldc_ncu_counts", t_counts), ("ldc_core_ops_init", t_ldc_init),
          ("dqbuf_signal(expected diff)", t_dqbuf_signal)]
 
 def main():

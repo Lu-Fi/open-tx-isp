@@ -1687,6 +1687,9 @@ static unsigned char __attribute__((aligned(4))) ldc_subdev_ops[20] = {
     0x00, 0x00, 0x00, 0x00,
 };
 static struct lock_class_key ldc_mlock_key;
+static unsigned char ldc_params_version[16];
+/* OEM .rodata+0x944: 8-entry table of the 3-bit CRC step in ldc_core_ops_init (#418) */
+static const uint32_t ldc_crc_tab[8] = { 0x0, 0x77073096, 0xee0e612c, 0x990951ba, 0x076dc419, 0x706af48f, 0xe963a535, 0x9e6495a3 };
 static uintptr_t ldc_params_nums = 6;	/* #365: OEM .data 0xb434 = 6 (was 0: no LDC resolution ever matched) */
 static unsigned char __attribute__((aligned(4))) ldc_default_params[6624] = {
     0x00, 0x05, 0x00, 0x00, 0xd0, 0x02, 0x00, 0x00, 0x00, 0x05, 0x00, 0x00, 0x00, 0x05, 0x00, 0x00,
@@ -20887,7 +20890,7 @@ ldc_core_ops_init0x2b0:
     a3 = a1;
     v1 = v1 + a1;
     v0 = 0;
-    t0 = t0 + 2372;
+    t0 = (uint32_t)(uintptr_t)ldc_crc_tab;	/* #418: OEM .rodata+2372 (the lift kept the raw offset 2372 = a wild read) */
 
 ldc_core_ops_init0x2d0:
     /* fragment 50: Branch */
@@ -20923,8 +20926,10 @@ ldc_core_ops_init0x300:
 
 ldc_core_ops_init0x324:
     /* fragment 57: CallSetup */
-    *(uint32_t *)((char *)&tx_isp_platform_device + -19404) = v1;
-    v0 = (uintptr_t *)memcpy((void *)(int32_t *)&tx_isp_platform_device, (void *)(uintptr_t)a1, 16); /* jalr target resolved by relocation */
+    /* #418: OEM 0x14230..0x14254 stores (size-24)/1104 to ldc_params_nums (.data+0xb434) and copies the 16 header bytes to
+     * ldc_params_version (.data+0xce18); the lift wrote -19404 bytes before tx_isp_platform_device and over the device itself. */
+    ldc_params_nums = a2 / 1104;
+    v0 = (uintptr_t *)memcpy((void *)ldc_params_version, (void *)(uintptr_t)a1, 16); /* jalr target resolved by relocation */
 
     /* fragment 58: Branch */
     v0 = (uintptr_t *)&arch_local_irq_save;
