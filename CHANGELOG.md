@@ -4,6 +4,14 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD[-rcN]` are set on the `aperto` branch, the same tag in open-tx-isp and OpenIMP: RC1 `v2026.10.11-rc1`, RC2 `v2026.10.25-rc2`, RC3 `v2026.11.07-rc3` (2026-11-07). Gate SoCs of RC3 and Release 1: T10, T20, T21, T23, T30, T31, T40, T41 (T32/T33 planned, QEMU only); release notes: [docs/releases/ in OpenIMP](https://github.com/Lu-Fi/openimp/blob/next/docs/releases/README.md). Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-11-12: T32/T33 /dev/tx-isp: sensor G_REGISTER, frame drop, internal channel attribute (openimp #429; planned, QEMU only)
+
+- The core served none of four commands the vendor libimp 2.0.2.1 issues, so `IMP_ISP_GetSensorRegister`, `IMP_ISP_SetFrameDrop` / `GetFrameDrop` and `IMP_ISP_GetInternalChnAttr` got -ENOTTY (-25) from the open module and 0 from the vendor module. Now served in `tx_isp_t32_core.c` (both modules).
+- `0x8040540e` G_REGISTER (vendor `tx_isp_sensor_g_register`): 64 B block in, sensor event 0x02000012, block out; a sensor without a handler is skipped, no sensor answers 0.
+- `0xc004542c` / `0xc004542d` SET / GET_FRAME_DROP (vendor `tx_isp_{set,get}_frame_drop` -> `tisp_msca_api_{set,get}_frame_drop`): per MSCA output the skip register (0xf0120 + 0x100 n) and mask register (0xf0124 + 0x100 n); enable != 1 writes 0 / 0xffffffff, lsize >= 32 prints the vendor message and returns -1; GET reads both back and forces the enable word to 1.
+- `0xc0045430` / `0xc004542f` (internal channel attribute get / set): the vendor dispatcher has no handler (T33 module `tx_isp_unlocked_ioctl`), the command falls out of the tree with 0 and the block is left alone; same here.
+- Evidence: QEMU `-M ingenic-t33`, vendor libimp 2.0.2.1: the four -25 results are gone and match the vendor module (see the issue). T32 module code changes by the same handlers.
+
 ## 2026-11-12: T33 tuning controls (openimp #389, #429, #431; planned, QEMU only)
 
 - `tx-isp-t33.ko` now builds the T32 tuning controls (`tx_isp_t32_tunctl.c`, `tx_isp_t32_tunblk.c`); the AE / AWB / statistics ids run on the T33 AE / AWB blocks (`t32_aec_api_*` / `t32_awbc_api_*` in `driver/t33`). Vendor T33 dispatcher id set = T32 set minus 0x9b (Ghidra, vendor `tx_isp_core_ops_s_ctrl` 0x18170 / `_g_ctrl` 0x19dfc). Frame-done wakeup (0x91) on T33 too; mask / draw / OSD ids stored as the vendor's (no MSCA OSD path on T33 yet).

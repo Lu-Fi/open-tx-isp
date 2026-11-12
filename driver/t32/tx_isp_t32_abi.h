@@ -37,6 +37,10 @@
 #define T32_IOC_GET_ISP_MEM_INFO	0x800c5410U	/* W t32_buf_info; driver writes size */
 #define T32_IOC_SET_ISP_IPC_MEM_INFO	0x800c5438U
 #define T32_IOC_GET_ISP_IPC_MEM_INFO	0x800c5439U	/* driver writes size (0 = none) */
+#define T32_IOC_SET_FRAME_DROP		0xc004542cU	/* RW 40 B {u8 vi, 3 x {enable, u8 lsize, fmark}} (vendor tx_isp_set_frame_drop) */
+#define T32_IOC_GET_FRAME_DROP		0xc004542dU	/* same block, driver fills lsize / fmark (tx_isp_get_frame_drop) */
+#define T32_IOC_SET_INTERNAL_CHN_ATTR	0xc004542fU	/* libimp IMP_ISP_SetInternalChnAttr: no vendor handler, answered 0, block untouched */
+#define T32_IOC_GET_INTERNAL_CHN_ATTR	0xc0045430U	/* libimp IMP_ISP_GetInternalChnAttr: same */
 #define T32_IOC_MEMORY_MALLOC		0x800c543aU	/* W {.., .., size}; driver writes {kva, pa, size} */
 #define T32_IOC_MEMORY_FREE		0x800c543bU	/* W {kva, 0, ..} */
 #define T32_IOC_SET_TIZIANO_PAR		0xc00454c8U	/* RW int: pa of a MEMORY_MALLOC buffer (IQ bin) */
@@ -189,6 +193,7 @@ struct t32_sensor_reginfo {
 
 /* sensor ops ioctl events (NOTIFICATION_TYPE_SENSOR_OPS 0x02000000 + n) with a
  * struct { int vinum; int value; } argument */
+#define T32_EVENT_SENSOR_GET_REG	0x02000012U	/* 64 B register block, in and out */
 #define T32_EVENT_SENSOR_FPS		0x0200000aU	/* value fps_num << 16 | fps_den */
 #define T32_EVENT_SENSOR_EXPO		0x02000017U	/* value again << 16 | integration lines (cv8001: arg + 4) */
 

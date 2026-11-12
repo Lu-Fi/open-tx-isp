@@ -425,6 +425,107 @@ static int t32_set_tiziano_par(const struct t32_tiziano_par *par)
 #define T32_GET(arg, var) (copy_from_user(&(var), (void __user *)(arg), sizeof(var)) ? -EFAULT : 0)
 #define T32_PUT(arg, var) (copy_to_user((void __user *)(arg), &(var), sizeof(var)) ? -EFAULT : 0)
 
+/*
+ * Vendor /dev/tx-isp commands the vendor libimp 2.0.2.1 issues (openimp #429):
+ *
+ * G_REGISTER 0x8040540e (tx_isp_sensor_g_register, T33 vendor module
+ * 0x267a0 branch at 0x8040540e): 64 B block copied in, sensor ioctl event
+ * 0x02000012, block copied out; a sensor without a handler (-ENOIOCTLCMD
+ * -515) is skipped, any other error is returned, no sensor answers 0.
+ */
+static long t32_sensor_g_register(struct t32_vi *vi, unsigned long arg)
+{
+	u8 b[64];
+	int (*ioctl)(void *sd, unsigned int cmd, void *arg);
+	void *ops, *grp;
+
+	if (copy_from_user(b, (void __user *)arg, sizeof(b))) {
+		isp_printf(2, "[ %s:%d ] copy from user error\n", "tx_isp_sensor_g_register", 0x3c4);
+		return -EFAULT;
+	}
+	if (vi->registered && vi->sd) {
+		ops = T32_AT(vi->sd, T32_SD_OPS, void *);
+		grp = ops ? T32_AT(ops, T32_OPS_SENSOR, void *) : NULL;
+		ioctl = grp ? T32_AT(grp, T32_SENSOR_OPS_IOCTL, void *) : NULL;
+		if (ioctl) {
+			int r = ioctl(vi->sd, T32_EVENT_SENSOR_GET_REG, b);
+
+			if (r && r != -ENOIOCTLCMD)
+				return r;
+		}
+	}
+	if (copy_to_user((void __user *)arg, b, sizeof(b))) {
+		isp_printf(2, "[ %s:%d ] copy from user error\n", "tx_isp_sensor_g_register", 0x3d2);
+		return -EFAULT;
+	}
+	return 0;
+}
+
+/*
+ * SET_FRAME_DROP 0xc004542c / GET_FRAME_DROP 0xc004542d (tx_isp_set_frame_drop
+ * / tx_isp_get_frame_drop, vendor 0x267a0; tisp_msca_api_{set,get}_frame_drop,
+ * single-sensor direct path): 40 B block {u8 vi, 3 x {u32 enable, u8 lsize,
+ * u32 fmark}}.  Set per output k: enable 1 -> skip reg = lsize (>= 32: message,
+ * -1, the last output's result is the ioctl result like the vendor loop),
+ * mask reg = fmark; otherwise skip 0, mask 0xffffffff.  Get: lsize and mask
+ * read back, enable word forced to 1, result 0.  The vi byte is not used
+ * (one MSCA).
+ */
+#define T32_FD_BLOCK	40
+#define T32_FD_OUTPUTS	3
+
+static long t32_frame_drop_set(unsigned long arg)
+{
+	u32 b[T32_FD_BLOCK / 4];
+	long r = 0;
+	int k;
+
+	if (copy_from_user(b, (void __user *)arg, sizeof(b))) {
+		isp_printf(2, "[ %s:%d ] copy from user error\n", "tx_isp_set_frame_drop", 0x775);
+		return -EFAULT;
+	}
+	for (k = 0; k < T32_FD_OUTPUTS; k++) {
+		u32 *e = &b[1 + 3 * k], skip = 0, mask = 0xffffffff;
+
+		r = 0;
+		if (e[0] == 1) {
+			skip = *(u8 *)(e + 1);
+			if (skip >= 32) {
+				isp_printf(1, "FPS over 32 in the numerator or denominator!!! Setup failed!!!\n");
+				r = -1;
+				continue;
+			}
+			mask = e[2];
+		}
+		t32_hw_wr(T32_MSCA_FDROP_SKIP(k), skip);
+		t32_hw_wr(T32_MSCA_FDROP_MASK(k), mask);
+	}
+	return r;
+}
+
+static long t32_frame_drop_get(unsigned long arg)
+{
+	u32 b[T32_FD_BLOCK / 4];
+	int k;
+
+	if (copy_from_user(b, (void __user *)arg, sizeof(b))) {
+		isp_printf(2, "[ %s:%d ] copy from user error\n", "tx_isp_get_frame_drop", 0x7a6);
+		return -EFAULT;
+	}
+	for (k = 0; k < T32_FD_OUTPUTS; k++) {
+		u32 *e = &b[1 + 3 * k];
+
+		*(u8 *)(e + 1) = (u8)t32_hw_rd(T32_MSCA_FDROP_SKIP(k));
+		e[2] = t32_hw_rd(T32_MSCA_FDROP_MASK(k));
+		e[0] = 1;
+	}
+	if (copy_to_user((void __user *)arg, b, sizeof(b))) {
+		isp_printf(2, "[ %s:%d ] copy to user error\n", "tx_isp_get_frame_drop", 0x7b5);
+		return -EFAULT;
+	}
+	return 0;
+}
+
 static long t32_isp_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 {
 	struct t32_vi *vi = &core.vi[0];
@@ -604,6 +705,20 @@ static long t32_isp_ioctl(struct file *file, unsigned int cmd, unsigned long arg
 	case T32_IOC_SET_AE_START_EV:
 	case T32_IOC_GET_AE_START_EV:
 		ret = t32_tunctl_ae_start(cmd, arg);
+		break;
+	case T32_IOC_GET_SENSOR_REGISTER:
+		ret = t32_sensor_g_register(vi, arg);
+		break;
+	case T32_IOC_SET_FRAME_DROP:
+		ret = t32_frame_drop_set(arg);
+		break;
+	case T32_IOC_GET_FRAME_DROP:
+		ret = t32_frame_drop_get(arg);
+		break;
+	case T32_IOC_SET_INTERNAL_CHN_ATTR:
+	case T32_IOC_GET_INTERNAL_CHN_ATTR:
+		/* no handler in the vendor dispatcher: it falls out of the
+		 * command tree with 0 and leaves the user block alone */
 		break;
 	default:
 		ret = -ENOTTY;

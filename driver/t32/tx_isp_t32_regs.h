@@ -88,6 +88,8 @@
 #define T32_MSCA_CH_EN2			0xf004c
 #define T32_MSCA_BUSY			0xf0054
 #define T32_MSCA_CH(n)			(0xf0100 + (n) * 0x100)
+#define T32_MSCA_FDROP_SKIP(n)		(0xf0120 + (n) * 0x100)	/* frame drop: pattern length - 1 */
+#define T32_MSCA_FDROP_MASK(n)		(0xf0124 + (n) * 0x100)	/* frame drop: drop mask */
 #define T32_MSCA_SHADOW_OPEN		0xf8000	/* (value, offset) pair port */
 #define T32_MSCA_SHADOW_DATA		0xf8004
 #define T32_MSCA_SHADOW_COUNT		0xf8100	/* pairs << 4 | 1 after a block */
