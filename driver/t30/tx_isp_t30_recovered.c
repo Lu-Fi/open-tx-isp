@@ -21092,7 +21092,7 @@ int tx_isp_ldc_probe(struct platform_device *pdev)
 	int ret;
 	uint32_t m1_bufs;
 	void *bufs;
-	uint32_t *i;
+	int i;	/* #463: buffer counter (vendor 14468 addiu v1,v1,1, slt vs +0x1c0); was uint32_t *, i++ = +4 */
 	uint32_t *entry;
 	void *list_head;
 	void *pad1;
@@ -21126,8 +21126,8 @@ int tx_isp_ldc_probe(struct platform_device *pdev)
 		bufs = __kmalloc(m1_bufs << 4, GFP_KERNEL);
 		*(uint32_t *)((char *)ldc_dev + 0x1b8) = (uint32_t)bufs;
 		if (bufs != 0) {
-			for (i = 0; i < m1_bufs; i++) {
-				entry = (uint32_t *)((uintptr_t)bufs + ((uintptr_t)i << 4));
+			for (i = 0; i < (int)m1_bufs; i++) {
+				entry = (uint32_t *)((uintptr_t)bufs + ((uintptr_t)(unsigned int)i << 4));
 				((void **)entry)[0] = (uint32_t)entry;
 				((void **)entry)[1] = (uint32_t)entry;
 				((void **)entry)[3] = (uint32_t)ldc_dev;
@@ -22493,11 +22493,11 @@ int mscaler_core_ops_init(void *arg1, int arg2)
 	int state;
 	int ret;
 	unsigned long flags;
-	int *i;
+	unsigned int i;	/* #463: channel counter (vendor 16bec addiu s1,s1,1, sltu); was int *, i++ = +4 */
 	void *ch_base;
-	int ch_count;
+	unsigned int ch_count;
 	void *vid_base;
-	int vid_count;
+	unsigned int vid_count;
 	int *result = -22;
 
 	if (arg1 != NULL && (unsigned long)arg1 < 0xfffff001UL) {
@@ -22510,19 +22510,19 @@ int mscaler_core_ops_init(void *arg1, int arg2)
 				if (arg2 == 0) {
 					if (state == 4) {
 						ch_base = *(void **)((char *)s0 + 0x138);
-						ch_count = *(int *)((char *)s0 + 0x13c);
+						ch_count = *(unsigned int *)((char *)s0 + 0x13c);
 						for (i = 0; i < ch_count; i++) {
-							mscaler_frame_channel_streamoff_isra_0(*(void **)((uintptr_t)ch_base + (uintptr_t)i * 0x90 + 0x60));
-							*(int *)((uintptr_t)ch_base + (uintptr_t)i * 0x90 + 0x50) = 2;
+							mscaler_frame_channel_streamoff_isra_0(*(void **)((uintptr_t)ch_base + i * 0x90 + 0x60));
+							*(int *)((uintptr_t)ch_base + i * 0x90 + 0x50) = 2;
 						}
 						mscaler_video_s_stream(arg1, 0);
 					}
 					spin_lock_irqsave((spinlock_t *)((char *)s0 + 0xdc), flags);
 					*(int *)((char *)s0 + 0xe8) = 2;
 					vid_base = *(void **)((char *)s0 + 0x144);
-					vid_count = *(int *)((char *)s0 + 0x148);
+					vid_count = *(unsigned int *)((char *)s0 + 0x148);
 					for (i = 0; i < vid_count; i++)
-						*(int *)((uintptr_t)vid_base + (uintptr_t)i * 0x5c + 0x50) = 2;
+						*(int *)((uintptr_t)vid_base + i * 0x5c + 0x50) = 2;
 					private_spin_unlock_irqrestore((spinlock_t *)((char *)s0 + 0xdc), flags);
 					result = 0;
 				} else {
@@ -22532,13 +22532,13 @@ int mscaler_core_ops_init(void *arg1, int arg2)
 						if (*(int *)((char *)s0 + 0xe8) == 2) {
 							*(int *)((char *)s0 + 0xe8) = 3;
 							ch_base = *(void **)((char *)s0 + 0x138);
-							ch_count = *(int *)((char *)s0 + 0x13c);
+							ch_count = *(unsigned int *)((char *)s0 + 0x13c);
 							for (i = 0; i < ch_count; i++)
-								*(int *)((uintptr_t)ch_base + (uintptr_t)i * 0x90 + 0x50) = 3;
+								*(int *)((uintptr_t)ch_base + i * 0x90 + 0x50) = 3;
 							vid_base = *(void **)((char *)s0 + 0x144);
-							vid_count = *(int *)((char *)s0 + 0x148);
+							vid_count = *(unsigned int *)((char *)s0 + 0x148);
 							for (i = 0; i < vid_count; i++)
-								*(int *)((uintptr_t)vid_base + (uintptr_t)i * 0x5c + 0x50) = 3;
+								*(int *)((uintptr_t)vid_base + i * 0x5c + 0x50) = 3;
 							private_spin_unlock_irqrestore((spinlock_t *)((char *)s0 + 0xdc), flags);
 							result = 0;
 						} else {
