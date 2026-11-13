@@ -11,6 +11,11 @@ marked otherwise. Release tags `vYYYY.MM.DD[-rcN]` are set on the `aperto` branc
 - b69 device data (T30X, same scene): AE histogram equal (mean bin 91.4 / 91.1); the 0x3c4 median gap (vendor 0x42, open 0x58) is mostly convergence: the vendor was still rising (0x56 at the last sample, 3dc 0xac..0xff while its AE settled), open settled at 0x58 after ~6 s. Settled-state check planned as b70.
 - Host: `t30_lift_oracle` new case `set_exposure_target` (vendor ko vs our object in Unicorn, 200 cases: hysteresis, gate, ratio clamp) ok; full oracle ok.
 
+## 2026-11-13: low findings F11 and F13 of the fleet review (openimp #347)
+
+- F11 T40 IMP_ISP_WDR_OPEN (0xc0045432): the sensor number (one user byte) indexed `core_priv + 1564 + sensor` unchecked; a number outside the three sensor slots is now refused with -EINVAL (valid numbers behave as before).
+- F13 T30 `ae_calculate_exposure_ratio`: the histogram walk stops at bin 0, so an all-zero histogram (simple_3a=0 only) can no longer step below the histogram; result for every real histogram is unchanged (t30_ae_balanced 464/464 equal to the vendor ko).
+
 ## 2026-11-13: t41_awb_algo_host no longer flaky under load (openimp #435)
 
 - Cause (harness race, not a driver bug: the pool is static and zeroed, the lock covers the block): case 7 asserted `g.done` right after the close returned, but the getter thread sets `done` only after its GET returned, which can be after the close got the lock; and "GET is inside the fill hook" was assumed after a fixed 60 ms sleep, so a late thread made the close win (GET answered -EINVAL, `ret != 0`).

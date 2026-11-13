@@ -41301,7 +41301,8 @@ uint32_t ae_calculate_exposure_ratio(int32_t *arg1)
 		uint32_t idx = 255;
 		uint32_t cum = (uint32_t)arg1[0x42c / 4];
 
-		while (thr >= cum) {
+		/* #347 F13: stop at bin 0 (an all-zero histogram made idx wrap and read below the histogram) */
+		while (thr >= cum && idx > 0) {
 			idx--;
 			cum += (uint32_t)arg1[0x30 / 4 + idx];
 		}
