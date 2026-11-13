@@ -514,8 +514,9 @@ out_unlock:
     return ret;
 }
 
-static struct tx_isp_subdev *isp_i2c_new_subdev_board(struct i2c_adapter *adapter,
-                                                      struct i2c_board_info *info);
+/* vendor path only; mainline (>= 5.0) resolves the sensor from DT */
+static __maybe_unused struct tx_isp_subdev *
+isp_i2c_new_subdev_board(struct i2c_adapter *adapter, struct i2c_board_info *info);
 int tx_isp_register_sensor_subdev(struct tx_isp_subdev *sd,
                                   struct tx_isp_sensor *sensor);
 int tx_isp_unregister_sensor_subdev(struct tx_isp_subdev *sd);
@@ -553,7 +554,9 @@ long subdev_sensor_ops_ioctl(struct tx_isp_subdev *sd, unsigned int cmd, void *a
         struct tx_isp_sensor_register_info *reg_info =
                 (struct tx_isp_sensor_register_info *)arg;
         struct i2c_adapter *adapter;
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 0, 0)
         struct i2c_board_info sensor_board_info;
+#endif
         struct tx_isp_subdev *sensor_sd = NULL;
         struct tx_isp_sensor *sensor = NULL;
         int ret;
@@ -580,23 +583,16 @@ long subdev_sensor_ops_ioctl(struct tx_isp_subdev *sd, unsigned int cmd, void *a
                     reg_info->i2c.type, reg_info->i2c.addr, i2c_adapter_num);
 
             /*
-             * Prefer the mainline V4L2 subdev that already probed from DT.
-             * Creating the vendor i2c client below would collide with the
-             * DT client at the same address and would not speak V4L2.
+             * On mainline kernels the sensor is described in DT and its V4L2
+             * driver owns the i2c client. Never instantiate a client from the
+             * address the streamer sent: if the DT node has not probed yet,
+             * defer (-ENODEV below) until it does. A vendor client at a
+             * guessed address would probe the wrong device and would not
+             * speak V4L2.
              */
             sensor_sd = tx_isp_v4l2_sensor_get(adapter, reg_info->i2c.type);
-            if (sensor_sd) {
+            if (sensor_sd)
                 global_v4l2_sensor_sd = sensor_sd;
-            } else {
-                /* Stock: Build board_info from sensor_register_info */
-                memset(&sensor_board_info, 0, sizeof(sensor_board_info));
-                memcpy(sensor_board_info.type, reg_info->i2c.type,
-                       sizeof(sensor_board_info.type));
-                sensor_board_info.addr = reg_info->i2c.addr;
-
-                /* Stock: isp_i2c_new_subdev_board returns the SUBDEV, not client */
-                sensor_sd = isp_i2c_new_subdev_board(adapter, &sensor_board_info);
-            }
 #else
             /* Stock: Build board_info from sensor_register_info */
             memset(&sensor_board_info, 0, sizeof(sensor_board_info));
@@ -907,8 +903,8 @@ int netlink_send_msg(const void *data, size_t len)
 static struct tx_isp_sensor_pins tx_isp_t31_sensor_pins =
     TX_ISP_SENSOR_PINS_INIT(tx_isp_t31_sensor_pins);
 
-static struct tx_isp_subdev *isp_i2c_new_subdev_board(struct i2c_adapter *adapter,
-                                                      struct i2c_board_info *info)
+static __maybe_unused struct tx_isp_subdev *
+isp_i2c_new_subdev_board(struct i2c_adapter *adapter, struct i2c_board_info *info)
 {
     struct i2c_client *client;
     struct device *dev;
