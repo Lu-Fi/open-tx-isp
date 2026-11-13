@@ -23,6 +23,8 @@ Runs functions of the SDK-built vendor tx-isp-t30.ko (4ea12e1f) and of our drive
   tx_isp_sync_ldc / tx_isp_sync_ncu             frame-end watchdog: reg_set calls, counters, registers (#377)
   ldc_core_ops_init                             spin lock address, param file size check, checksum loop step, memcpy (#418)
   cmos_set_exposure_target                      isp+0x11c hysteresis, +0x2fc gate, ratio clamp (#428)
+  sensor_fsm_clear / sensor_init_output / sensor_sw_init   whole random buffer: byte/half stores at +0xde..+0xf2,
+                                                u16 +0x46/+0x48/+0xe6, callback +0xb4(fsm + 0x28) (#463, lift indexed void **)
   AWB gain registers                            vendor cmos_fsm_process_interrupt(0) WB stage vs our
                                                 tx_isp_t30_awb_gain_registers: 0x300..0x30c from AWB +0x760,
                                                 exp2 precision, 0xfff clamp, WDR black-level factor (#459)
@@ -39,6 +41,7 @@ from unicorn.mips_const import UC_MIPS_REG_V0, UC_MIPS_REG_A0, UC_MIPS_REG_A1, U
 
 ALIAS = {"AWB_mesh": ("AWB_mesh.isra.1", "AWB_mesh_isra_1")}
 CB = 0x71000000
+JUNK = 0x72000000
 M32 = 0xffffffff
 
 def s32(v): return v - (1 << 32) if v & 0x80000000 else v
@@ -642,8 +645,40 @@ def c_gctrl(m, r, k):                   # apical_isp_core_ops_g_ctrl: jump-table
     return (rr.stop, s32(rr.v0), m.e.read(ctl, 8), m.e.read(ub, 0x100), cid, list(m.log),
             m.e.read(tun + 0x828, 0xf0) if cid == 0x8000020 else b"")
 
+def c_sensor_clear(m, r, k):             # sensor_fsm_clear (#463): byte/half stores at +0xde..+0xf2, whole buffer
+    t375_world(m, r, {})
+    b = m.e.alloc(0x800, bytes(r.getrandbits(8) for _ in range(0x800)))
+    rr = m.e.call("sensor_fsm_clear", b)
+    return rr.stop, rr.v0 & 0xffff, m.e.read(b, 0x800)
+
+def c_sensor_out(m, r, k):               # sensor_init_output (#463): u16 +0xe6 from u16 +0x48 and arg2, whole buffer + v0
+    t375_world(m, r, {})
+    d = bytearray(r.getrandbits(8) for _ in range(0x800))
+    d[0x48:0x4a] = struct.pack("<H", r.choice([480, 720, 1080, 1296, r.getrandbits(16)]))
+    b = m.e.alloc(0x800, bytes(d))
+    rr = m.e.call("sensor_init_output", b, r.choice([0, 720, 1080, r.getrandbits(32)]))
+    return rr.stop, rr.v0, m.e.read(b, 0x800)
+
+def c_sensor_sw(m, r, k):                # sensor_sw_init (#463): u16 +0x46/+0x48/+0xe6, callback +0xb4(fsm + 0x28)
+    regs = {a: r.getrandbits(32) for a in (0x10, 0x14, 0x110, 0x118, 0x124, 0x130)}
+    wl = t375_world(m, r, regs)
+    m.hook("apical_wdr_fs_isp_setup", m.rec("apical_wdr_fs_isp_setup", 3)); m.hook("sensor_update_black", m.rec("sensor_update_black", 1))
+    m.e.stubname[CB + 0x200] = "sw_cb"; m.e.hle["sw_cb"] = m.rec("sw_cb", 3, 0x5a5a)
+    if JUNK not in m.e.stubname:          # every word of the buffer is a callable trap: a call through a wrong offset is logged
+        m.e.uc.mem_map(JUNK, 0x10000); m.e.hle["junk_cb"] = m.rec("junk_cb", 3)
+        for a in range(JUNK, JUNK + 0x10000, 4): m.e.stubname[a] = "junk_cb"
+    d = bytearray(struct.pack("<%dI" % (0x800 // 4), *(JUNK | (r.getrandbits(16) & 0xfffc) for _ in range(0x800 // 4))))
+    for o in (0x46, 0x48, 0xe6): d[o:o + 2] = struct.pack("<H", r.choice([480, 720, 1080, 1296, r.getrandbits(16)]))
+    d[0xb4:0xb8] = struct.pack("<I", CB + 0x200)
+    b = m.e.alloc(0x800, bytes(d))
+    rr = m.e.call("sensor_sw_init", b)
+    log = [(x[0],) + tuple(v - b if b <= v < b + 0x800 else v for v in x[1:]) for x in m.log]
+    for f in ("apical_wdr_fs_isp_setup", "sensor_update_black"): m.unhook(f)
+    return rr.stop, wl, log, m.e.read(b, 0x800)
+
 C375 = (("roi", c_roi), ("vflip", c_vflip), ("gain_log2", c_gain), ("api_buffer", c_apibuf), ("release_all", c_release),
-        ("ae_weight", c_weight), ("dis_stats", c_dis), ("g_ctrl", c_gctrl))
+        ("ae_weight", c_weight), ("dis_stats", c_dis), ("g_ctrl", c_gctrl),
+        ("sensor_fsm_clear", c_sensor_clear), ("sensor_init_output", c_sensor_out), ("sensor_sw_init", c_sensor_sw))
 def t_ptr_scale(V, O, rnd, n):
     V, O = Mod(V.path, {}), Mod(O.path, {})          # fresh modules: no hooks/state of the other groups
     bad = 0
@@ -653,8 +688,18 @@ def t_ptr_scale(V, O, rnd, n):
             res = [c(m, random.Random(seed), k) for m in (V, O)]
             if res[0] != res[1]:
                 bad += 1
-                if bad < 8: print("DIFF %s k=%d: vendor %s open %s" % (nm, k, str(res[0])[:300], str(res[1])[:300]))
+                if bad < 8: print("DIFF %s k=%d: %s" % (nm, k, diffdesc(res[0], res[1])))
     return bad
+
+def diffdesc(a, b):
+    """first differing element; for byte buffers the differing offsets (vendor/open bytes)"""
+    if isinstance(a, tuple) and isinstance(b, tuple) and len(a) == len(b):
+        for i, (x, y) in enumerate(zip(a, b)):
+            if x != y: return "[%d] %s" % (i, diffdesc(x, y))
+    if isinstance(a, bytes) and isinstance(b, bytes) and len(a) == len(b):
+        d = [i for i in range(len(a)) if a[i] != b[i]]
+        return "bytes differ at " + " ".join("+%#x(%02x/%02x)" % (i, a[i], b[i]) for i in d[:12]) + (" ..%d" % len(d) if len(d) > 12 else "")
+    return "vendor %s open %s" % (str(a)[:300], str(b)[:300])
 
 # frame_channel_unlocked_ioctl(_raw): __vb2_queue_free(queue, count) (#369: the lift passed the queue only, count = stale a1)
 FCI_CMDS = (0xc0145608, 0x40045613, 0x40045612, 0x80045613, 0xc0505609, 0x40445611)

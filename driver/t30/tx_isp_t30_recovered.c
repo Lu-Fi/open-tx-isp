@@ -36896,7 +36896,6 @@ int32_t crop_initialize(int32_t *arg1)
 	uint8_t *fsm = (uint8_t *)arg1;
 	uint8_t *isp = (uint8_t *)(uintptr_t)arg1[0];
 	uint32_t i;
-	uint16_t width;
 	uint16_t height;
 
 	arg1[3] = 0x20;
@@ -36943,9 +36942,10 @@ int32_t crop_initialize(int32_t *arg1)
 	fsm[0x10] = 0;
 	fsm[0x1e] = 0;
 
-	width = *(uint16_t *)(isp + 0xf2);
+	/* vendor 29194..291b8: lhu 242 (sensor+0xe6, now really set by sensor_fsm_clear, #463); both arms
+	 * of the == 1080 test store 1920 x 1080 */
 	*(uint16_t *)(fsm + 0x2a) = 0x780;
-	*(uint16_t *)(fsm + 0x2c) = width == 0x438 ? width : 0x438;
+	*(uint16_t *)(fsm + 0x2c) = 0x438;
 
 	height = *(uint16_t *)(isp + 0x54);
 	fsm[0x28] = height >= 0x439;
@@ -38643,12 +38643,14 @@ int32_t sensor_fsm_clear(void *arg1)
 {
 	uint8_t *p = (uint8_t *)arg1;
 
-	((void **)p)[0xe0] = 0x1a5e0;
-	((void **)p)[0xde] = 0;
-	((void **)p)[0xe4] = 0;
-	((void **)p)[0xe6] = 0x438;
-	((void **)p)[0xf0] = 0;
-	((void **)p)[0xf2] = 0;
+	/* #463: byte offsets as the vendor ko (2d3d0: sw 224 / sb 222 / sb 228 / sh 230 / sb 240 / sb 242);
+	 * the lift indexed void ** (offset x4, 4-byte stores) into the AE histogram */
+	*(uint32_t *)(p + 0xe0) = 0x1a5e0;
+	p[0xde] = 0;
+	p[0xe4] = 0;
+	*(uint16_t *)(p + 0xe6) = 0x438;
+	p[0xf0] = 0;
+	p[0xf2] = 0;
 	return 0x438;
 }
 
@@ -40578,7 +40580,7 @@ int32_t sensor_init_output(void *arg1, int32_t arg2)
 	if (result != 0)
 		arg2 = 720;
 
-	((void **)p)[115] = (uint16_t)arg2;
+	*(uint16_t *)((uint8_t *)arg1 + 0xe6) = (uint16_t)arg2;	/* #463: vendor 30f84 sh 230(a0) */
 	return result;
 }
 
@@ -40667,25 +40669,26 @@ int32_t sensor_sw_init(int32_t *arg1)
 	uint32_t (*fn_ptr)(uint32_t, uint32_t, uint32_t);
 	uint32_t v;
 
+	/* #463: byte offsets as the vendor ko (31350ff: lhu 70/72/230, lw 180, callback a0 = s0 + 40) */
 	v = read32(0x10);
-	write32(0x10, (v & 0xffff0000u) | (uint32_t)(*(uint16_t *)(arg1 + 0x46)));
+	write32(0x10, (v & 0xffff0000u) | (uint32_t)(*(uint16_t *)((uint8_t *)arg1 + 0x46)));
 
 	v = read32(0x14);
-	write32(0x14, (v & 0xffff0000u) | (uint32_t)(*(uint16_t *)(arg1 + 0x48)));
+	write32(0x14, (v & 0xffff0000u) | (uint32_t)(*(uint16_t *)((uint8_t *)arg1 + 0x48)));
 
 	v = read32(0x110);
-	write32(0x110, (v & 0xffff0000u) | (uint32_t)(*(uint16_t *)(arg1 + 0x46)));
+	write32(0x110, (v & 0xffff0000u) | (uint32_t)(*(uint16_t *)((uint8_t *)arg1 + 0x46)));
 
 	v = read32(0x118);
-	write32(0x118, (v & 0xffff0000u) | (uint32_t)(*(uint16_t *)(arg1 + 0x46)));
+	write32(0x118, (v & 0xffff0000u) | (uint32_t)(*(uint16_t *)((uint8_t *)arg1 + 0x46)));
 
 	v = read32(0x124);
-	write32(0x124, (v & 0xffff0000u) | (uint32_t)(*(uint16_t *)(arg1 + 0x48)));
+	write32(0x124, (v & 0xffff0000u) | (uint32_t)(*(uint16_t *)((uint8_t *)arg1 + 0x48)));
 
-	init_output(arg1, (uint32_t)(*(uint16_t *)(arg1 + 0xe6)));
+	init_output(arg1, (uint32_t)(*(uint16_t *)((uint8_t *)arg1 + 0xe6)));
 
-	fn_ptr = *(void (**)(int32_t, int32_t, int32_t))(arg1 + 0xb4);
-	v = fn_ptr((uint32_t)(arg1 + 0x40), 0, 0);
+	fn_ptr = *(void (**)(int32_t, int32_t, int32_t))((uint8_t *)arg1 + 0xb4);
+	v = fn_ptr((uint32_t)(uintptr_t)((uint8_t *)arg1 + 0x28), 0, 0);
 
 	wdr_setup(v, 0, 0);
 
