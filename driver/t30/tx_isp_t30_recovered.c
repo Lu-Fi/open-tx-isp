@@ -32041,16 +32041,16 @@ int32_t image_crop_yoffset(void *arg1, int32_t arg2, char arg3, uint32_t *arg4)
 	*arg4 = 0;
 	v0 = (uint32_t)arg2 >> 16;
 
-	if (a2 == 0) {
+	if (a2 == 0) {	/* #463: byte offsets as the getter (vendor 212bc..212cc sh 5304/5318/5338) */
 		if (v0 == 20)
-			*(uint16_t *)(p + 0x14c6) = (uint16_t)arg2;
+			*(uint16_t *)((uintptr_t)p + 0x14c6) = (uint16_t)arg2;
 		else if (v0 == 22)
-			*(uint16_t *)(p + 0x14da) = (uint16_t)arg2;
+			*(uint16_t *)((uintptr_t)p + 0x14da) = (uint16_t)arg2;
 		else if (v0 != 19) {
 			*arg4 = 1;
 			return 5;
 		} else {
-			*(uint16_t *)(p + 0x14b8) = (uint16_t)arg2;
+			*(uint16_t *)((uintptr_t)p + 0x14b8) = (uint16_t)arg2;
 		}
 	} else {
 		if (a2 != 1)
@@ -33032,12 +33032,13 @@ int32_t awb_range_low(uintptr_t arg1, uint32_t arg2, uint32_t arg3, uintptr_t ar
 int32_t awb_range_high(void *arg1, int32_t arg2, char arg3, int32_t *arg4)
 {
 	uint32_t mode = (uint8_t)arg3;
-	uint32_t *i;
+	uint32_t i;	/* #463: integer (vendor s4); the lift typed it uint32_t * */
 	*arg4 = 0;
 	if (mode != 0) {
 		if (mode != 1)
 			return 2;
-		*(int32_t *)((char *)arg1 + 0xecc) = *(int32_t *)((char *)arg1 + 0xecc) / 0x64;
+		/* vendor 22670: get = +0xecc / 100 into *arg4 (the lift wrote it back into the struct) */
+		*arg4 = *(int32_t *)((char *)arg1 + 0xecc) / 0x64;
 		return 0;
 	}
 	if (arg2 != 0) {
@@ -33051,11 +33052,11 @@ int32_t awb_range_high(void *arg1, int32_t arg2, char arg3, int32_t *arg4)
 	uint32_t p_eb = (uint32_t)(uintptr_t)_GET_USHORT_PTR(0xeb);
 	uint32_t first_eb = *(uint16_t *)p_eb;
 	if (first_eb < i) {
-		uint32_t *s2 = 0;
+		uint32_t s2 = 0;	/* #463: table index (vendor +1 / -1), not a pointer */
 		uint32_t l_eb = (uint32_t)_GET_LEN(0xeb);
 		uint32_t last_eb = *(uint16_t *)(p_eb + ((l_eb - 1) << 1));
 		if (i < last_eb) {
-			while (*(uint16_t *)(p_eb + ((uintptr_t)s2 << 1)) < (uintptr_t)i)
+			while (*(uint16_t *)(p_eb + (s2 << 1)) < i)
 				s2++;
 			uint32_t s2m1 = s2 - 1;
 			uint32_t s3_2 = (s2m1 + 1) << 1;
@@ -33069,16 +33070,16 @@ int32_t awb_range_high(void *arg1, int32_t arg2, char arg3, int32_t *arg4)
 			uint32_t s6_3 = *(uint16_t *)(p_eb + s3_2) - *(uint16_t *)(p_eb + s2_15);
 			if (s6_3 == 0)
 				s6_3 = 1;
-			int16_t s6_5 = (int16_t)(*(int16_t *)(p_e0 + s2_15) + (int16_t)(((s6_1 - s7_1) * ((uintptr_t)i - fp_1)) / s6_3));
+			int16_t s6_5 = (int16_t)(*(int16_t *)(p_e0 + s2_15) + (int16_t)(((s6_1 - s7_1) * (i - fp_1)) / s6_3));
 			int16_t fp_4 = *(int16_t *)(p_e4 + s2_15);
 			uint32_t v1_11 = *(uint16_t *)(p_e4 + s2_15) - *(uint16_t *)(p_e4 + s3_2);
-			int32_t s4_4 = (int32_t)(((uintptr_t)i - *(uint16_t *)(p_eb + s2_15)) * v1_11);
-			uint32_t s6_6 = (uint32_t)s6_5;
+			int32_t s4_4 = (int32_t)((i - *(uint16_t *)(p_eb + s2_15)) * v1_11);
+			uint32_t s6_6 = (uint16_t)s6_5;	/* vendor 225e4 andi 0xffff: zero-extended */
 			uint32_t v1_14 = *(uint16_t *)(p_eb + s3_2) - *(uint16_t *)(p_eb + s2_15);
 			if (v1_14 != 0)
 				s7_3 = v1_14;
 			uint32_t lo_8 = (uint32_t)s4_4 / s7_3;
-			uint32_t v0_87 = (uint32_t)(fp_4 - (int16_t)lo_8);
+			uint32_t v0_87 = (uint16_t)(fp_4 - lo_8);	/* vendor 2260c andi 0xffff */
 			*(int32_t *)((char *)arg1 + 0xecc) = arg2 * 0x64;
 			int16_t v1_15 = 1;
 			if (s6_6 != 0)
@@ -33713,7 +33714,7 @@ int32_t scene_mode(void *arg1, int32_t arg2, char arg3, int32_t *arg4)
     uint16_t val;
     int32_t cmd_ret;
     uint8_t *ptr;
-    int32_t *i;
+    uint32_t i;	/* #463: entry counter (vendor 236b0..23730: 9 consecutive bytes); was int32_t *, i++ = +4 */
 
     *arg4 = 0;
 
@@ -33736,7 +33737,7 @@ int32_t scene_mode(void *arg1, int32_t arg2, char arg3, int32_t *arg4)
     *(uint8_t *)(((char *)&stab + 0x6)) = 0;
     *(uint16_t *)(((char *)&stab + 0x1a)) = 0xffff;
 
-    s6 = (s6 < 1) ? 1 : 0;
+    s6 = (cmd_ret == 0) ? 1 : 0;	/* vendor 2341c sltiu s6,s6,1 (unsigned) */
 
     if (apical_command(3, 0x60, 0x32, 0, arg4) != 0)
         s6 = 0;
@@ -33754,7 +33755,7 @@ int32_t scene_mode(void *arg1, int32_t arg2, char arg3, int32_t *arg4)
     result = 2;
 
     if ((unsigned int)(arg2 - 0x40) >= 0xf)
-        goto label_23d90;
+        return 2;	/* vendor 23488: out of the jump table -> 2 */
     switch (arg2) {
     case 0x40:
         goto label_23d90;
@@ -33848,7 +33849,7 @@ label_23f8c:
     *(uint8_t *)((char *)arg1 + 0xf96) = 1;
     ptr = (uint8_t *)(int32_t *)_GET_UCHAR_PTR(0xe8);
     for (i = 0; i < 9; i++) {
-        *(uint16_t *)((char *)arg1 + 0xf98 + (uintptr_t)i * 2) = (uint16_t)ptr[(uintptr_t)i];
+        *(uint16_t *)((char *)arg1 + 0xf98 + i * 2) = (uint16_t)ptr[i];
     }
     goto label_23d90;
 
