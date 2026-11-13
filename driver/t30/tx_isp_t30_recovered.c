@@ -36118,6 +36118,7 @@ int32_t color_matrix_initialize(int32_t *arg1)
 	};
 	struct tx_isp_t30_color_matrix_fsm *fsm = (void *)arg1;
 	u8 *isp = (u8 *)(uintptr_t)fsm->owner;
+	unsigned int i;
 
 	BUILD_BUG_ON(sizeof(*fsm) != 0xec);
 	BUILD_BUG_ON(offsetof(struct tx_isp_t30_color_matrix_fsm,
@@ -36137,14 +36138,18 @@ int32_t color_matrix_initialize(int32_t *arg1)
 	fsm->field_12 = 0x80;
 	fsm->field_11 = 0;
 	stab[51] = 0x80;
-	shading_mesh_load(isp[0x1524]);
+	/* OEM 0x276cc..0x276d8: the WDR mode byte through the general FSM's
+	 * owner word (isp + 0x14e8), not isp + 0x1524 directly (#478) */
+	shading_mesh_load((*(u8 **)(isp + 0x14e8))[0x1524]);
 	fsm->mesh_page = 2;
 	fsm->mesh_blend = 0;
 	fsm->mesh_source = 3;
 	tx_isp_t30_color_select_mesh_page(2);
 	tx_isp_t30_color_write_mesh_blend(0);
-	memcpy(fsm->color_temperature_threshold, color_temperature_threshold,
-	       sizeof(color_temperature_threshold));
+	/* OEM 0x277b4..0x277fc: eight word stores, no memcpy */
+	for (i = 0; i < ARRAY_SIZE(color_temperature_threshold); i++)
+		fsm->color_temperature_threshold[i] =
+			color_temperature_threshold[i];
 
 	/*
 	 * The recovered interrupt path does not yet fan frame-end out to the
@@ -43528,6 +43533,9 @@ uint32_t sharpening_initialize(int32_t *arg1)
 	uint32_t rows;
 	int32_t *stab_base;
 
+	/* OEM 0x35644..0x356a0: table 0xb..0xe for WDR modes 0..3; any other
+	 * mode leaves the table pointer NULL without a lookup (the lift read
+	 * calibration table 0 instead, #478) */
 	if (mode == 1)
 		lut_idx = 0xc;
 	else if (mode == 0)
@@ -43537,9 +43545,9 @@ uint32_t sharpening_initialize(int32_t *arg1)
 	else if (mode == 3)
 		lut_idx = 0xe;
 	else
-		lut_idx = 0;
+		lut_idx = -1;
 
-	lut_ptr = (int32_t *)_GET_USHORT_PTR(lut_idx);
+	lut_ptr = lut_idx < 0 ? NULL : (int32_t *)_GET_USHORT_PTR(lut_idx);
 
 	*(uint8_t *)((char *)arg1 + 0x4c) = 0x2d;
 	*(uint16_t *)((char *)arg1 + 0x64) = 0x3ff;

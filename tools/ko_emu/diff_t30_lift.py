@@ -719,7 +719,7 @@ def t_ptr_scale(V, O, rnd, n):
 # ---------------------------------------------------------------- FSM clear/initialize: random buffers in, whole buffers out (#463)
 SLOT = 0x73000000
 FSM_BUF_SKIP = ("iridix_initialize",          # intended: statistics reset defaults in 0x3c0 (beyond the recovered sequence)
-                "color_matrix_initialize", "sharpening_initialize")   # vendor dereferences a table pointer the lift takes elsewhere; not this bug class
+                "color_matrix_initialize")    # intended extra initial recalculate/write/modulate: own case cm_initialize (#478)
 def fsm_buf_names(V, O):
     """every *_fsm_clear / *_initialize defined in both modules"""
     fn = lambda m: {sy.name for sy in m.e.elf.get_section_by_name(".symtab").iter_symbols()
@@ -767,10 +767,40 @@ def stub_call(m, fn, seed, build, ret=None):
 def c_fsm_buf(m, fn, seed):
     def build(m, r):
         isp = m.e.alloc(0x8000, bytes(r.getrandbits(8) for _ in range(0x8000)))
+        m.e.write(isp + 0x14e8, struct.pack("<I", isp))    # general FSM owner word = the ISP context, as on the device (#478)
         d = bytearray(r.getrandbits(8) for _ in range(0x2000)); d[0:4] = struct.pack("<I", isp)
         b = m.e.alloc(0x2000, bytes(d))
         return (b,), (), [(b, 0x2000), (isp, 0x8000)]
     return stub_call(m, fn, seed, build)[:4]          # no return value: most of them are void in the vendor ko
+
+CM_INIT_REAL = ("tx_isp_t30_color_select_mesh_page", "tx_isp_t30_color_write_mesh_blend")   # open helpers = OEM inline 0x394/0x398 writes
+CM_INIT_CMP = ("color_matrix_change_CCMs", "shading_mesh_load")
+def c_cm_init(m, seed):
+    """color_matrix_initialize: FSM buffer, final 0x394/0x398, the OEM callees and the shading_mesh_load mode (WDR mode byte
+    through the general FSM owner isp+0x14e8, #478); our extra recalculate/write/modulate calls are not compared"""
+    def build(m, r):
+        isp = m.e.alloc(0x8000, bytes(r.getrandbits(8) for _ in range(0x8000)))
+        gen = m.e.alloc(0x2000, bytes(r.getrandbits(8) for _ in range(0x2000)))   # what isp+0x14e8 points to
+        m.e.write(isp + 0x14e8, struct.pack("<I", gen))
+        d = bytearray(r.getrandbits(8) for _ in range(0x100)); d[0:4] = struct.pack("<I", isp)
+        b = m.e.alloc(0x100, bytes(d))
+        return (b,), (), [(b, 0xec)]
+    fsm_buf_world(m)
+    for h in CM_INIT_REAL: m.fsm_hooks.pop(h, None); m.unhook(h)   # fresh module per case: run them for real
+    ret = {"shading_mesh_load": lambda e: (m.log.append("shading_mesh_load(%d)" % (e.get_reg(UC_MIPS_REG_A0) & 0xff)), 0)[1]}
+    st, bufs, regw, calls, _ = stub_call(m, "color_matrix_initialize", seed, build, ret)
+    return st, bufs, [w for w in regw if w[0] in (0x394, 0x398)], [c for c in calls if c.split("(")[0] in CM_INIT_CMP]
+
+def t_cm_init(V, O, rnd, n):
+    V, O = Mod(V.path, {}), Mod(O.path, {})
+    bad = 0
+    for k in range(max(4, n // 20)):
+        seed = rnd.getrandbits(32)
+        res = [c_cm_init(m, seed) for m in (V, O)]
+        if res[0] != res[1]:
+            bad += 1
+            if bad < 4: print("DIFF color_matrix_initialize k=%d: %s" % (k, diffdesc(res[0], res[1])))
+    return bad
 
 def t_fsm_buffers(V, O, rnd, n):
     V, O = Mod(V.path, {}), Mod(O.path, {})          # fresh modules: every callee is stubbed here
@@ -1165,12 +1195,53 @@ def t_wb_regs(V, O, rnd, n):
             if bad < 4: print("DIFF wb_gain_registers mode=%d logs=%s: vendor %s open %s" % (mode, [hex(x) for x in logs], res[0], res[1]))
     return bad
 
+# ---------------------------------------------------------------- YUV matrix (#478): initialize + the tuning setters' update sequence
+MYUV_SEQ = ((0xa2, 0x80), (0xa2, 0), (0xa2, 230), (0xa2, 0x80))    # b72/b73 picture sequence (saturation_strength byte)
+def t_matrix_yuv(V, O, rnd, n):
+    """matrix_yuv_initialize, then per step one field of the FSM block (+0xa2/+0xa3/+0xa4 strengths, +0xa0 hue,
+    +0xf6 output selector, +0xa8 mode) and matrix_yuv_update: every register write 0x540..0x5ff in order and the
+    whole FSM block after each step; the calibration table is synthetic.  Step k=0 = the b72/b73 sequence."""
+    V, O = Mod(V.path, {}), Mod(O.path, {})
+    bad = 0
+    for k in range(max(4, n // 10)):
+        seed = rnd.getrandbits(32); r = random.Random(seed)
+        seq = MYUV_SEQ if k == 0 else [r.choice([(0xa2, r.getrandbits(8)), (0xa3, r.getrandbits(8)), (0xa4, r.getrandbits(8)),
+                                                 (0xa0, r.choice([0, 0xb4, 0x168, r.getrandbits(9)])),
+                                                 (0xf6, r.choice([0x4f, 0x50, 0x51, 0x52, 0x53, 0x54, r.getrandbits(16)])),
+                                                 (0xa8, r.choice([0, 1, 2, 3, 4, 5]))]) for _ in range(6)]
+        tab = struct.pack("<16H", *[r.getrandbits(10) for _ in range(16)])
+        blk = bytes(r.getrandbits(8) for _ in range(0x100))
+        regs0 = {a: r.getrandbits(32) for a in range(0x540, 0x600, 4)}
+        res = []
+        for m in (V, O):
+            m.e.heap_reset()
+            regs, wl = dict(regs0), []
+            regfile(m, regs, wl)
+            ta = m.e.alloc(len(tab), tab)
+            m.hook("_GET_USHORT_PTR", lambda e, ta=ta: ta)
+            b = m.e.alloc(0x100, blk)
+            out = []
+            m.call("matrix_yuv_initialize", b)
+            out.append(("init", m.e.read(b, 0x100)))
+            for off, val in seq:
+                if off in (0xa0, 0xf6): m.e.write(b + off, struct.pack("<H", val & 0xffff))
+                else: m.e.write(b + off, bytes([val & 0xff]))
+                del wl[:]
+                rr = m.call("matrix_yuv_update", b)
+                out.append((off, val, rr.stop, [w for w in wl if 0x540 <= w[0] < 0x600], m.e.read(b, 0x100)))
+            m.unhook("_GET_USHORT_PTR")
+            res.append(out)
+        if res[0] != res[1]:
+            bad += 1
+            if bad < 4: print("DIFF matrix_yuv k=%d seq=%s: %s" % (k, [(hex(a), v) for a, v in seq], diffdesc(res[0], res[1])))
+    return bad
+
 TESTS = [("nr_selectors", t_nr), ("general_frame_start", t_general), ("fsm_switch_state", t_fsm), ("crop_event", t_crop),
          ("sbus_write_u8", t_sbus), ("awb_normalise", t_normalise), ("awb_detect_light_source", t_detect_ls), ("event_queue_push", t_queue),
          ("awb_mesh_chain", t_mesh), ("compute_weight", t_weight), ("awb_calc_mesh", t_calc),
          ("gp_lock_paths", t_gp_lock), ("ioctl_uaccess", t_uaccess),
-         ("ptr_scale", t_ptr_scale), ("fsm_buffers", t_fsm_buffers), ("ptr_class_463", t_class463), ("fci_args", t_fci_args), ("sync_watchdog", t_sync), ("ldc_ncu_counts", t_counts), ("ldc_core_ops_init", t_ldc_init),
-         ("set_exposure_target", t_set_target), ("awb_gain_registers", t_wb_regs),
+         ("ptr_scale", t_ptr_scale), ("fsm_buffers", t_fsm_buffers), ("cm_initialize", t_cm_init), ("ptr_class_463", t_class463), ("fci_args", t_fci_args), ("sync_watchdog", t_sync), ("ldc_ncu_counts", t_counts), ("ldc_core_ops_init", t_ldc_init),
+         ("set_exposure_target", t_set_target), ("awb_gain_registers", t_wb_regs), ("matrix_yuv", t_matrix_yuv),
          ("dqbuf_signal(expected diff)", t_dqbuf_signal)]
 
 def main():
