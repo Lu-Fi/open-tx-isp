@@ -704,6 +704,11 @@ static int print_level = 1;
 module_param(print_level, int, 0);
 MODULE_PARM_DESC(print_level, "isp print level");
 
+/* #451: core ISR entries that found new Apical events after handling (re-polled in the same entry) */
+static unsigned int tx_isp_t30_isr_repoll;
+module_param_named(isr_repoll, tx_isp_t30_isr_repoll, uint, 0444);
+MODULE_PARM_DESC(isr_repoll, "core ISR re-polls (read-only counter, openimp #451)");
+
 static bool simple_3a = true;
 module_param(simple_3a, bool, 0);
 MODULE_PARM_DESC(simple_3a,
@@ -6280,6 +6285,7 @@ int32_t isp_core_config_top_ctl_register(int32_t arg1, int32_t arg2);
 int32_t ispcore_core_ops_ioctl(void *file, uint32_t cmd, void *arg);
 int32_t isp_fw_process(void);
 static void tx_isp_t30_stop_fw_thread(struct task_struct **threadp);
+static void tx_isp_t30_cancel_ae_work(void);
 int32_t ispcore_frame_channel_set_scaler(void *arg1, void *arg2, int32_t arg3);
 int dump_isp_info_open(struct inode *inode, struct file *file);
 int32_t isp_info_show(struct seq_file *m);
@@ -12398,6 +12404,7 @@ static void tx_isp_t30_stop_fw_thread(struct task_struct **threadp)
 	raise_semaphore((uintptr_t)TX_ISP_T30_FW_PTR(0xc));
 	kthread_stop(thread);
 	*threadp = NULL;
+	tx_isp_t30_cancel_ae_work();
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000000a550 origin=model_output original=ispcore_frame_channel_set_scaler */
@@ -15668,6 +15675,7 @@ static int tx_isp_t30_ispcore_interrupt(struct tx_isp_t30_subdev *sd)
 	u32 irq_status;
 	u32 clear;
 	int ret = IRQ_HANDLED;
+	int pass = 0;
 
 	if (!sd || IS_ERR(sd))
 		return IRQ_HANDLED;
@@ -15694,6 +15702,7 @@ static int tx_isp_t30_ispcore_interrupt(struct tx_isp_t30_subdev *sd)
 			APICAL_WRITE_32(0xa4, clear);
 		return IRQ_HANDLED;
 	}
+again:
 	clear = APICAL_READ_32(0xa4) & 0xffff0000;
 	APICAL_WRITE_32(0xa4, clear);
 	APICAL_WRITE_32(0xa4, clear | irq_status);
@@ -15774,6 +15783,20 @@ static int tx_isp_t30_ispcore_interrupt(struct tx_isp_t30_subdev *sd)
 	if (irq_status & BIT(13))
 		tx_isp_t30_core_chan1_event(core);
 	tx_isp_t30_dispatch_firmware_irqs(irq_status);
+	/*
+	 * Events that latched while this entry ran: the VIC handler, called after
+	 * this one on the same line, acks the whole glue state 0x2000c including
+	 * Apical bits 15:0, so an event that arrived during a long entry lost its
+	 * line edge and stayed in 0xa0 until the next frame start (#451 b76: AWB,
+	 * frame end, FR and slot 13 ~8 ms late).  Handle them here (max 3 passes).
+	 */
+	if (++pass < 4) {
+		irq_status = APICAL_READ_32(0xa0) & 0xffff;
+		if (irq_status) {
+			tx_isp_t30_isr_repoll++;
+			goto again;
+		}
+	}
 	/*
 	 * The IRQ thread (sensor gain/integration writes queued by AE) is woken
 	 * on frame start only, like the OEM ISR (0xd5ec, its only
@@ -19098,6 +19121,8 @@ void tx_isp_free_irq(struct tx_isp_t30_irq_device *irqdev)
 	if (irqdev->irq)
 		private_free_irq(irqdev->irq, irqdev);
 	irqdev->irq = 0;
+	/* no IRQ can queue the AE work any more (#451): wait for a running one */
+	tx_isp_t30_cancel_ae_work();
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000012330 origin=fragment_seed original=ncu_core_ops_ioctl */
@@ -41369,12 +41394,35 @@ static void tx_isp_t30_simple_ae_update(void)
 			system_gain->max_isp_digital_gain);
 }
 
+/* kernel/workqueue.c exports it (GPL) but this 3.10 header does not declare it */
+extern struct workqueue_struct *system_highpri_wq;
+
+static void tx_isp_t30_ae_work_fn(struct work_struct *work)
+{
+	tx_isp_t30_simple_ae_update();
+}
+static DECLARE_WORK(tx_isp_t30_ae_work, tx_isp_t30_ae_work_fn);
+
+static void tx_isp_t30_cancel_ae_work(void)
+{
+	cancel_work_sync(&tx_isp_t30_ae_work);
+}
+
 int32_t AE_fsm_process_interrupt(int32_t *arg1, char arg2)
 {
 	if ((arg2 & 0xff) != 3)
 		return 3;
 	if (simple_3a) {
-		tx_isp_t30_simple_ae_update();
+		/*
+		 * #451: the compact AE (histogram mean, exposure curve, sensor
+		 * gain allocation) ran here in the hard IRQ and kept the core line
+		 * busy past the AWB / frame-end events 70-100 us later.  Like the
+		 * OEM, where the AE statistics IRQ only raises an event and the AE
+		 * math runs in the firmware thread, it now runs in process context
+		 * (high-priority work, well before the frame start that applies
+		 * the queued sensor writes).
+		 */
+		queue_work(system_highpri_wq, &tx_isp_t30_ae_work);
 		/*
 		 * The OEM state graph re-arms histogram source 3 after consuming
 		 * each statistics buffer.  The compact controller bypasses that

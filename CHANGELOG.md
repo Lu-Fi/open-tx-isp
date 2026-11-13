@@ -54,6 +54,12 @@ Five open-tx-isp patches that the thingino-firmware `feature/kernel-7` branch ca
 - Kept like the vendor (no change): M1 unchecked physical addresses (vendor 573-584), M4 no stop on a signal during the wait (806-810), L3 `-1` / `-EFAULT` codes (702, 852), L4 BUF_LOCK under the mutex (900-905), L5 `IRQF_SHARED` + `IRQ_HANDLED` (1040, 991), L6 stop/reset in probe before the clocks (1062-1063). Build: same 3 W=1 warnings as before, no new ones.
 - Device test (Wuuk T31X sc4336p, kernel 7.3.3, runtime insmod): OSD items at the right, bottom-left and bottom-right edge draw without corruption, IPU IRQ 29.6/s at 15 fps (2 blends per frame), dmesg clean, rmmod + insmod + timps restart clean.
 
+## 2026-11-13: T30 core ISR no longer drops events that latch during a long entry (openimp #451; QEMU-tested, device pending: b77)
+
+- Cause (T30X b76, irq-37 spy on both stacks): after the AE entry (status bit 3) the open driver got no interrupt for AWB (4), frame end (0), FR (5) and slot 13; they stayed in 0xa0 until the next frame start, ~8 ms late (3.0 instead of the vendor's 4.08 core entries per frame). The compact AE ran in the hard IRQ; the events latched during that entry and the VIC handler, which runs after the core handler on the same line, acked the whole glue state 0x2000c including Apical bits 15:0, so their line edge was gone.
+- The compact AE now runs as high-priority work (as in the OEM, where the AE statistics IRQ only raises an event and the AE math runs in the firmware thread); the queued sensor writes are still applied by the IRQ thread at the next frame start. The work is cancelled at firmware-thread stop and after free_irq.
+- The core ISR re-reads 0xa0 after handling and handles new events in the same entry (max 3 passes); counter `/sys/module/tx_isp_t30/parameters/isr_repoll`.
+
 ## 2026-11-13: T30 ISR like the OEM for status bit 13 and the IRQ thread wake, register accessors (openimp #451, #274, #454; device-tested T30X b74)
 
 - Core ISR: status bit 13 (firmware event 50, set every frame) was never handled. Now like OEM case 13 (0xde94): DMA direction check and writer on/off for core output channel 1 (LFB link: on while running; direct link: on while the next bank holds a buffer; NV12/NV21 UV writer first, as `isp_enable_dma_transfer`). Counter `ch1ev` in the direct-writer report.
