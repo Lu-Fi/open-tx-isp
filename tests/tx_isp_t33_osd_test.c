@@ -11,7 +11,7 @@
 #include <string.h>
 #include "../driver/t32/tx_isp_t33_osd.h"
 
-static u32 W[0x100];
+static u32 W[0x200];
 static int fails, refreshes, msgs;
 
 static void slot(u32 ch, u32 s, u32 v) { (void)ch; W[s] = v; }
@@ -106,6 +106,77 @@ int main(void)
 	b[2] = 0;
 	t33_mask_set_out(&o, &ops, 0, b);
 	CHK(W[0x8d] == 0 && W[4] == 0, "mask off %#x %#x", W[0x8d], W[4]);
+
+	/* draw block: type 1 line window 0, colour list, then type 2 slanted line in window 1 */
+	{
+		static struct t33_draw d;
+		static struct t33_colors cl;
+		u8 q[36];
+		u32 s;
+
+		memset(W, 0, sizeof(W));
+		memset(q, 0, sizeof(q));
+		q[0] = 0; t33_osd_p32(q + 4, 1); q[12] = 1;
+		t33_osd_p16(q + 14, 10); t33_osd_p16(q + 16, 20); t33_osd_p16(q + 18, 30); t33_osd_p16(q + 20, 40);
+		q[25] = 0x10; q[26] = 0x80; q[27] = 0x80; q[28] = 3; q[29] = 1; q[30] = 7; q[32] = 2;
+		t33_draw_set_out(&d, &cl, &ops, 0, q);
+		CHK(cl.n == 1 && cl.c[0] == 0x108080 && W[0xc7] == 0x108080, "colour list");
+		CHK(W[0xa4] == 1 && W[0x12f] == 0x101 && W[0x192] == 0x10102, "constants");
+		/* window 0: slot 0x131 */
+		CHK(W[0x131] == (20u << 12 | 10 | 2u * 0x1000000 | 0x4000000), "w0 %#x", W[0x131]);
+		CHK(W[0x132] == (40u << 12 | 0u << 24 | 30 | 2u << 26), "w1 %#x", W[0x132]);
+		CHK(W[0x133] == (7u << 8 | 0u << 16 | 3 | 1u << 18 | 1u << 23), "w2 %#x", W[0x133]);
+		/* slanted line (0,0)-(100,50) as window 1: x1 < x2, y1 < y2 -> same direction, dx/dy = 2 -> b3ad 2 */
+		memset(q, 0, sizeof(q));
+		q[0] = 1; t33_osd_p32(q + 4, 2); q[12] = 1; q[28] = 2;
+		t33_osd_p16(q + 14, 0); t33_osd_p16(q + 16, 0); t33_osd_p16(q + 18, 100); t33_osd_p16(q + 20, 50);
+		q[25] = 0x10; q[26] = 0x80; q[27] = 0x80;
+		t33_draw_set_out(&d, &cl, &ops, 0, q);
+		CHK(d.win[1].w == 100 && d.win[1].h == 50 && d.win[1].b3ad == 2, "slant %u %u %u", d.win[1].w, d.win[1].h, d.win[1].b3ad);
+		CHK(d.win[1].k == 0xcc || d.win[1].k != 5, "k %#x", d.win[1].k);
+		CHK(cl.n == 1, "same colour reused");
+		s = 0x131 + 3;
+		CHK((W[s] >> 24) == (3u | 4u), "type word %#x", W[s]);
+		/* unused window fill starts at the enabled count: the slot of window 2 (2 * 3) is cleared, n + 2 is not */
+		CHK(W[0x131 + 6] == 0, "fill");
+		/* horizontal line: k 0xff, b3ad 2, b3ae 0x1f, h = width */
+		t33_osd_p16(q + 20, 0);
+		q[0] = 2;
+		t33_draw_set_out(&d, &cl, &ops, 0, q);
+		CHK(d.win[2].k == 0xff && d.win[2].b3ad == 2 && d.win[2].b3ae == 0x1f && d.win[2].h == 2 && d.win[2].w == 100, "horizontal");
+		/* equal end points refused while enabled */
+		msgs = 0;
+		t33_osd_p16(q + 18, 0);
+		t33_draw_set_out(&d, &cl, &ops, 0, q);
+		CHK(msgs == 1, "equal points");
+		/* colour list full */
+		msgs = 0;
+		memset(q, 0, sizeof(q));
+		q[0] = 3; t33_osd_p32(q + 4, 0);
+		for (s = 1; s < 6; s++) {
+			q[25] = (u8)s; t33_draw_set_out(&d, &cl, &ops, 0, q);
+		}
+		CHK(cl.n == 4 && msgs == 2, "colour full n %u msgs %d", cl.n, msgs);
+		/* type 3 msk size error */
+		msgs = 0;
+		memset(q, 0, sizeof(q));
+		q[0] = 5; q[1] = 4; t33_osd_p32(q + 4, 3);
+		t33_draw_set_out(&d, &cl, &ops, 0, q);
+		CHK(d.msk == 8 && msgs >= 1 && q[1] == 8, "msk");
+		/* get round trip of window 0 */
+		memset(q, 0, sizeof(q));
+		t33_draw_get_out(&d, q);
+		CHK(t33_osd_u32(q + 4) == 1 && q[12] == 1 && t33_osd_u16(q + 18) == 30 && q[28] == 3 && q[32] == 2 && q[25] == 0x10, "draw get");
+		/* find_k_n: the exact table value and the limits */
+		{
+			u8 k, n;
+
+			t33_find_k_n(24938, &k, &n); CHK(k == 0xcc && n == 0xf3, "knA");
+			t33_find_k_n(1, &k, &n); CHK(k == 0xcc && n == 0xf3, "kn low %#x %#x", k, n);
+			t33_find_k_n(0x7fffffff, &k, &n); CHK(k == 0xa0 && n == 0xfe, "kn high %#x %#x", k, n);
+			t33_find_k_n(40098734, &k, &n); CHK(k == 0xa0 && n == 0xfe, "kn last %#x %#x", k, n);
+		}
+	}
 
 	printf("tx_isp_t33_osd_test: %s\n", fails ? "FAIL" : "PASS");
 	return fails != 0;

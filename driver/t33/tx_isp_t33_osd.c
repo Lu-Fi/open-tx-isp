@@ -22,7 +22,9 @@ void t33_msca_list_refresh(void);		/* tispMscaRefresh = 1 */
 void t32_core_in_size(u32 *w, u32 *h);		/* tx_isp_t32_core.c */
 
 static struct t33_osd osd[T33_OSD_CH];
-static bool osd_touched, mask_touched;
+static struct t33_draw draw[T33_OSD_CH];
+static struct t33_colors colors;	/* the vendor's g_colotList: global */
+static bool osd_touched, mask_touched, draw_touched;
 
 static void os_slot(u32 ch, u32 slot, u32 v) { t33_msca_list_slot((int)slot, v); }
 static void os_refresh(u32 ch) { t33_msca_list_refresh(); }
@@ -115,6 +117,23 @@ int t32_tx_os_tisp_g_mscaler_mask_block_attr(u32 ch, void *buf)
 	return 0;
 }
 
+int t32_tx_os_tisp_s_draw_block_attr(u32 ch, void *buf)
+{
+	if (ch >= T33_OSD_CH)
+		return -EINVAL;
+	draw_touched = true;
+	t33_draw_set_out(&draw[ch], &colors, &os_ops, ch, buf);
+	return 0;
+}
+
+int t32_tx_os_tisp_g_draw_block_attr(u32 ch, void *buf)
+{
+	if (ch >= T33_OSD_CH)
+		return -EINVAL;
+	t33_draw_get_out(&draw[ch], buf);
+	return 0;
+}
+
 /*
  * The MSCA list (23) is built again at every stream-on (the vendor keeps its
  * list memory): put the stored OSD windows / mask words back.  Channel 0 only
@@ -126,4 +145,6 @@ void t33_osd_list_rebuilt(void)
 		t33_osd_set_reg(&osd[0], &os_ops, 0);
 	if (mask_touched)
 		t33_mask_set_reg(&osd[0], &os_ops, 0);
+	if (draw_touched)
+		t33_draw_set_reg(&draw[0], &colors, &os_ops, 0);
 }

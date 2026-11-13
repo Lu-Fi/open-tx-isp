@@ -281,4 +281,297 @@ static inline void t33_mask_get_out(const struct t33_osd *o, u8 *p)
 	memset(p + 19, 0, 3);
 }
 
+/* ------------------------------------------------------------------ */
+/* draw block (line / rectangle / mask lines), tuning id 0xa0         */
+/* ------------------------------------------------------------------ */
+/*
+ * tisp_msca_t33_api_{set,get}_line_out_cfg (0xe3b30 / 0xe453c), tisp_msca_t33_set_line_reg
+ * (0xe0d7c) and find_k_n (table lookup_table, 63 x { slope * 1e6, k, n }).  List mode
+ * slots of MSCA list 23: 0xa4 = 1, 0xc7 .. 0xca = the colour list, 9 = msk size, 0x12f = 0x101,
+ * 3 words per window from 0x131, 0x192 = 0x10102.  Vendor behaviours kept: the unused-window fill
+ * starts at the number of ENABLED windows (not at the first free window number) and writes
+ * slots n, n + 1, n + 1 (n + 2 is never cleared); the colour list is global (4 entries, shared
+ * by all channels and windows).  Window numbers >= 32 are refused (the vendor indexes past the
+ * attribute block).
+ */
+#define T33_DRAW_WIN	32
+
+struct t33_line_win {
+	u32 type;
+	u8 col[3];
+	u16 raw[4];		/* type 2: the caller's end points */
+	u16 x, y, w, h;
+	u8 en, cidx, b3aa, width, k, b3ad, b3ae, b3af;
+};
+
+struct t33_draw {
+	struct t33_line_win win[T33_DRAW_WIN];
+	u8 msk;
+};
+
+struct t33_colors {
+	u32 c[4];
+	u32 n;
+};
+
+static const u32 t33_kn_tab[63][3] = {
+	{ 24938, 0xcc, 0xf3 }, { 49908, 0xcc, 0xf4 }, { 74940, 0x99, 0xf5 },
+	{ 100065, 0xcd, 0xf5 }, { 125316, 0x80, 0xf6 }, { 150726, 0x9a, 0xf6 },
+	{ 176327, 0xb5, 0xf6 }, { 202154, 0xcf, 0xf6 }, { 228243, 0xea, 0xf6 },
+	{ 254631, 0x82, 0xf7 }, { 281356, 0x90, 0xf7 }, { 308459, 0x9e, 0xf7 },
+	{ 335982, 0xac, 0xf7 }, { 363970, 0xba, 0xf7 }, { 392471, 0xc9, 0xf7 },
+	{ 421535, 0xd8, 0xf7 }, { 451217, 0xe7, 0xf7 }, { 481575, 0xf7, 0xf7 },
+	{ 512670, 0x83, 0xf8 }, { 544571, 0x8b, 0xf8 }, { 577350, 0x94, 0xf8 },
+	{ 611087, 0x9c, 0xf8 }, { 645868, 0xa5, 0xf8 }, { 681788, 0xaf, 0xf8 },
+	{ 718951, 0xb8, 0xf8 }, { 757471, 0xc2, 0xf8 }, { 797473, 0xcc, 0xf8 },
+	{ 839100, 0xd7, 0xf8 }, { 882505, 0xe2, 0xf8 }, { 927864, 0xee, 0xf8 },
+	{ 975372, 0xfa, 0xf8 }, { 1000000, 0x01, 0x00 }, { 1025249, 0x83, 0xf9 },
+	{ 1077744, 0x8a, 0xf9 }, { 1133138, 0x91, 0xf9 }, { 1191754, 0x99, 0xf9 },
+	{ 1253960, 0xa1, 0xf9 }, { 1320183, 0xa9, 0xf9 }, { 1390915, 0xb2, 0xf9 },
+	{ 1466731, 0xbc, 0xf9 }, { 1548303, 0xc6, 0xf9 }, { 1636427, 0xd1, 0xf9 },
+	{ 1732051, 0xde, 0xf9 }, { 1836308, 0xeb, 0xf9 }, { 1950572, 0xfa, 0xf9 },
+	{ 2076521, 0x85, 0xfa }, { 2216228, 0x8e, 0xfa }, { 2372280, 0x98, 0xfa },
+	{ 2547958, 0xa3, 0xfa }, { 2747477, 0xb0, 0xfa }, { 2976349, 0xbe, 0xfa },
+	{ 3241920, 0xcf, 0xfa }, { 3554211, 0xe3, 0xfa }, { 3927247, 0xfb, 0xfa },
+	{ 4381286, 0x8c, 0xfb }, { 4946715, 0x9e, 0xfb }, { 5671282, 0xb5, 0xfb },
+	{ 6634566, 0xd4, 0xfb }, { 7979811, 0xff, 0xfb }, { 9993495, 0xa0, 0xfc },
+	{ 13344073, 0xd6, 0xfc }, { 20036898, 0xa0, 0xfd }, { 40098734, 0xa0, 0xfe },
+};
+
+/* find_k_n: binary search of slope * 1e6; *k, *n = the nearest entry (or the limits) */
+static inline void t33_find_k_n(u32 v, u8 *k, u8 *n)
+{
+	int lo = 0, hi = 0x3e, mid = 0x3e;
+	u32 d1, d2;
+
+	for (;;) {
+		mid = mid / 2 + lo;
+		if (t33_kn_tab[mid][0] < v) {
+			lo = mid + 1;
+		} else {
+			hi = mid - 1;
+			if (t33_kn_tab[mid][0] <= v) {
+				*k = (u8)t33_kn_tab[mid][1];
+				*n = (u8)t33_kn_tab[mid][2];
+				return;
+			}
+		}
+		if (hi < lo)
+			break;
+		mid = hi - lo;
+	}
+	if (hi < 0) {
+		*k = 0xcc;
+		*n = 0xf3;
+	} else if (lo < 0x3f) {
+		d1 = t33_kn_tab[lo][0] - v;
+		d2 = t33_kn_tab[hi][0] - v;
+		d1 = (int)d1 < 0 ? -d1 : d1;
+		d2 = (int)d2 < 0 ? -d2 : d2;
+		if (d2 < d1) {
+			*k = (u8)t33_kn_tab[hi][1];
+			*n = (u8)t33_kn_tab[hi][2];
+		} else {
+			*k = (u8)t33_kn_tab[lo][1];
+			*n = (u8)t33_kn_tab[lo][2];
+		}
+	} else {
+		*k = 0xa0;
+		*n = 0xfe;
+	}
+}
+
+/* the colour search of every line type: index of the colour, appended while the list has room */
+static inline void t33_draw_color(struct t33_line_win *w, struct t33_colors *cl, const struct t33_osd_ops *op, u32 c)
+{
+	u32 i;
+
+	for (i = 0; i < 4; i++) {
+		if (cl->c[i] == c) {
+			w->cidx = (u8)i;
+			return;
+		}
+	}
+	if (cl->n < 4) {
+		cl->c[cl->n] = c;
+		w->cidx = (u8)cl->n++;
+	} else {
+		op->msg(1, "Color buff is full !!! \n");
+	}
+}
+
+/* tisp_msca_t33_set_line_reg */
+static inline void t33_draw_set_reg(const struct t33_draw *d, const struct t33_colors *cl, const struct t33_osd_ops *op, u32 ch)
+{
+	u32 i, cnt = 0, s;
+
+	op->slot(ch, 0xa4, 1);
+	for (i = 0; i < 4; i++)
+		op->slot(ch, 0xc7 + i, cl->c[i]);
+	op->slot(ch, 9, d->msk);
+	op->slot(ch, 0x12f, 0x101);
+	for (i = 0; i < T33_DRAW_WIN; i++) {
+		const struct t33_line_win *w = &d->win[i];
+
+		s = 0x131 + 3 * i;
+		if (w->en != 1)
+			continue;
+		op->slot(ch, s, (u32)w->y << 12 | w->x | (w->type + 1) * 0x1000000 | 0x4000000U);
+		op->slot(ch, s + 1, (u32)w->h << 12 | (u32)w->cidx << 24 | w->w | (u32)w->b3aa << 26);
+		op->slot(ch, s + 2, (u32)w->k << 8 | (u32)w->b3ad << 16 | w->width | (u32)w->b3ae << 18 | (u32)w->b3af << 23);
+		cnt++;
+	}
+	for (; cnt < T33_DRAW_WIN; cnt++) {
+		s = cnt * 3 + 0x131;
+		op->slot(ch, s, 0);
+		op->slot(ch, s + 1, 0);
+		op->slot(ch, s + 1, 0);
+	}
+	op->slot(ch, 0x192, 0x10102);
+	op->refresh(ch);
+}
+
+/*
+ * tisp_msca_t33_api_set_line_out_cfg: block (36 B) { u8 win, u8 msk, .., u32 type @4, u8 en @12,
+ * u16 x1 @14, y1 @16, x2 @18, y2 @20, u8 r @25, g @26, b @27, u8 width @28, u8 @29, u16 / u8 @30, u8 @32 }
+ */
+static inline void t33_draw_set_out(struct t33_draw *d, struct t33_colors *cl, const struct t33_osd_ops *op, u32 ch, u8 *p)
+{
+	struct t33_line_win *w;
+	u32 n = p[0], type = t33_osd_u32(p + 4), x1, y1, x2, y2, dx, dy;
+	u8 kn;
+
+	if (n >= T33_DRAW_WIN)
+		return;
+	w = &d->win[n];
+	w->type = type;
+	w->col[0] = p[25];
+	w->col[1] = p[26];
+	w->col[2] = p[27];
+	x1 = t33_osd_u16(p + 14);
+	y1 = t33_osd_u16(p + 16);
+	x2 = t33_osd_u16(p + 18);
+	y2 = t33_osd_u16(p + 20);
+	switch (type) {
+	case 0:
+	case 1:
+	case 3:
+		t33_draw_color(w, cl, op, (u32)p[25] << 16 | (u32)p[26] << 8 | p[27]);
+		if (type == 3) {
+			if ((u8)(p[1] - 8) < 0x39) {
+				d->msk = p[1];
+			} else {
+				op->msg(1, "[ISP][%s, %d]: msk size error !!! default is 8 \n", "tisp_msca_t33_api_set_line_out_cfg", 0x80e);
+				p[1] = 8;
+				d->msk = 8;
+			}
+		}
+		w->x = (u16)x1;
+		w->y = (u16)y1;
+		w->w = (u16)x2;
+		w->h = (u16)y2;
+		w->en = p[12];
+		w->width = p[28];
+		w->k = type == 1 ? (u8)t33_osd_u16(p + 30) : 5;
+		w->b3ad = 0;
+		w->b3ae = 1;
+		w->b3af = type == 3 ? 0 : p[29];
+		w->b3aa = type == 1 ? p[32] : p[30];
+		break;
+	case 2:
+		t33_draw_color(w, cl, op, (u32)p[25] << 16 | (u32)p[26] << 8 | p[27]);
+		w->raw[0] = (u16)x1;
+		w->raw[1] = (u16)y1;
+		w->raw[2] = (u16)x2;
+		w->raw[3] = (u16)y2;
+		w->en = p[12];
+		w->b3aa = 0;
+		w->width = p[28];
+		w->k = 5;
+		w->b3ad = 0;
+		w->b3ae = 1;
+		w->b3af = p[29];
+		if (p[12] == 1 && x1 == x2 && y1 == y2) {
+			op->msg(1, "[ISP][%s, %d]: The starting and ending coordinates of a line cannot be equal !!! \n",
+				"tisp_msca_t33_api_set_line_out_cfg", 0x8b7);
+			return;
+		}
+		if (x1 < x2) {
+			w->x = (u16)x1;
+			dx = x2 - x1;
+		} else {
+			w->x = (u16)x2;
+			dx = x1 - x2;
+		}
+		if (y1 < y2) {
+			w->y = (u16)y1;
+			dy = y2 - y1;
+		} else {
+			w->y = (u16)y2;
+			dy = y1 - y2;
+		}
+		if (x1 == x2) {
+			w->k = 0;
+			dx = w->width;
+			w->b3ad = 0;
+			w->b3ae = 0;
+		} else if (y1 == y2) {
+			w->k = 0xff;
+			dy = w->width;
+			w->b3ad = 2;
+			w->b3ae = 0x1f;
+		} else {
+			if ((x2 < x1 && y2 < y1) || (x1 < x2 && y1 < y2))
+				w->b3ad = dx / dy ? 2 : 0;
+			else
+				w->b3ad = dx / dy ? 3 : 1;
+			t33_find_k_n(dx * 1000000 / dy, &w->k, &kn);
+			w->b3ae = (signed char)kn < 0 ? (u8)-(signed char)kn : (u8)(kn | 0x10);
+		}
+		w->w = (u16)dx;
+		w->h = (u16)dy;
+		break;
+	default:
+		op->msg(0, "[ISP][%s, %d]: line type error !!! \n", "tisp_msca_t33_api_set_line_out_cfg", 0x909);
+		break;
+	}
+	t33_draw_set_reg(d, cl, op, ch);
+}
+
+/* tisp_msca_t33_api_get_line_out_cfg: the fields of the stored type, the rest stays as the caller had it */
+static inline void t33_draw_get_out(const struct t33_draw *d, u8 *p)
+{
+	const struct t33_line_win *w;
+
+	if (p[0] >= T33_DRAW_WIN)
+		return;
+	w = &d->win[p[0]];
+	t33_osd_p32(p + 4, w->type);
+	p[25] = w->col[0];
+	p[26] = w->col[1];
+	p[27] = w->col[2];
+	if (w->type > 3)
+		return;
+	p[12] = w->en;
+	if (w->type == 2) {
+		t33_osd_p16(p + 14, w->raw[0]);
+		t33_osd_p16(p + 16, w->raw[1]);
+		t33_osd_p16(p + 18, w->raw[2]);
+		t33_osd_p16(p + 20, w->raw[3]);
+	} else {
+		t33_osd_p16(p + 14, w->x);
+		t33_osd_p16(p + 16, w->y);
+		t33_osd_p16(p + 18, w->w);
+		t33_osd_p16(p + 20, w->h);
+	}
+	p[28] = w->width;
+	p[29] = w->b3af;
+	if (w->type == 1) {
+		p[32] = w->b3aa;
+		t33_osd_p16(p + 30, w->k);
+	} else if (w->type != 2) {
+		p[30] = w->b3aa;
+	}
+}
+
 #endif /* TX_ISP_T33_OSD_H */

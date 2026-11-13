@@ -178,7 +178,9 @@ T32_TC_PAIR(osd_attr, osd)
 #ifndef TX_ISP_T33
 T32_TC_PAIR(osd_block_attr, osd_block)
 #endif
+#ifndef TX_ISP_T33
 T32_TC_PAIR(draw_block_attr, draw)
+#endif
 T32_TC_PAIR(csccr_mode, csccr)
 
 /*
@@ -460,10 +462,8 @@ static bool t32_tc_served(u32 id)
 #ifdef TX_ISP_T33
 	/*
 	 * T33 (t32_isposd_ctrl is off): OSD attribute / OSD block / mask run on
-	 * the ported MSCA OSD / mask functions (tx_isp_t33_osd.c, MSCA list 23);
-	 * the draw block (line out) is still only stored as the vendor dispatcher's
-	 * tisp_s_draw_block_attr / tisp_g_ store (tx_isp_core_ops_s_ctrl / _g_ctrl
-	 * @ 0x18170 / 0x19dfc), not drawn into the picture (#436).
+	 * the ported MSCA OSD / mask / draw functions (tx_isp_t33_osd.c, MSCA list 23;
+	 * tx_isp_core_ops_s_ctrl / _g_ctrl @ 0x18170 / 0x19dfc of the vendor module).
 	 */
 	case 0x74: case 0xa0: case 0xa1: case 0xa2:
 		return true;
