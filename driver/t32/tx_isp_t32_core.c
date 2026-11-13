@@ -118,6 +118,7 @@ static struct t32_core {
 	u32 tiziano_pa;
 	u32 default_bin;
 	u32 bin_wdr[T32_BIN_VIS], bin_night[T32_BIN_VIS];	/* last SET_TIZIANO_PAR */
+	u32 bypass[T32_BIN_VIS];	/* BYPASS_SENSOR flag per input */
 	unsigned int ioctls;
 	struct proc_dir_entry *proc;
 } core;
@@ -748,6 +749,24 @@ static long t32_isp_ioctl(struct file *file, unsigned int cmd, unsigned long arg
 	case T32_IOC_GET_SENSOR_REGISTER:
 		ret = t32_sensor_g_register(vi, arg);
 		break;
+	case T32_IOC_BYPASS_SENSOR: {
+		/*
+		 * BYPASS_SENSOR 0x80085418 (vendor tx_isp_bypass_all, recovered in
+		 * tx_isp_t32_txuioctl.h): {enable, input} stored in the core
+		 * device's per-input bypass word, then subdevice 0 is notified with
+		 * 0x200001d, which the vendor VIC answers by reading its request
+		 * from address 0 (tx_isp_t32_vicops.h).  Only the flag is kept
+		 * here (openimp #446); no register is written.
+		 */
+		u32 b[2];
+
+		ret = copy_from_user(b, (void __user *)arg, sizeof(b)) ? -EFAULT : 0;
+		if (ret)
+			isp_printf(2, "[ %s:%d ] copy from user error\n", "tx_isp_bypass_all", 1395);
+		else if (b[1] < T32_BIN_VIS)
+			core.bypass[b[1]] = b[0];
+		break;
+	}
 	case T32_IOC_SET_FRAME_DROP:
 		ret = t32_frame_drop_set(arg);
 		break;

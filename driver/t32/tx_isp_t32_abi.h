@@ -37,6 +37,7 @@
 #define T32_IOC_GET_ISP_MEM_INFO	0x800c5410U	/* W t32_buf_info; driver writes size */
 #define T32_IOC_SET_ISP_IPC_MEM_INFO	0x800c5438U
 #define T32_IOC_GET_ISP_IPC_MEM_INFO	0x800c5439U	/* driver writes size (0 = none) */
+#define T32_IOC_BYPASS_SENSOR		0x80085418U	/* W 8 B {enable, input} (vendor tx_isp_bypass_all; openimp #446) */
 #define T32_IOC_SET_FRAME_DROP		0xc004542cU	/* RW 40 B {u8 vi, 3 x {enable, u8 lsize, fmark}} (vendor tx_isp_set_frame_drop) */
 #define T32_IOC_GET_FRAME_DROP		0xc004542dU	/* same block, driver fills lsize / fmark (tx_isp_get_frame_drop) */
 #define T32_IOC_SET_INTERNAL_CHN_ATTR	0xc004542fU	/* libimp IMP_ISP_SetInternalChnAttr: no vendor handler, answered 0, block untouched */
