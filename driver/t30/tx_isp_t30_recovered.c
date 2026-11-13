@@ -43921,7 +43921,7 @@ int32_t flash_initialize(void *arg1)
 	uint32_t v;
 	uint8_t *p = (uint8_t *)arg1;
 
-	((void **)p)[0x10] = 0x58;
+	p[0x10] = 0x58;	/* #463: vendor 35fec sb 16(a0); the lift stored a word at +0x40 */
 
 	v = read32(0x2020);
 	write32(0x2020, v & mask_hi);
@@ -44000,10 +44000,10 @@ int32_t flash_processing(int32_t *arg1)
 
     s0 = arg1;
     s1 = (char *)*(int32_t **)arg1;
-    phase = *(uint8_t *)(arg1 + 5);
+    phase = *((uint8_t *)arg1 + 0x11);	/* #463: phase byte +0x11 (vendor 3619c lbu 17(a0)), not +0x14 */
 
     if (phase == 0) {
-        *(uint8_t *)(arg1 + 5) = 1;
+        *((uint8_t *)arg1 + 0x11) = 1;
         *(int32_t *)(arg1 + 5) = *(int32_t *)(s1 + 0x31c);
         stab[12] = 1;
         *(int32_t *)(s1 + 0xee4) = 1;
@@ -44039,18 +44039,18 @@ int32_t flash_processing(int32_t *arg1)
             new2 = (uint8_t)(((int32_t)(*(uint8_t *)(uintptr_t)ptr2 - old2) * step) >> 8) + old2;
             stab[49] = new1;
             stab[50] = new2;
-            *(uint8_t *)(arg1 + 5) = 2;
+            *((uint8_t *)arg1 + 0x11) = 2;
             result = *(int32_t *)(s1 + 0x31c);
         } else {
             result = *(int32_t *)(s1 + 0x31c);
         }
     } else if (phase < 6) {
         *(uint16_t *)(arg1 + 7) += 1;
-        *(uint8_t *)(arg1 + 5) = phase + 1;
+        *((uint8_t *)arg1 + 0x11) = phase + 1;
         result = *(int32_t *)(s1 + 0x31c);
     } else {
         stab[12] = 0;
-        *(uint8_t *)(arg1 + 5) = 0;
+        *((uint8_t *)arg1 + 0x11) = 0;
         *(int32_t *)(s1 + 0xee4) = 0x23;
         *(int32_t *)(s1 + 0xee0) = 0xf;
         apical_isp_raise_event(*(void **)arg1, 10);

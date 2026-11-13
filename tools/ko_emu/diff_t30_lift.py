@@ -25,6 +25,8 @@ Runs functions of the SDK-built vendor tx-isp-t30.ko (4ea12e1f) and of our drive
   cmos_set_exposure_target                      isp+0x11c hysteresis, +0x2fc gate, ratio clamp (#428)
   sensor_fsm_clear / sensor_init_output / sensor_sw_init   whole random buffer: byte/half stores at +0xde..+0xf2,
                                                 u16 +0x46/+0x48/+0xe6, callback +0xb4(fsm + 0x28) (#463, lift indexed void **)
+  every *_fsm_clear / *_initialize           random FSM + ISP buffer in, whole buffers out, every callee stubbed (#463)
+  flash_processing                            phase byte +0x11, counters +0x14/+0x18/+0x1c, stab 12/49/50 (#463)
   AWB gain registers                            vendor cmos_fsm_process_interrupt(0) WB stage vs our
                                                 tx_isp_t30_awb_gain_registers: 0x300..0x30c from AWB +0x760,
                                                 exp2 precision, 0xfff clamp, WDR black-level factor (#459)
@@ -33,7 +35,7 @@ Callees outside the function under test are hooked at their entry in both module
 calibration getters return synthetic tables (no vendor data).  Return values are compared only where the
 OEM function returns one.  Exit 1 on any difference.
 """
-import sys, os, random, struct
+import sys, os, random, struct, zlib
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from ko_emu import KoEmu, HEAP, HEAP_SZ
 from unicorn import UC_HOOK_CODE
@@ -676,9 +678,29 @@ def c_sensor_sw(m, r, k):                # sensor_sw_init (#463): u16 +0x46/+0x4
     for f in ("apical_wdr_fs_isp_setup", "sensor_update_black"): m.unhook(f)
     return rr.stop, wl, log, m.e.read(b, 0x800)
 
+def c_flash_proc(m, r, k):               # flash_processing (#463): state +0x10, phase byte +0x11, +0x14/+0x18 exposure, +0x1c count
+    t375_world(m, r, {})
+    for f in ("write_to_flash_output_port", "apical_isp_raise_event"): m.hook(f, m.rec(f, 2 if f[0] == "a" else 1))
+    tb = m.e.alloc(0x10, bytes(r.getrandbits(8) for _ in range(0x10)))
+    m.hook("_GET_UCHAR_PTR", lambda e: tb + (e.get_reg(UC_MIPS_REG_A0) & 7))
+    sb = bytearray(m.e.read(m.stab(), 0x40)); sb[12], sb[49], sb[50] = r.getrandbits(8), r.getrandbits(8), r.getrandbits(8)
+    m.e.write(m.stab(), bytes(sb))
+    isp = m.e.alloc(0x1000, bytes(r.getrandbits(8) for _ in range(0x1000)))
+    if r.random() < 0.5: m.e.write(isp + 0x31c, struct.pack("<i", r.randrange(-3000000, 3000000)))
+    d = bytearray(r.getrandbits(8) for _ in range(0x40)); d[0:4] = struct.pack("<I", isp)
+    d[0x10] = r.choice([0x59, 0x5a, 0x5a, 0x5a, 0x5a, r.getrandbits(8)]); d[0x11] = r.choice([0, 1, 1, 2, 5, 6, r.getrandbits(8)])
+    if r.random() < 0.5: d[0x14:0x1c] = struct.pack("<ii", r.randrange(-3000000, 3000000), r.randrange(-3000000, 3000000))
+    d[0x1c:0x1e] = struct.pack("<H", r.choice([0, 15, 16, r.getrandbits(16)]))
+    b = m.e.alloc(0x40, bytes(d))
+    rr = m.e.call("flash_processing", b)
+    for f in ("write_to_flash_output_port", "apical_isp_raise_event", "_GET_UCHAR_PTR"): m.unhook(f)
+    st = m.e.read(m.stab(), 0x40)
+    return rr.stop, m.e.read(b, 0x40), m.e.read(isp, 0x1000), (st[12], st[49], st[50]), [x if x[0][0] == "w" else x[:2] for x in m.log if x[0] != "copy"]
+
 C375 = (("roi", c_roi), ("vflip", c_vflip), ("gain_log2", c_gain), ("api_buffer", c_apibuf), ("release_all", c_release),
         ("ae_weight", c_weight), ("dis_stats", c_dis), ("g_ctrl", c_gctrl),
-        ("sensor_fsm_clear", c_sensor_clear), ("sensor_init_output", c_sensor_out), ("sensor_sw_init", c_sensor_sw))
+        ("sensor_fsm_clear", c_sensor_clear), ("sensor_init_output", c_sensor_out), ("sensor_sw_init", c_sensor_sw),
+        ("flash_processing", c_flash_proc))
 def t_ptr_scale(V, O, rnd, n):
     V, O = Mod(V.path, {}), Mod(O.path, {})          # fresh modules: no hooks/state of the other groups
     bad = 0
@@ -689,6 +711,64 @@ def t_ptr_scale(V, O, rnd, n):
             if res[0] != res[1]:
                 bad += 1
                 if bad < 8: print("DIFF %s k=%d: %s" % (nm, k, diffdesc(res[0], res[1])))
+    return bad
+
+# ---------------------------------------------------------------- FSM clear/initialize: random buffers in, whole buffers out (#463)
+SLOT = 0x73000000
+# not comparable with every callee stubbed: intended reset defaults (iridix 0x3c0 statistics bits) or the lift
+# inlines the vendor's calibration helpers (_GET_*), so the stubbed tables differ
+FSM_BUF_SKIP = ("iridix_initialize", "color_matrix_initialize", "noise_reduction_initialize", "sharpening_initialize")
+def fsm_buf_names(V, O):
+    """every *_fsm_clear / *_initialize defined in both modules"""
+    fn = lambda m: {sy.name for sy in m.e.elf.get_section_by_name(".symtab").iter_symbols()
+                    if sy["st_info"]["type"] == "STT_FUNC" and sy["st_shndx"] != "SHN_UNDEF"}
+    return sorted(n for n in fn(V) & fn(O) if n.endswith("_fsm_clear") or n.endswith("_initialize"))
+
+def fsm_buf_world(m):
+    """every other function and every import is a logged stub that returns a per-name readable slot"""
+    if getattr(m, "fsm_world", False): return
+    m.fsm_world = True; m.e.uc.mem_map(SLOT, 0x400000); m.slot_seed = 0; m.slot_done = set()
+    names = {sy.name for sy in m.e.elf.get_section_by_name(".symtab").iter_symbols()
+             if sy.name and sy["st_info"]["type"] in ("STT_FUNC", "STT_NOTYPE")} | set(m.e.stubs)
+    def mk(n):
+        sl = SLOT + (zlib.crc32(n.encode()) % 0x400) * 0x1000
+        def h(e):
+            if n == "APICAL_READ_32":
+                a = e.get_reg(UC_MIPS_REG_A0); return m.regs.get(a, random.Random(m.slot_seed * 65537 + a).getrandbits(32))
+            if n == "APICAL_WRITE_32":
+                m.regs[e.get_reg(UC_MIPS_REG_A0)] = e.get_reg(UC_MIPS_REG_A1); m.regw[e.get_reg(UC_MIPS_REG_A0)] = e.get_reg(UC_MIPS_REG_A1); return 0
+            m.log.append(n)
+            if sl not in m.slot_done:
+                m.slot_done.add(sl); rr = random.Random(m.slot_seed ^ zlib.crc32(n.encode()))
+                e.write(sl, bytes(rr.getrandbits(8) for _ in range(0x1000)))
+            return sl
+        return h
+    m.fsm_hooks = {n: mk(n) for n in names}
+
+def c_fsm_buf(m, fn, seed):
+    fsm_buf_world(m)
+    for n, h in m.fsm_hooks.items():
+        if n != fn: m.hook(n, h)
+    m.unhook(fn); m.e.stubname.pop(m.e.symaddr[fn], None)
+    m.slot_seed = seed; m.slot_done = set(); m.regs = {}; m.regw = {}; del m.log[:]
+    r = random.Random(seed); m.e.heap_reset()
+    isp = m.e.alloc(0x8000, bytes(r.getrandbits(8) for _ in range(0x8000)))
+    d = bytearray(r.getrandbits(8) for _ in range(0x2000)); d[0:4] = struct.pack("<I", isp)
+    b = m.e.alloc(0x2000, bytes(d))
+    rr = m.e.call(fn, b)
+    return rr.stop, m.e.read(b, 0x2000), m.e.read(isp, 0x8000), sorted(m.regw.items()), sorted(m.log)
+
+def t_fsm_buffers(V, O, rnd, n):
+    V, O = Mod(V.path, {}), Mod(O.path, {})          # fresh modules: every callee is stubbed here
+    bad = 0
+    for fn in fsm_buf_names(V, O):
+        if fn in FSM_BUF_SKIP: continue
+        for k in range(max(1, n // 20)):
+            seed = rnd.getrandbits(32)
+            res = [c_fsm_buf(m, fn, seed) for m in (V, O)]
+            if res[0] != res[1]:
+                bad += 1
+                print("DIFF %s k=%d: %s" % (fn, k, diffdesc(res[0], res[1]))); break
     return bad
 
 def diffdesc(a, b):
@@ -984,7 +1064,7 @@ TESTS = [("nr_selectors", t_nr), ("general_frame_start", t_general), ("fsm_switc
          ("sbus_write_u8", t_sbus), ("awb_normalise", t_normalise), ("awb_detect_light_source", t_detect_ls), ("event_queue_push", t_queue),
          ("awb_mesh_chain", t_mesh), ("compute_weight", t_weight), ("awb_calc_mesh", t_calc),
          ("gp_lock_paths", t_gp_lock), ("ioctl_uaccess", t_uaccess),
-         ("ptr_scale", t_ptr_scale), ("fci_args", t_fci_args), ("sync_watchdog", t_sync), ("ldc_ncu_counts", t_counts), ("ldc_core_ops_init", t_ldc_init),
+         ("ptr_scale", t_ptr_scale), ("fsm_buffers", t_fsm_buffers), ("fci_args", t_fci_args), ("sync_watchdog", t_sync), ("ldc_ncu_counts", t_counts), ("ldc_core_ops_init", t_ldc_init),
          ("set_exposure_target", t_set_target), ("awb_gain_registers", t_wb_regs),
          ("dqbuf_signal(expected diff)", t_dqbuf_signal)]
 
