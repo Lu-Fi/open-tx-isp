@@ -962,3 +962,12 @@ the two commands fail with `-EFAULT`. For the apitest case `tisppar_t40` and for
 `make ... TX_ISP_T40_TISP_PAR=y` and load it with `t40_tisp_par=1` (read-only parameter, every call also needs `CAP_SYS_RAWIO`).
 `build_local.sh` fails a default build that still carries the parameter (`tests/check_t40_tisp_par_gate.sh`). Never ship the debug
 module in a firmware image.
+
+## HLDC set path (2026-11-13, openimp #432)
+
+`IMP_ISP_Tuning_SetHLDCAttr` (CID 0x8000097) runs the vendor HLDC flow: strength -> k1/k2 (vendor tables), validity check,
+centre/size parameters for the full and half resolution, record at `main_hldc_para` (init from the bin at +0x18654 when
+`tparams_status` bit 20 is set), registers ISP+0x15000..0x15028, latch +0x44 = 3. Device-equal to the vendor module register by
+register (apitest t40dev 8000000 with ISP+0x15000 sampled, `audit/issue432/run1`). With HLDC off in the bin the attribute is only
+stored (the vendor would oops on its NULL record).
+
