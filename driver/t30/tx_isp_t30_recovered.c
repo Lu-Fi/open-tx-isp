@@ -35540,7 +35540,7 @@ void *cmos_set_exposure_target(int32_t *arg1, int32_t arg2, int32_t arg3)
 int32_t defect_pixel_table_write(void *arg1, void *arg2)
 {
 	uint32_t count;
-	uint32_t *i;
+	uint32_t i;	/* #463: word counter (vendor 260a4 addiu s0,s0,1); was uint32_t *, i++ = +4 */
 	uint32_t v;
 
 	if (!arg1)
@@ -35551,13 +35551,13 @@ int32_t defect_pixel_table_write(void *arg1, void *arg2)
 		count = 4096;
 
 	for (i = 0; i < count; i++) {
-		uint32_t off = (uintptr_t)i << 2;
+		uint32_t off = i << 2;
 		uint32_t word = *(uint32_t *)((uintptr_t)arg1 + off);
 		APICAL_WRITE_32(0xc000 + off, word);
 	}
 
 	v = APICAL_READ_32(0x20c);
-	APICAL_WRITE_32(0x20c, (v & 0xfffff000u) | ((uintptr_t)i & 0xfff));
+	APICAL_WRITE_32(0x20c, (v & 0xfffff000u) | (i & 0xfff));
 
 	v = APICAL_READ_32(0x200);
 	APICAL_WRITE_32(0x200, v | 1u);
