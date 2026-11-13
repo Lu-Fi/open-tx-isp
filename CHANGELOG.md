@@ -4,6 +4,17 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD[-rcN]` are set on the `aperto` branch, the same tag in open-tx-isp and OpenIMP: RC1 `v2026.10.11-rc1`, RC2 `v2026.10.25-rc2`, RC3 `v2026.11.07-rc3` (2026-11-07). Gate SoCs of RC3 and Release 1: T10, T20, T21, T23, T30, T31, T40, T41 (T32/T33 planned, QEMU only); release notes: [docs/releases/ in OpenIMP](https://github.com/Lu-Fi/openimp/blob/next/docs/releases/README.md). Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-11-13: kernel-7 patches 0045-0049 adopted from the firmware side (openimp #460; T41 device-tested on 4.4, T31 build-tested on 3.10 and 7.3.3)
+
+Five open-tx-isp patches that the thingino-firmware `feature/kernel-7` branch carried under `package/open-tx-isp/` are now in the driver, so the firmware can drop them. 7.x-only parts are version-guarded; the 3.10 and 4.4 builds behave as before.
+- 0047 T41 raw inject: `ioremap()` instead of `ioremap_nocache()` (removed in 5.6). On MIPS 4.4 both are `__ioremap_mode(..., _CACHE_UNCACHED)`.
+- 0046 T41 AE algo completion: the slot is `max(16, sizeof(struct completion))`, aligned like `struct completion`; asserts `offsetof(done) == 0` and `offsetof(wait) == 4` (the offsets the recovered code uses). On 4.4 the slot stays 16 bytes (`nm -S`), and the 16-byte size assert is kept for < 5.0.
+- 0048 T41 IVDC work buffer: if the vendor subdev device pointer (+4) is NULL (7.x subdev path, NULL deref panic in probe), `dma_alloc_coherent()` uses the IVDC platform device (32-bit DMA mask).
+- 0045 T41: `cpu_has_mxuv3` is 1 on >= 5.0 kernels that do not define it (T41 = XBurst2 MXU3.1); the 4.4 kernel keeps its runtime flag. Placed next to its only user, not in a compat header.
+- 0049 T31 mainline (>= 5.0): the sensor is resolved from DT only; no vendor i2c client is created at the address the streamer sends, a not-yet-probed DT sensor defers with `-ENODEV`. The 3.10 path is unchanged; the vendor-only helper is `__maybe_unused` on mainline.
+- Builds: T41 4.4.94 and T31 3.10.14 rc=0; T31 7.3.3 rc=0 with the same 78 warnings as before. The T41 ko built with the firmware flags is instruction-identical to the flashed agg68 ko apart from the patches. `make -C tests check`: 184 passed, 0 failed.
+- T41 .32 (gc5603, runtime module swap from /tmp, flashed ko restored): insmod rc=0, snapshots 200 (238 KB, same as the flashed ko), 5 s MP4 stream, 0 oops/BUG lines in dmesg.
+
 ## 2026-11-13: T30 Get of brightness/contrast/saturation/sharpness before any Set, manual WB colour temperature and CCM bank like the vendor (openimp #449, #450; device-tested T30X b75)
 
 - #449: the four cached levels (tuning +0x4094/+0x4098/+0x409c/+0x3f74) are read-back values only (stock s_ctrl stores them, g_ctrl returns them; vendor ko 0x77d0/0x785c/0x78e8/0x7a78). The stock ko leaves them 0 until the first Set and the vendor streamer sets 128 at start, so on a freshly loaded open module GetSaturation read 0 (b71) while the picture used the neutral level, and a read-back/restore wrote 0. They now start at 128; no register is touched.
