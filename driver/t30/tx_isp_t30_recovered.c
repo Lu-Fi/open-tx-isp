@@ -12141,6 +12141,18 @@ void *isp_core_tuning_init(void *arg1)
 	((void **)(uintptr_t)p)[0x40cc / 4] = 1;
 	((void **)(uintptr_t)p)[0x40d0 / 4] = (uint32_t)&isp_core_tunning_fops;
 	((void **)(uintptr_t)p)[0x40d4 / 4] = (uint32_t)&isp_core_tuning_event;
+	/*
+	 * openimp #449: brightness/contrast/saturation/sharpness are read-back
+	 * caches only (g_ctrl returns them, s_ctrl stores them; the picture keeps
+	 * the calibration level until a Set).  The stock ko leaves them 0 until
+	 * the first Set, which every vendor streamer does with 128 at start, so
+	 * Get before any Set read 0 on a freshly loaded module while the effective
+	 * level is the neutral 128.  Start them at 128 (no register is touched).
+	 */
+	TCTL_U32(tuning, TCTL_OFF_BRIGHTNESS) = 128;
+	TCTL_U32(tuning, TCTL_OFF_CONTRAST) = 128;
+	TCTL_U32(tuning, TCTL_OFF_SATURATION) = 128;
+	TCTL_U32(tuning, TCTL_OFF_SHARPNESS) = 128;
 	return tuning;
 }
 
@@ -42074,6 +42086,34 @@ static void tx_isp_t30_awb_write_gains(struct tx_isp_t30_simple_3a_state *state,
 			state->gain_11);
 }
 
+/*
+ * OEM AWB FSM states 9/10 after the mesh calculation (ko 0x2e3c8/0x2e3dc):
+ * the colour temperature (+0x778, = isp+0xec0) picks the light source
+ * (awb_detect_light_source) and awb_process_light_source moves the CCM bank
+ * index (isp+0xf44..0xf49) after its frame hysteresis, identity in low light.
+ * The recovery AWB never raised event 4, so the CCM bank stayed D50 (#450).
+ */
+static void tx_isp_t30_awb_light_source(int32_t *awb_fsm, u32 ct)
+{
+	*(u32 *)((char *)awb_fsm + 0x778) = ct;
+	awb_detect_light_source((uintptr_t)awb_fsm);
+	awb_process_light_source(awb_fsm);
+}
+
+/* OEM awb_calc_avg_weighted_gr_gb_mesh, manual branch (ko 0x34460..0x344c4):
+ * 1e6 / AWB_mesh(0xffff / red, 0xffff / blue) on the R/G, B/G and colour
+ * temperature meshes (tables 0xe2, 0xfb, 0xd6); a zero gain reads 0xffff. */
+static u32 tx_isp_t30_awb_manual_ct(u32 red, u32 blue)
+{
+	int32_t m = AWB_mesh_isra_1(red ? 0xffffU / red : 0xffffU,
+				    blue ? 0xffffU / blue : 0xffffU,
+				    (int16_t *)(uintptr_t)_GET_USHORT_PTR(0xe2),
+				    (int16_t *)(uintptr_t)_GET_USHORT_PTR(0xfb),
+				    (void *)(uintptr_t)_GET_USHORT_PTR(0xd6));
+
+	return m ? 1000000U / (u32)m : 0;
+}
+
 static void tx_isp_t30_simple_awb_update(int32_t *awb_fsm)
 {
 	struct tx_isp_t30_simple_3a_state *state = &tx_isp_t30_simple_3a;
@@ -42125,10 +42165,19 @@ static void tx_isp_t30_simple_awb_update(int32_t *awb_fsm)
 	 * blue feedback factors are the system items 49/50 (halved Q8).  The
 	 * automatic filter state is left alone, so AWB resumes from its last
 	 * automatic estimate when the mode returns to auto.
+	 *
+	 * OEM awb_calc_avg_weighted_gr_gb_mesh() (ko 0x344c4) takes the colour
+	 * temperature of a manual white balance from the manual gains on the
+	 * calibrated mesh, and the FSM states 9/10 move the CCM bank with it
+	 * (openimp #450: blue gain doubled = warm light = CCM A on the vendor).
 	 */
 	if (stab[12]) {
-		tx_isp_t30_awb_write_gains(state, static_wb, (u32)stab[49] << 1,
-					   (u32)stab[50] << 1);
+		u32 red = (u32)stab[49] << 1;
+		u32 blue = (u32)stab[50] << 1;
+
+		tx_isp_t30_awb_write_gains(state, static_wb, red, blue);
+		tx_isp_t30_awb_light_source(awb_fsm,
+					    tx_isp_t30_awb_manual_ct(red, blue));
 		return;
 	}
 	coefficient = average_coefficient[0];
@@ -42220,8 +42269,20 @@ static void tx_isp_t30_simple_awb_update(int32_t *awb_fsm)
 		total_weight += zone_weight;
 		active_zones++;
 	}
-	if (!active_zones || !total_weight)
+	if (!active_zones || !total_weight) {
+		/*
+		 * No usable zone (e.g. the first frames after a manual white
+		 * balance): the OEM normalise still writes the gains every frame,
+		 * so leaving manual WB restores the last automatic gains at once
+		 * (openimp #450: the open picture stayed blue after SetWB(auto)).
+		 */
+		tx_isp_t30_awb_write_gains(state, static_wb,
+					   state->awb_red_scale,
+					   state->awb_blue_scale);
+		tx_isp_t30_awb_light_source(awb_fsm,
+					    state->awb_color_temperature);
 		return;
+	}
 	average_rg = div64_u64(weighted_rg + total_weight / 2, total_weight);
 	average_bg = div64_u64(weighted_bg + total_weight / 2, total_weight);
 	{
@@ -42303,6 +42364,7 @@ static void tx_isp_t30_simple_awb_update(int32_t *awb_fsm)
 
 	tx_isp_t30_awb_write_gains(state, static_wb, state->awb_red_scale,
 				   state->awb_blue_scale);
+	tx_isp_t30_awb_light_source(awb_fsm, state->awb_color_temperature);
 	state->awb_updates++;
 	if (state->awb_updates <= 8 || !(state->awb_updates & 0x1f))
 		pr_info("tx-isp-t30: calibrated AWB zones=%u mesh=%u/%u ct=%u scale=%u/%u gain=0x%x/0x%x/0x%x/0x%x\n",
@@ -42796,44 +42858,21 @@ int32_t awb_process_temp_and_shift(void)
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000034e20 origin=fragment_seed original=awb_detect_light_source */
+/*
+ * OEM awb_detect_light_source (SDK ko 0x34540): light source +0x77d from the
+ * colour temperature +0x778: < 3426 K -> 1 (A), < 4501 K -> 2 (D40), else 3
+ * (D50).  The lift lost the branch-likely delay slot (beqzl ... li v0,3) and
+ * stored 2 for every temperature >= 3426 K, so D50 was never chosen (#450).
+ */
 int32_t awb_detect_light_source(uintptr_t a0)
 {
-    uint32_t ra = 0;
-    uintptr_t *v0 = 0;
-    uint32_t v1 = 0;
+	u32 ct = *(u32 *)((char *)a0 + 0x778);
+	u8 src = 1;
 
-    /* fragment 0: Arithmetic */
-    v0 = 1;
-
-    /* fragment 1: MemoryAccess */
-    *(uint8_t *)((char *)a0 + 1917) = v0;
-    v0 = *(uint32_t *)((char *)a0 + 1912);
-    v1 = v0 < 3426;
-
-    /* fragment 2: Branch */
-    v0 = v0 < 4501;
-    if (v1 != 0) { goto awb_detect_light_source0x28; }
-
-    /* fragment 3: Unknown */
-    /* unmatched fragment 3 (Unknown): no deterministic matcher for Unknown */
-    /* asm: 34e38:	50400002 	beqzl	v0,34e44 <awb_detect_light_source+0x24> */
-
-    /* fragment 4: Arithmetic */
-    v0 = 3;
-    v0 = 2;
-
-    /* fragment 5: MemoryAccess */
-    *(uint8_t *)((char *)a0 + 1917) = v0;
-
-awb_detect_light_source0x28:
-    /* fragment 6: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    /* fragment 7: Unknown */
-    /* unmatched fragment 7 (Unknown): no deterministic matcher for Unknown */
-    /* asm: 34e4c:	00000000 	nop */
-
-    return 0;
+	if ((int32_t)ct >= 3426)
+		src = (int32_t)ct < 4501 ? 2 : 3;
+	*(u8 *)((char *)a0 + 0x77d) = src;
+	return src;	/* OEM v0: 1 (slti in the bnez delay slot), 2 or 3 */
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000034e50 origin=model_output original=awb_process_light_source */
