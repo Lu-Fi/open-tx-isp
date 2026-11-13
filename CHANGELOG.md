@@ -4,6 +4,15 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD[-rcN]` are set on the `aperto` branch, the same tag in open-tx-isp and OpenIMP: RC1 `v2026.10.11-rc1`, RC2 `v2026.10.25-rc2`, RC3 `v2026.11.07-rc3` (2026-11-07). Gate SoCs of RC3 and Release 1: T10, T20, T21, T23, T30, T31, T40, T41 (T32/T33 planned, QEMU only); release notes: [docs/releases/ in OpenIMP](https://github.com/Lu-Fi/openimp/blob/next/docs/releases/README.md). Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-11-13: T30 compact AE out of the hard IRQ like the OEM (openimp #451; device-tested T30X b78, b80)
+
+- Cause (T30X b76, irq-37 spy on both stacks): the compact AE ran in the hard IRQ, so the AE entry (status bit 3) was long; the AWB event 70 us later latched inside it and the VIC handler (after the core handler on the same line; OEM isp_vic_interrupt_service_routine 0x614-0x644 acks state & ~mask the same way) cleared its line edge: AWB was handled ~8 ms late at frame start (3.0 core entries per frame instead of the vendor's 4.08).
+- As in the OEM (AE_fsm_process_interrupt reads the histogram in the IRQ, the AE math runs in the firmware thread): the IRQ copies the 256 AE histogram bins and queues the compact AE as high-priority work, which computes on the copy; the queued sensor writes are applied at the next frame start as before. The work is cancelled at firmware-thread stop and after free_irq.
+- b77 lesson (not kept): a 0xa0 re-poll in the core ISR handled frame end / FR / slot 13 ~8 ms before the vendor does (the vendor sees them with the frame start) and halved the mscaler interrupts; reading the histogram in the work instead of the IRQ is suspected for the -17 Y darker picture.
+- Device (T30X, vendor / next / this): luma Y 126.1/126.2 = next 126.2 (b78); core line isp-m0 99.3 irq/s vs vendor 101.0 (next 75.2), NCU isp-m2 25.1 = vendor 25.1, 4.00 core entries per frame vs vendor 4.21 (next 3.00); 0 oops, fs fails = next.
+- isp-m3 (mscaler) 25/s vs vendor 50/s is benign: b80 irq-27 spy shows both channel-done bits in each mscaler entry (state 0x3), done/s per channel equal to next (ch0 25.0/24.8, ch1 25.0/25.2), fs ch1 15.0 fps = next; no frame loss.
+- Not taken (b80): an extra 256-bin block read + irqs-off AE sensor writes gave the same irq counts but a darker picture (Y 108.7 vs 126), under investigation in #451.
+
 ## 2026-11-13: T30 recovery AWB writes the WB gains through the OEM chain (openimp #459; T30X b79)
 
 - The recovery AWB raised the smallest WB gain to exactly 0x100 in the linear domain. It now does what the OEM does: AWB +0x770 holds CALIBRATION_STATIC_WB (AWB_fsm_clear), the feedback goes to +0x18/+0x1a, the lifted `awb_normalise()` (oracle-checked) builds the log2 gains and moves the minimum to log2(4096 / (4096 - isp +0xe6)), the black-level factor, and the new `tx_isp_t30_awb_gain_registers()` is the OEM `cmos_fsm_process_interrupt(0)` WB stage (ko 0x25548..0x256f8): `math_exp2` (precision 17 in WDR modes 1/2), 0xfff clamp, black-level factor 0xfff00/(0xfff - BL) >> 8 from 0x310..0x31c in WDR modes 1..3.
@@ -53,12 +62,6 @@ Five open-tx-isp patches that the thingino-firmware `feature/kernel-7` branch ca
 - Clocks (L7): failed `clk_prepare_enable()` of the IPU or ahb1 clock fails the op instead of being paired with a later disable. Remove (L8): `/dev/ipu` is deregistered before the IRQ and the register mapping go. Comment (L9): the 100 ms timeout is a T20 measurement, not measured on T31.
 - Kept like the vendor (no change): M1 unchecked physical addresses (vendor 573-584), M4 no stop on a signal during the wait (806-810), L3 `-1` / `-EFAULT` codes (702, 852), L4 BUF_LOCK under the mutex (900-905), L5 `IRQF_SHARED` + `IRQ_HANDLED` (1040, 991), L6 stop/reset in probe before the clocks (1062-1063). Build: same 3 W=1 warnings as before, no new ones.
 - Device test (Wuuk T31X sc4336p, kernel 7.3.3, runtime insmod): OSD items at the right, bottom-left and bottom-right edge draw without corruption, IPU IRQ 29.6/s at 15 fps (2 blends per frame), dmesg clean, rmmod + insmod + timps restart clean.
-
-## 2026-11-13: T30 compact AE out of the hard IRQ like the OEM (openimp #451; QEMU-tested, device pending: b78)
-
-- Cause (T30X b76, irq-37 spy on both stacks): the compact AE ran in the hard IRQ, so the AE entry (status bit 3) was long; the AWB event 70 us later latched inside it and the VIC handler (after the core handler on the same line; OEM isp_vic_interrupt_service_routine 0x614-0x644 acks state & ~mask the same way) cleared its line edge: AWB was handled ~8 ms late at frame start (3.0 core entries per frame instead of the vendor's 4.08).
-- As in the OEM (AE_fsm_process_interrupt reads the histogram in the IRQ, the AE math runs in the firmware thread): the IRQ copies the 256 AE histogram bins and queues the compact AE as high-priority work, which computes on the copy; the queued sensor writes are applied at the next frame start as before. The work is cancelled at firmware-thread stop and after free_irq.
-- b77 lesson (not kept): a 0xa0 re-poll in the core ISR handled frame end / FR / slot 13 ~8 ms before the vendor does (the vendor sees them with the frame start) and halved the mscaler interrupts; reading the histogram in the work instead of the IRQ is suspected for the -17 Y darker picture.
 
 ## 2026-11-13: T30 ISR like the OEM for status bit 13 and the IRQ thread wake, register accessors (openimp #451, #274, #454; device-tested T30X b74)
 
