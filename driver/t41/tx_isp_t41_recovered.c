@@ -22,6 +22,7 @@
 #include "tx_isp_t41_tmo_map.h"
 #include "tx_isp_t41_tmo_mxu3.h"
 #include <linux/random.h>
+#include <linux/version.h>
 #include "tx_isp_t41_ccm.h"
 bool t41_dfg_ready(void);
 #define T41_MODCTL_DEFOG_MAY_RUN() t41_dfg_ready()
@@ -2561,7 +2562,14 @@ static struct platform_device tx_isp_platform_device = {
 #else
 static struct platform_device tx_isp_platform_device;
 #endif
-static unsigned char ae_algo_comp_storage[16] __attribute__((aligned(4)));
+/* The OEM 4.4 completion slot is 16 bytes; a mainline build may need more
+ * (swait/lockdep), so keep the larger of the two (k7 patch 0046). On 4.4
+ * sizeof(struct completion) is 16 and alignof 4: same slot as before. */
+#define AE_ALGO_COMP_STORAGE_BYTES 16
+static unsigned char ae_algo_comp_storage[
+	sizeof(struct completion) > AE_ALGO_COMP_STORAGE_BYTES ?
+	sizeof(struct completion) : AE_ALGO_COMP_STORAGE_BYTES]
+	__attribute__((aligned(__alignof__(struct completion))));
 #define ae_algo_comp (*(uint32_t *)(void *)ae_algo_comp_storage)
 static uint32_t ae_info_mine;
 static struct file_operations tx_isp_fops;
