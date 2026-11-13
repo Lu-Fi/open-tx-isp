@@ -854,9 +854,14 @@ def b_dis(m, r):
     m.ret["iir_filter_v2"] = lambda e: (m.log.append("iir %#x %#x" % (e.get_reg(UC_MIPS_REG_A1), e.get_reg(UC_MIPS_REG_A2))), 7)[1]
     return (pts, mv + 24, o3, o4), (), [(o3, 8), (o4, 8)]
 
+def b_clip(m, r):                        # dis_clip_gmv_vector: two-word vector clipped to +-ctx+0x10 / +-ctx+0x14 (#463: caller passed a scalar)
+    ctx = rbuf(m, r, 0x40); m.e.write(ctx + 0x10, struct.pack("<ii", r.randrange(-50, 50), r.randrange(-50, 50)))
+    v = m.e.alloc(8, struct.pack("<ii", r.randrange(-80, 80), r.randrange(-80, 80)))
+    return (ctx if r.random() < 0.9 else 0, v), (), [(v, 8)]
+
 CLASS463 = (("cmos_antiflicker_update", b_antiflicker), ("general_frame_end", b_gfe), ("image_crop_yoffset", b_crop_y),
             ("awb_range_high", b_awb_high), ("scene_mode", b_scene), ("defect_pixel_table_write", b_dpc),
-            ("mscaler_core_ops_init", b_msc), ("get_gmv_gauss_method_fast_v2", b_gmv), ("dis_analyze", b_dis))
+            ("mscaler_core_ops_init", b_msc), ("get_gmv_gauss_method_fast_v2", b_gmv), ("dis_analyze", b_dis), ("dis_clip_gmv_vector", b_clip))
 def t_class463(V, O, rnd, n):
     V, O = Mod(V.path, {}), Mod(O.path, {})          # fresh modules: every callee is stubbed here
     bad = 0
