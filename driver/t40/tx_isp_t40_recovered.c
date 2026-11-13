@@ -9508,9 +9508,14 @@ static bool t40_ae_tune_on T40C2;
  * #412: OEM latency model (tisp_ae_main_long_ev_alloc, Ghidra 0x38374; t40_ae_dg_ring_step in ae_api.h).  The OEM
  * step leaves the sensor IT / analog gain to the next frame-done worker (ispcore_irq_main_fd_work 0x867c8, sensor
  * attr +0x124 = 0; here: the frame-3A work at the next frame-done, before its step) and writes the ISP dgain of `depth` AE frames ago every AE frame, then the GIB trigger 0x8040
- * (system_reg_set_ae_trig(3)).  t40_ae_dg_delay: -1 = depth from the bank (+0x288 u16[10], 2 on sc830ai),
- * 0 = at once, n = n AE frames.  t40_ae_sensor_fd 0 = write the sensor from the AE work at once (before #412b:
- * the write landed before or after the sensor's frame latch, single +12..14 % frames on .184).
+ * (system_reg_set_ae_trig(3)).  t40_ae_dg_delay: -1 = depth from the bank (+0x288 u16[10], 2 on sc830ai), one AE
+ * frame less on the interrupt-driven AE (t40_ae_irq_event: our GIB write needs one frame more than the OEM's, #474),
+ * 0 = at once, n = n AE frames.  t40_ae_sensor_fd: 1 (default) = OEM model, the sensor part of a step is written at
+ * the end of the event-1 pass that decided it (#474: the OEM fd worker 0x867c8 writes it one frame earlier than our
+ * old pending queue; loop delay 3 AE frames like the vendor, was 4), on the frame-done fallback at the next
+ * frame-done; 2 = #82/#412b pending queue (write at the next histogram interrupt, loop delay 4); 0 = from the AE
+ * work at once on both paths (before #412b: the write landed before or after the sensor's frame latch, single
+ * +12..14 % frames on .184).
  */
 static int t40_ae_dg_delay T40C2 = -1;
 module_param_named(t40_ae_dg_delay, t40_ae_dg_delay, int, 0644);
@@ -9518,6 +9523,44 @@ static uint t40_ae_sensor_fd T40C2 = 1;
 module_param_named(t40_ae_sensor_fd, t40_ae_sensor_fd, uint, 0644);
 static struct t40_ae_dg_ring t40_ae_dg_ring T40C2;
 static bool t40_ae_dg_ring_on T40C2;
+/*
+ * #474 d: the OEM reports the exposure (/proc isp-m0, GetExpr: tisp_ae_main_ctrls via tisp_g_ae_exprinfo_attr 0x8524c)
+ * from its ring at index depth+1 (tisp_ae_main_long_ev_alloc 0x38374), i.e. the step decided depth+1 AE frames ago =
+ * the exposure of the frame the statistics show now.  t40_ae_rep keeps the decided steps; t40_ae_report_lag
+ * -1 (default) = bank depth + 1 like the OEM, 0 = the last decided step (before #474), n = n steps back.
+ */
+#define T40_AE_REP_N 8U
+static struct { uint32_t it, again, dg; } t40_ae_rep[T40_AE_REP_N] T40C2;
+static uint32_t t40_ae_rep_w T40C2, t40_ae_rep_depth T40C2;
+static int t40_ae_report_lag T40C2 = -1;
+module_param_named(t40_ae_report_lag, t40_ae_report_lag, int, 0644);
+static void t40_ae_rep_push(uint32_t it, uint32_t again, uint32_t dg, uint32_t depth)
+{
+    t40_ae_rep[t40_ae_rep_w % T40_AE_REP_N].it = it;
+    t40_ae_rep[t40_ae_rep_w % T40_AE_REP_N].again = again;
+    t40_ae_rep[t40_ae_rep_w % T40_AE_REP_N].dg = dg;
+    WRITE_ONCE(t40_ae_rep_depth, depth);
+    smp_wmb();
+    WRITE_ONCE(t40_ae_rep_w, t40_ae_rep_w + 1U);
+}
+/* reported IT / analog gain index / ISP dgain: the live values unless the OEM step runs and enough steps are kept */
+static void t40_ae_rep_get(uint32_t *it, uint32_t *again, uint32_t *dg)
+{
+    int lag = READ_ONCE(t40_ae_report_lag);
+    uint32_t w = READ_ONCE(t40_ae_rep_w), k;
+
+    *it = READ_ONCE(regtrace_ae_soft_cur_it);
+    *again = READ_ONCE(regtrace_ae_soft_cur_again);
+    *dg = READ_ONCE(regtrace_ae_isp_dgain_cur);
+    k = lag < 0 ? READ_ONCE(t40_ae_rep_depth) + 1U : (uint32_t)lag;
+    if (!k || !READ_ONCE(t40_ae_dg_ring_on) || k >= T40_AE_REP_N || w <= k)
+        return;
+    smp_rmb();
+    k = (w - 1U - k) % T40_AE_REP_N;
+    *it = t40_ae_rep[k].it;
+    *again = t40_ae_rep[k].again;
+    *dg = t40_ae_rep[k].dg;
+}
 static uint32_t t40_ae_dg_written T40C2;
 /*
  * #412b per-frame trace (diagnostic, off by default): t40_ae_ftrace=1 clears and starts a 1024-entry ring against the
@@ -21093,7 +21136,7 @@ static int regtrace_t40_tuning_copy_ae_expr(uintptr_t user_ptr)
     struct t40_ae_expr e;
     struct t40_ae_expr_live l;
     unsigned long flags;
-    uint32_t again_index, again_log2, again_x1024, dg, max_it, max_ag;
+    uint32_t again_index, again_log2, again_x1024, dg, max_it, max_ag, rep_it;
     uint64_t exposure;
 
     if (!user_ptr)
@@ -21102,20 +21145,20 @@ static int regtrace_t40_tuning_copy_ae_expr(uintptr_t user_ptr)
     e = t40_ae_ex;
     spin_unlock_irqrestore(&t40_ae_api_lock, flags);
 
-    again_index = min_t(uint32_t, READ_ONCE(regtrace_ae_soft_cur_again),
-                        regtrace_t40_ae_max_again_index());
+    t40_ae_rep_get(&rep_it, &again_index, &dg);   /* #474 d: OEM reporting lag */
+    again_index = min_t(uint32_t, again_index, regtrace_t40_ae_max_again_index());
     again_log2 = regtrace_gc4653_again_log2_gain(again_index);
     again_x1024 = tx_isp_exp2_u32(again_log2, 16, 10);
     if (!again_x1024)
         again_x1024 = 1024U;
-    dg = clamp_t(uint32_t, READ_ONCE(regtrace_ae_isp_dgain_cur), 1024U, 32767U);
-    exposure = (uint64_t)READ_ONCE(regtrace_ae_soft_cur_it) * again_x1024;
+    dg = clamp_t(uint32_t, dg, 1024U, 32767U);
+    exposure = (uint64_t)rep_it * again_x1024;
     exposure = div64_u64(exposure * dg, 1024U * 1024U);   /* T40-AE-ISPDGAIN */
     max_it = regtrace_t40_ae_max_it();
     max_ag = tx_isp_exp2_u32(regtrace_gc4653_again_log2_gain(regtrace_t40_ae_max_again_index()), 16, 10);
 
     memset(&l, 0, sizeof(l));
-    l.it = READ_ONCE(regtrace_ae_soft_cur_it);
+    l.it = rep_it;
     l.again = again_x1024;
     l.dgain = e.dgain_manual ? e.dgain : 1024U;
     l.ispdgain = dg;
@@ -47533,7 +47576,7 @@ static int32_t t40_ae_main_process_open(uint32_t a0, uint32_t a1, uint32_t a2, u
         return 0;
     }
     t40_ae_ev_runs++;
-    fd_write = READ_ONCE(t40_ae_sensor_fd) && READ_ONCE(t40_ae_dg_ring_on);
+    fd_write = READ_ONCE(t40_ae_sensor_fd) == 2U && READ_ONCE(t40_ae_dg_ring_on);   /* #474: 1 = end of this pass */
     if (fd_write) {
         t40_ae_sq_take(READ_ONCE(t40_ae_hw_hist_irqs));
         regtrace_ae_sensor_apply_maybe(0, "fd-work");
@@ -77899,12 +77942,14 @@ ae_meter:
                  */
                 {
                     int dly = READ_ONCE(t40_ae_dg_delay);
-                    uint32_t depth = dly < 0 ? f3a_bank.mp48[10] : (uint32_t)dly;
+                    uint32_t depth = dly >= 0 ? (uint32_t)dly :
+                                     f3a_bank.mp48[10] - (f3a_bank.mp48[10] && READ_ONCE(t40_ae_irq_event) ? 1U : 0U);
 
                     t40_ae_dg_written = t40_ae_dg_ring_step(&t40_ae_dg_ring, dgain, depth, dg_fill);
                     t40_ae_dg_ring_on = true;
                     oem_dg_write = true;
                     t40_ae_ft_add('A', it, again, dgain, t40_ae_dg_written, t40_ae_oem_diag[1]);
+                    t40_ae_rep_push(it, again, dgain, f3a_bank.mp48[10]);
                 }
             }
             WRITE_ONCE(t40_ae_stable, t40_ae_tune_st.stable == 1U);
@@ -78079,7 +78124,7 @@ ae_meter:
             regtrace_ae_soft_cur_it = it;
             regtrace_ae_soft_cur_again = again;
             /* #82: an OEM step from the interrupt-driven AE waits in the pending queue for the next ISP frame */
-            if (oem_dg_write && READ_ONCE(t40_ae_irq_event) && READ_ONCE(t40_ae_sensor_fd)) {
+            if (oem_dg_write && READ_ONCE(t40_ae_irq_event) && READ_ONCE(t40_ae_sensor_fd) == 2U) {
                 t40_ae_sq_push(&t40_ae_sq, pk, t40_ae_tune_irqs);
             } else {
                 t40_ae_sq.n = 0;
@@ -132813,18 +132858,17 @@ ispcore_frame_channel_streamoff0x1d0:
  * hand-written soft AE. */
 static int t40_isp_status_show(struct seq_file *m, void *unused)
 {
-    uint32_t w = 0, h = 0, it, again_log2, again_x1024, min_it, max_it;
-    uint32_t isp_dgain = clamp_t(uint32_t, READ_ONCE(regtrace_ae_isp_dgain_cur), 1024U, 32767U);
+    uint32_t w = 0, h = 0, it, again_log2, again_x1024, min_it, max_it, rep_ag, isp_dgain;
     uint64_t exposure;
 
     (void)unused;
+    t40_ae_rep_get(&it, &rep_ag, &isp_dgain);   /* #474 d: OEM reporting lag (bank depth + 1 AE frames) */
+    isp_dgain = clamp_t(uint32_t, isp_dgain, 1024U, 32767U);
     if (READ_ONCE(t40_vendor_expo_count)) {
         it = READ_ONCE(t40_vendor_it_sensor) & 0xffffU;
         again_log2 = READ_ONCE(t40_vendor_again_log2);
     } else {
-        it = READ_ONCE(regtrace_ae_soft_cur_it);
-        again_log2 = regtrace_gc4653_again_log2_gain(min_t(uint32_t, READ_ONCE(regtrace_ae_soft_cur_again),
-                                                   regtrace_t40_ae_max_again_index()));
+        again_log2 = regtrace_gc4653_again_log2_gain(min_t(uint32_t, rep_ag, regtrace_t40_ae_max_again_index()));
     }
     again_x1024 = tx_isp_exp2_u32(again_log2, 16, 10);
     if (!again_x1024)
