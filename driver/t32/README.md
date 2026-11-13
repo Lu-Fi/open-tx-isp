@@ -34,7 +34,11 @@ generation-shared come from the shared code instead:
   - `DRIVER_VERSION` fills a 64-byte buffer: SoC name and driver version,
     which libimp compares with its own (`driver_soc`, `driver_version`).
   - `DEFAULT_BIN` fills an 880-byte buffer with the IQ bin format version and
-    SoC that libimp checks the bin against (`bin_version`).
+    SoC that libimp checks the bin against (`bin_version`), and, as the vendor
+    driver, the WDR (word 852) and day/night (word 856) flags of the bin last
+    set with `SET_TIZIANO_PAR` (20 bytes) for the VI in byte 862; libimp's
+    `GetISPRunningMode` reads word 856. The flags survive `RELEASE_SENSOR`
+    like the vendor module's (#303).
   - `ENUMINPUT` returns `{index, name[32]}`; libimp finds its sensor by name.
   - `MEMORY_MALLOC`/`FREE`: page-contiguous buffers returned as `{kva, pa}`;
     libimp maps them through `/dev/mem` and loads the IQ bins into them.
@@ -93,10 +97,9 @@ generation-shared come from the shared code instead:
   8 phases x 6 taps normalised to 2048, 13 words per direction at
   `0xf0820 + ch * 0xa0` (vertical +0x50), the tail field 0x5a at `0xf09e0`,
   the pair count to `0xf8100`. Unused channels get the flat 6-tap box.
-  The kernel table is computed (`tools/t32_msca_sinc_tab.py`), not the
-  vendor's: against the vendor's QEMU writes (3840x2160 to 1080p, 720p,
-  640x360) 6 of 75 coefficients differ by 1 of 2048, the 1:6 curve is
-  identical. The vendor leaves a not yet used channel 2 out of the first
+  The kernel table is the vendor's (data transcribed from the vendor
+  module's .rodata; `tools/t32_msca_sinc_tab.py` computes its shape, which
+  missed 6 of 75 traced coefficients by 1 of 2048). The vendor leaves a not yet used channel 2 out of the first
   blocks; the driver always loads all three.
 - `+0x28` filter-select pulse per channel (cv8001/PRJ007 values 0x41, 0x01,
   0x00 until the IQ bin parser provides them), as the vendor.
@@ -143,6 +146,70 @@ generation-shared come from the shared code instead:
   through the sensor's EXPO event (0x02000017). No AWB, no tuning. QEMU run
   s4h: 13 histogram interrupts, 5 steps, the sensor ioctl accepted each; proc
   shows steps, last mean and integration time.
+- **Vendor AE chain, in progress (openimp #234)**: the AE context init
+  (`tx_isp_t32_aeinit.h`, `t32_ae_ctx_init` = state part of `tisp_ae_init`,
+  oracle `t32_aeinit_oracle`) and the fixed point maths
+  (`tx_isp_t32_aemath.h`, oracle `t32_aemath_oracle`) are ported and proven on
+  the host. The driver builds the context at stream-on (`t32_pf_attach_ae`,
+  `t32_ported_paths` bit 10, sensor block via `lib_tisp_sync_sensor_attr`)
+  and writes the init tail registers. Since 2026-11-11 (part 3) the vendor AE
+  runs per frame (`tx_isp_t32_ae.c` on `tx_isp_t32_aechain.h`, oracle
+  `t32_aechain_oracle`, all 67 bins, 23k frames bit-exact against the whole
+  vendor chain): every AE zone interrupt runs `tisp_ae_interrupt_static` (+
+  `tisp_ae_long_ev_alloc` once the tune ran) and `tisp_ae_calc_process`
+  (par_update_trig, algorithm = weight_mean + flicker + tune, long_process);
+  sensor exposure as packed it | again << 16 (TX_ISP_EVENT_SENSOR_EXPO),
+  event 4 (long total gain) feeds `t32_long_tgain_update` instead of
+  `tisp_tgain`. The dd2d4 sensor block is `t32_ae_sensor_blk`
+  (`tx_isp_t32_aesns.h`, oracle `t32_aesns_oracle`). Stats in
+  /proc/jz/isp/isp-m0 ("vendor AE"). The exposure-list first-frame
+  mismatch is gone (openimp #333: the vendor reads past the 2184 B state into
+  the zero next-channel block; ours reads 0 there). Not QEMU / device tested
+  (the #288 QEMU rootfs has no EnableTuning, so no IQ bin and no AE
+  statistics; the QEMU cv8001 model has no exposure registers).
+- **Vendor AWB per frame (openimp #234, `t32_ported_paths` bit 14)**: the
+  state part of `tisp_awb_init` (`tx_isp_t32_awbinit.h`, oracle
+  `t32_awbinit_oracle`) builds the AWB context at stream-on after the AWB
+  statistics init (`tx_isp_t32_awbc.c`), and every AWB statistics interrupt
+  (status bit 3) runs `tisp_awb_interrupt_static` + `tisp_awb_process`
+  (`t32_awb_frame`; oracle `t32_awbchain_oracle`: init + 7990 frames through
+  the whole vendor chain, bit-exact). The AE feeds the AWB as in the vendor's
+  event thread: AE event 6 (long EV) -> `tisp_awb_ev_update` on an EV change,
+  AE event 4 (long total gain) -> `tisp_awb_tgain_update` on a gain change,
+  which re-interpolates and writes the regional / luma thresholds
+  (`tx_isp_t32_awbtg.h`, oracle `t32_awbtg_oracle`). Stats "vendor AWB" in
+  /proc/jz/isp/isp-m0. Host only.
+- **Colour temperature fan-out (openimp #234, `t32_ported_paths` bit 15)**:
+  after each AWB frame its event 11 colour temperature runs `tisp_ct_update`
+  (`t32_ct_update`, oracle `t32_dispatch_oracle`, force / keep 0) on the CCM
+  and BCSH states kept from stream-on (`t32_ccm_start` / `t32_bcsh_start`;
+  `t32_ccm_ct_update`, `t32_bcsh_ct_update`, oracles `t32_ccmf_oracle` /
+  `t32_bcshf_oracle`) and the CLM block state as `tisp_clm_init` leaves it
+  (`tx_isp_t32_clmct.h`: `tisp_clm_ct_update` / `tisp_clm_ct_interp` on the
+  kept state, oracle `t32_clmct_oracle`) in `tx_isp_t32_ctup.c`. LSC: see
+  the next entry. Stats "ct fan-out" in /proc/jz/isp/isp-m0. Host only.
+- **LSC colour temperature path (openimp #234, `t32_ported_paths` bit 19,
+  with bits 11 and 15)**: `tx_isp_t32_lscct.h` ports the whole vendor
+  `tisp_lsc_write_all_reg` (all modes: the completion wait for a running
+  register list at 0x22014, the mesh through the LUT port: one sensor into
+  the LSC register list image, else 0x32020 / 0x32024 or the shadow indices
+  2767 / 2769; the registers as shadow indices or list words; the list
+  trigger flag), `tisp_lsc_interp_by_ct` with its lock pattern,
+  `tisp_lsc_ct_update`, `tisp_lsc_tgain_update` and
+  `tisp_lsc_irq_frame_done`; oracle `t32_lscct_oracle` (d03a0 0 / 1 / 2,
+  1 or 2 sensors, busy / idle, the image `tisp_lsc_init` leaves, 50/50
+  mutations). `tx_isp_t32_lscct.c` keeps the LSC state and a vendor-layout
+  LSC list (16 KiB, uncached) from stream-on; the ct fan-out runs
+  `tisp_lsc_ct_update` on it, the long tgain update runs
+  `tisp_lsc_tgain_update` on the same list (strength 0x5050 + list word 8),
+  and the LSC frame done interrupt (0x300a8 bit 4 = bit 36) runs the armed
+  list through table word 49 / bit 17 (`t32_hw_rcfg_lsc_trig`). Stats "LSC
+  ct path" in /proc/jz/isp/isp-m0. Host + QEMU build only.
+- **EV fan-out (openimp #234, `t32_ported_paths` bit 16)**: the AE event 6
+  runs `tisp_long_ev_update` (`t32_long_ev_update`, oracle
+  `t32_longev_oracle`): the AWB part (bit 14), `t32_ccm_ev_update` and
+  `t32_bcsh_ev_update` (x = the AE brightness word) on the CCM / BCSH states
+  of bit 15. Gamma, defog, TMO and WDR EV updates are not wired. Host only.
 
 - **Front end: CSC, CSCCR, ISP top** (`tx_isp_t32_front.h`, flow of the vendor
   `tisp_csc_init`, `tisp_csccr_init`, `tisp_top_init`, `tisp_top_reg_cfg`),
@@ -228,13 +295,122 @@ generation-shared come from the shared code instead:
   last release disables them). Without the `gate_isp` enable the newer QEMU
   (which gates the ISP clock) delivers no frames.
 
+- **Per-frame ported paths** (`tx_isp_t32_tisp.c`, openimp #234): the
+  oracle-proven ports of the vendor's per-frame block refreshes run in the
+  driver. Every AE histogram interrupt schedules one run of the ported
+  `tisp_long_tgain_update` (`t32_long_tgain_update`); its refresh hooks call
+  the ported `tisp_<blk>_refresh` functions unchanged and their writes go out
+  in order (direct register mode, `t32_data_d03a0` = 0). Wired: DMSC, YSP, MDNS, DPC (long-frame gain),
+  CDNS, YDNS, SDNS (contexts as the vendor's `tisp_<blk>_init` leaves them:
+  the init-edited section copy, zeroed value block, last gain -1, YDNS
+  hysteresis -1, DMSC sharpness 0x80; MDNS keeps the value block and frame size of its init), GIB, RDNS (openimp #234: context as
+  `tisp_rdns_init` leaves it, vendor row table `t32_data_c0ac0` in `tx_isp_t32_rdnstab.h`; programmed at
+  stream-on only on its ported path), LSC strength (`tisp_lsc_tgain_update`: register 0x5050, context
+  from the stream-on list, current values as `tisp_lsc_init` leaves them, `t32_lscx_oracle`), LCE state and
+  strengths (the 0x22850-byte state `tisp_lce_init` leaves, vmalloc'd, freed at stream-off;
+  `tisp_lce_tgain_update` with `tisp_lce_tgain_interp_strength`, `tx_isp_t32_lcetg.h`, oracles
+  `t32_lcetg_oracle` / `t32_lceinit_oracle`). The LCE curve (`tisp_lce_par`) runs from the vendor's
+  block interrupts (`tx_isp_t32_blkirq.h` / `.c`, oracle `t32_blkirq_oracle`): at stream-on the three DMA
+  buffers of `tisp_lce_malloc_cfg` (statistics banks 0x26400, curve 0x5a00, histogram 0x9000 B), the band
+  table and the size shift bytes d6c64 .. d6c67 of `tisp_lce_init` / `tisp_lce_size_para_calc`, ISP status
+  bit 8 = `tisp_lce_interrupt_static` and bit 30 = `tisp_lsf_interrupt_static` in the hard interrupt through
+  the ported `lib_tisp_intp_process`, event 14 through the ported event queue to a work item that runs
+  `tisp_lce_par` (`Tisp_lce_soft_t41_simd` or `_simd_v4`, `tisp_lce_write_curve`); the next bit 8 hands the
+  curve to the hardware (0xc0a4). The driver's proc info counts attaches, bits 8 / 30 and events.
+  TMO / ADR (`t32_ported_paths` bit 13, `tx_isp_t32_tmoblk.h` / `tx_isp_t32_tmo.c`, oracle
+  `t32_tmoblk_oracle`): at stream-on `tisp_tmo_init` runs on a copy of IQ bin section 4 (11000 B, the vendor's
+  tuning base + 11976) with the first gamma record: statistics DMA buffer (kmalloc 0x10000, registers
+  0x7100 ..), channel record, tone buffer, adr block set, the default register refreshes and the ramY / ramV
+  tables; bit 9 = `tisp_tmo_interrupt_static` (statistics, then the TMO path `tmo2fbf_input_prep` /
+  `tmo2fbf_process`, or with stat byte 385 = 0 the ADR soft process up to `adr_fpga` and
+  `adr_reg_write_every`), bit 31 = `tisp_tmo_fbf_interrupt_calc` (`tmo_soft_process`: stat_limit, ramY /
+  ramV), both in the same block table and dispatch as LCE; `tisp_tmo_tgain_update` from the long tgain
+  update; `tisp_tmo_deinit` at stream-off. `tisp_tmo_init` sets context byte 10042 (stat byte 385) to 1, so
+  the TMO path runs; the ADR path needs `tisp_tmo_param_array_set` (not wired). `tisp_tmo_ev_update` is ported
+  in the header but not called (the driver does not run `tisp_long_ev_update`). Proc: "tmo:" line. MSCA has no per-frame gain hook in the vendor (`tisp_long_tgain_update`
+  does not call it; `tisp_msca_params_update` runs only from day/night, `param_array_set` and
+  `cfg_shd`). AF and GSM (`t32_ported_paths` bits 17 / 18, `tx_isp_t32_afgsm.h` / `tx_isp_t32_afgsm.c`,
+  oracle `t32_afgsm_oracle`): at stream-on `tisp_af_init` on IQ bin section 24 (800 B, the vendor's tuning
+  base + 0xec30; statistics DMA buffer kmalloc 16 KiB, slots 0x18108 .., register image 0x18010 ..) and
+  `tisp_gsm_init` (0x1904c), both from the vendor's module .data (AF attribute records d5c60, gain tables
+  d5c90 / d6014, GSM context d6e00 .. d7e28); bit 6 = `tisp_af_interrupt_static` (event 15:
+  `tisp_af_calc_process`, the focus metrics), bit 7 = `tisp_gsm_interrupt_hist` (event 16: `tisp_gsm_process`,
+  zone weights), bit 63 (0x300a8 bit 31) = `tisp_gsm_irq_frmae_done`; `tisp_af_tgain_update` from the long
+  tgain update. Proc: "af / gsm:" line. The total gain is `tisp_tgain`
+  (default 0x10000, the vendor init gain) until the vendor AE runs in the
+  driver, so with the default the first run rewrites the stream-on values and
+  later runs write nothing. `t32_ported_paths` switches each wired block back
+  to the old path (stream-on programming only) for device A/B tests.
+
+## ISP OSD (openimp #336)
+
+`tx_isp_t32_isposd.c`: libimp's ISP-drawn OSD reaches the MSCA. The isp-m0 tuning
+controls 0x08000074 (mask block, 24 B), 0x080000a0 (draw block, 36 B), 0x080000a1
+(OSD attribute, 32 B) and 0x080000a2 (OSD block, 20 B), set and get, call the ported
+vendor setters / getters (`tx_isp_t32_msca_api.h`, `_set.h`, `_arr.h`) on the MSCA
+parameter block of VI 0; the MSCA frame-done interrupt (status 0x300a8 bit 1, vendor
+system irq 33) runs `tisp_msca_irq_frame_done` (`tx_isp_t32_msca_irq.h`, oracle
+`t32_mscafd_oracle`) = `tisp_msca_cfg_shd(0, 0)`, which sends the pending windows,
+masks and lines through the shadow-RAM port. The channel-start curve load and this
+commit share the port under one lock. QEMU (openimp `tools/t32` isposd run, vendor
+libimp 2.2.0 and OpenIMP): the OSD / mask / line pairs equal the vendor module's;
+the QEMU model draws the pictures and masks. Not the vendor's: indexes the vendor
+uses unchecked (window >= 8, line >= 20, mask set >= 3 / block >= 4, VI != 0) are
+refused with -EINVAL, getters start from a zeroed block (vendor: stack garbage).
+`t32_isposd_trace=1` logs requests and commits.
+
+## ISP tuning controls (openimp #296)
+
+`tx_isp_t32_tunctl.c` answers the libimp 2.2.0 `IMP_ISP_Tuning_*` requests on
+`/dev/isp-m0` (`0xc0105467`, `{vi, dir, id, value}`) through the ported vendor
+dispatchers (`tx_isp_t32_txsctrl.h` / `tx_isp_t32_txgctrl.h`): BCSH bytes,
+anti-flicker, mirror / flip, module control, module ratio, CSC, CCM, gamma
+(presets), statistics config, AE / AWB / AF attributes and weights, face AE /
+AWB, WDR output mode, scaler level, CT trend offset, CSC-CR, HB line space,
+sensor attributes, autozoom, frame-done wait; AE start EV on `/dev/tx-isp`
+`0xc0045436/7`. The AE / AWB / statistics ids are bound to the per-frame AE
+and AWB blocks (`tx_isp_t32_tunblk.c`: the ported `.isra` wrappers, `tisp_[sg]_*`
+API and `t32_aea_*` / `t32_awb_*` block API, so a Set is read by the next AE /
+AWB frame and a Get answers the live statistics and exposure state). AE and AWB
+run live from stream-on (openimp #350: the AE context built by the statistics
+init is no longer freed by the tisp init). Vendor UB kept: the face AE weight
+id (0x2a, `IMP_ISP_Tuning_SetFaceAeWeiget`; third word = AE smoothing window length) is not
+bounded by the vendor; a value above 221 makes the next AE frame write past the
+AE state block (kernel memory corruption, the vendor module hangs as well). The other
+attributes are still kept per channel and returned (not applied yet). The AF part
+of the statistics config, AF weight, AF statistics and AF metrics run on the live
+AF block, the statistics config's GSM zone bounds go to the live GSM block
+(`tx_isp_t32_afgsm.c`). Sensor fps (`0x08000070`) stays in
+`tx_isp_t32_core.c`, OSD / mask / draw in `tx_isp_t32_isposd.c`. QEMU vs the
+vendor module: see CHANGELOG.
+
+## IVDC direct mode (openimp #349)
+
+`direct_mode=1` sends the sensor's frame channel 0 to the encoder over the
+IVDC (ISP -> encoder line buffer, 0x13100000, INTC 57) instead of memory, as
+the vendor module. `tx_isp_t32_ivdcdrv.c` runs the oracle-proven ports of the
+vendor IVDC code on vendor-layout subdev / private objects:
+`ivdc_core_ops_init` at the ISP stream-on (reset, mode word 0x5c),
+`ivdc_misc_unlocked_ioctl` on `/dev/misc-ivdc` (GET/SET_DIRECT, SET_PADDR,
+MEM_LINE, MAX_STRIDE, SET_MEM_LINE), `ivdc_pad_event_handle` for frame
+channel 0 (SET_FRAME_FORMAT: geometry; REQBUFS: DDR ring 0x30 / 0x34 / 0x38;
+FRAME_STREAMON / OFF: irq mask, enable) and
+`ivdc_core_interrupt_service_routine` (frame start 0x44 bit 17 completes
+channel 0's next buffer). The MSCA writes channel 0 to the IVDC addresses
+(Y 0x80000000, UV 0x81000000, 4096-byte lines), pushed for each queued buffer
+and again at each channel-0 done; DQBUF keeps the buffer queued (libimp
+queues them once). The ISP vertical flip is refused in direct mode (ported
+`tx_isp_core_ops_s_ctrl`, d9014). GET / SET_FRAME_FORMAT copy the vendor's
+116-byte format on every channel (ported `frame_channel_vidioc_get_fmt` /
+`set_fmt`). Direct modes 2..4 (several sensors) are refused at load (mode 0).
+
 ## Not yet (S4+)
 
 No tisp/3A, no IQ bin parsing (the bin's physical address is kept), no
 image-pipeline register programming (the QEMU model does not process pixels,
 so this needs a camera); the stream-on list carries the LSC block only. The channel parameter words
 are the vendor's cv8001/PRJ007 values until the bin parser provides them.
-Day/night, WDR, LDC, OSD, IVDC direct mode, AOV/RISC-V hand-over: off.
+Day/night, WDR, LDC, AOV/RISC-V hand-over: off (ISP OSD, IVDC direct mode: above).
 
 ## Build
 
@@ -256,6 +432,11 @@ against a thingino T32 kernel 4.4.94 tree. Host tests:
 | `t32_trace` | 1 | log every ioctl (bring-up) |
 | `isp_irq`, `vic_irq` | 37, 38 | Linux IRQs of INTC 29/30 (XBURST_SOC_IRQ_BASE 8) |
 | `listen_timeout_ms` | 2000 | `LISTEN_BUF` wait limit |
+| `direct_mode` | 0 | 1 = frame channel 0 over the IVDC to the encoder (2..4 refused) |
+| `ivdc_mem_line`, `ivdc_mem_stride`, `ivdc_threshold_line` | 0, 3840, 0 | IVDC DDR ring lines (0: half the picture), ring stride (modes >= 2), threshold line (0: half) |
+| `ivdc_irq` | 65 | Linux IRQ of the IVDC (INTC 57) |
 | `lsc_ct` | 5000 | colour temperature for the LSC mesh at stream-on |
 | `bringup_ae` | 0 | 1 = bring-up exposure controller (not the vendor AE) |
 | `bringup_target` | 64 | its target mean histogram bin (0..255) |
+| `t32_ported_paths` | 1 | 1 every wired per-frame block on its ported path, 0 all on the old path, else mask: bit 1+n = block n (0 DMSC, 1 YSP, 2 CDNS, 3 YDNS, 4 SDNS, 5 MDNS, 6 DPC, 7 GIB, 8 RDNS, 9 AE, 10 LSC, 11 LCE (with the block interrupts 8 / 30), 12 TMO (with the block interrupts 9 / 31), 13 AWB, 16 AF (bit 17, interrupt 6), 17 GSM (bit 18, interrupts 7 / 63), 18 LSC ct mesh (bit 19, interrupt 36, with 10 and 14); RDNS off = not programmed at all, as before) |
+| `tisp_tgain` | 0x10000 | total gain for the per-frame refresh until the vendor AE runs (test aid) |

@@ -8,6 +8,9 @@
  * IQ bin section 22 (628 bytes): +4 / +5 enable fields, tables of 11 bytes
  * from +6 (a few are 12 or 20 bytes apart), single bytes at +0xcc, +0xe3,
  * +0x147, +0x153, +0x16a.. +0x172, +0x189.
+ *
+ * Checked bit-exact against the vendor flow (Matt Davis' recovered C, PR #15)
+ * by tests/t32_oracle (t32_sdns_oracle, t32_sdnsf_oracle).
  */
 #ifndef TX_ISP_T32_SDNS_H
 #define TX_ISP_T32_SDNS_H
@@ -92,4 +95,192 @@ static inline int t32_sdns_init(const u8 *sec, struct t32_front_write *w)
 	return (int)n;
 }
 
+/*
+ * Per-frame path: tisp_sdns_par_refresh / tisp_sdns_refresh /
+ * tisp_sdns_dn_params_refresh / tisp_sdns_wake_up.
+ */
+struct t32_sdns_ctx {
+	u8 *sec;		/* IQ bin section 22 */
+	u8 *param;		/* 55 interpolated parameter bytes */
+	u32 gain;		/* last accepted gain */
+	u32 rsvd;
+	u32 threshold;		/* not used by these functions */
+};
+
+static inline void t32_sdns_intp(struct t32_sdns_ctx *ctx, u8 ch, u32 gain)
+{
+	unsigned int k;
+
+	(void)ch;
+	for (k = 0; k < 55; k++)
+		ctx->param[t32_sdns_map[k][1]] =
+			t32_tp_intp_u8(gain >> 16, gain & 0xffff,
+				       ctx->sec + t32_sdns_map[k][0]);
+}
+
+static inline void t32_sdns_write_all_reg(const struct t32_sdns_ctx *ctx, u8 ch,
+					  struct t32_front_write *w, unsigned int *n)
+{
+	u8 *sec = ctx->sec;
+	u8 *o = ctx->param;
+	u32 s[10];
+	unsigned int k;
+
+	(void)ch;
+	for (k = 0; k < 10; k++)
+		s[k] = t32_sdns_scale(o[k]) & 0xfff;
+	T32_FWR(w, *n, 0x13020, sec[4] & 7U);
+	T32_FWR(w, *n, 0x13024, sec[5] & 7U);
+	T32_FWR(w, *n, 0x13028, s[1] << 16 | s[0]);
+	T32_FWR(w, *n, 0x1302c, s[3] << 16 | s[2]);
+	T32_FWR(w, *n, 0x13030, s[5] << 16 | s[4]);
+	T32_FWR(w, *n, 0x13034, s[7] << 16 | s[6]);
+	T32_FWR(w, *n, 0x13038, s[9] << 16 | s[8]);
+	T32_FWR(w, *n, 0x1303c, t32_front_le32(o + 10));
+	T32_FWR(w, *n, 0x13040, t32_front_le32(o + 0xe));
+	T32_FWR(w, *n, 0x13044, sec[0xcc] & 0x3fU);
+	T32_FWR(w, *n, 0x13048, t32_tp_le16(o + 0x12));
+	T32_FWR(w, *n, 0x1304c, (u32)(o[0x14] & 0x1f) << 8 | (sec[0xe3] & 0x3fU));
+	T32_FWR(w, *n, 0x13050, (u32)(o[0x16] & 0x7f) << 8 | (u32)(o[0x17] & 0x7f) << 16 |
+		(o[0x15] & 0x7fU) | (u32)(o[0x18] & 0x7f) << 24);
+	T32_FWR(w, *n, 0x13054, (u32)(o[0x1a] & 0x7f) << 8 | (u32)(o[0x1b] & 0x7f) << 16 |
+		(o[0x19] & 0x7fU) | (u32)(o[0x1c] & 0x7f) << 24);
+	T32_FWR(w, *n, 0x13058, (sec[0x147] & 0x3fU) | (u32)o[0x1d] << 8 | (u32)(sec[0x153] & 0x3f) << 16);
+	T32_FWR(w, *n, 0x1305c, (u32)(o[0x1f] & 0x7f) << 8 | (u32)(sec[0x16a] & 3) << 16 | (o[0x1e] & 0x7fU));
+	T32_FWR(w, *n, 0x13060, (u32)(sec[0x16c] & 7) << 8 | (u32)(sec[0x16d] & 7) << 12 | (sec[0x16b] & 0x1fU));
+	T32_FWR(w, *n, 0x13064, (u32)(sec[0x16f] & 7) << 4 | (u32)(sec[0x170] & 7) << 8 | (sec[0x16e] & 7U) |
+		(u32)(sec[0x171] & 7) << 12 | (u32)(sec[0x172] & 0xf) << 16);
+	T32_FWR(w, *n, 0x13068, (u32)(o[0x21] & 0x1f) << 8 | (u32)(sec[0x189] & 3) << 16 | (o[0x20] & 0x1fU));
+	T32_FWR(w, *n, 0x1306c, (u32)(o[0x23] & 0x1f) << 8 | (u32)(o[0x24] & 0x1f) << 16 |
+		(o[0x22] & 0x1fU) | (u32)(o[0x25] & 0x1f) << 24);
+	T32_FWR(w, *n, 0x13070, (u32)(o[0x27] & 0x1f) << 8 | (u32)(o[0x28] & 0x1f) << 16 |
+		(o[0x26] & 0x1fU) | (u32)(o[0x29] & 0x1f) << 24);
+	T32_FWR(w, *n, 0x13074, (u32)o[0x2a] << 1);
+	T32_FWR(w, *n, 0x13078, t32_front_le32(o + 0x2b));
+	T32_FWR(w, *n, 0x1307c, t32_front_le32(o + 0x2f));
+	T32_FWR(w, *n, 0x13080, t32_front_le32(o + 0x33));
+}
+
+static inline void t32_sdns_reg_trig(u8 ch, struct t32_front_write *w, unsigned int *n)
+{
+	(void)ch;
+	T32_FWR(w, *n, 0x13010, 1);
+}
+
+static inline void t32_sdns_intp_reg_refresh(struct t32_sdns_ctx *ctx, u8 ch, u32 gain,
+					     struct t32_front_write *w, unsigned int *n)
+{
+	t32_sdns_intp(ctx, ch, gain);
+	t32_sdns_write_all_reg(ctx, ch, w, n);
+	t32_sdns_reg_trig(ch, w, n);
+}
+
+static inline void t32_sdns_par_refresh_impl(struct t32_sdns_ctx *ctx, u8 ch, u32 gain,
+					     u32 threshold, struct t32_front_write *w,
+					     unsigned int *n)
+{
+	u32 old = ctx->gain;
+
+	if (old == (u32)-1) {
+		ctx->gain = gain;
+		t32_sdns_intp_reg_refresh(ctx, ch, gain, w, n);
+	} else {
+		u32 diff = gain > old ? gain - old : old - gain;
+
+		if (diff >= threshold) {
+			ctx->gain = gain;
+			t32_sdns_intp_reg_refresh(ctx, ch, gain, w, n);
+		}
+	}
+}
+
+static inline int t32_sdns_par_refresh(struct t32_sdns_ctx *ctx, u8 ch, u32 gain,
+				       u32 threshold, struct t32_front_write *w)
+{
+	unsigned int n = 0;
+
+	t32_sdns_par_refresh_impl(ctx, ch, gain, threshold, w, &n);
+	return (int)n;
+}
+
+static inline int t32_sdns_refresh(struct t32_sdns_ctx *ctx, u8 ch, u32 gain,
+				   struct t32_front_write *w)
+{
+	unsigned int n = 0;
+
+	t32_sdns_par_refresh_impl(ctx, ch, gain, 256U, w, &n);
+	t32_sdns_intp_reg_refresh(ctx, ch, ctx->gain, w, &n);
+	return (int)n;
+}
+
+static inline int t32_sdns_dn_params_refresh(struct t32_sdns_ctx *ctx, u8 ch,
+					     u8 *tuning_base, struct t32_front_write *w)
+{
+	unsigned int n = 0;
+
+	ctx->sec = tuning_base + 0xe588;
+	t32_sdns_intp_reg_refresh(ctx, ch, ctx->gain, w, &n);
+	return (int)n;
+}
+
+static inline int t32_sdns_wake_up(struct t32_sdns_ctx *ctx, u8 ch,
+				   struct t32_front_write *w)
+{
+	unsigned int n = 0;
+
+	t32_sdns_write_all_reg(ctx, ch, w, &n);
+	t32_sdns_reg_trig(ch, w, &n);
+	return (int)n;
+}
+
+/*
+ * Parameter accessors (tisp_sdns_param_array_get / _set / _deinit /
+ * _all_reg_refresh).  The vendor indexes the context array t32_data_e2410 by
+ * channel; the port takes the context (or its slot) directly.
+ */
+
+/* tisp_sdns_param_array_get: the section is copied out whole */
+static inline int t32_sdns_param_array_get(const struct t32_sdns_ctx *ctx, u8 *buf, u32 *len)
+{
+	memcpy(buf, ctx->sec, T32_SDNS_SEC_BYTES);
+	*len = T32_SDNS_SEC_BYTES;
+	return 0;
+}
+
+/* tisp_sdns_all_reg_refresh: the interpolate + write path of the refresh */
+static inline int t32_sdns_all_reg_refresh(struct t32_sdns_ctx *ctx, u8 ch, u32 gain,
+					   struct t32_front_write *w)
+{
+	unsigned int n = 0;
+
+	t32_sdns_intp_reg_refresh(ctx, ch, gain, w, &n);
+	return (int)n;
+}
+
+/* tisp_sdns_param_array_set: replace the section, then tisp_sdns_refresh at the stored gain */
+static inline int t32_sdns_param_array_set(struct t32_sdns_ctx *ctx, u8 ch, const u8 *buf,
+					   struct t32_front_write *w)
+{
+	memcpy(ctx->sec, buf, T32_SDNS_SEC_BYTES);
+	return t32_sdns_refresh(ctx, ch, ctx->gain, w);
+}
+
+/* tisp_sdns_deinit: free the parameter block and the context, clear the slot */
+static inline int t32_sdns_deinit(void (*vfree)(void *p), void (*kfree)(void *p),
+				  struct t32_sdns_ctx **slot)
+{
+	struct t32_sdns_ctx *ctx = *slot;
+
+	if (ctx) {
+		if (ctx->param) {
+			vfree(ctx->param);
+			ctx->param = NULL;
+		}
+		kfree(*slot);
+		*slot = NULL;
+	}
+	return 0;
+}
+
 #endif /* TX_ISP_T32_SDNS_H */
+

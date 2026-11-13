@@ -3,7 +3,7 @@ CC ?= cc
 CFLAGS ?= -O2
 CFLAGS += -std=c99 -Wall -Wextra -Werror
 
-.PHONY: all check check-oracles clean t30_ae_fsm_check t30_ae_balanced_check t30_ae_init_check t40_vic_layout_check t40_lost_tail_host lifted_ptr_scale_check t40_hardcoded_anchor_check t30_storage_audit t30_fw_irq_gate t30_fmt5c_check t30_awb_preset_check t30_temper_check t30_core_slake_oracle t30_tuning_ctl_check t30_system_items_check t30_sdk_oracle t30_symval_check t30_callarg_check t40_af_stats_host t40_bcsh_dn_host t40_tstp_host t40_ccm_conv_host t40_ccm_chain_host t40_ct_chain_host t40_dmsc_chain_host t40_mdns_chain_host t40_ysp_chain_host t40_ydns_host t40_gib_host t40_lsc_host t40_blc_host t40_vawb_oracle t40_clm_host t40_ae_leaf_host t40_bitexact_host t40_callarg_check t41_sensor_barrier_check t40_hardcoded_anchor_check t40_clk_teardown_check t40_tstp_init_check t40_custom_algo_wake_check t41_custom_ae_check t41_custom_awb_check t41_awb_algo_host t41_af_gate_check t41_raw_teardown_check lifted_ptr_scale_check t40_algo_handle_host t40_wdr_log2_host t40_gamma_ev_host t40_defog_host t40_ae_target_host t40_ko_libgcc_check t23_bypass_host t31_defog_bank_host t23_awb_lum_oracle t20_fw_check t30_lift_oracle
+.PHONY: all check check-oracles clean t30_ae_fsm_check t30_ae_balanced_check t30_ae_init_check t40_vic_layout_check t40_lost_tail_host lifted_ptr_scale_check t40_hardcoded_anchor_check t30_storage_audit t30_fw_irq_gate t30_fmt5c_check t30_awb_preset_check t30_temper_check t30_core_slake_oracle t30_tuning_ctl_check t30_system_items_check t30_sdk_oracle t30_symval_check t30_callarg_check t40_af_stats_host t40_bcsh_dn_host t40_tstp_host t40_ccm_conv_host t40_ccm_chain_host t40_ct_chain_host t40_dmsc_chain_host t40_mdns_chain_host t40_ysp_chain_host t40_ydns_host t40_gib_host t40_lsc_host t40_blc_host t40_vawb_oracle t40_clm_host t40_ae_leaf_host t40_bitexact_host t40_callarg_check t41_sensor_barrier_check t40_hardcoded_anchor_check t40_clk_teardown_check t40_tstp_init_check t40_custom_algo_wake_check t41_custom_ae_check t41_custom_awb_check t41_awb_algo_host t41_af_gate_check t41_raw_teardown_check lifted_ptr_scale_check t40_algo_handle_host t40_wdr_log2_host t40_gamma_ev_host t40_ae_target_host t40_ko_libgcc_check t23_bypass_host t31_defog_bank_host t23_awb_lum_oracle t20_fw_check t30_lift_oracle t32_ccm_oracle t32_ccmx_oracle t32_ccmd_oracle t32_top_oracle t32_topx_oracle t32_iq_oracle t32_csc_oracle t32_cscx_oracle t32_csccr_oracle t32_csccrx_oracle t32_gib_oracle t32_gibf_oracle t32_dpc_oracle t32_dpcx_oracle t32_dpcp_oracle t32_dpcf_oracle t32_ydns_oracle t32_ydnsp_oracle t32_ydnsf_oracle t32_cdns_oracle t32_cdnsp_oracle t32_cdnsf_oracle t32_sdns_oracle t32_defog_oracle t32_ldc_oracle t32_af_oracle t32_rdns_oracle t32_decmp_oracle t32_gsm_oracle t32_sdnsp_oracle t32_sdnsf_oracle t32_dmsc_oracle t32_dmscp_oracle t32_dmscf_oracle t32_gamma_oracle t32_gammax_oracle t32_gammad_oracle t32_clm_oracle t32_clmp_oracle t32_clmf_oracle t32_ysp_oracle t32_yspp_oracle t32_yspf_oracle t32_bcsh_oracle t32_bcshx_oracle t32_bcshd_oracle t32_mdns_oracle t32_mdnsx_oracle t32_mdnsf_oracle t32_msca_oracle t32_mscaq_oracle t32_mscap_oracle t32_mscao_oracle t32_mscan_oracle t32_mscam_oracle t32_mscal_oracle t32_mscak_oracle t32_mscaj_oracle t32_mscai_oracle t32_mscah_oracle t32_mscag_oracle t32_mscaf_oracle t32_mscae_oracle t32_mscad_oracle t32_mscac_oracle t32_awb_oracle t32_awbin_oracle t32_awbac_oracle t32_awbi_oracle t32_ae_oracle t32_aeu_oracle t32_aef_oracle t32_aev3_oracle t32_aev2_oracle t32_aev_oracle t32_aew_oracle t32_aes_oracle t32_aee_oracle t32_aeb_oracle t32_lsc_oracle t32_lscx_oracle t32_lscd_oracle t32_bcsh_oracle t32_ccmf_oracle t32_gammaf_oracle t32_bcshf_oracle t32_mxu2 t32_lce_oracle t32_lcet_oracle t32_lcet41_oracle t32_lcet41_5_oracle t32_lcet41_4_oracle t32_lcet41_3_oracle t32_lcet41_2_oracle t32_lcet41_1_oracle t32_lces9_oracle t32_lces8_oracle t32_lces7_oracle t32_lces6_oracle t32_lces5_oracle t32_lces4_oracle t32_lces3_oracle t32_lces2_oracle t32_lces_oracle t32_lceh_oracle t32_awbg_oracle t32_awbs_oracle t32_awbl_oracle t32_awbp_oracle t32_awbm_oracle t32_awbi_oracle t32_awbt_oracle t32_awbw_oracle t32_awbd_oracle t32_awbz_oracle t32_awbr_oracle t32_awbn_oracle t32_awbc_oracle t32_awbf_oracle t32_awbk_oracle t32_awbq_oracle t32_awbv_oracle t32_awbx_oracle t32_awby_oracle t32_awbu_oracle t32_awbe_oracle t32_awbh_oracle t32_awbj_oracle t32_awbo_oracle t32_awba_oracle t32_awbb_oracle t32_awb2_oracle t32_awbct_oracle t32_awbdv_oracle t32_awblg1_oracle t32_awblg2_oracle t32_awblg3_oracle t32_awblg4_oracle t32_awblg5_oracle t32_awblg6_oracle t32_awbpr1_oracle t32_awbpr2_oracle t32_awbpr3_oracle t32_awbaa_oracle t32_aeaa_oracle t32_aeab_oracle t32_aeac_oracle t32_aead_oracle t32_aeae_oracle t32_aeaf_oracle t32_aeag_oracle t32_awbab_oracle t32_aeah_oracle t32_awbad_oracle t32_aeai_oracle t32_aeaj_oracle t32_aeak_oracle t32_aeal_oracle t32_aeam_oracle t32_gibx_oracle t32_getp_oracle t32_dbgi_oracle t32_info1_oracle t32_info2_oracle t32_info3_oracle t32_info4_oracle t32_pshow_oracle t32_dbg_oracle t32_dbgp_oracle t32_getd_oracle t32_geth_oracle t32_priv_oracle t32_privx_oracle t32_apiset_oracle t32_apiparset_oracle t32_apiattr_oracle t32_apiag_oracle t32_apiratio_oracle t32_apictl_oracle t32_apiscl_oracle t32_apidfg_oracle t32_apistat_oracle t32_fixp_oracle t32_log2_oracle t32_bayer_oracle t32_regapi_oracle t32_libwrap_oracle t32_libst_oracle t32_lcehs_oracle t32_lcecv_oracle t32_lcest_oracle t32_libtr_oracle t32_libms_oracle t32_dnst_oracle t32_libvic_oracle t32_ldcops_oracle t32_libsa_oracle t32_wrap_oracle t32_dispatch_oracle t32_wdr5_oracle t32_vin_oracle t32_param_oracle t32_tstp_oracle t32_sinfo_oracle t32_wdr6_oracle t32_vbuf_oracle t32_csi_oracle t32_event_oracle t32_vicops_oracle t32_wdr7_oracle t32_fspm_oracle t32_rcfgv_oracle t32_dma_oracle t32_freset_oracle t32_lcem_oracle t32_aetrig_oracle t32_ctune_oracle t32_regmap_oracle t32_blkglue_oracle t32_vicdev_oracle t32_aeinfo_oracle t32_sysreg_oracle t32_sensop_oracle t32_ivdc_oracle t32_txcore6_oracle t32_fch_oracle t32_sreg_oracle t32_ivclk_oracle t32_vicstr_oracle t32_fsaov_oracle t32_fsioc_oracle t32_srel_oracle t32_ivmisc_oracle t32_sinp_oracle t32_ispcore_oracle t32_isptun_oracle t32_ispev_oracle t32_ispfw_oracle t32_ispmem_oracle t32_ispwork_oracle t32_isppm_oracle t32_ispclk_oracle t32_ispsync_oracle t32_ispprep_oracle t32_ispi2c_oracle t32_ispclkp_oracle t32_ispsoff_oracle t32_ispslake_oracle t32_ispss_oracle t32_ispact_oracle t32_ispfd_oracle t32_ispres_oracle t32_ispcmd_oracle t32_vicisr_oracle t32_txriscv_oracle t32_txirq_oracle t32_txattr_oracle t32_txcore_oracle t32_txvin_oracle t32_txcsi_oracle t32_txvic_oracle t32_txremove_oracle t32_txsinfo_oracle t32_txioctl_oracle t32_txlink_oracle t32_txmisc_oracle t32_txprobe_oracle t32_txinit_oracle t32_txbin_oracle t32_txtick_oracle t32_txgraph_oracle t32_txframe_oracle t32_txivdc_oracle t32_txfs_oracle t32_txsubdev_oracle t32_txisp_oracle t32_txcprobe_oracle t32_txgctrl_oracle t32_txsctrl_oracle t32_txuio_oracle t32_misc_oracle t32_wdr1_oracle t32_wdr2_oracle t32_fops_oracle t32_wdr3_oracle t32_tuning_oracle t32_aov_oracle t32_wdr4_oracle t32_ldcattr_oracle t32_corefd_oracle t32_kmod_oracle t32_binfile_oracle t32_ctrl_oracle t32_tabcpy_oracle t32_defogw_oracle t32_lsf_oracle t32_creset_oracle t32_treset_oracle t32_vincmd_oracle t32_mipi_oracle t32_vicmd_oracle t32_defogcw_oracle t32_loadpar_oracle t32_lce41l_oracle t32_lce41_oracle t32_defogs_oracle t32_wdrfpga1_oracle t32_wdr8_oracle t32_wdrfpga2_oracle t32_lcev4_oracle t32_lcev4_5_oracle t32_lcev4_4_oracle t32_lcev4_3_oracle t32_lcev4_2_oracle t32_lcev4_1_oracle t32_tmo1_oracle t32_tmo2_oracle t32_tmo2b_oracle t32_tmo3a_oracle t32_tmo3b_oracle t32_tmo3c_oracle t32_tmo4_oracle t32_tmo5a_oracle t32_tmo5b_oracle t32_tmo5c_oracle t32_tmo6a_oracle t32_tmo7a_oracle t32_tmo8a_oracle t32_tmo9a_oracle t32_tmo9b_oracle t32_tmo9c_oracle t32_tmo10a_oracle t32_tmo10b_oracle t32_tmo11a_oracle t32_tmo11b_oracle t32_tmo12a_oracle t32_tmo13a_oracle t32_tmo13b_oracle t32_tmo13c_oracle t32_tmo14_oracle t32_tmo14a_oracle t32_tmo14b_oracle t32_tmo14c_oracle t32_tmo14d_oracle t32_tmo14e_oracle t32_ispisr_oracle t32_isppad_oracle t32_ispinit_oracle t32_ispioctl_oracle t32_fchdq_oracle t32_ivdcc_oracle t32_ivdci_oracle t32_fchio_oracle t32_fchrq_oracle t32_fchqb_oracle t32_fchev_oracle t32_ivdcp_oracle t32_vicio_oracle t32_ssio_oracle t32_ssior_oracle t32_awbdein_oracle t32_vicmdma_oracle t32_aealgo_oracle t32_aeirq_oracle t32_aeupd_oracle t32_lcepar_oracle t32_lceirq_oracle t32_apiget_oracle t32_dnref_oracle t32_dnctl_oracle t32_longev_oracle t32_lcewake_oracle t32_longtg_oracle t32_lscm_oracle t32_ctio_oracle t32_ldcirq_oracle t32_libmisc_oracle t32_libvicg_oracle t32_libintp_oracle t32_ldcioctl_oracle t32_libset_oracle t32_libreset_oracle t32_libfile_oracle t32_libipc_oracle t32_libstream_oracle t32_libaov_oracle t32_librcfg_oracle t32_libvicp_oracle t32_libcore_oracle t32_librefresh_oracle t32_libvici_oracle t32_libvicf_oracle t32_librestart_oracle t32_libdeinit_oracle t32_libinit_oracle t32_libviccfg_oracle t32_aedein_oracle t32_intpclr_oracle t32_sfraw_oracle t32_swdr_oracle t32_lcetg_oracle t32_lceinit_oracle t32_tmotab_check t32_rdnstab_check t32_aeinit_oracle t32_aemath_oracle t32_aechain_oracle t32_aesns_oracle t32_blkirq_oracle t32_awbinit_oracle t32_awbchain_oracle t32_tmoblk_oracle t32_mscafd_oracle t32_awbtg_oracle t32_clmct_oracle t32_afgsm_oracle t32_lscct_oracle t32_sh1_oracle t32_tpr1_oracle t32_tpr2_oracle t32_tpr3_oracle t32_sh2_oracle t32_sh3_oracle t40_defog_host
 
 # Every host test binary.  A new test is registered with "TESTS += name"
 # (plus its build rule); `check` builds and runs all of them, keeps going
@@ -12,7 +12,7 @@ CFLAGS += -std=c99 -Wall -Wextra -Werror
 # so a test cannot be added and then silently never run.
 TESTS :=
 # Further check steps, run as "$(MAKE) <target>" after the binaries.
-CHECK_TARGETS := t40_vic_layout_check t30_ae_fsm_check t30_ae_balanced_check t30_ae_init_check t30_storage_audit t30_fw_irq_gate t30_fmt5c_check t30_awb_preset_check t30_temper_check t30_core_slake_oracle t30_lift_oracle t30_tuning_ctl_check t30_system_items_check t30_sdk_oracle t30_symval_check t30_callarg_check t41_dfg_host t40_af_stats_host t40_bcsh_dn_host t40_tstp_host t40_ccm_conv_host t40_ccm_chain_host t40_ct_chain_host t40_dmsc_chain_host t40_mdns_chain_host t40_ysp_chain_host t40_ydns_host t40_gib_host t40_lsc_host t40_blc_host t40_vawb_oracle t40_clm_host t40_ae_leaf_host t40_bitexact_host t40_callarg_check t41_sensor_barrier_check t40_hardcoded_anchor_check t40_clk_teardown_check t40_tstp_init_check t40_custom_algo_wake_check t41_custom_ae_check t41_custom_awb_check t41_awb_algo_host t41_af_gate_check t41_raw_teardown_check lifted_ptr_scale_check t40_lost_tail_host t40_algo_handle_host t40_wdr_log2_host t40_gamma_ev_host t40_defog_host t40_ae_target_host t40_ko_libgcc_check t23_bypass_host t31_defog_bank_host t23_awb_lum_oracle
+CHECK_TARGETS := t40_vic_layout_check t30_ae_fsm_check t30_ae_balanced_check t30_ae_init_check t30_storage_audit t30_fw_irq_gate t30_fmt5c_check t30_awb_preset_check t30_temper_check t30_core_slake_oracle t30_lift_oracle t30_tuning_ctl_check t30_system_items_check t30_sdk_oracle t30_symval_check t30_callarg_check t41_dfg_host t40_af_stats_host t40_bcsh_dn_host t40_tstp_host t40_ccm_conv_host t40_ccm_chain_host t40_ct_chain_host t40_dmsc_chain_host t40_mdns_chain_host t40_ysp_chain_host t40_ydns_host t40_gib_host t40_lsc_host t40_blc_host t40_vawb_oracle t40_clm_host t40_ae_leaf_host t40_bitexact_host t40_callarg_check t41_sensor_barrier_check t40_hardcoded_anchor_check t40_clk_teardown_check t40_tstp_init_check t40_custom_algo_wake_check t41_custom_ae_check t41_custom_awb_check t41_awb_algo_host t41_af_gate_check t41_raw_teardown_check lifted_ptr_scale_check t40_lost_tail_host t40_algo_handle_host t40_wdr_log2_host t40_gamma_ev_host t40_ae_target_host t40_ko_libgcc_check t23_bypass_host t31_defog_bank_host t23_awb_lum_oracle t32_ccm_oracle t32_ccmx_oracle t32_ccmd_oracle t32_top_oracle t32_topx_oracle t32_iq_oracle t32_csc_oracle t32_cscx_oracle t32_csccr_oracle t32_csccrx_oracle t32_gib_oracle t32_gibf_oracle t32_dpc_oracle t32_dpcx_oracle t32_dpcp_oracle t32_dpcf_oracle t32_ydns_oracle t32_ydnsp_oracle t32_ydnsf_oracle t32_cdns_oracle t32_cdnsp_oracle t32_cdnsf_oracle t32_sdns_oracle t32_defog_oracle t32_ldc_oracle t32_af_oracle t32_rdns_oracle t32_decmp_oracle t32_gsm_oracle t32_sdnsp_oracle t32_sdnsf_oracle t32_dmsc_oracle t32_dmscp_oracle t32_dmscf_oracle t32_gamma_oracle t32_gammax_oracle t32_gammad_oracle t32_clm_oracle t32_clmp_oracle t32_clmf_oracle t32_ysp_oracle t32_yspp_oracle t32_yspf_oracle t32_bcsh_oracle t32_bcshx_oracle t32_bcshd_oracle t32_mdns_oracle t32_mdnsx_oracle t32_mdnsf_oracle t32_msca_oracle t32_mscaq_oracle t32_mscap_oracle t32_mscao_oracle t32_mscan_oracle t32_mscam_oracle t32_mscal_oracle t32_mscak_oracle t32_mscaj_oracle t32_mscai_oracle t32_mscah_oracle t32_mscag_oracle t32_mscaf_oracle t32_mscae_oracle t32_mscad_oracle t32_mscac_oracle t32_awb_oracle t32_awbin_oracle t32_awbac_oracle t32_awbi_oracle t32_ae_oracle t32_aeu_oracle t32_aef_oracle t32_aev3_oracle t32_aev2_oracle t32_aev_oracle t32_aew_oracle t32_aes_oracle t32_aee_oracle t32_aeb_oracle t32_lsc_oracle t32_lscx_oracle t32_lscd_oracle t32_ccmf_oracle t32_gammaf_oracle t32_bcshf_oracle t32_mxu2 t32_lce_oracle t32_lcet_oracle t32_lcet41_oracle t32_lcet41_5_oracle t32_lcet41_4_oracle t32_lcet41_3_oracle t32_lcet41_2_oracle t32_lcet41_1_oracle t32_lces9_oracle t32_lces8_oracle t32_lces7_oracle t32_lces6_oracle t32_lces5_oracle t32_lces4_oracle t32_lces3_oracle t32_lces2_oracle t32_lces_oracle t32_lceh_oracle t32_awbg_oracle t32_awbs_oracle t32_awbl_oracle t32_awbp_oracle t32_awbm_oracle t32_awbi_oracle t32_awbt_oracle t32_awbw_oracle t32_awbd_oracle t32_awbz_oracle t32_awbr_oracle t32_awbn_oracle t32_awbc_oracle t32_awbf_oracle t32_awbk_oracle t32_awbq_oracle t32_awbv_oracle t32_awbx_oracle t32_awby_oracle t32_awbu_oracle t32_awbe_oracle t32_awbh_oracle t32_awbj_oracle t32_awbo_oracle t32_awba_oracle t32_awbb_oracle t32_awb2_oracle t32_awbct_oracle t32_awbdv_oracle t32_awblg1_oracle t32_awblg2_oracle t32_awblg3_oracle t32_awblg4_oracle t32_awblg5_oracle t32_awblg6_oracle t32_awbpr1_oracle t32_awbpr2_oracle t32_awbpr3_oracle t32_awbaa_oracle t32_aeaa_oracle t32_aeab_oracle t32_aeac_oracle t32_aead_oracle t32_aeae_oracle t32_aeaf_oracle t32_aeag_oracle t32_awbab_oracle t32_aeah_oracle t32_awbad_oracle t32_aeai_oracle t32_aeaj_oracle t32_aeak_oracle t32_aeal_oracle t32_aeam_oracle t32_gibx_oracle t32_getp_oracle t32_dbgi_oracle t32_info1_oracle t32_info2_oracle t32_info3_oracle t32_info4_oracle t32_pshow_oracle t32_dbg_oracle t32_dbgp_oracle t32_getd_oracle t32_geth_oracle t32_priv_oracle t32_privx_oracle t32_apiset_oracle t32_apiparset_oracle t32_apiattr_oracle t32_apiag_oracle t32_apiratio_oracle t32_apictl_oracle t32_apiscl_oracle t32_apidfg_oracle t32_apistat_oracle t32_fixp_oracle t32_log2_oracle t32_bayer_oracle t32_regapi_oracle t32_libwrap_oracle t32_libst_oracle t32_lcehs_oracle t32_lcecv_oracle t32_lcest_oracle t32_libtr_oracle t32_libms_oracle t32_dnst_oracle t32_libvic_oracle t32_ldcops_oracle t32_libsa_oracle t32_wrap_oracle t32_dispatch_oracle t32_wdr5_oracle t32_vin_oracle t32_param_oracle t32_tstp_oracle t32_sinfo_oracle t32_wdr6_oracle t32_vbuf_oracle t32_csi_oracle t32_event_oracle t32_vicops_oracle t32_wdr7_oracle t32_fspm_oracle t32_rcfgv_oracle t32_dma_oracle t32_freset_oracle t32_lcem_oracle t32_aetrig_oracle t32_ctune_oracle t32_regmap_oracle t32_blkglue_oracle t32_vicdev_oracle t32_aeinfo_oracle t32_sysreg_oracle t32_sensop_oracle t32_ivdc_oracle t32_txcore6_oracle t32_fch_oracle t32_sreg_oracle t32_ivclk_oracle t32_vicstr_oracle t32_fsaov_oracle t32_fsioc_oracle t32_srel_oracle t32_ivmisc_oracle t32_sinp_oracle t32_ispcore_oracle t32_isptun_oracle t32_ispev_oracle t32_ispfw_oracle t32_ispmem_oracle t32_ispwork_oracle t32_isppm_oracle t32_ispclk_oracle t32_ispsync_oracle t32_ispprep_oracle t32_ispi2c_oracle t32_ispclkp_oracle t32_ispsoff_oracle t32_ispslake_oracle t32_ispss_oracle t32_ispact_oracle t32_ispfd_oracle t32_ispres_oracle t32_ispcmd_oracle t32_vicisr_oracle t32_txriscv_oracle t32_txirq_oracle t32_txattr_oracle t32_txcore_oracle t32_txvin_oracle t32_txcsi_oracle t32_txvic_oracle t32_txremove_oracle t32_txsinfo_oracle t32_txioctl_oracle t32_txlink_oracle t32_txmisc_oracle t32_txprobe_oracle t32_txinit_oracle t32_txbin_oracle t32_txtick_oracle t32_txgraph_oracle t32_txframe_oracle t32_txivdc_oracle t32_txfs_oracle t32_txsubdev_oracle t32_txisp_oracle t32_txcprobe_oracle t32_txgctrl_oracle t32_txsctrl_oracle t32_txuio_oracle t32_misc_oracle t32_wdr1_oracle t32_wdr2_oracle t32_fops_oracle t32_wdr3_oracle t32_tuning_oracle t32_aov_oracle t32_wdr4_oracle t32_ldcattr_oracle t32_corefd_oracle t32_kmod_oracle t32_binfile_oracle t32_ctrl_oracle t32_tabcpy_oracle t32_defogw_oracle t32_lsf_oracle t32_creset_oracle t32_treset_oracle t32_vincmd_oracle t32_mipi_oracle t32_vicmd_oracle t32_defogcw_oracle t32_loadpar_oracle t32_lce41l_oracle t32_lce41_oracle t32_defogs_oracle t32_wdrfpga1_oracle t32_wdr8_oracle t32_wdrfpga2_oracle t32_lcev4_oracle t32_lcev4_5_oracle t32_lcev4_4_oracle t32_lcev4_3_oracle t32_lcev4_2_oracle t32_lcev4_1_oracle t32_tmo1_oracle t32_tmo2_oracle t32_tmo2b_oracle t32_tmo3a_oracle t32_tmo3b_oracle t32_tmo3c_oracle t32_tmo4_oracle t32_tmo5a_oracle t32_tmo5b_oracle t32_tmo5c_oracle t32_tmo6a_oracle t32_tmo7a_oracle t32_tmo8a_oracle t32_tmo9a_oracle t32_tmo9b_oracle t32_tmo9c_oracle t32_tmo10a_oracle t32_tmo10b_oracle t32_tmo11a_oracle t32_tmo11b_oracle t32_tmo12a_oracle t32_tmo13a_oracle t32_tmo13b_oracle t32_tmo13c_oracle t32_tmo14_oracle t32_tmo14a_oracle t32_tmo14b_oracle t32_tmo14c_oracle t32_tmo14d_oracle t32_tmo14e_oracle t32_ispisr_oracle t32_isppad_oracle t32_ispinit_oracle t32_ispioctl_oracle t32_fchdq_oracle t32_ivdcc_oracle t32_ivdci_oracle t32_fchio_oracle t32_fchrq_oracle t32_fchqb_oracle t32_fchev_oracle t32_ivdcp_oracle t32_vicio_oracle t32_ssio_oracle t32_ssior_oracle t32_awbdein_oracle t32_vicmdma_oracle t32_aealgo_oracle t32_aeirq_oracle t32_aeupd_oracle t32_lcepar_oracle t32_lceirq_oracle t32_apiget_oracle t32_dnref_oracle t32_dnctl_oracle t32_longev_oracle t32_lcewake_oracle t32_longtg_oracle t32_lscm_oracle t32_ctio_oracle t32_ldcirq_oracle t32_libmisc_oracle t32_libvicg_oracle t32_libintp_oracle t32_ldcioctl_oracle t32_libset_oracle t32_libreset_oracle t32_libfile_oracle t32_libipc_oracle t32_libstream_oracle t32_libaov_oracle t32_librcfg_oracle t32_libvicp_oracle t32_libcore_oracle t32_librefresh_oracle t32_libvici_oracle t32_libvicf_oracle t32_librestart_oracle t32_libdeinit_oracle t32_libinit_oracle t32_libviccfg_oracle t32_aedein_oracle t32_intpclr_oracle t32_sfraw_oracle t32_swdr_oracle t32_lcetg_oracle t32_lceinit_oracle t32_tmotab_check t32_rdnstab_check t32_aeinit_oracle t32_aemath_oracle t32_aechain_oracle t32_aesns_oracle t32_blkirq_oracle t32_awbinit_oracle t32_awbchain_oracle t32_tmoblk_oracle t32_mscafd_oracle t32_awbtg_oracle t32_clmct_oracle t32_afgsm_oracle t32_lscct_oracle t32_sh1_oracle t32_tpr1_oracle t32_tpr2_oracle t32_tpr3_oracle t32_sh2_oracle t32_sh3_oracle t40_defog_host
 # Sources that only run on the camera (not built on the host).
 TARGET_TESTS := $(basename $(wildcard t41_v4l2_*_test.c)) t41_antiflicker_ioctl_test
 TEST_TIMEOUT ?= 600
@@ -116,18 +116,36 @@ tx_isp_t32_tisp_test: tx_isp_t32_tisp_test.c t32_trace.h $(wildcard ../driver/t3
 tx_isp_t32_stats_test: tx_isp_t32_stats_test.c ../driver/t32/tx_isp_t32_stats.h ../driver/t32/tx_isp_t32_iq.h ../driver/t32/tx_isp_t32_lsc.h
 	$(CC) $(CFLAGS) -o $@ $<
 
-
 tx_isp_t32_front_test: tx_isp_t32_front_test.c ../driver/t32/tx_isp_t32_front.h ../driver/t32/tx_isp_t32_iq.h
 	$(CC) $(CFLAGS) -o $@ $<
 
 tx_isp_t32_lsc_test: tx_isp_t32_lsc_test.c ../driver/t32/tx_isp_t32_lsc.h ../driver/t32/tx_isp_t32_rcfg.h
 	$(CC) $(CFLAGS) -o $@ $<
 
-
 tx_isp_t32_msca_curve_test: tx_isp_t32_msca_curve_test.c ../driver/t32/tx_isp_t32_msca_curve.h
 	$(CC) $(CFLAGS) -o $@ $<
 
 TESTS += tx_isp_t32_vic_test
+TESTS += tx_isp_t33_rcfg_test
+TESTS += tx_isp_t33_awb_test
+
+tx_isp_t33_rcfg_test: tx_isp_t33_rcfg_test.c $(wildcard ../driver/t32/tx_isp_t3*.h)
+	$(CC) $(CFLAGS) -o $@ $<
+
+tx_isp_t33_awb_test: tx_isp_t33_awb_test.c $(wildcard ../driver/t32/tx_isp_t3*.h)
+	$(CC) $(CFLAGS) -o $@ $<
+
+TESTS += tx_isp_t33_ae_test
+
+TESTS += tx_isp_t33_osd_test
+
+TESTS += tx_isp_t33_afattr_test
+tx_isp_t33_afattr_test: tx_isp_t33_afattr_test.c $(wildcard ../driver/t32/tx_isp_t3*.h)
+	$(CC) $(CFLAGS) -o $@ $<
+tx_isp_t33_osd_test: tx_isp_t33_osd_test.c ../driver/t32/tx_isp_t33_osd.h
+	$(CC) $(CFLAGS) -o $@ $<
+tx_isp_t33_ae_test: tx_isp_t33_ae_test.c $(wildcard ../driver/t32/tx_isp_t3*.h)
+	$(CC) $(CFLAGS) -o $@ $<
 
 tx_isp_t32_mem_rcfg_test: tx_isp_t32_mem_rcfg_test.c ../driver/t32/tx_isp_t32_mem.h ../driver/t32/tx_isp_t32_rcfg.h
 	$(CC) $(CFLAGS) -o $@ $<
@@ -664,7 +682,7 @@ check:
 # The Unicorn / vendor-data oracles.  They SKIP (exit 0) in a plain `make check` when the vendor inputs are not
 # configured; here a SKIP is a failure, so a green `check-oracles` means every oracle really ran.
 # Inputs (see README.oracles.md): T40_OEM_KO, T40_CC, T40_TUNING_BIN, T40_OEM_DATA.
-ORACLES := t30_lift_oracle t40_clm_host t40_bcsh_dn_host t40_ccm_conv_host t40_ccm_chain_host t40_ct_chain_host t40_dmsc_chain_host t40_mdns_chain_host t40_ysp_chain_host t40_ydns_host t40_gib_host t40_lsc_host t40_blc_host t40_vawb_oracle t40_ae_leaf_host t40_wdr_log2_host t40_gamma_ev_host t40_defog_host t40_ae_target_host t31_defog_bank_host t23_awb_lum_oracle t30_core_slake_oracle
+ORACLES := t30_lift_oracle t40_clm_host t40_bcsh_dn_host t40_ccm_conv_host t40_ccm_chain_host t40_ct_chain_host t40_dmsc_chain_host t40_mdns_chain_host t40_ysp_chain_host t40_ydns_host t40_gib_host t40_lsc_host t40_blc_host t40_vawb_oracle t40_ae_leaf_host t40_wdr_log2_host t40_gamma_ev_host t40_ae_target_host t31_defog_bank_host t23_awb_lum_oracle t30_core_slake_oracle t32_ccm_oracle t32_ccmx_oracle t32_ccmd_oracle t32_top_oracle t32_topx_oracle t32_iq_oracle t32_csc_oracle t32_cscx_oracle t32_csccr_oracle t32_csccrx_oracle t32_gib_oracle t32_gibf_oracle t32_dpc_oracle t32_dpcx_oracle t32_dpcp_oracle t32_dpcf_oracle t32_ydns_oracle t32_ydnsp_oracle t32_ydnsf_oracle t32_cdns_oracle t32_cdnsp_oracle t32_cdnsf_oracle t32_sdns_oracle t32_defog_oracle t32_ldc_oracle t32_af_oracle t32_rdns_oracle t32_decmp_oracle t32_gsm_oracle t32_sdnsp_oracle t32_sdnsf_oracle t32_dmsc_oracle t32_dmscp_oracle t32_dmscf_oracle t32_gamma_oracle t32_gammax_oracle t32_gammad_oracle t32_clm_oracle t32_clmp_oracle t32_clmf_oracle t32_ysp_oracle t32_yspp_oracle t32_yspf_oracle t32_bcsh_oracle t32_bcshx_oracle t32_bcshd_oracle t32_mdns_oracle t32_mdnsx_oracle t32_mdnsf_oracle t32_msca_oracle t32_mscaq_oracle t32_mscap_oracle t32_mscao_oracle t32_mscan_oracle t32_mscam_oracle t32_mscal_oracle t32_mscak_oracle t32_mscaj_oracle t32_mscai_oracle t32_mscah_oracle t32_mscag_oracle t32_mscaf_oracle t32_mscae_oracle t32_mscad_oracle t32_mscac_oracle t32_awb_oracle t32_awbin_oracle t32_awbac_oracle t32_awbi_oracle t32_ae_oracle t32_aeu_oracle t32_aef_oracle t32_aev3_oracle t32_aev2_oracle t32_aev_oracle t32_aew_oracle t32_aes_oracle t32_aee_oracle t32_aeb_oracle t32_lsc_oracle t32_lscx_oracle t32_lscd_oracle t32_ccmf_oracle t32_gammaf_oracle t32_bcshf_oracle t32_mxu2 t32_lce_oracle t32_lcet_oracle t32_lcet41_oracle t32_lcet41_5_oracle t32_lcet41_4_oracle t32_lcet41_3_oracle t32_lcet41_2_oracle t32_lcet41_1_oracle t32_lces9_oracle t32_lces8_oracle t32_lces7_oracle t32_lces6_oracle t32_lces5_oracle t32_lces4_oracle t32_lces3_oracle t32_lces2_oracle t32_lces_oracle t32_lceh_oracle t32_awbg_oracle t32_awbs_oracle t32_awbl_oracle t32_awbp_oracle t32_awbm_oracle t32_awbi_oracle t32_awbt_oracle t32_awbw_oracle t32_awbd_oracle t32_awbz_oracle t32_awbr_oracle t32_awbn_oracle t32_awbc_oracle t32_awbf_oracle t32_awbk_oracle t32_awbq_oracle t32_awbv_oracle t32_awbx_oracle t32_awby_oracle t32_awbu_oracle t32_awbe_oracle t32_awbh_oracle t32_awbj_oracle t32_awbo_oracle t32_awba_oracle t32_awbb_oracle t32_awb2_oracle t32_awbct_oracle t32_awbdv_oracle t32_awblg1_oracle t32_awblg2_oracle t32_awblg3_oracle t32_awblg4_oracle t32_awblg5_oracle t32_awblg6_oracle t32_awbpr1_oracle t32_awbpr2_oracle t32_awbpr3_oracle t32_awbaa_oracle t32_aeaa_oracle t32_aeab_oracle t32_aeac_oracle t32_aead_oracle t32_aeae_oracle t32_aeaf_oracle t32_aeag_oracle t32_awbab_oracle t32_aeah_oracle t32_awbad_oracle t32_aeai_oracle t32_aeaj_oracle t32_aeak_oracle t32_aeal_oracle t32_aeam_oracle t32_gibx_oracle t32_getp_oracle t32_dbgi_oracle t32_info1_oracle t32_info2_oracle t32_info3_oracle t32_info4_oracle t32_pshow_oracle t32_dbg_oracle t32_dbgp_oracle t32_getd_oracle t32_geth_oracle t32_priv_oracle t32_privx_oracle t32_apiset_oracle t32_apiparset_oracle t32_apiattr_oracle t32_apiag_oracle t32_apiratio_oracle t32_apictl_oracle t32_apiscl_oracle t32_apidfg_oracle t32_apistat_oracle t32_fixp_oracle t32_log2_oracle t32_bayer_oracle t32_regapi_oracle t32_libwrap_oracle t32_libst_oracle t32_lcehs_oracle t32_lcecv_oracle t32_lcest_oracle t32_libtr_oracle t32_libms_oracle t32_dnst_oracle t32_libvic_oracle t32_ldcops_oracle t32_libsa_oracle t32_wrap_oracle t32_dispatch_oracle t32_wdr5_oracle t32_vin_oracle t32_param_oracle t32_tstp_oracle t32_sinfo_oracle t32_wdr6_oracle t32_vbuf_oracle t32_csi_oracle t32_event_oracle t32_vicops_oracle t32_wdr7_oracle t32_fspm_oracle t32_rcfgv_oracle t32_dma_oracle t32_freset_oracle t32_lcem_oracle t32_aetrig_oracle t32_ctune_oracle t32_regmap_oracle t32_blkglue_oracle t32_vicdev_oracle t32_aeinfo_oracle t32_sysreg_oracle t32_sensop_oracle t32_ivdc_oracle t32_txcore6_oracle t32_fch_oracle t32_sreg_oracle t32_ivclk_oracle t32_vicstr_oracle t32_fsaov_oracle t32_fsioc_oracle t32_srel_oracle t32_ivmisc_oracle t32_sinp_oracle t32_ispcore_oracle t32_isptun_oracle t32_ispev_oracle t32_ispfw_oracle t32_ispmem_oracle t32_ispwork_oracle t32_isppm_oracle t32_ispclk_oracle t32_ispsync_oracle t32_ispprep_oracle t32_ispi2c_oracle t32_ispclkp_oracle t32_ispsoff_oracle t32_ispslake_oracle t32_ispss_oracle t32_ispact_oracle t32_ispfd_oracle t32_ispres_oracle t32_ispcmd_oracle t32_vicisr_oracle t32_txriscv_oracle t32_txirq_oracle t32_txattr_oracle t32_txcore_oracle t32_txvin_oracle t32_txcsi_oracle t32_txvic_oracle t32_txremove_oracle t32_txsinfo_oracle t32_txioctl_oracle t32_txlink_oracle t32_txmisc_oracle t32_txprobe_oracle t32_txinit_oracle t32_txbin_oracle t32_txtick_oracle t32_txgraph_oracle t32_txframe_oracle t32_txivdc_oracle t32_txfs_oracle t32_txsubdev_oracle t32_txisp_oracle t32_txcprobe_oracle t32_txgctrl_oracle t32_txsctrl_oracle t32_txuio_oracle t32_misc_oracle t32_wdr1_oracle t32_wdr2_oracle t32_fops_oracle t32_wdr3_oracle t32_tuning_oracle t32_aov_oracle t32_wdr4_oracle t32_ldcattr_oracle t32_corefd_oracle t32_kmod_oracle t32_binfile_oracle t32_ctrl_oracle t32_tabcpy_oracle t32_defogw_oracle t32_lsf_oracle t32_creset_oracle t32_treset_oracle t32_vincmd_oracle t32_mipi_oracle t32_vicmd_oracle t32_defogcw_oracle t32_loadpar_oracle t32_lce41l_oracle t32_lce41_oracle t32_defogs_oracle t32_wdrfpga1_oracle t32_wdr8_oracle t32_wdrfpga2_oracle t32_lcev4_oracle t32_lcev4_5_oracle t32_lcev4_4_oracle t32_lcev4_3_oracle t32_lcev4_2_oracle t32_lcev4_1_oracle t32_tmo1_oracle t32_tmo2_oracle t32_tmo2b_oracle t32_tmo3a_oracle t32_tmo3b_oracle t32_tmo3c_oracle t32_tmo4_oracle t32_tmo5a_oracle t32_tmo5b_oracle t32_tmo5c_oracle t32_tmo6a_oracle t32_tmo7a_oracle t32_tmo8a_oracle t32_tmo9a_oracle t32_tmo9b_oracle t32_tmo9c_oracle t32_tmo10a_oracle t32_tmo10b_oracle t32_tmo11a_oracle t32_tmo11b_oracle t32_tmo12a_oracle t32_tmo13a_oracle t32_tmo13b_oracle t32_tmo13c_oracle t32_tmo14_oracle t32_tmo14a_oracle t32_tmo14b_oracle t32_tmo14c_oracle t32_tmo14d_oracle t32_tmo14e_oracle t32_ispisr_oracle t32_isppad_oracle t32_ispinit_oracle t32_ispioctl_oracle t32_fchdq_oracle t32_ivdcc_oracle t32_ivdci_oracle t32_fchio_oracle t32_fchrq_oracle t32_fchqb_oracle t32_fchev_oracle t32_ivdcp_oracle t32_vicio_oracle t32_ssio_oracle t32_ssior_oracle t32_awbdein_oracle t32_vicmdma_oracle t32_aealgo_oracle t32_aeirq_oracle t32_aeupd_oracle t32_lcepar_oracle t32_lceirq_oracle t32_apiget_oracle t32_dnref_oracle t32_dnctl_oracle t32_longev_oracle t32_lcewake_oracle t32_longtg_oracle t32_lscm_oracle t32_ctio_oracle t32_ldcirq_oracle t32_libmisc_oracle t32_libvicg_oracle t32_libintp_oracle t32_ldcioctl_oracle t32_libset_oracle t32_libreset_oracle t32_libfile_oracle t32_libipc_oracle t32_libstream_oracle t32_libaov_oracle t32_librcfg_oracle t32_libvicp_oracle t32_libcore_oracle t32_librefresh_oracle t32_libvici_oracle t32_libvicf_oracle t32_librestart_oracle t32_libdeinit_oracle t32_libinit_oracle t32_libviccfg_oracle t32_aedein_oracle t32_intpclr_oracle t32_sfraw_oracle t32_swdr_oracle t32_lcetg_oracle t32_lceinit_oracle t32_aeinit_oracle t32_aemath_oracle t32_aechain_oracle t32_aesns_oracle t32_blkirq_oracle t32_awbinit_oracle t32_awbchain_oracle t32_tmoblk_oracle t32_mscafd_oracle t32_awbtg_oracle t32_clmct_oracle t32_afgsm_oracle t32_lscct_oracle t32_sh1_oracle t32_tpr1_oracle t32_tpr2_oracle t32_tpr3_oracle t32_sh2_oracle t32_sh3_oracle t40_defog_host
 check-oracles:
 	@fail=; for c in $(ORACLES); do \
 		echo "=== $$c"; \
@@ -673,6 +691,715 @@ check-oracles:
 	n=$$(echo $(ORACLES) | wc -w); nf=$$(echo $$fail | wc -w); \
 	echo; echo "==== oracle summary: $$((n-nf)) of $$n ran and passed, $$nf failed/skipped"; \
 	if [ $$nf -ne 0 ]; then echo "FAILED/SKIPPED:$$fail"; exit 1; fi
+
+# T32 host oracle: Matt Davis' recovered C (PR #15) vs our readable driver/t32, bit-exact + mutations.
+# Random inputs always run; the IQ-bin part needs T32_IQ_DIR (T32 sensor-iq/*.bin), see README.oracles.md.
+t32_ccmd_oracle:
+	sh ./t32_oracle/run.sh t32_ccmd_oracle
+
+t32_ccmx_oracle:
+	sh ./t32_oracle/run.sh t32_ccmx_oracle
+
+t32_ccm_oracle:
+	sh ./t32_oracle/run.sh t32_ccm_oracle
+
+t32_topx_oracle:
+	sh ./t32_oracle/run.sh t32_topx_oracle
+
+t32_top_oracle:
+	sh ./t32_oracle/run.sh t32_top_oracle
+
+t32_iq_oracle:
+	sh ./t32_oracle/run.sh t32_iq_oracle
+
+t32_cscx_oracle:
+	sh ./t32_oracle/run.sh t32_cscx_oracle
+
+t32_csc_oracle:
+	sh ./t32_oracle/run.sh t32_csc_oracle
+
+t32_csccrx_oracle:
+	sh ./t32_oracle/run.sh t32_csccrx_oracle
+
+t32_csccr_oracle:
+	sh ./t32_oracle/run.sh t32_csccr_oracle
+
+t32_gibf_oracle:
+	sh ./t32_oracle/run.sh t32_gibf_oracle
+
+t32_gibx_oracle:
+	sh ./t32_oracle/run.sh t32_gibx_oracle
+t32_fixp_oracle:
+	sh ./t32_oracle/run.sh t32_fixp_oracle
+t32_log2_oracle:
+	sh ./t32_oracle/run.sh t32_log2_oracle
+t32_bayer_oracle:
+	sh ./t32_oracle/run.sh t32_bayer_oracle
+
+t32_getp_oracle:
+	sh ./t32_oracle/run.sh t32_getp_oracle
+
+t32_getd_oracle:
+	sh ./t32_oracle/run.sh t32_getd_oracle
+
+t32_geth_oracle:
+	sh ./t32_oracle/run.sh t32_geth_oracle
+t32_regapi_oracle:
+	sh ./t32_oracle/run.sh t32_regapi_oracle
+
+t32_libwrap_oracle:
+	sh ./t32_oracle/run.sh t32_libwrap_oracle
+
+t32_libst_oracle:
+	sh ./t32_oracle/run.sh t32_libst_oracle
+
+t32_lcehs_oracle:
+	sh ./t32_oracle/run.sh t32_lcehs_oracle
+
+t32_lcecv_oracle:
+	sh ./t32_oracle/run.sh t32_lcecv_oracle
+
+t32_lcest_oracle:
+	sh ./t32_oracle/run.sh t32_lcest_oracle
+
+t32_libtr_oracle:
+	sh ./t32_oracle/run.sh t32_libtr_oracle
+
+t32_libms_oracle:
+	sh ./t32_oracle/run.sh t32_libms_oracle
+
+t32_dnst_oracle:
+	sh ./t32_oracle/run.sh t32_dnst_oracle
+
+t32_libvic_oracle:
+	sh ./t32_oracle/run.sh t32_libvic_oracle
+
+t32_ldcops_oracle:
+	sh ./t32_oracle/run.sh t32_ldcops_oracle
+
+t32_libsa_oracle:
+	sh ./t32_oracle/run.sh t32_libsa_oracle
+t32_ldcirq_oracle:
+	sh ./t32_oracle/run.sh t32_ldcirq_oracle
+t32_libmisc_oracle:
+	sh ./t32_oracle/run.sh t32_libmisc_oracle
+t32_libvicg_oracle:
+	sh ./t32_oracle/run.sh t32_libvicg_oracle
+t32_libintp_oracle:
+	sh ./t32_oracle/run.sh t32_libintp_oracle
+t32_ldcioctl_oracle:
+	sh ./t32_oracle/run.sh t32_ldcioctl_oracle
+t32_libset_oracle:
+	sh ./t32_oracle/run.sh t32_libset_oracle
+t32_libreset_oracle:
+	sh ./t32_oracle/run.sh t32_libreset_oracle
+t32_libfile_oracle:
+	sh ./t32_oracle/run.sh t32_libfile_oracle
+t32_libipc_oracle:
+	sh ./t32_oracle/run.sh t32_libipc_oracle
+t32_libstream_oracle:
+	sh ./t32_oracle/run.sh t32_libstream_oracle
+t32_libaov_oracle:
+	sh ./t32_oracle/run.sh t32_libaov_oracle
+t32_librcfg_oracle:
+	sh ./t32_oracle/run.sh t32_librcfg_oracle
+
+t32_libvicp_oracle:
+	sh ./t32_oracle/run.sh t32_libvicp_oracle
+
+t32_libcore_oracle:
+	sh ./t32_oracle/run.sh t32_libcore_oracle
+
+t32_librefresh_oracle:
+	sh ./t32_oracle/run.sh t32_librefresh_oracle
+
+t32_libvici_oracle:
+	sh ./t32_oracle/run.sh t32_libvici_oracle
+
+t32_libvicf_oracle:
+	sh ./t32_oracle/run.sh t32_libvicf_oracle
+
+t32_librestart_oracle:
+	sh ./t32_oracle/run.sh t32_librestart_oracle
+
+t32_libdeinit_oracle:
+	sh ./t32_oracle/run.sh t32_libdeinit_oracle
+t32_libinit_oracle:
+	sh ./t32_oracle/run.sh t32_libinit_oracle
+t32_libviccfg_oracle:
+	sh ./t32_oracle/run.sh t32_libviccfg_oracle
+
+t32_gib_oracle:
+	sh ./t32_oracle/run.sh t32_gib_oracle
+
+t32_dpcf_oracle:
+	sh ./t32_oracle/run.sh t32_dpcf_oracle
+
+t32_dpcp_oracle:
+	sh ./t32_oracle/run.sh t32_dpcp_oracle
+
+t32_dpcx_oracle:
+	sh ./t32_oracle/run.sh t32_dpcx_oracle
+
+t32_dpc_oracle:
+	sh ./t32_oracle/run.sh t32_dpc_oracle
+
+t32_ydnsf_oracle:
+	sh ./t32_oracle/run.sh t32_ydnsf_oracle
+
+t32_ydnsp_oracle:
+	sh ./t32_oracle/run.sh t32_ydnsp_oracle
+
+t32_ydns_oracle:
+	sh ./t32_oracle/run.sh t32_ydns_oracle
+
+t32_cdnsf_oracle:
+	sh ./t32_oracle/run.sh t32_cdnsf_oracle
+
+t32_cdnsp_oracle:
+	sh ./t32_oracle/run.sh t32_cdnsp_oracle
+
+t32_cdns_oracle:
+	sh ./t32_oracle/run.sh t32_cdns_oracle
+
+t32_sdnsf_oracle:
+	sh ./t32_oracle/run.sh t32_sdnsf_oracle
+
+t32_sdnsp_oracle:
+	sh ./t32_oracle/run.sh t32_sdnsp_oracle
+
+t32_gsm_oracle:
+	sh ./t32_oracle/run.sh t32_gsm_oracle
+
+t32_decmp_oracle:
+	sh ./t32_oracle/run.sh t32_decmp_oracle
+
+t32_rdns_oracle:
+	sh ./t32_oracle/run.sh t32_rdns_oracle
+
+t32_af_oracle:
+	sh ./t32_oracle/run.sh t32_af_oracle
+
+t32_afgsm_oracle:
+	sh ./t32_oracle/run.sh t32_afgsm_oracle
+
+t32_lscct_oracle:
+	sh ./t32_oracle/run.sh t32_lscct_oracle
+
+t32_ldc_oracle:
+	sh ./t32_oracle/run.sh t32_ldc_oracle
+
+t32_defog_oracle:
+	sh ./t32_oracle/run.sh t32_defog_oracle
+t32_tmo1_oracle:
+	sh ./t32_oracle/run.sh t32_tmo1_oracle
+
+t32_tmo2_oracle:
+	sh ./t32_oracle/run.sh t32_tmo2_oracle
+
+t32_tmo2b_oracle:
+	sh ./t32_oracle/run.sh t32_tmo2b_oracle
+
+t32_tmo3a_oracle:
+	sh ./t32_oracle/run.sh t32_tmo3a_oracle
+
+t32_tmo3b_oracle:
+	sh ./t32_oracle/run.sh t32_tmo3b_oracle
+
+t32_tmo3c_oracle:
+	sh ./t32_oracle/run.sh t32_tmo3c_oracle
+
+t32_tmo4_oracle:
+	sh ./t32_oracle/run.sh t32_tmo4_oracle
+
+t32_tmo5a_oracle:
+	sh ./t32_oracle/run.sh t32_tmo5a_oracle
+
+t32_tmo5b_oracle:
+	sh ./t32_oracle/run.sh t32_tmo5b_oracle
+
+t32_tmo5c_oracle:
+	sh ./t32_oracle/run.sh t32_tmo5c_oracle
+
+t32_tmo6a_oracle:
+	sh ./t32_oracle/run.sh t32_tmo6a_oracle
+
+t32_tmo7a_oracle:
+	sh ./t32_oracle/run.sh t32_tmo7a_oracle
+
+t32_tmo8a_oracle:
+	sh ./t32_oracle/run.sh t32_tmo8a_oracle
+
+t32_tmo9a_oracle:
+	sh ./t32_oracle/run.sh t32_tmo9a_oracle
+
+t32_tmo9b_oracle:
+	sh ./t32_oracle/run.sh t32_tmo9b_oracle
+
+t32_tmo9c_oracle:
+	sh ./t32_oracle/run.sh t32_tmo9c_oracle
+
+t32_tmo10a_oracle:
+	sh ./t32_oracle/run.sh t32_tmo10a_oracle
+
+t32_tmo10b_oracle:
+	sh ./t32_oracle/run.sh t32_tmo10b_oracle
+
+t32_tmo11a_oracle:
+	sh ./t32_oracle/run.sh t32_tmo11a_oracle
+
+t32_tmo11b_oracle:
+	sh ./t32_oracle/run.sh t32_tmo11b_oracle
+
+t32_tmo12a_oracle:
+	sh ./t32_oracle/run.sh t32_tmo12a_oracle
+
+t32_tmo13a_oracle:
+	sh ./t32_oracle/run.sh t32_tmo13a_oracle
+
+t32_tmo13b_oracle:
+	sh ./t32_oracle/run.sh t32_tmo13b_oracle
+
+t32_tmo13c_oracle:
+	sh ./t32_oracle/run.sh t32_tmo13c_oracle
+
+t32_sdns_oracle:
+	sh ./t32_oracle/run.sh t32_sdns_oracle
+
+t32_dmscf_oracle:
+	sh ./t32_oracle/run.sh t32_dmscf_oracle
+
+t32_dmscp_oracle:
+	sh ./t32_oracle/run.sh t32_dmscp_oracle
+
+t32_dmsc_oracle:
+	sh ./t32_oracle/run.sh t32_dmsc_oracle
+
+t32_gammad_oracle:
+	sh ./t32_oracle/run.sh t32_gammad_oracle
+
+t32_gammax_oracle:
+	sh ./t32_oracle/run.sh t32_gammax_oracle
+
+t32_gamma_oracle:
+	sh ./t32_oracle/run.sh t32_gamma_oracle
+
+t32_clmf_oracle:
+	sh ./t32_oracle/run.sh t32_clmf_oracle
+
+t32_clmp_oracle:
+	sh ./t32_oracle/run.sh t32_clmp_oracle
+
+t32_clm_oracle:
+	sh ./t32_oracle/run.sh t32_clm_oracle
+
+t32_yspf_oracle:
+	sh ./t32_oracle/run.sh t32_yspf_oracle
+
+t32_yspp_oracle:
+	sh ./t32_oracle/run.sh t32_yspp_oracle
+
+t32_ysp_oracle:
+	sh ./t32_oracle/run.sh t32_ysp_oracle
+
+t32_bcshd_oracle:
+	sh ./t32_oracle/run.sh t32_bcshd_oracle
+
+t32_bcshx_oracle:
+	sh ./t32_oracle/run.sh t32_bcshx_oracle
+
+t32_bcsh_oracle:
+	sh ./t32_oracle/run.sh t32_bcsh_oracle
+
+t32_mdnsf_oracle:
+	sh ./t32_oracle/run.sh t32_mdnsf_oracle
+
+t32_mdnsx_oracle:
+	sh ./t32_oracle/run.sh t32_mdnsx_oracle
+
+t32_mdns_oracle:
+	sh ./t32_oracle/run.sh t32_mdns_oracle
+
+t32_mscac_oracle:
+	sh ./t32_oracle/run.sh t32_mscac_oracle
+
+t32_mscad_oracle:
+	sh ./t32_oracle/run.sh t32_mscad_oracle
+
+t32_mscae_oracle:
+	sh ./t32_oracle/run.sh t32_mscae_oracle
+
+t32_mscaf_oracle:
+	sh ./t32_oracle/run.sh t32_mscaf_oracle
+
+t32_mscag_oracle:
+	sh ./t32_oracle/run.sh t32_mscag_oracle
+
+t32_mscah_oracle:
+	sh ./t32_oracle/run.sh t32_mscah_oracle
+
+t32_mscai_oracle:
+	sh ./t32_oracle/run.sh t32_mscai_oracle
+
+t32_mscaj_oracle:
+	sh ./t32_oracle/run.sh t32_mscaj_oracle
+
+t32_mscak_oracle:
+	sh ./t32_oracle/run.sh t32_mscak_oracle
+
+t32_mscal_oracle:
+	sh ./t32_oracle/run.sh t32_mscal_oracle
+
+t32_mscam_oracle:
+	sh ./t32_oracle/run.sh t32_mscam_oracle
+
+t32_mscan_oracle:
+	sh ./t32_oracle/run.sh t32_mscan_oracle
+
+t32_mscao_oracle:
+	sh ./t32_oracle/run.sh t32_mscao_oracle
+
+t32_mscap_oracle:
+	sh ./t32_oracle/run.sh t32_mscap_oracle
+
+t32_mscafd_oracle:
+	sh ./t32_oracle/run.sh t32_mscafd_oracle
+
+t32_mscaq_oracle:
+	sh ./t32_oracle/run.sh t32_mscaq_oracle
+
+t32_msca_oracle:
+	sh ./t32_oracle/run.sh t32_msca_oracle
+
+t32_awbi_oracle:
+	sh ./t32_oracle/run.sh t32_awbi_oracle
+
+t32_awbac_oracle:
+	sh ./t32_oracle/run.sh t32_awbac_oracle
+
+t32_awbin_oracle:
+	sh ./t32_oracle/run.sh t32_awbin_oracle
+
+t32_awb_oracle:
+	sh ./t32_oracle/run.sh t32_awb_oracle
+t32_awbinit_oracle:
+	sh ./t32_oracle/run.sh t32_awbinit_oracle
+t32_awbchain_oracle:
+	sh ./t32_oracle/run.sh t32_awbchain_oracle
+
+t32_awbtg_oracle:
+	sh ./t32_oracle/run.sh t32_awbtg_oracle
+
+t32_clmct_oracle:
+	sh ./t32_oracle/run.sh t32_clmct_oracle
+
+t32_lscd_oracle:
+	sh ./t32_oracle/run.sh t32_lscd_oracle
+
+t32_lscx_oracle:
+	sh ./t32_oracle/run.sh t32_lscx_oracle
+
+t32_lsc_oracle:
+	sh ./t32_oracle/run.sh t32_lsc_oracle
+
+t32_ccmf_oracle:
+	sh ./t32_oracle/run.sh t32_ccmf_oracle
+
+t32_gammaf_oracle:
+	sh ./t32_oracle/run.sh t32_gammaf_oracle
+
+t32_bcshf_oracle:
+	sh ./t32_oracle/run.sh t32_bcshf_oracle
+
+t32_mxu2:
+	sh ./t32_oracle/mxu2/run.sh
+
+t32_lceh_oracle:
+	sh ./t32_oracle/run.sh t32_lceh_oracle
+
+t32_lces_oracle:
+	sh ./t32_oracle/run.sh t32_lces_oracle
+
+t32_lces2_oracle:
+	sh ./t32_oracle/run.sh t32_lces2_oracle
+
+t32_lces3_oracle:
+	sh ./t32_oracle/run.sh t32_lces3_oracle
+
+t32_lces4_oracle:
+	sh ./t32_oracle/run.sh t32_lces4_oracle
+
+t32_lces5_oracle:
+	sh ./t32_oracle/run.sh t32_lces5_oracle
+
+t32_lces6_oracle:
+	sh ./t32_oracle/run.sh t32_lces6_oracle
+
+t32_lces7_oracle:
+	sh ./t32_oracle/run.sh t32_lces7_oracle
+
+t32_lces8_oracle:
+	sh ./t32_oracle/run.sh t32_lces8_oracle
+
+t32_lces9_oracle:
+	sh ./t32_oracle/run.sh t32_lces9_oracle
+
+t32_lcet_oracle:
+	sh ./t32_oracle/run.sh t32_lcet_oracle
+
+t32_lcet41_oracle:
+	sh ./t32_oracle/run.sh t32_lcet41_oracle
+
+t32_lcet41_5_oracle:
+	sh ./t32_oracle/run.sh t32_lcet41_5_oracle
+
+t32_lcet41_4_oracle:
+	sh ./t32_oracle/run.sh t32_lcet41_4_oracle
+
+t32_lcet41_3_oracle:
+	sh ./t32_oracle/run.sh t32_lcet41_3_oracle
+
+t32_lcet41_2_oracle:
+	sh ./t32_oracle/run.sh t32_lcet41_2_oracle
+
+t32_lcet41_1_oracle:
+	sh ./t32_oracle/run.sh t32_lcet41_1_oracle
+
+t32_lcev4_oracle:
+	sh ./t32_oracle/run.sh t32_lcev4_oracle
+
+t32_lcev4_5_oracle:
+	sh ./t32_oracle/run.sh t32_lcev4_5_oracle
+
+t32_lcev4_4_oracle:
+	sh ./t32_oracle/run.sh t32_lcev4_4_oracle
+
+t32_lcev4_3_oracle:
+	sh ./t32_oracle/run.sh t32_lcev4_3_oracle
+
+t32_lcev4_2_oracle:
+	sh ./t32_oracle/run.sh t32_lcev4_2_oracle
+
+t32_lcev4_1_oracle:
+	sh ./t32_oracle/run.sh t32_lcev4_1_oracle
+t32_awbaa_oracle:
+	sh ./t32_oracle/run.sh t32_awbaa_oracle
+
+t32_aeaa_oracle:
+	sh ./t32_oracle/run.sh t32_aeaa_oracle
+
+t32_aeab_oracle:
+	sh ./t32_oracle/run.sh t32_aeab_oracle
+
+t32_aeac_oracle:
+	sh ./t32_oracle/run.sh t32_aeac_oracle
+
+t32_aead_oracle:
+	sh ./t32_oracle/run.sh t32_aead_oracle
+
+t32_aeae_oracle:
+	sh ./t32_oracle/run.sh t32_aeae_oracle
+
+t32_aeaf_oracle:
+	sh ./t32_oracle/run.sh t32_aeaf_oracle
+
+t32_aeag_oracle:
+	sh ./t32_oracle/run.sh t32_aeag_oracle
+
+t32_awbab_oracle:
+	sh ./t32_oracle/run.sh t32_awbab_oracle
+
+t32_aeah_oracle:
+	sh ./t32_oracle/run.sh t32_aeah_oracle
+
+t32_awbad_oracle:
+	sh ./t32_oracle/run.sh t32_awbad_oracle
+
+t32_aeai_oracle:
+	sh ./t32_oracle/run.sh t32_aeai_oracle
+
+t32_aeaj_oracle:
+	sh ./t32_oracle/run.sh t32_aeaj_oracle
+
+t32_aeak_oracle:
+	sh ./t32_oracle/run.sh t32_aeak_oracle
+
+t32_aeal_oracle:
+	sh ./t32_oracle/run.sh t32_aeal_oracle
+
+t32_aeam_oracle:
+	sh ./t32_oracle/run.sh t32_aeam_oracle
+
+t32_lce_oracle:
+	sh ./t32_oracle/run.sh t32_lce_oracle
+
+t32_aes_oracle:
+	sh ./t32_oracle/run.sh t32_aes_oracle
+t32_aee_oracle:
+	sh ./t32_oracle/run.sh t32_aee_oracle
+
+t32_aeb_oracle:
+	sh ./t32_oracle/run.sh t32_aeb_oracle
+
+t32_aew_oracle:
+	sh ./t32_oracle/run.sh t32_aew_oracle
+
+t32_aev_oracle:
+	sh ./t32_oracle/run.sh t32_aev_oracle
+
+t32_aev2_oracle:
+	sh ./t32_oracle/run.sh t32_aev2_oracle
+
+t32_aev3_oracle:
+	sh ./t32_oracle/run.sh t32_aev3_oracle
+
+t32_aef_oracle:
+	sh ./t32_oracle/run.sh t32_aef_oracle
+
+t32_aeu_oracle:
+	sh ./t32_oracle/run.sh t32_aeu_oracle
+
+t32_ae_oracle:
+	sh ./t32_oracle/run.sh t32_ae_oracle
+t32_aeinit_oracle:
+	sh ./t32_oracle/run.sh t32_aeinit_oracle
+t32_aemath_oracle:
+	sh ./t32_oracle/run.sh t32_aemath_oracle
+t32_aechain_oracle:
+	sh ./t32_oracle/run.sh t32_aechain_oracle
+t32_aesns_oracle:
+	sh ./t32_oracle/run.sh t32_aesns_oracle
+
+t32_awbg_oracle:
+	sh ./t32_oracle/run.sh t32_awbg_oracle
+
+t32_awbs_oracle:
+	sh ./t32_oracle/run.sh t32_awbs_oracle
+
+t32_awbl_oracle:
+	sh ./t32_oracle/run.sh t32_awbl_oracle
+
+t32_awbp_oracle:
+	sh ./t32_oracle/run.sh t32_awbp_oracle
+
+t32_awbm_oracle:
+	sh ./t32_oracle/run.sh t32_awbm_oracle
+
+t32_awbt_oracle:
+	sh ./t32_oracle/run.sh t32_awbt_oracle
+
+t32_awbw_oracle:
+	sh ./t32_oracle/run.sh t32_awbw_oracle
+
+t32_awbd_oracle:
+	sh ./t32_oracle/run.sh t32_awbd_oracle
+
+t32_awbz_oracle:
+	sh ./t32_oracle/run.sh t32_awbz_oracle
+
+t32_awbr_oracle:
+	sh ./t32_oracle/run.sh t32_awbr_oracle
+
+t32_awbn_oracle:
+	sh ./t32_oracle/run.sh t32_awbn_oracle
+
+t32_awbu_oracle:
+	sh ./t32_oracle/run.sh t32_awbu_oracle
+
+t32_awbe_oracle:
+	sh ./t32_oracle/run.sh t32_awbe_oracle
+
+t32_awbh_oracle:
+	sh ./t32_oracle/run.sh t32_awbh_oracle
+
+t32_awbj_oracle:
+	sh ./t32_oracle/run.sh t32_awbj_oracle
+
+t32_awbo_oracle:
+	sh ./t32_oracle/run.sh t32_awbo_oracle
+
+t32_awba_oracle:
+	sh ./t32_oracle/run.sh t32_awba_oracle
+
+t32_awbb_oracle:
+	sh ./t32_oracle/run.sh t32_awbb_oracle
+
+t32_awb2_oracle:
+	sh ./t32_oracle/run.sh t32_awb2_oracle
+
+t32_awbct_oracle:
+	sh ./t32_oracle/run.sh t32_awbct_oracle
+
+t32_awbdv_oracle:
+	sh ./t32_oracle/run.sh t32_awbdv_oracle
+
+t32_awblg1_oracle:
+	sh ./t32_oracle/run.sh t32_awblg1_oracle
+
+t32_awblg2_oracle:
+	sh ./t32_oracle/run.sh t32_awblg2_oracle
+
+t32_awblg3_oracle:
+	sh ./t32_oracle/run.sh t32_awblg3_oracle
+
+t32_awblg4_oracle:
+	sh ./t32_oracle/run.sh t32_awblg4_oracle
+
+t32_awblg5_oracle:
+	sh ./t32_oracle/run.sh t32_awblg5_oracle
+
+t32_awblg6_oracle:
+	sh ./t32_oracle/run.sh t32_awblg6_oracle t32_awbpr1_oracle t32_awbpr2_oracle t32_awbpr3_oracle
+
+t32_awby_oracle:
+	sh ./t32_oracle/run.sh t32_awby_oracle
+
+t32_awbx_oracle:
+	sh ./t32_oracle/run.sh t32_awbx_oracle
+
+t32_awbv_oracle:
+	sh ./t32_oracle/run.sh t32_awbv_oracle
+
+t32_awbq_oracle:
+	sh ./t32_oracle/run.sh t32_awbq_oracle
+
+t32_awbk_oracle:
+	sh ./t32_oracle/run.sh t32_awbk_oracle
+
+t32_awbf_oracle:
+	sh ./t32_oracle/run.sh t32_awbf_oracle
+
+t32_awbc_oracle:
+	sh ./t32_oracle/run.sh t32_awbc_oracle
+
+t32_awbpr1_oracle:
+	sh ./t32_oracle/run.sh t32_awbpr1_oracle
+
+t32_awbpr2_oracle:
+	sh ./t32_oracle/run.sh t32_awbpr2_oracle
+
+t32_awbpr3_oracle:
+	sh ./t32_oracle/run.sh t32_awbpr3_oracle
+t32_wdrfpga1_oracle:
+	sh ./t32_oracle/run.sh t32_wdrfpga1_oracle
+t32_wdrfpga2_oracle:
+	sh ./t32_oracle/run.sh t32_wdrfpga2_oracle
+t32_wdr1_oracle:
+	sh ./t32_oracle/run.sh t32_wdr1_oracle
+t32_wdr2_oracle:
+	sh ./t32_oracle/run.sh t32_wdr2_oracle
+t32_wdr3_oracle:
+	sh ./t32_oracle/run.sh t32_wdr3_oracle
+t32_wdr4_oracle:
+	sh ./t32_oracle/run.sh t32_wdr4_oracle
+t32_wdr5_oracle:
+	sh ./t32_oracle/run.sh t32_wdr5_oracle
+t32_wdr6_oracle:
+	sh ./t32_oracle/run.sh t32_wdr6_oracle
+t32_wdr7_oracle:
+	sh ./t32_oracle/run.sh t32_wdr7_oracle
+t32_wdr8_oracle:
+	sh ./t32_oracle/run.sh t32_wdr8_oracle
 
 t30_storage_audit:
 	../driver/t30/check_storage.sh
@@ -961,7 +1688,7 @@ tx_isp_awb_zone_test: tx_isp_awb_zone_test.c \
 		../driver/include/tx_isp/tx_isp_awb_zone.h
 	$(CC) $(CFLAGS) -I../driver/include -o $@ $<
 clean: clean-awb-zone
-.PHONY: clean-awb-zone
+.PHONY: clean-awb-zone t32_awbdv_oracle t32_awblg1_oracle t32_awblg2_oracle t32_awblg3_oracle t32_awblg4_oracle t32_awblg5_oracle t32_awblg6_oracle t32_awbpr1_oracle t32_awbpr2_oracle t32_awbpr3_oracle t32_apiset_oracle t32_apiparset_oracle t32_apiattr_oracle t32_apiag_oracle t32_apiratio_oracle t32_apictl_oracle t32_apiscl_oracle t32_apidfg_oracle t32_apistat_oracle t32_wrap_oracle t32_dispatch_oracle t32_wdr5_oracle t32_vin_oracle t32_param_oracle t32_tstp_oracle t32_sinfo_oracle t32_wdr6_oracle t32_vbuf_oracle t32_csi_oracle t32_event_oracle t32_vicops_oracle t32_wdr7_oracle t32_fspm_oracle t32_rcfgv_oracle t32_dma_oracle t32_freset_oracle t32_lcem_oracle t32_aetrig_oracle t32_ctune_oracle t32_regmap_oracle t32_blkglue_oracle t32_vicdev_oracle t32_aeinfo_oracle t32_ispcore_oracle t32_isptun_oracle t32_ispev_oracle t32_ispfw_oracle t32_ispmem_oracle t32_ispwork_oracle t32_isppm_oracle t32_ispclk_oracle t32_ispsync_oracle t32_ispprep_oracle t32_ispi2c_oracle t32_ispclkp_oracle t32_ispsoff_oracle t32_ispslake_oracle t32_ispss_oracle t32_ispact_oracle t32_ispfd_oracle t32_ispres_oracle t32_ispcmd_oracle t32_vicisr_oracle t32_ispisr_oracle t32_isppad_oracle t32_ispinit_oracle t32_ispioctl_oracle t32_awbdein_oracle t32_vicmdma_oracle t32_aealgo_oracle t32_aeirq_oracle t32_aeupd_oracle t32_lcepar_oracle t32_lceirq_oracle t32_apiget_oracle t32_dnref_oracle t32_dnctl_oracle t32_longev_oracle t32_lcewake_oracle t32_longtg_oracle t32_lscm_oracle t32_ctio_oracle
 clean-awb-zone:
 	$(RM) tx_isp_awb_zone_test
 
@@ -971,7 +1698,7 @@ tx_isp_t41_awb_zone_report_test: tx_isp_t41_awb_zone_report_test.c \
 		../driver/t41/tx_isp_t41_awb_zone_report.h ../driver/include/tx_isp/tx_isp_awb_zone.h
 	$(CC) $(CFLAGS) -I../driver/include -o $@ $<
 clean: clean-t41-awb-zone-report
-.PHONY: clean-t41-awb-zone-report
+.PHONY: clean-t41-awb-zone-report t32_awbdv_oracle t32_awblg1_oracle t32_awblg2_oracle t32_awblg3_oracle t32_awblg4_oracle t32_awblg5_oracle t32_awblg6_oracle t32_awbpr1_oracle t32_awbpr2_oracle t32_awbpr3_oracle t32_apiset_oracle t32_apiparset_oracle t32_apiattr_oracle t32_apiag_oracle t32_apiratio_oracle t32_apictl_oracle t32_apiscl_oracle t32_apidfg_oracle t32_apistat_oracle t32_wrap_oracle t32_dispatch_oracle t32_wdr5_oracle t32_vin_oracle t32_param_oracle t32_tstp_oracle t32_sinfo_oracle t32_wdr6_oracle t32_vbuf_oracle t32_csi_oracle t32_event_oracle t32_vicops_oracle t32_wdr7_oracle t32_fspm_oracle t32_rcfgv_oracle t32_dma_oracle t32_freset_oracle t32_lcem_oracle t32_aetrig_oracle t32_ctune_oracle t32_regmap_oracle t32_blkglue_oracle t32_vicdev_oracle t32_aeinfo_oracle t32_ispcore_oracle t32_isptun_oracle t32_ispev_oracle t32_ispfw_oracle t32_ispmem_oracle t32_ispwork_oracle t32_isppm_oracle t32_ispclk_oracle t32_ispsync_oracle t32_ispprep_oracle t32_ispi2c_oracle t32_ispclkp_oracle t32_ispsoff_oracle t32_ispslake_oracle t32_ispss_oracle t32_ispact_oracle t32_ispfd_oracle t32_ispres_oracle t32_ispcmd_oracle t32_vicisr_oracle t32_ispisr_oracle t32_isppad_oracle t32_ispinit_oracle t32_ispioctl_oracle t32_awbdein_oracle t32_vicmdma_oracle t32_aealgo_oracle t32_aeirq_oracle t32_aeupd_oracle t32_lcepar_oracle t32_lceirq_oracle t32_apiget_oracle t32_dnref_oracle t32_dnctl_oracle t32_longev_oracle t32_lcewake_oracle t32_longtg_oracle t32_lscm_oracle t32_ctio_oracle
 clean-t41-awb-zone-report:
 	$(RM) tx_isp_t41_awb_zone_report_test
 
@@ -981,6 +1708,518 @@ tx_isp_t2x_awb_zone_test: tx_isp_t2x_awb_zone_test.c \
 		../driver/include/tx_isp/tx_isp_t2x_awb_zone.h
 	$(CC) $(CFLAGS) -I../driver/include -o $@ $<
 clean: clean-t2x-awb-zone
-.PHONY: clean-t2x-awb-zone
+.PHONY: clean-t2x-awb-zone t32_awbdv_oracle t32_awblg1_oracle t32_awblg2_oracle t32_awblg3_oracle t32_awblg4_oracle t32_awblg5_oracle t32_awblg6_oracle t32_awbpr1_oracle t32_awbpr2_oracle t32_awbpr3_oracle t32_apiset_oracle t32_apiparset_oracle t32_apiattr_oracle t32_apiag_oracle t32_apiratio_oracle t32_apictl_oracle t32_apiscl_oracle t32_apidfg_oracle t32_apistat_oracle t32_ispcore_oracle t32_isptun_oracle t32_ispev_oracle t32_ispfw_oracle t32_ispmem_oracle t32_ispwork_oracle t32_isppm_oracle t32_ispclk_oracle t32_ispsync_oracle t32_ispprep_oracle t32_ispi2c_oracle t32_ispclkp_oracle t32_ispsoff_oracle t32_ispslake_oracle t32_ispss_oracle t32_ispact_oracle t32_ispfd_oracle t32_ispres_oracle t32_ispcmd_oracle t32_vicisr_oracle t32_ispisr_oracle t32_isppad_oracle t32_ispinit_oracle t32_ispioctl_oracle t32_wrap_oracle t32_dispatch_oracle t32_wdr5_oracle t32_vin_oracle t32_param_oracle t32_tstp_oracle t32_sinfo_oracle t32_wdr6_oracle t32_vbuf_oracle t32_csi_oracle t32_event_oracle t32_vicops_oracle t32_wdr7_oracle t32_fspm_oracle t32_rcfgv_oracle t32_dma_oracle t32_freset_oracle t32_lcem_oracle t32_aetrig_oracle t32_ctune_oracle t32_regmap_oracle t32_blkglue_oracle t32_vicdev_oracle t32_aeinfo_oracle t32_awbdein_oracle t32_vicmdma_oracle t32_aealgo_oracle t32_aeirq_oracle t32_aeupd_oracle t32_lcepar_oracle t32_lceirq_oracle t32_apiget_oracle t32_dnref_oracle t32_dnctl_oracle t32_longev_oracle t32_lcewake_oracle t32_longtg_oracle t32_lscm_oracle t32_ctio_oracle
 clean-t2x-awb-zone:
 	$(RM) tx_isp_t2x_awb_zone_test
+
+t32_priv_oracle:
+	sh ./t32_oracle/run.sh t32_priv_oracle
+
+t32_privx_oracle:
+	sh ./t32_oracle/run.sh t32_privx_oracle
+t32_apiset_oracle:
+	sh ./t32_oracle/run.sh t32_apiset_oracle
+
+t32_apiattr_oracle:
+	sh ./t32_oracle/run.sh t32_apiattr_oracle
+
+t32_apiag_oracle:
+	sh ./t32_oracle/run.sh t32_apiag_oracle
+
+t32_apiratio_oracle:
+	sh ./t32_oracle/run.sh t32_apiratio_oracle
+
+t32_apictl_oracle:
+	sh ./t32_oracle/run.sh t32_apictl_oracle
+
+t32_apiscl_oracle:
+	sh ./t32_oracle/run.sh t32_apiscl_oracle
+
+t32_apidfg_oracle:
+	sh ./t32_oracle/run.sh t32_apidfg_oracle
+
+t32_apistat_oracle:
+	sh ./t32_oracle/run.sh t32_apistat_oracle
+.PHONY: clean-t2x-awb-zone t32_awbdv_oracle t32_awblg1_oracle t32_awblg2_oracle t32_awblg3_oracle t32_awblg4_oracle t32_awblg5_oracle t32_awblg6_oracle t32_awbpr1_oracle t32_awbpr2_oracle t32_awbpr3_oracle t32_wrap_oracle t32_dispatch_oracle t32_wdr5_oracle t32_vin_oracle t32_param_oracle t32_tstp_oracle t32_sinfo_oracle t32_wdr6_oracle t32_vbuf_oracle t32_csi_oracle t32_event_oracle t32_vicops_oracle t32_wdr7_oracle t32_fspm_oracle t32_rcfgv_oracle t32_dma_oracle t32_freset_oracle t32_lcem_oracle t32_aetrig_oracle t32_ctune_oracle t32_regmap_oracle t32_blkglue_oracle t32_vicdev_oracle t32_aeinfo_oracle
+
+t32_wrap_oracle:
+	sh ./t32_oracle/run.sh t32_wrap_oracle
+
+t32_dispatch_oracle:
+	sh ./t32_oracle/run.sh t32_dispatch_oracle
+
+t32_sysreg_oracle:
+	sh ./t32_oracle/run.sh t32_sysreg_oracle
+t32_misc_oracle:
+	sh ./t32_oracle/run.sh t32_misc_oracle
+
+t32_sensop_oracle:
+	sh ./t32_oracle/run.sh t32_sensop_oracle
+
+t32_ivdc_oracle:
+	sh ./t32_oracle/run.sh t32_ivdc_oracle
+
+t32_txcore6_oracle:
+	sh ./t32_oracle/run.sh t32_txcore6_oracle
+
+t32_vin_oracle:
+	sh ./t32_oracle/run.sh t32_vin_oracle
+
+t32_param_oracle:
+	sh ./t32_oracle/run.sh t32_param_oracle
+
+t32_tstp_oracle:
+	sh ./t32_oracle/run.sh t32_tstp_oracle
+
+t32_sinfo_oracle:
+	sh ./t32_oracle/run.sh t32_sinfo_oracle
+
+t32_vbuf_oracle:
+	sh ./t32_oracle/run.sh t32_vbuf_oracle
+
+t32_csi_oracle:
+	sh ./t32_oracle/run.sh t32_csi_oracle
+
+t32_event_oracle:
+	sh ./t32_oracle/run.sh t32_event_oracle
+
+t32_vicops_oracle:
+	sh ./t32_oracle/run.sh t32_vicops_oracle
+
+t32_fspm_oracle:
+	sh ./t32_oracle/run.sh t32_fspm_oracle
+
+t32_rcfgv_oracle:
+	sh ./t32_oracle/run.sh t32_rcfgv_oracle
+
+t32_dma_oracle:
+	sh ./t32_oracle/run.sh t32_dma_oracle
+
+t32_freset_oracle:
+	sh ./t32_oracle/run.sh t32_freset_oracle
+
+t32_lcem_oracle:
+	sh ./t32_oracle/run.sh t32_lcem_oracle
+
+t32_aetrig_oracle:
+	sh ./t32_oracle/run.sh t32_aetrig_oracle
+
+t32_ctune_oracle:
+	sh ./t32_oracle/run.sh t32_ctune_oracle
+
+t32_regmap_oracle:
+	sh ./t32_oracle/run.sh t32_regmap_oracle
+
+t32_blkglue_oracle:
+	sh ./t32_oracle/run.sh t32_blkglue_oracle
+
+t32_vicdev_oracle:
+	sh ./t32_oracle/run.sh t32_vicdev_oracle
+
+t32_aeinfo_oracle:
+	sh ./t32_oracle/run.sh t32_aeinfo_oracle
+
+t32_fch_oracle:
+	sh ./t32_oracle/run.sh t32_fch_oracle
+
+t32_ivmisc_oracle:
+	sh ./t32_oracle/run.sh t32_ivmisc_oracle
+
+t32_sinp_oracle:
+	sh ./t32_oracle/run.sh t32_sinp_oracle
+
+t32_fchdq_oracle:
+	sh ./t32_oracle/run.sh t32_fchdq_oracle
+
+t32_ivdcc_oracle:
+	sh ./t32_oracle/run.sh t32_ivdcc_oracle
+
+t32_ivdci_oracle:
+	sh ./t32_oracle/run.sh t32_ivdci_oracle
+
+t32_fchio_oracle:
+	sh ./t32_oracle/run.sh t32_fchio_oracle
+
+t32_fchrq_oracle:
+	sh ./t32_oracle/run.sh t32_fchrq_oracle
+
+t32_fchqb_oracle:
+	sh ./t32_oracle/run.sh t32_fchqb_oracle
+t32_fchev_oracle:
+	sh ./t32_oracle/run.sh t32_fchev_oracle
+t32_ivdcp_oracle:
+	sh ./t32_oracle/run.sh t32_ivdcp_oracle
+t32_vicio_oracle:
+	sh ./t32_oracle/run.sh t32_vicio_oracle
+
+t32_ssio_oracle:
+	sh ./t32_oracle/run.sh t32_ssio_oracle
+
+t32_ssior_oracle:
+	sh ./t32_oracle/run.sh t32_ssior_oracle
+
+t32_srel_oracle:
+	sh ./t32_oracle/run.sh t32_srel_oracle
+
+t32_fsioc_oracle:
+	sh ./t32_oracle/run.sh t32_fsioc_oracle
+
+t32_fsaov_oracle:
+	sh ./t32_oracle/run.sh t32_fsaov_oracle
+
+t32_vicstr_oracle:
+	sh ./t32_oracle/run.sh t32_vicstr_oracle
+
+t32_ivclk_oracle:
+	sh ./t32_oracle/run.sh t32_ivclk_oracle
+
+t32_sreg_oracle:
+	sh ./t32_oracle/run.sh t32_sreg_oracle
+.PHONY: clean-t2x-awb-zone t32_awbdv_oracle t32_awblg1_oracle t32_awblg2_oracle t32_awblg3_oracle t32_awblg4_oracle t32_awblg5_oracle t32_awblg6_oracle t32_awbpr1_oracle t32_awbpr2_oracle t32_awbpr3_oracle t32_ispcore_oracle t32_isptun_oracle t32_ispev_oracle t32_ispfw_oracle t32_ispmem_oracle t32_ispwork_oracle t32_isppm_oracle t32_ispclk_oracle t32_ispsync_oracle t32_ispprep_oracle t32_ispi2c_oracle t32_ispclkp_oracle t32_ispsoff_oracle t32_ispslake_oracle t32_ispss_oracle t32_ispact_oracle t32_ispfd_oracle t32_ispres_oracle t32_ispcmd_oracle t32_vicisr_oracle
+
+t32_ispcore_oracle:
+	sh ./t32_oracle/run.sh t32_ispcore_oracle
+
+t32_isptun_oracle:
+	sh ./t32_oracle/run.sh t32_isptun_oracle
+
+t32_ispev_oracle:
+	sh ./t32_oracle/run.sh t32_ispev_oracle
+
+t32_ispfw_oracle:
+	sh ./t32_oracle/run.sh t32_ispfw_oracle
+
+t32_ispmem_oracle:
+	sh ./t32_oracle/run.sh t32_ispmem_oracle
+
+t32_ispwork_oracle:
+	sh ./t32_oracle/run.sh t32_ispwork_oracle
+
+t32_isppm_oracle:
+	sh ./t32_oracle/run.sh t32_isppm_oracle
+
+t32_ispclk_oracle:
+	sh ./t32_oracle/run.sh t32_ispclk_oracle
+
+t32_ispsync_oracle:
+	sh ./t32_oracle/run.sh t32_ispsync_oracle
+
+t32_ispprep_oracle:
+	sh ./t32_oracle/run.sh t32_ispprep_oracle
+
+t32_ispi2c_oracle:
+	sh ./t32_oracle/run.sh t32_ispi2c_oracle
+
+t32_ispclkp_oracle:
+	sh ./t32_oracle/run.sh t32_ispclkp_oracle
+
+t32_ispsoff_oracle:
+	sh ./t32_oracle/run.sh t32_ispsoff_oracle
+
+t32_ispslake_oracle:
+	sh ./t32_oracle/run.sh t32_ispslake_oracle
+
+t32_ispss_oracle:
+	sh ./t32_oracle/run.sh t32_ispss_oracle
+
+t32_ispact_oracle:
+	sh ./t32_oracle/run.sh t32_ispact_oracle
+
+t32_ispfd_oracle:
+	sh ./t32_oracle/run.sh t32_ispfd_oracle
+
+t32_ispres_oracle:
+	sh ./t32_oracle/run.sh t32_ispres_oracle
+
+t32_ispcmd_oracle:
+	sh ./t32_oracle/run.sh t32_ispcmd_oracle
+
+t32_vicisr_oracle:
+	sh ./t32_oracle/run.sh t32_vicisr_oracle
+t32_txriscv_oracle:
+	sh ./t32_oracle/run.sh t32_txriscv_oracle
+
+t32_txirq_oracle:
+	sh ./t32_oracle/run.sh t32_txirq_oracle
+
+t32_txattr_oracle:
+	sh ./t32_oracle/run.sh t32_txattr_oracle
+
+t32_fops_oracle:
+	sh ./t32_oracle/run.sh t32_fops_oracle
+
+t32_tuning_oracle:
+	sh ./t32_oracle/run.sh t32_tuning_oracle
+
+t32_aov_oracle:
+	sh ./t32_oracle/run.sh t32_aov_oracle
+
+t32_ldcattr_oracle:
+	sh ./t32_oracle/run.sh t32_ldcattr_oracle
+
+t32_txcore_oracle:
+	sh ./t32_oracle/run.sh t32_txcore_oracle
+
+t32_txvin_oracle:
+	sh ./t32_oracle/run.sh t32_txvin_oracle
+
+t32_txcsi_oracle:
+	sh ./t32_oracle/run.sh t32_txcsi_oracle
+
+t32_txvic_oracle:
+	sh ./t32_oracle/run.sh t32_txvic_oracle
+
+t32_txremove_oracle:
+	sh ./t32_oracle/run.sh t32_txremove_oracle
+
+t32_txsinfo_oracle:
+	sh ./t32_oracle/run.sh t32_txsinfo_oracle
+
+t32_txioctl_oracle:
+	sh ./t32_oracle/run.sh t32_txioctl_oracle
+
+t32_txlink_oracle:
+	sh ./t32_oracle/run.sh t32_txlink_oracle
+
+t32_txmisc_oracle:
+	sh ./t32_oracle/run.sh t32_txmisc_oracle
+
+t32_txprobe_oracle:
+	sh ./t32_oracle/run.sh t32_txprobe_oracle
+
+t32_txinit_oracle:
+	sh ./t32_oracle/run.sh t32_txinit_oracle
+
+t32_txbin_oracle:
+	sh ./t32_oracle/run.sh t32_txbin_oracle
+
+t32_txtick_oracle:
+	sh ./t32_oracle/run.sh t32_txtick_oracle
+
+t32_txgraph_oracle:
+	sh ./t32_oracle/run.sh t32_txgraph_oracle
+
+t32_txframe_oracle:
+	sh ./t32_oracle/run.sh t32_txframe_oracle
+
+t32_txivdc_oracle:
+	sh ./t32_oracle/run.sh t32_txivdc_oracle
+
+t32_txfs_oracle:
+	sh ./t32_oracle/run.sh t32_txfs_oracle
+
+t32_txsubdev_oracle:
+	sh ./t32_oracle/run.sh t32_txsubdev_oracle
+
+t32_txisp_oracle:
+	sh ./t32_oracle/run.sh t32_txisp_oracle
+
+t32_txcprobe_oracle:
+	sh ./t32_oracle/run.sh t32_txcprobe_oracle
+
+t32_txgctrl_oracle:
+	sh ./t32_oracle/run.sh t32_txgctrl_oracle
+
+t32_txsctrl_oracle:
+	sh ./t32_oracle/run.sh t32_txsctrl_oracle
+
+t32_txuio_oracle:
+	sh ./t32_oracle/run.sh t32_txuio_oracle
+
+t32_corefd_oracle:
+	sh ./t32_oracle/run.sh t32_corefd_oracle
+
+t32_kmod_oracle:
+	sh ./t32_oracle/run.sh t32_kmod_oracle
+
+t32_binfile_oracle:
+	sh ./t32_oracle/run.sh t32_binfile_oracle
+
+t32_ctrl_oracle:
+	sh ./t32_oracle/run.sh t32_ctrl_oracle
+
+t32_tabcpy_oracle:
+	sh ./t32_oracle/run.sh t32_tabcpy_oracle
+
+t32_defogw_oracle:
+	sh ./t32_oracle/run.sh t32_defogw_oracle
+
+t32_lsf_oracle:
+	sh ./t32_oracle/run.sh t32_lsf_oracle
+
+t32_creset_oracle:
+	sh ./t32_oracle/run.sh t32_creset_oracle
+
+t32_treset_oracle:
+	sh ./t32_oracle/run.sh t32_treset_oracle
+
+t32_vincmd_oracle:
+	sh ./t32_oracle/run.sh t32_vincmd_oracle
+
+t32_mipi_oracle:
+	sh ./t32_oracle/run.sh t32_mipi_oracle
+
+t32_vicmd_oracle:
+	sh ./t32_oracle/run.sh t32_vicmd_oracle
+
+t32_defogcw_oracle:
+	sh ./t32_oracle/run.sh t32_defogcw_oracle
+
+t32_loadpar_oracle:
+	sh ./t32_oracle/run.sh t32_loadpar_oracle
+
+t32_lce41l_oracle:
+	sh ./t32_oracle/run.sh t32_lce41l_oracle
+
+t32_lce41_oracle:
+	sh ./t32_oracle/run.sh t32_lce41_oracle
+
+t32_defogs_oracle:
+	sh ./t32_oracle/run.sh t32_defogs_oracle
+
+t32_tmo14_oracle:
+	sh ./t32_oracle/run.sh t32_tmo14_oracle
+
+t32_tmo14a_oracle:
+	sh ./t32_oracle/run.sh t32_tmo14a_oracle
+
+t32_tmo14b_oracle:
+	sh ./t32_oracle/run.sh t32_tmo14b_oracle
+
+t32_tmo14c_oracle:
+	sh ./t32_oracle/run.sh t32_tmo14c_oracle
+
+t32_tmo14d_oracle:
+	sh ./t32_oracle/run.sh t32_tmo14d_oracle
+
+t32_tmo14e_oracle:
+	sh ./t32_oracle/run.sh t32_tmo14e_oracle
+
+# openimp #280: the vendor tables of tx_isp_t32_tmotab.h equal data.c of the recovered tree (2e2e06bc)
+t32_tmotab_check:
+	python3 ./t32_oracle/tmotab_check.py ..
+
+# openimp #234: the RDNS row table of tx_isp_t32_rdnstab.h equals data.c of the recovered tree (2e2e06bc)
+t32_rdnstab_check:
+	python3 ./t32_oracle/rdnstab_check.py ..
+
+
+t32_ispisr_oracle:
+	sh ./t32_oracle/run.sh t32_ispisr_oracle
+
+t32_isppad_oracle:
+	sh ./t32_oracle/run.sh t32_isppad_oracle
+
+t32_ispinit_oracle:
+	sh ./t32_oracle/run.sh t32_ispinit_oracle
+
+t32_ispioctl_oracle:
+	sh ./t32_oracle/run.sh t32_ispioctl_oracle
+	sh ./t32_oracle/run.sh t32_aeinfo_oracle t32_awbdein_oracle t32_vicmdma_oracle t32_aealgo_oracle t32_aeirq_oracle t32_aeupd_oracle t32_lcepar_oracle t32_lceirq_oracle t32_apiget_oracle t32_dnref_oracle t32_dnctl_oracle t32_longev_oracle t32_lcewake_oracle t32_longtg_oracle t32_apiset_oracle t32_apiparset_oracle t32_lscm_oracle t32_ctio_oracle
+
+t32_awbdein_oracle:
+	sh ./t32_oracle/run.sh t32_awbdein_oracle t32_vicmdma_oracle t32_aealgo_oracle t32_aeirq_oracle t32_aeupd_oracle t32_lcepar_oracle t32_lceirq_oracle t32_apiget_oracle t32_dnref_oracle t32_dnctl_oracle t32_longev_oracle t32_lcewake_oracle t32_longtg_oracle t32_apiset_oracle t32_apiparset_oracle t32_lscm_oracle t32_ctio_oracle
+
+t32_vicmdma_oracle:
+	sh ./t32_oracle/run.sh t32_vicmdma_oracle t32_aealgo_oracle t32_aeirq_oracle t32_aeupd_oracle t32_lcepar_oracle t32_lceirq_oracle t32_apiget_oracle t32_dnref_oracle t32_dnctl_oracle t32_longev_oracle t32_lcewake_oracle t32_longtg_oracle t32_apiset_oracle t32_apiparset_oracle t32_lscm_oracle t32_ctio_oracle
+
+t32_aealgo_oracle:
+	sh ./t32_oracle/run.sh t32_aealgo_oracle t32_aeirq_oracle t32_aeupd_oracle t32_lcepar_oracle t32_lceirq_oracle t32_apiget_oracle t32_dnref_oracle t32_dnctl_oracle t32_longev_oracle t32_lcewake_oracle t32_longtg_oracle t32_apiset_oracle t32_apiparset_oracle t32_lscm_oracle t32_ctio_oracle
+
+t32_aeirq_oracle:
+	sh ./t32_oracle/run.sh t32_aeirq_oracle t32_aeupd_oracle t32_lcepar_oracle t32_lceirq_oracle t32_apiget_oracle t32_dnref_oracle t32_dnctl_oracle t32_longev_oracle t32_lcewake_oracle t32_longtg_oracle t32_apiset_oracle t32_apiparset_oracle t32_lscm_oracle t32_ctio_oracle
+
+t32_aeupd_oracle:
+	sh ./t32_oracle/run.sh t32_aeupd_oracle t32_lcepar_oracle t32_lceirq_oracle t32_apiget_oracle t32_dnref_oracle t32_dnctl_oracle t32_longev_oracle t32_lcewake_oracle t32_longtg_oracle t32_apiset_oracle t32_apiparset_oracle t32_lscm_oracle t32_ctio_oracle
+
+t32_lcepar_oracle:
+	sh ./t32_oracle/run.sh t32_lcepar_oracle t32_lceirq_oracle t32_apiget_oracle t32_dnref_oracle t32_dnctl_oracle t32_longev_oracle t32_lcewake_oracle t32_longtg_oracle t32_apiset_oracle t32_apiparset_oracle t32_lscm_oracle t32_ctio_oracle
+
+t32_lceirq_oracle:
+	sh ./t32_oracle/run.sh t32_lceirq_oracle t32_apiget_oracle t32_dnref_oracle t32_dnctl_oracle t32_longev_oracle t32_lcewake_oracle t32_longtg_oracle t32_apiset_oracle t32_apiparset_oracle t32_lscm_oracle t32_ctio_oracle
+
+t32_apiget_oracle:
+	sh ./t32_oracle/run.sh t32_apiget_oracle t32_dnref_oracle t32_dnctl_oracle t32_longev_oracle t32_lcewake_oracle t32_longtg_oracle t32_apiset_oracle t32_apiparset_oracle t32_lscm_oracle t32_ctio_oracle
+
+t32_dnref_oracle:
+	sh ./t32_oracle/run.sh t32_dnref_oracle t32_dnctl_oracle t32_longev_oracle t32_lcewake_oracle t32_longtg_oracle t32_apiset_oracle t32_apiparset_oracle t32_lscm_oracle t32_ctio_oracle
+
+t32_dnctl_oracle:
+	sh ./t32_oracle/run.sh t32_dnctl_oracle t32_longev_oracle t32_lcewake_oracle t32_longtg_oracle t32_apiset_oracle t32_apiparset_oracle t32_lscm_oracle t32_ctio_oracle
+
+t32_longev_oracle:
+	sh ./t32_oracle/run.sh t32_longev_oracle t32_lcewake_oracle t32_longtg_oracle t32_apiset_oracle t32_apiparset_oracle t32_lscm_oracle t32_ctio_oracle
+
+t32_lcewake_oracle:
+	sh ./t32_oracle/run.sh t32_lcewake_oracle t32_longtg_oracle t32_apiset_oracle t32_apiparset_oracle t32_lscm_oracle t32_ctio_oracle
+
+t32_longtg_oracle:
+	sh ./t32_oracle/run.sh t32_longtg_oracle t32_apiset_oracle t32_apiparset_oracle t32_lscm_oracle t32_ctio_oracle
+t32_lscm_oracle:
+	sh ./t32_oracle/run.sh t32_lscm_oracle t32_ctio_oracle
+t32_ctio_oracle:
+	sh ./t32_oracle/run.sh t32_ctio_oracle
+
+t32_apiparset_oracle:
+	sh ./t32_oracle/run.sh t32_apiparset_oracle
+
+t32_aedein_oracle:
+	sh ./t32_oracle/run.sh t32_aedein_oracle
+
+t32_intpclr_oracle:
+	sh ./t32_oracle/run.sh t32_intpclr_oracle
+
+t32_sfraw_oracle:
+	sh ./t32_oracle/run.sh t32_sfraw_oracle
+
+t32_swdr_oracle:
+	sh ./t32_oracle/run.sh t32_swdr_oracle
+
+t32_lcetg_oracle:
+	sh ./t32_oracle/run.sh t32_lcetg_oracle
+
+t32_lceinit_oracle:
+	sh ./t32_oracle/run.sh t32_lceinit_oracle
+
+t32_blkirq_oracle:
+	sh ./t32_oracle/run.sh t32_blkirq_oracle
+
+t32_tmoblk_oracle:
+	sh ./t32_oracle/run.sh t32_tmoblk_oracle
+
+t32_dbg_oracle:
+	sh ./t32_oracle/run.sh t32_dbg_oracle
+
+t32_dbgp_oracle:
+	sh ./t32_oracle/run.sh t32_dbgp_oracle
+
+t32_dbgi_oracle:
+	sh ./t32_oracle/run.sh t32_dbgi_oracle
+t32_info1_oracle:
+	sh ./t32_oracle/run.sh t32_info1_oracle
+t32_info2_oracle:
+	sh ./t32_oracle/run.sh t32_info2_oracle
+t32_info3_oracle:
+	sh ./t32_oracle/run.sh t32_info3_oracle
+t32_info4_oracle:
+	sh ./t32_oracle/run.sh t32_info4_oracle
+t32_pshow_oracle:
+	sh ./t32_oracle/run.sh t32_pshow_oracle
+
+t32_sh1_oracle:
+	sh ./t32_oracle/run.sh t32_sh1_oracle
+
+t32_tpr1_oracle:
+	sh ./t32_oracle/run.sh t32_tpr1_oracle
+
+t32_tpr2_oracle:
+	sh ./t32_oracle/run.sh t32_tpr2_oracle
+
+t32_tpr3_oracle:
+	sh ./t32_oracle/run.sh t32_tpr3_oracle
+
+t32_sh2_oracle:
+	sh ./t32_oracle/run.sh t32_sh2_oracle
+
+t32_sh3_oracle:
+	sh ./t32_oracle/run.sh t32_sh3_oracle

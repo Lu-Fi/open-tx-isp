@@ -33,6 +33,7 @@
 #include "tx_isp_t32_regs.h"
 #include "tx_isp_t32_mem.h"
 #include "tx_isp_t32_msca.h"
+#include "tx_isp_t32_soc.h"
 
 static unsigned int isp_memopt = T32_MEMOPT_DEFAULT;
 module_param(isp_memopt, uint, 0444);
@@ -43,7 +44,7 @@ MODULE_PARM_DESC(isp_memopt, "MDNS memory ratio in 1/1000 (<=1000 uncompressed, 
  * 32) despite the int-sized ioctl and refuses IMP_ISP_Open unless both match
  * its own strings (libimp 2.2.0: "PRJ007" / "20251107a").
  */
-static char *driver_soc = "PRJ007";
+static char *driver_soc = T32_SOC_NAME;
 module_param(driver_soc, charp, 0444);
 MODULE_PARM_DESC(driver_soc, "SoC name answered to DRIVER_VERSION");
 static char *driver_version = "20251107a";
@@ -54,12 +55,30 @@ MODULE_PARM_DESC(driver_version, "ISP driver version answered to DRIVER_VERSION 
  * DEFAULT_BIN: libimp passes an 880-byte buffer (zeroed) and checks two
  * strings the driver puts into it against the IQ bin it is about to load:
  * the bin format version at 863 (bin bytes 0-7, "1.00") and the SoC at 871
- * (bin bytes 152.., "PRJ007").  The rest of the buffer is left zero, as far
- * as libimp 2.2.0 is concerned (S1).
+ * (bin bytes 152.., "PRJ007").  Like the vendor (tx_isp_default_bin) the
+ * buffer comes back as libimp sent it with these fields filled: WDR (word
+ * 852) and day / night (word 856) of the bin last set with SET_TIZIANO_PAR
+ * for the VI in byte 862 (IMP_ISP_Tuning_GetISPRunningMode reads 856), the
+ * fast-boot "first bin" flag at 860 (0: no kernel fast-boot bins).  The
+ * mode is kept over RELEASE_SENSOR, as the vendor module does (#303).
  */
-#define T32_DEFAULT_BIN_SIZE	880
-#define T32_DEFAULT_BIN_VER	863
-#define T32_DEFAULT_BIN_SOC	871
+/* T32_DEFAULT_BIN_SIZE / _VER / _SOC: tx_isp_t32_soc.h (T33: same 880 / 863 / 871) */
+#define T32_DEFAULT_BIN_WDR	852
+#define T32_DEFAULT_BIN_DN	856
+#define T32_DEFAULT_BIN_FIRST	860
+#define T32_DEFAULT_BIN_VI	862
+#define T32_BIN_VIS		4	/* VI numbers whose bin mode is kept */
+
+/* SET_TIZIANO_PAR: 20 bytes (the request's size field says 4) */
+struct t32_tiziano_par {
+	u32 pa;
+	u32 size;
+	u32 wdr;
+	u32 night;
+	u8 update_csccr;
+	u8 vinum;
+	u8 pad[2];
+};
 static char *bin_version = "1.00";
 module_param(bin_version, charp, 0444);
 MODULE_PARM_DESC(bin_version, "IQ bin format version the driver accepts");
@@ -98,6 +117,7 @@ static struct t32_core {
 	void *pending_sd;		/* set by tx_isp_subdev_init during probe */
 	u32 tiziano_pa;
 	u32 default_bin;
+	u32 bin_wdr[T32_BIN_VIS], bin_night[T32_BIN_VIS];	/* last SET_TIZIANO_PAR */
 	unsigned int ioctls;
 	struct proc_dir_entry *proc;
 } core;
@@ -287,10 +307,13 @@ static int t32_sensor_stream(struct t32_vi *vi, int on)
 			ret = init(vi->sd, &arg);
 		if (!ret && stream)
 			ret = stream(vi->sd, &arg);
-		if (!ret)
+		if (!ret) {
+			t32_ivdc_stream(1);
 			t32_hw_stream_on();
+		}
 	} else {
 		t32_hw_stream_off();
+		t32_ivdc_stream(0);
 		if (stream)
 			ret = stream(vi->sd, &arg);
 		if (init)
@@ -376,14 +399,19 @@ static void t32_free_all(void)
 	core.tiziano_pa = 0;
 }
 
-static int t32_set_tiziano_par(u32 pa)
+static int t32_set_tiziano_par(const struct t32_tiziano_par *par)
 {
+	u32 pa = par->pa;
 	struct t32_alloc *a = t32_alloc_find_pa(pa);
 	const u32 *w;
 
 	if (!a)
 		return -EINVAL;
 	core.tiziano_pa = pa;
+	if (par->vinum < T32_BIN_VIS) {
+		core.bin_wdr[par->vinum] = par->wdr;
+		core.bin_night[par->vinum] = par->night;
+	}
 	/* libimp wrote the bin through an uncached /dev/mem mapping */
 	w = (const u32 *)CKSEG1ADDR(pa);
 	isp_printf(0, "tx-isp-t32: IQ parameters at pa %#x: %08x %08x %08x %08x \n",
@@ -396,6 +424,143 @@ static int t32_set_tiziano_par(u32 pa)
 
 #define T32_GET(arg, var) (copy_from_user(&(var), (void __user *)(arg), sizeof(var)) ? -EFAULT : 0)
 #define T32_PUT(arg, var) (copy_to_user((void __user *)(arg), &(var), sizeof(var)) ? -EFAULT : 0)
+
+/*
+ * Vendor /dev/tx-isp commands the vendor libimp 2.0.2.1 issues (openimp #429):
+ *
+ * G_REGISTER 0x8040540e (tx_isp_sensor_g_register, T33 vendor module
+ * 0x267a0 branch at 0x8040540e): 64 B block copied in, sensor ioctl event
+ * 0x02000012, block copied out; a sensor without a handler (-ENOIOCTLCMD
+ * -515) is skipped, any other error is returned, no sensor answers 0.
+ */
+/* the sensor picture size of the running input (T33 OSD bounds) */
+void t32_core_in_size(u32 *w, u32 *h)
+{
+	*w = core.vi[0].width;
+	*h = core.vi[0].height;
+}
+
+static long t32_sensor_g_register(struct t32_vi *vi, unsigned long arg)
+{
+	u8 b[64];
+	int (*ioctl)(void *sd, unsigned int cmd, void *arg);
+	void *ops, *grp;
+
+	if (copy_from_user(b, (void __user *)arg, sizeof(b))) {
+		isp_printf(2, "[ %s:%d ] copy from user error\n", "tx_isp_sensor_g_register", 0x3c4);
+		return -EFAULT;
+	}
+	if (vi->registered && vi->sd) {
+		ops = T32_AT(vi->sd, T32_SD_OPS, void *);
+		grp = ops ? T32_AT(ops, T32_OPS_SENSOR, void *) : NULL;
+		ioctl = grp ? T32_AT(grp, T32_SENSOR_OPS_IOCTL, void *) : NULL;
+		if (ioctl) {
+			int r = ioctl(vi->sd, T32_EVENT_SENSOR_GET_REG, b);
+
+			if (r && r != -ENOIOCTLCMD)
+				return r;
+		}
+	}
+	if (copy_to_user((void __user *)arg, b, sizeof(b))) {
+		isp_printf(2, "[ %s:%d ] copy from user error\n", "tx_isp_sensor_g_register", 0x3d2);
+		return -EFAULT;
+	}
+	return 0;
+}
+
+/*
+ * S_REGISTER 0xc040540d (tx_isp_sensor_s_register, T33 vendor module 0x267a0,
+ * line 0x3a9): 64 B block in, sensor event 0x02000011, ENOIOCTLCMD skipped,
+ * other errors returned, nothing copied back, no sensor answers 0.
+ */
+static long t32_sensor_s_register(struct t32_vi *vi, unsigned long arg)
+{
+	u8 b[64];
+	int (*ioctl)(void *sd, unsigned int cmd, void *arg);
+	void *ops, *grp;
+
+	if (copy_from_user(b, (void __user *)arg, sizeof(b))) {
+		isp_printf(2, "[ %s:%d ] copy from user error\n", "tx_isp_sensor_s_register", 0x3a9);
+		return -EFAULT;
+	}
+	if (vi->registered && vi->sd) {
+		ops = T32_AT(vi->sd, T32_SD_OPS, void *);
+		grp = ops ? T32_AT(ops, T32_OPS_SENSOR, void *) : NULL;
+		ioctl = grp ? T32_AT(grp, T32_SENSOR_OPS_IOCTL, void *) : NULL;
+		if (ioctl) {
+			int r = ioctl(vi->sd, T32_EVENT_SENSOR_SET_REG, b);
+
+			if (r && r != -ENOIOCTLCMD)
+				return r;
+		}
+	}
+	return 0;
+}
+
+/*
+ * SET_FRAME_DROP 0xc004542c / GET_FRAME_DROP 0xc004542d (tx_isp_set_frame_drop
+ * / tx_isp_get_frame_drop, vendor 0x267a0; tisp_msca_api_{set,get}_frame_drop,
+ * single-sensor direct path): 40 B block {u8 vi, 3 x {u32 enable, u8 lsize,
+ * u32 fmark}}.  Set per output k: enable 1 -> skip reg = lsize (>= 32: message,
+ * -1, the last output's result is the ioctl result like the vendor loop),
+ * mask reg = fmark; otherwise skip 0, mask 0xffffffff.  Get: lsize and mask
+ * read back, enable word forced to 1, result 0.  The vi byte is not used
+ * (one MSCA).
+ */
+#define T32_FD_BLOCK	40
+#define T32_FD_OUTPUTS	3
+
+static long t32_frame_drop_set(unsigned long arg)
+{
+	u32 b[T32_FD_BLOCK / 4];
+	long r = 0;
+	int k;
+
+	if (copy_from_user(b, (void __user *)arg, sizeof(b))) {
+		isp_printf(2, "[ %s:%d ] copy from user error\n", "tx_isp_set_frame_drop", 0x775);
+		return -EFAULT;
+	}
+	for (k = 0; k < T32_FD_OUTPUTS; k++) {
+		u32 *e = &b[1 + 3 * k], skip = 0, mask = 0xffffffff;
+
+		r = 0;
+		if (e[0] == 1) {
+			skip = *(u8 *)(e + 1);
+			if (skip >= 32) {
+				isp_printf(1, "FPS over 32 in the numerator or denominator!!! Setup failed!!!\n");
+				r = -1;
+				continue;
+			}
+			mask = e[2];
+		}
+		t32_hw_wr(T32_MSCA_FDROP_SKIP(k), skip);
+		t32_hw_wr(T32_MSCA_FDROP_MASK(k), mask);
+	}
+	return r;
+}
+
+static long t32_frame_drop_get(unsigned long arg)
+{
+	u32 b[T32_FD_BLOCK / 4];
+	int k;
+
+	if (copy_from_user(b, (void __user *)arg, sizeof(b))) {
+		isp_printf(2, "[ %s:%d ] copy from user error\n", "tx_isp_get_frame_drop", 0x7a6);
+		return -EFAULT;
+	}
+	for (k = 0; k < T32_FD_OUTPUTS; k++) {
+		u32 *e = &b[1 + 3 * k];
+
+		*(u8 *)(e + 1) = (u8)t32_hw_rd(T32_MSCA_FDROP_SKIP(k));
+		e[2] = t32_hw_rd(T32_MSCA_FDROP_MASK(k));
+		e[0] = 1;
+	}
+	if (copy_to_user((void __user *)arg, b, sizeof(b))) {
+		isp_printf(2, "[ %s:%d ] copy to user error\n", "tx_isp_get_frame_drop", 0x7b5);
+		return -EFAULT;
+	}
+	return 0;
+}
 
 static long t32_isp_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 {
@@ -432,11 +597,21 @@ static long t32_isp_ioctl(struct file *file, unsigned int cmd, unsigned long arg
 		break;
 	case T32_IOC_DEFAULT_BIN: {
 		char *buf = kzalloc(T32_DEFAULT_BIN_SIZE, GFP_KERNEL);
+		u8 n;
 
 		if (!buf) {
 			ret = -ENOMEM;
 			break;
 		}
+		if (copy_from_user(buf, (void __user *)arg, T32_DEFAULT_BIN_SIZE)) {
+			kfree(buf);
+			ret = -EFAULT;
+			break;
+		}
+		n = buf[T32_DEFAULT_BIN_VI];
+		buf[T32_DEFAULT_BIN_FIRST] = 0;
+		*(u32 *)(buf + T32_DEFAULT_BIN_WDR) = n < T32_BIN_VIS ? core.bin_wdr[n] : 0;
+		*(u32 *)(buf + T32_DEFAULT_BIN_DN) = n < T32_BIN_VIS ? core.bin_night[n] : 0;
 		strlcpy(buf + T32_DEFAULT_BIN_VER, bin_version,
 			T32_DEFAULT_BIN_SOC - T32_DEFAULT_BIN_VER);
 		strlcpy(buf + T32_DEFAULT_BIN_SOC, driver_soc,
@@ -458,11 +633,14 @@ static long t32_isp_ioctl(struct file *file, unsigned int cmd, unsigned long arg
 		if (!ret)
 			ret = t32_free(&bi);
 		break;
-	case T32_IOC_SET_TIZIANO_PAR:
-		ret = T32_GET(arg, v);
+	case T32_IOC_SET_TIZIANO_PAR: {
+		struct t32_tiziano_par par;
+
+		ret = T32_GET(arg, par);
 		if (!ret)
-			ret = t32_set_tiziano_par(v);
+			ret = t32_set_tiziano_par(&par);
 		break;
+	}
 	case T32_IOC_ENUMINPUT: {
 		/* {index, name[32]}: libimp walks the inputs and matches the name */
 		struct { u32 index; char name[32]; } in;
@@ -560,6 +738,27 @@ static long t32_isp_ioctl(struct file *file, unsigned int cmd, unsigned long arg
 		if (!ret && vi->streaming)
 			ret = t32_sensor_stream(vi, 0);
 		break;
+	case T32_IOC_SET_AE_START_EV:
+	case T32_IOC_GET_AE_START_EV:
+		ret = t32_tunctl_ae_start(cmd, arg);
+		break;
+	case T32_IOC_SET_SENSOR_REGISTER:
+		ret = t32_sensor_s_register(vi, arg);
+		break;
+	case T32_IOC_GET_SENSOR_REGISTER:
+		ret = t32_sensor_g_register(vi, arg);
+		break;
+	case T32_IOC_SET_FRAME_DROP:
+		ret = t32_frame_drop_set(arg);
+		break;
+	case T32_IOC_GET_FRAME_DROP:
+		ret = t32_frame_drop_get(arg);
+		break;
+	case T32_IOC_SET_INTERNAL_CHN_ATTR:
+	case T32_IOC_GET_INTERNAL_CHN_ATTR:
+		/* no handler in the vendor dispatcher: it falls out of the
+		 * command tree with 0 and leaves the user block alone */
+		break;
 	default:
 		ret = -ENOTTY;
 		break;
@@ -586,24 +785,104 @@ struct t32_clk {
 	const char *name;
 	unsigned long probe_rate;	/* platform table */
 	unsigned long rate;		/* activate: isp_clk, isp_clks, isp_clkl, isp_clka, isp_clkv */
+	int *rate_param;		/* module parameter overriding rate (0: default) */
 	struct clk *clk;
 };
 
+/*
+ * Vendor glue module parameters (same names and types as the vendor
+ * module; the thingino glue passes them, unknown ones make insmod fail).
+ * *_name: parent of the clock, isp_clk*: working rate; 0 / NULL keeps the
+ * defaults below.  isp_clks / clks_name: scaler clock (T32 div_isps; the
+ * T33 has none, accepted and ignored).
+ */
+static char *clk_name, *clks_name, *clka_name, *clkv_name, *clkl_name;
+static int isp_clk, isp_clks, isp_clka, isp_clkv, isp_clkl;
+module_param(clk_name, charp, 0444);
+MODULE_PARM_DESC(clk_name, "chose parent clk");
+module_param(clks_name, charp, 0444);
+MODULE_PARM_DESC(clks_name, "chose scaler parent clk");
+module_param(clka_name, charp, 0444);
+MODULE_PARM_DESC(clka_name, "chose axi parent clk");
+module_param(clkv_name, charp, 0444);
+MODULE_PARM_DESC(clkv_name, "chose vpu parent clk");
+module_param(clkl_name, charp, 0444);
+MODULE_PARM_DESC(clkl_name, "chose ldc parent clk");
+module_param(isp_clk, int, 0444);
+MODULE_PARM_DESC(isp_clk, "isp clock freq");
+module_param(isp_clks, int, 0444);
+MODULE_PARM_DESC(isp_clks, "scaler clock freq");
+module_param(isp_clka, int, 0444);
+MODULE_PARM_DESC(isp_clka, "axi clock freq");
+module_param(isp_clkv, int, 0444);
+MODULE_PARM_DESC(isp_clkv, "vpu clock freq");
+module_param(isp_clkl, int, 0444);
+MODULE_PARM_DESC(isp_clkl, "ldc clock freq");
+
+/*
+ * Further vendor glue parameters.  direct_mode / ivdc_*: IVDC direct mode
+ * (ISP channel 0 straight into the encoder) live in tx_isp_t32_ivdcdrv.c
+ * (#349, T32 and T33 modules).
+ * The others are accepted for insmod compatibility and only stored.
+ */
+static int isp_ch0_pre_dequeue_time, isp_cache_line, atlas_open, zeratul_open;
+module_param(isp_ch0_pre_dequeue_time, int, 0444);
+MODULE_PARM_DESC(isp_ch0_pre_dequeue_time, "isp pre dequeue time, unit ms (accepted, unused)");
+module_param(isp_cache_line, int, 0444);
+MODULE_PARM_DESC(isp_cache_line, "isp cache line (accepted, unused)");
+module_param(atlas_open, int, 0444);
+MODULE_PARM_DESC(atlas_open, "atlas open (accepted, unused)");
+module_param(zeratul_open, int, 0444);
+MODULE_PARM_DESC(zeratul_open, "zeratul open (accepted, unused)");
+
+struct t32_clk_parent {
+	const char *mux;
+	const char *parent;
+	char **param;			/* *_name module parameter */
+};
+
+#ifdef TX_ISP_T33
+/*
+ * T33 3.10.14 clock tree (vendor module strings and /proc/jz/clock/clocks
+ * in QEMU): no div_isps and no mux_* clocks; the parents are set on the
+ * dividers themselves.  Vendor defaults measured: div_isp 325 MHz (mpll,
+ * 340 asked), div_ldc 325 (mpll, 357 asked), div_vpu 316.7 (sclka, 340
+ * asked), div_ispa 475 (sclka); gate_ldc and gate_vpu are opened too.
+ */
 static struct t32_clk t32_clks[] = {
-	{ "div_isp", 200000000, 219000000 },
-	{ "div_isps", 476000000, 476000000 },
-	{ "div_ldc", 588000000, 588000000 },
+	{ "div_isp", T32_CLK_ISP_PROBE, T32_CLK_ISP, &isp_clk },
+	{ "div_ldc", T32_CLK_LDC_PROBE, T32_CLK_LDC, &isp_clkl },
 	{ "gate_isp" },
-	{ "div_ispa", 500000000, 500000000 },
-	{ "div_vpu", 500000000, 500000000 },
+	{ "div_ispa", 500000000, 500000000, &isp_clka },
+	{ "div_vpu", T32_CLK_VPU_PROBE, T32_CLK_VPU, &isp_clkv },
+	{ "gate_ivdc" },
+	{ "gate_csi" },
+	{ "gate_ldc" },
+	{ "gate_vpu" },
+};
+
+static const struct t32_clk_parent t32_clk_parents[] = {
+	{ "div_isp", "mpll", &clk_name }, { "div_ldc", "mpll", &clkl_name },
+	{ "div_ispa", "sclka", &clka_name }, { "div_vpu", "sclka", &clkv_name },
+};
+#else
+static struct t32_clk t32_clks[] = {
+	{ "div_isp", T32_CLK_ISP_PROBE, T32_CLK_ISP, &isp_clk },
+	{ "div_isps", 476000000, 476000000, &isp_clks },
+	{ "div_ldc", T32_CLK_LDC_PROBE, T32_CLK_LDC, &isp_clkl },
+	{ "gate_isp" },
+	{ "div_ispa", 500000000, 500000000, &isp_clka },
+	{ "div_vpu", T32_CLK_VPU_PROBE, T32_CLK_VPU, &isp_clkv },
 	{ "gate_ivdc" },
 	{ "gate_csi" },
 };
 
-static const char *const t32_clk_parents[][2] = {
-	{ "mux_isp", "mpll" }, { "mux_isps", "mpll" }, { "mux_ldc", "mpll" },
-	{ "mux_ispa", "sclka" }, { "mux_vpu", "sclka" },
+static const struct t32_clk_parent t32_clk_parents[] = {
+	{ "mux_isp", "mpll", &clk_name }, { "mux_isps", "mpll", &clks_name },
+	{ "mux_ldc", "mpll", &clkl_name }, { "mux_ispa", "sclka", &clka_name },
+	{ "mux_vpu", "sclka", &clkv_name },
 };
+#endif
 
 static unsigned int t32_clk_users;
 
@@ -641,11 +920,13 @@ static void t32_clks_activate(void)
 	unsigned int i;
 
 	for (i = 0; i < ARRAY_SIZE(t32_clk_parents); i++) {
-		struct clk *mux = clk_get(NULL, t32_clk_parents[i][0]);
-		struct clk *par = clk_get(NULL, t32_clk_parents[i][1]);
+		const struct t32_clk_parent *p = &t32_clk_parents[i];
+		const char *pname = *p->param && **p->param ? *p->param : p->parent;
+		struct clk *mux = clk_get(NULL, p->mux);
+		struct clk *par = clk_get(NULL, pname);
 
 		if (!IS_ERR(mux) && !IS_ERR(par) && clk_set_parent(mux, par))
-			pr_warn("tx-isp-t32: %s parent not set\n", t32_clk_parents[i][0]);
+			pr_warn("tx-isp-t32: %s parent %s not set\n", p->mux, pname);
 		if (!IS_ERR(par))
 			clk_put(par);
 		if (!IS_ERR(mux))
@@ -654,10 +935,12 @@ static void t32_clks_activate(void)
 	for (i = 0; i < ARRAY_SIZE(t32_clks); i++) {
 		struct t32_clk *c = &t32_clks[i];
 
+		unsigned long rate = c->rate_param && *c->rate_param > 0 ? *c->rate_param : c->rate;
+
 		if (!c->clk)
 			continue;
-		if (c->rate && clk_get_rate(c->clk) != c->rate && clk_set_rate(c->clk, c->rate))
-			pr_warn("tx-isp-t32: clock %s rate %lu not set\n", c->name, c->rate);
+		if (rate && clk_get_rate(c->clk) != rate && clk_set_rate(c->clk, rate))
+			pr_warn("tx-isp-t32: clock %s rate %lu not set\n", c->name, rate);
 		if (clk_prepare_enable(c->clk))
 			pr_warn("tx-isp-t32: clock %s not enabled\n", c->name);
 	}
@@ -671,6 +954,12 @@ static void t32_clks_deactivate(void)
 		if (t32_clks[i].clk)
 			clk_disable_unprepare(t32_clks[i].clk);
 	}
+}
+
+/* ISP clocks on (an open /dev/tx-isp); rmmod runs with them off */
+int t32_core_clk_active(void)
+{
+	return t32_clk_users != 0;
 }
 
 static int t32_isp_open(struct inode *inode, struct file *file)
@@ -767,6 +1056,42 @@ u32 t32_core_sensor_vts(void)
 	return attr ? T32_AT(attr, T32_ATTR_TOTAL_HEIGHT, u16) : 0;
 }
 
+/*
+ * The sensor's alloc_again callback (attribute +0x11c, u32 (*)(u32 isp_gain,
+ * u8 shift, u32 *sensor_again)) as the vendor sensor_alloc_analog_gain calls
+ * it: log2 gain Q16 in, the sensor's rounded log2 gain back, its register
+ * value in *reg.  Without a callback the gain stays 1x (0).
+ */
+u32 t32_core_sensor_alloc_again(u32 log2_q16, u32 *reg)
+{
+	u32 (*cb)(u32 v, u32 shift, u32 *out);
+	const u8 *vin, *attr;
+
+	*reg = 0;
+	if (t32_core_sensor_ae_src(&vin, &attr))
+		return 0;
+	cb = T32_AT(attr, 0x11c, void *);
+	return cb ? cb(log2_q16, 16, reg) : 0;
+}
+
+/* tisp_set_ae_sensor_fps -> the sensor entry +212 (TX_ISP_EVENT_SENSOR_FPS) */
+int t32_core_sensor_set_fps(u32 fps)
+{
+	return (int)t32_sensor_fps_set(&core.vi[0], fps);
+}
+
+/* the sensor's struct tx_isp_video_in (104 B) and its attribute block, the inputs of ispcore_sync_sensor_attr */
+int t32_core_sensor_ae_src(const u8 **video_in, const u8 **attr)
+{
+	struct t32_vi *vi = &core.vi[0];
+
+	if (!vi->registered || !vi->sd)
+		return -ENODEV;
+	*video_in = (const u8 *)vi->sd + T32_SENSOR_VIDEO;
+	*attr = T32_AT(vi->sd, T32_SENSOR_VIDEO + T32_VIDEO_ATTR, const u8 *);
+	return *attr ? 0 : -ENODEV;
+}
+
 static long t32_m0_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 {
 	struct t32_vi *vi = &core.vi[0];
@@ -776,6 +1101,10 @@ static long t32_m0_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 	if (cmd == T32_IOC_TUNING_DEFAULT) {
 		if (copy_from_user(w, (void __user *)arg, sizeof(w)))
 			return -EFAULT;
+		ret = t32_tunctl_ctrl(w, arg);	/* the vendor tuning controls (tx_isp_t32_tunctl.c) */
+		if (ret != -ENOIOCTLCMD)
+			goto out;
+		ret = -ENOTTY;
 		mutex_lock(&core.lock);
 		if (w[2] == T32_TUNING_ID_SENSOR_FPS && w[1] == T32_TUNING_DIR_GET) {
 			if (vi->registered && vi->sd) {
@@ -786,8 +1115,14 @@ static long t32_m0_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 			}
 		} else if (w[2] == T32_TUNING_ID_SENSOR_FPS && w[1] == T32_TUNING_DIR_SET) {
 			ret = t32_sensor_fps_set(vi, w[3]);
+		} else {
+			/* ISP OSD: mask / draw / OSD attribute / OSD block (#336) */
+			ret = t32_isposd_ctrl(w[0], w[1], w[2], w[3]);
+			if (ret == -ENOIOCTLCMD)
+				ret = -ENOTTY;
 		}
 		mutex_unlock(&core.lock);
+out:
 		if (t32_trace || ret)
 			isp_printf(ret ? 1 : 0, "tx-isp-t32: isp-m0 tuning %s id %#x %#x -> %ld\n",
 				   w[1] ? "get" : "set", w[2], w[3], ret);
@@ -810,12 +1145,7 @@ static struct miscdevice t32_m0_misc = {
 
 static long t32_ivdc_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 {
-	u32 v = 0;
-
-	if (cmd == T32_IOC_IVDC_GET_DIRECT)
-		return copy_to_user((void __user *)arg, &v, sizeof(v)) ? -EFAULT : 0;
-	isp_printf(1, "tx-isp-t32: misc-ivdc ioctl %#x not handled\n", cmd);
-	return -ENOTTY;
+	return t32_ivdc_misc_ioctl(cmd, arg);	/* tx_isp_t32_ivdcdrv.c (#349) */
 }
 
 static const struct file_operations t32_ivdc_fops = {
@@ -838,7 +1168,7 @@ static int t32_proc_show(struct seq_file *m, void *v)
 {
 	struct t32_vi *vi = &core.vi[0];
 
-	seq_printf(m, "tx-isp-t32 (open, S3: frames on 3 channels, sensor fps, no tisp)\n");
+	seq_printf(m, T32_SOC_DRV " (open, S3: frames on 3 channels, sensor fps, no tisp)\n");
 	seq_printf(m, "sensor: %s registered %d input %d streaming %d %ux%u\n",
 		   vi->registered ? vi->info.name : "-", vi->registered,
 		   vi->input_on, vi->streaming, vi->width, vi->height);
@@ -853,9 +1183,37 @@ static int t32_proc_show(struct seq_file *m, void *v)
 		   t32_hw_stats.awb_irqs);
 	seq_printf(m, "bring-up controller (not the vendor AE): steps %u, mean %u/16, it %u lines\n",
 		   t32_hw_stats.bringup_steps, t32_hw_stats.bringup_mean16, t32_hw_stats.bringup_it);
+	seq_printf(m, "per-frame ported paths: runs %u, writes %u\n",
+		   t32_pf_stats.runs, t32_pf_stats.writes);
+	seq_printf(m, "block irqs: lce attaches %u, irqs lce %u lsf %u, events %u (queue full %u)\n",
+		   t32_blk_stats.attaches, t32_blk_stats.lce_irqs, t32_blk_stats.lsf_irqs, t32_blk_stats.events,
+		   t32_blk_stats.ev_full);
+	seq_printf(m, "tmo: attaches %u, irqs tmo %u fbf %u, tgain updates %u\n",
+		   t32_tmo_stats.attaches, t32_tmo_stats.tmo_irqs, t32_tmo_stats.fbf_irqs, t32_tmo_stats.tgains);
+	seq_printf(m, "af / gsm: attaches %u / %u, irqs %u / %u, events %u / %u (queue full %u)\n",
+		   t32_afg_stats.af_attaches, t32_afg_stats.gsm_attaches, t32_afg_stats.af_irqs, t32_afg_stats.gsm_irqs,
+		   t32_afg_stats.af_events, t32_afg_stats.gsm_events, t32_afg_stats.ev_full);
+	seq_printf(m, "vendor AE: frames %u events %u writes %u expo %u fps %u; mean %u target %u it %u again %u dgain %u tgain %#x\n",
+		   t32_aec_stats.frames, t32_aec_stats.events, t32_aec_stats.writes, t32_aec_stats.expo_sets,
+		   t32_aec_stats.fps_sets, t32_aec_stats.mean, t32_aec_stats.target, t32_aec_stats.it,
+		   t32_aec_stats.again, t32_aec_stats.dgain, t32_aec_stats.tgain);
+	seq_printf(m, "vendor AWB: frames %u writes %u refused %u; ct %u gain r %u b %u; ev %u tgain %u updates\n",
+		   t32_awbc_stats.frames, t32_awbc_stats.writes, t32_awbc_stats.refused, t32_awbc_stats.ct,
+		   t32_awbc_stats.gain_r, t32_awbc_stats.gain_b, t32_awbc_stats.ev_updates,
+		   t32_awbc_stats.tgain_updates);
+	seq_printf(m, "ct fan-out (CCM, BCSH, CLM): runs %u writes %u last ct %u; ev fan-out runs %u\n",
+		   t32_ctup_stats.runs, t32_ctup_stats.writes, t32_ctup_stats.ct, t32_ctup_stats.ev_runs);
+	seq_printf(m, "LSC ct path: attaches %u ct calls %u mesh writes %u last ct %u tgains %u; frame done %u list runs %u; waits %u timeouts %u\n",
+		   t32_lsc_drv_stats.attaches, t32_lsc_drv_stats.ct_calls, t32_lsc_drv_stats.mesh_writes,
+		   t32_lsc_drv_stats.ct, t32_lsc_drv_stats.tgains, t32_lsc_drv_stats.frames,
+		   t32_lsc_drv_stats.list_runs, t32_lsc_drv_stats.waits, t32_lsc_drv_stats.timeouts);
 	seq_printf(m, "sensor fps %#x, stream-on list runs %u (last %u words) timeouts %u\n",
 		   t32_core_sensor_fps(), t32_rcfg_runs, t32_rcfg_last_len, t32_rcfg_timeouts);
+#ifdef TX_ISP_T33
+	t33_stats_show(m);
+#endif
 	t32_fs_show(m);
+	t32_ivdc_show(m);
 	return 0;
 }
 
@@ -914,6 +1272,17 @@ unsigned int t32_core_memopt(void)
 	return isp_memopt;
 }
 
+/* the ISP working memory libimp handed over (SET_ISP_MEM_INFO) */
+int t32_core_isp_mem(u32 *pa)
+{
+	struct t32_vi *vi = &core.vi[0];
+
+	if (!vi->isp_mem_pa || !vi->isp_mem_size)
+		return -ENODEV;
+	*pa = vi->isp_mem_pa;
+	return 0;
+}
+
 static int t32_proc_open(struct inode *inode, struct file *file)
 {
 	return single_open(file, t32_proc_show, NULL);
@@ -954,12 +1323,17 @@ int tx_isp_t32_core_init(void)
 	ret = t32_hw_init();
 	if (ret)
 		goto err_hw;
+	ret = t32_ivdc_init();
+	if (ret) {
+		t32_hw_exit();
+		goto err_hw;
+	}
 	core.proc = jz_proc_mkdir("isp");
 	if (core.proc) {
 		proc_create("isp-m0", 0444, core.proc, &t32_proc_fops);
 		proc_create("isp-w02", 0444, core.proc, &t32_proc_fops);
 	}
-	pr_info("tx-isp-t32: open driver loaded (S3: 3 channels, sensor fps, no tisp) (memopt %u)\n", isp_memopt);
+	pr_info(T32_SOC_DRV ": open driver loaded (S3: 3 channels, sensor fps, no tisp) (memopt %u)\n", isp_memopt);
 	return 0;
 
 err_hw:
@@ -992,6 +1366,7 @@ void tx_isp_t32_core_exit(void)
 		remove_proc_entry("isp-w02", core.proc);
 		proc_remove(core.proc);
 	}
+	t32_ivdc_exit();
 	t32_hw_exit();
 	t32_fs_exit();
 	misc_deregister(&t32_ivdc_misc);

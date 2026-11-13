@@ -11,6 +11,13 @@
  * values are 0x40 minus the table); the register functions then combine
  * section bytes and values.  They are a mechanical transcription of the
  * vendor's flow.
+ *
+ * The per-frame paths (tisp_ysp_par_refresh, tisp_ysp_refresh,
+ * tisp_ysp_dn_params_refresh, tisp_ysp_wake_up) run from a per-channel
+ * context: section pointer, interpolated value block, accepted gain.
+ *
+ * Checked bit-exact against the vendor flow (Matt Davis' recovered C, PR #15)
+ * by tests/t32_oracle (t32_ysp_oracle, t32_yspf_oracle).
  */
 #ifndef TX_ISP_T32_YSP_H
 #define TX_ISP_T32_YSP_H
@@ -24,17 +31,11 @@
 #define T32_YSP_WRITES		147
 #define T32_YSP_MAX_WRITES	148
 
-/* { kind (8: u8, 16: u16, 9: 0x40 - u8), table offset in the section, byte offset in the value block } */
+/* { kind (8: u8, 16: u16, 9: 0x40 - u8, 17: u8 table stored as u16), table offset in the section, byte offset in the value block } */
 static const u16 t32_ysp_map[260][3] = {
 	{8, 0x811, 0x0}, {16, 0x4, 0x2}, {8, 0x824, 0x4}, {8, 0x82f, 0x5}, {8, 0x83a, 0x6}, {8, 0x845, 
 	0x7}, {8, 0x850, 0x8}, {8, 0x85b, 0x9}, {8, 0x866, 0xa}, {8, 0x871, 0xb}, {8, 0x87c, 0xc}, {8, 
-	0x887, 0xd}, {8, 0x892, 0xe}, {16, 0x1a, 0x10}, {8, 0x89d, 0x12}, {8, 0x8a8, 0x14}, {8, 0x8b3, 
-	0x16}, {8, 0x8be, 0x18}, {8, 0x8c9, 0x1a}, {8, 0x8d4, 0x1c}, {8, 0x8df, 0x1e}, {8, 0x8ea, 
-	0x20}, {8, 0x8f5, 0x22}, {8, 0x900, 0x24}, {8, 0x90b, 0x26}, {8, 0x916, 0x28}, {8, 0x921, 
-	0x2a}, {8, 0x92c, 0x2c}, {8, 0x937, 0x2e}, {8, 0x942, 0x30}, {8, 0x94d, 0x32}, {8, 0x958, 
-	0x34}, {8, 0x963, 0x36}, {8, 0x96e, 0x38}, {8, 0x979, 0x3a}, {8, 0x984, 0x3c}, {8, 0x98f, 
-	0x3e}, {8, 0x99a, 0x40}, {8, 0x9a5, 0x42}, {8, 0x9b0, 0x44}, {8, 0x9bb, 0x46}, {8, 0x9c6, 
-	0x48}, {8, 0x9d1, 0x4a}, {8, 0x9dc, 0x4c}, {8, 0x9e7, 0x4e}, {8, 0x9f2, 0x50}, {16, 0x30, 
+	0x887, 0xd}, {8, 0x892, 0xe}, {16, 0x1a, 0x10}, {17, 0x89d, 0x12}, {17, 0x8a8, 0x14}, {17, 0x8b3, 0x16}, {17, 0x8be, 0x18}, {17, 0x8c9, 0x1a}, {17, 0x8d4, 0x1c}, {17, 0x8df, 0x1e}, {17, 0x8ea, 0x20}, {17, 0x8f5, 0x22}, {17, 0x900, 0x24}, {17, 0x90b, 0x26}, {17, 0x916, 0x28}, {17, 0x921, 0x2a}, {17, 0x92c, 0x2c}, {17, 0x937, 0x2e}, {17, 0x942, 0x30}, {17, 0x94d, 0x32}, {17, 0x958, 0x34}, {17, 0x963, 0x36}, {17, 0x96e, 0x38}, {17, 0x979, 0x3a}, {17, 0x984, 0x3c}, {17, 0x98f, 0x3e}, {17, 0x99a, 0x40}, {17, 0x9a5, 0x42}, {17, 0x9b0, 0x44}, {17, 0x9bb, 0x46}, {17, 0x9c6, 0x48}, {17, 0x9d1, 0x4a}, {17, 0x9dc, 0x4c}, {17, 0x9e7, 0x4e}, {17, 0x9f2, 0x50}, {16, 0x30, 
 	0x52}, {16, 0x46, 0x54}, {16, 0x5c, 0x56}, {8, 0x9fd, 0x58}, {8, 0xa08, 0x59}, {8, 0xa13, 
 	0x5a}, {8, 0xa1e, 0x5b}, {8, 0xa2f, 0x5c}, {8, 0xa3a, 0x5d}, {8, 0xa45, 0x5e}, {16, 0x72, 
 	0x60}, {8, 0xa50, 0x62}, {8, 0xa5b, 0x63}, {16, 0x88, 0x64}, {8, 0xa66, 0x66}, {8, 0xa71, 
@@ -625,6 +626,241 @@ static inline int t32_ysp_init(u8 *sec, struct t32_front_write *w)
 	T32_FWR(w, n, 0xd014, 1);
 	T32_FWR(w, n, 0x11000, T32_YSP_ID);
 	return (int)n;
+}
+
+/*
+ * Per-frame path.  The vendor keeps one context per channel in
+ * t32_data_e2424: the section pointer (+0), the interpolated value block
+ * (+4) and the gain of the last write (+8; -1 until the first refresh).
+ */
+struct t32_ysp_ctx {
+	u8 *sec;		/* IQ bin section 21 (vendor ctx +0) */
+	u8 *param;		/* T32_YSP_VALUES interpolated bytes (+4) */
+	u32 gain;		/* accepted gain, -1 = never refreshed (+8) */
+	u32 rsvd;		/* vendor ctx +12, not touched here */
+};
+
+/* tisp_ysp_intp: the 260 point tables of the section at a 16.16 gain; the other value bytes keep their content */
+static inline void t32_ysp_intp(u8 *sec, u8 *o, u32 gain)
+{
+	unsigned int k;
+
+	for (k = 0; k < 260; k++) {
+		u32 v;
+
+		if (t32_ysp_map[k][0] == 16) {
+			t32_tp_put16(o + t32_ysp_map[k][2],
+				     t32_tp_intp_u16(gain >> 16, gain & 0xffff,
+						     sec + t32_ysp_map[k][1]));
+			continue;
+		}
+		v = t32_tp_intp_u8(gain >> 16, gain & 0xffff, sec + t32_ysp_map[k][1]);
+		if (t32_ysp_map[k][0] == 17) {	/* an 8 bit table into a 16 bit slot */
+			t32_tp_put16(o + t32_ysp_map[k][2], v);
+			continue;
+		}
+		o[t32_ysp_map[k][2]] = t32_ysp_map[k][0] == 9 ? (u8)(0x40 - v) : (u8)v;
+	}
+}
+
+/* tisp_ysp_reg_trig: the 0x11010 trigger of the block */
+static inline void t32_ysp_reg_trig(struct t32_front_write *w, unsigned int *np)
+{
+	T32_FWR(w, *np, 0x11010, 1);
+}
+
+/*
+ * The 0xdce0 words, the 0xdd18 byte and the 0xd014 trigger, all from the
+ * interpolated values: the tail of tisp_ysp_all_reg_refresh (and the output
+ * of tisp_mdns_decode_reg_cfg, which tisp_ysp_wake_up calls first).
+ */
+static inline void t32_ysp_dn_writes(u8 *o, struct t32_front_write *w,
+				     unsigned int *np)
+{
+	unsigned int k;
+
+	for (k = 0; k < 14; k++)
+		T32_FWR(w, *np, 0xdce0 + 4 * k, (u32)o[0x154 + 3 * k] << 8 |
+			(u32)o[0x155 + 3 * k] << 16 | o[0x153 + 3 * k]);
+	T32_FWR(w, *np, 0xdd18, o[0x17d]);
+	T32_FWR(w, *np, 0xd014, 1);
+}
+
+/* tisp_ysp_all_reg_refresh: interpolate at gain and write every register */
+static inline void t32_ysp_all_reg_refresh(struct t32_ysp_ctx *ctx, u8 ch, u32 gain,
+					   struct t32_front_write *w, unsigned int *np)
+{
+	(void)ch;
+	t32_ysp_intp(ctx->sec, ctx->param, gain);
+	t32_ysp_noref(ctx->sec, w, np);
+	t32_ysp_ref(ctx->sec, ctx->param, w, np);
+	t32_ysp_reg_trig(w, np);
+	t32_ysp_dn_writes(ctx->param, w, np);
+}
+
+/*
+ * tisp_ysp_intp_reg_refresh: used after the first refresh (gain already
+ * known and the non-interpolated registers are already written).  It omits
+ * tisp_ysp_noref_reg_cfg, matching the vendor's second entry.
+ */
+static inline void t32_ysp_intp_reg_refresh(struct t32_ysp_ctx *ctx, u8 ch, u32 gain,
+					    struct t32_front_write *w, unsigned int *np)
+{
+	(void)ch;
+	t32_ysp_intp(ctx->sec, ctx->param, gain);
+	t32_ysp_ref(ctx->sec, ctx->param, w, np);
+	t32_ysp_reg_trig(w, np);
+	t32_ysp_dn_writes(ctx->param, w, np);
+}
+
+/* tisp_ysp_par_refresh: refresh when the gain moved by at least threshold */
+static inline void t32_ysp_par_refresh_impl(struct t32_ysp_ctx *ctx, u8 ch, u32 gain,
+					    u32 threshold, struct t32_front_write *w,
+					    unsigned int *np)
+{
+	u32 old = ctx->gain;
+
+	if (old == (u32)-1) {
+		ctx->gain = gain;
+		t32_ysp_all_reg_refresh(ctx, ch, gain, w, np);
+	} else {
+		u32 diff = gain > old ? gain - old : old - gain;
+
+		if (diff >= threshold) {
+			ctx->gain = gain;
+			t32_ysp_intp_reg_refresh(ctx, ch, gain, w, np);
+		}
+	}
+}
+
+static inline int t32_ysp_par_refresh(struct t32_ysp_ctx *ctx, u8 ch, u32 gain,
+				      u32 threshold, struct t32_front_write *w)
+{
+	unsigned int n = 0;
+
+	t32_ysp_par_refresh_impl(ctx, ch, gain, threshold, w, &n);
+	return (int)n;
+}
+
+static inline int t32_ysp_refresh(struct t32_ysp_ctx *ctx, u8 ch, u32 gain,
+				  struct t32_front_write *w)
+{
+	unsigned int n = 0;
+
+	/* the vendor calls tisp_ysp_par_refresh(ch, gain, 256) */
+	t32_ysp_par_refresh_impl(ctx, ch, gain, 256U, w, &n);
+	return (int)n;
+}
+
+/*
+ * tisp_ysp_dn_params_refresh: point the context at section 21 of the tuning
+ * base, copy it to the vendor's extra section buffer (t32_data_e2420[0],
+ * passed here as dn_copy) and write every register at the stored gain.
+ */
+static inline int t32_ysp_dn_params_refresh(struct t32_ysp_ctx *ctx, u8 ch,
+					    u8 *tuning_base, u8 *dn_copy,
+					    struct t32_front_write *w)
+{
+	unsigned int n = 0, k;
+
+	ctx->sec = tuning_base + 0xd630;
+	for (k = 0; k < T32_YSP_SEC_BYTES; k++)
+		dn_copy[k] = ctx->sec[k];
+	t32_ysp_all_reg_refresh(ctx, ch, ctx->gain, w, &n);
+	return (int)n;
+}
+
+/* tisp_ysp_wake_up: the denoise words, then the registers from the values */
+static inline int t32_ysp_wake_up(struct t32_ysp_ctx *ctx, u8 ch,
+				  struct t32_front_write *w)
+{
+	unsigned int n = 0;
+
+	(void)ch;
+	t32_ysp_dn_writes(ctx->param, w, &n);
+	t32_ysp_noref(ctx->sec, w, &n);
+	t32_ysp_ref(ctx->sec, ctx->param, w, &n);
+	t32_ysp_reg_trig(w, &n);
+	return (int)n;
+}
+
+/*
+ * Parameter accessors (tisp_ysp_param_array_get / _set / _deinit /
+ * _sharpness_set).  The vendor indexes the context array t32_data_e2424 by
+ * channel; the port takes the context (or its slot) directly.  dn_copy is
+ * t32_data_e2420[0], the copy of the section made by tisp_ysp_dn_params_refresh.
+ */
+
+/* tisp_ysp_param_array_get: the section is copied out whole */
+static inline int t32_ysp_param_array_get(const struct t32_ysp_ctx *ctx, u8 *buf, u32 *len)
+{
+	memcpy(buf, ctx->sec, T32_YSP_SEC_BYTES);
+	*len = T32_YSP_SEC_BYTES;
+	return 0;
+}
+
+/* tisp_ysp_param_array_set: replace the section, then refresh everything at the stored gain */
+static inline int t32_ysp_param_array_set(struct t32_ysp_ctx *ctx, u8 ch, const u8 *buf,
+					  struct t32_front_write *w)
+{
+	unsigned int n = 0;
+
+	memcpy(ctx->sec, buf, T32_YSP_SEC_BYTES);
+	t32_ysp_all_reg_refresh(ctx, ch, ctx->gain, w, &n);
+	return (int)n;
+}
+
+/*
+ * tisp_ysp_sharpness_set: store the sharpness byte (t32_data_d6c70), rebuild the
+ * 32 x 11 sharpness bytes at section +2205 (step 11, then the next of the 11
+ * columns) from the copy in dn_copy, scaled down below 0x80 and up towards 255
+ * above it, then refresh everything at the stored gain.
+ */
+static inline int t32_ysp_sharpness_set(struct t32_ysp_ctx *ctx, u8 ch, const u8 *dn_copy,
+					u32 *sharp_store, u32 sharpness,
+					struct t32_front_write *w)
+{
+	u32 sh = sharpness & 0xff;
+	unsigned int n = 0, i, j;
+
+	*sharp_store = sh;
+	for (j = 0; j < 11; j++) {
+		for (i = 0; i < 32; i++) {
+			unsigned int o = 2205 + 11 * i + j;
+			u32 b = dn_copy[o];
+
+			if ((int)sh < 129)
+				ctx->sec[o] = (u8)((int)(b * sh) >> 7);
+			else
+				ctx->sec[o] = (u8)(b + ((int)((255 - b) * (sh - 128)) >> 7));
+		}
+	}
+	t32_ysp_all_reg_refresh(ctx, ch, ctx->gain, w, &n);
+	return (int)n;
+}
+
+/*
+ * tisp_ysp_deinit: free the parameter block and the context of the channel and
+ * clear the slot, then free the shared section copy (whatever the channel).
+ */
+static inline int t32_ysp_deinit(void (*vfree)(void *p), void (*kfree)(void *p),
+				 struct t32_ysp_ctx **slot, u8 **dn_copy)
+{
+	struct t32_ysp_ctx *ctx = *slot;
+
+	if (ctx) {
+		if (ctx->param) {
+			vfree(ctx->param);
+			ctx->param = NULL;
+		}
+		kfree(*slot);
+		*slot = NULL;
+	}
+	if (*dn_copy) {
+		vfree(*dn_copy);
+		*dn_copy = NULL;
+	}
+	return 0;
 }
 
 #endif /* TX_ISP_T32_YSP_H */

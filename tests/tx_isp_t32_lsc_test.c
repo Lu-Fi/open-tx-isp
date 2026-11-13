@@ -51,21 +51,30 @@ static void synthetic(void)
 	CHECK(s.inv_main == 256 && s.inv_wdr == 1023 && s.zone == 4);
 	p[66] = p[67] = 16;	/* 16x16 cells: too many cells */
 	CHECK(t32_lsc_geometry(p, &s, 3840, 2160) == -1);
-	/* CT zones: breakpoints 2850 3650 4050 6200 */
-	p[0x18] = 2850 & 255; p[0x19] = 2850 >> 8; p[0x1a] = 3650 & 255; p[0x1b] = 3650 >> 8;
-	p[0x1c] = 4050 & 255; p[0x1d] = 4050 >> 8; p[0x1e] = 6200 & 255; p[0x1f] = 6200 >> 8;
+	p[116] = 3;		/* three tables, hysteresis p[48] = 0 */
+	/* the three mesh tables carry their colour temperature (2850, 3850, 6200 K) as a u16 tag */
+	p[T32_LSC_TABLES + 0 * T32_LSC_TABLE_STRIDE] = 2850 & 255; p[T32_LSC_TABLES + 0 * T32_LSC_TABLE_STRIDE + 1] = 2850 >> 8;
+	p[T32_LSC_TABLES + 1 * T32_LSC_TABLE_STRIDE] = 3850 & 255; p[T32_LSC_TABLES + 1 * T32_LSC_TABLE_STRIDE + 1] = 3850 >> 8;
+	p[T32_LSC_TABLES + 2 * T32_LSC_TABLE_STRIDE] = 6200 & 255; p[T32_LSC_TABLES + 2 * T32_LSC_TABLE_STRIDE + 1] = 6200 >> 8;
 	t32_lsc_ct(p, &s, 2000);
 	CHECK(s.table_lo == 0 && s.table_hi == 0);
 	t32_lsc_ct(p, &s, 3850);
 	CHECK(s.table_lo == 1 && s.table_hi == 1 && s.fraction == 0);
+	p[48] = 20;		/* hysteresis 20 K (below a quarter of the smallest tag distance): 3850 +- 20 sticks to table 1 */
+	t32_lsc_ct(p, &s, 3860);
+	CHECK(s.table_lo == 1 && s.table_hi == 1 && !s.none);
 	t32_lsc_ct(p, &s, 5000);
-	CHECK(s.table_lo == 1 && s.table_hi == 2 && s.fraction == ((5000 - 4050) << 12) / (6200 - 4050));
+	CHECK(s.table_lo == 1 && s.table_hi == 2 && s.fraction == ((5000 - 3870) << 12) / ((6200 - 20) - (3850 + 20)));
+	p[48] = 0;
+	t32_lsc_ct(p, &s, 5000);
+	CHECK(s.table_lo == 1 && s.table_hi == 2 && s.fraction == ((5000 - 3850) << 12) / (6200 - 3850));
 	t32_lsc_ct(p, &s, 7000);
 	CHECK(s.table_lo == 2 && s.table_hi == 2);
-	/* cell packing: 6 x 12 bits into 3 words */
-	t32_lsc_ct(p, &s, 3850);
+	/* cell packing: 6 x 12 bits into 3 words (a single table: below the first tag) */
+	memset(&s, 0, sizeof(s));		/* no grid: no radial correction */
+	t32_lsc_ct(p, &s, 2000);
 	{
-		unsigned char *pl = p + T32_LSC_TABLES + T32_LSC_TABLE_STRIDE + 2;
+		unsigned char *pl = p + T32_LSC_TABLES + 2;
 		u32 v[6] = { 0x123, 0x456, 0x789, 0xabc, 0xdef, 0xfed }, k;
 
 		for (k = 0; k < 6; k++) {
@@ -73,7 +82,16 @@ static void synthetic(void)
 			pl[(k / 2) * T32_LSC_PLANE + (k & 1) * 2 + 1] = v[k] >> 8;
 		}
 	}
-	t32_lsc_cell(p, &s, 0, w);
+	{
+		static struct t32_lsc_work wk;
+		unsigned int pl, e;
+
+		memset(&wk, 0, sizeof(wk));
+		for (pl = 0; pl < 3; pl++)
+			for (e = 0; e < 2; e++)
+				wk.pl[pl][e] = (u16)t32_lsc_raw_elem(p, &s, pl, e);
+		t32_lsc_cell(p, &wk, 0, w);
+	}
 	CHECK(w[0] == (0x123 | 0x456 << 12 | 0x89u << 24) && w[1] == (0x7 | 0xabc << 4 | 0xdef << 16 | 0xdu << 28) &&
 	      w[2] == 0xfe);
 }
@@ -89,6 +107,7 @@ int main(void)
 		const u8 *p = t32_lsc_block(bin, blen);
 		struct t32_rcfg_list l;
 		struct t32_lsc s;
+		static struct t32_lsc_work wk;
 		u32 n = 0, i, diff = 0;
 		char *tok = strtok((char *)ref, " \n");
 
@@ -98,9 +117,9 @@ int main(void)
 		}
 		CHECK(p != NULL);
 		if (p) {
-			CHECK(t32_lsc_setup(p, &s, 3840, 2160, 3850) == 0);
+			CHECK(t32_lsc_setup(p, &s, &wk, 3840, 2160, 3850) == 0);
 			t32_rcfg_init(&l, words, 4096);
-			CHECK(t32_lsc_fill_list(p, &s, &l, scratch) == 0);
+			CHECK(t32_lsc_fill_list(p, &s, &wk, &l, scratch, 4) == 0);
 			/* the vendor list carries two empty commands after its end */
 			for (i = 0; i <= words[0] && i < n; i++)
 				diff += words[i] != want[i];

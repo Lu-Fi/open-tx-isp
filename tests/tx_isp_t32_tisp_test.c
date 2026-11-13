@@ -22,6 +22,8 @@
 #include "../driver/t32/tx_isp_t32_iq.h"
 #include "t32_trace.h"
 
+u8 t32_data_d03a0[4];
+
 static int bad;
 #define CHECK(c) do { if (!(c)) { bad++; printf("FAIL line %d: %s\n", __LINE__, #c); } } while (0)
 
@@ -72,23 +74,29 @@ int main(void)
 		tr_load(getenv("T32_ADD_TRACE"));
 	/* gamma: strength interpolation and refusals */
 	{
+		/* the strength byte at exposure 0 (forced interp_by_ev on a fresh state) */
+		struct t32_gamma gs;
+		u8 gsec[T32_GAMMA_SEC_BYTES];
+#define gamma_strength(sec) (memcpy(gsec, (sec), sizeof(gsec)), memset(&gs, 0, sizeof(gs)), gs.sec = gsec, \
+			     t32_gamma_interp_ev(&gs, 0, 0, 1), (u32)gs.gs[0])
+
 		static u8 sec[T32_GAMMA_SEC_BYTES], lut[T32_GAMMA_CURVE_BYTES];
 		unsigned int i;
 
 		sec[0x5a] = 1;
 		sec[0x48] = 0;
-		CHECK(t32_gamma_strength(sec) == 0xff);
+		CHECK(gamma_strength(sec) == 0xff);
 		sec[0x48] = 2;
 		sec[0x49] = 77;
-		CHECK(t32_gamma_strength(sec) == 77);
+		CHECK(gamma_strength(sec) == 77);
 		sec[0x48] = 1;
 		for (i = 0; i < 12; i++) {
 			sec[0x18 + 4 * i] = 100 * (i + 1);
 			sec[0x4a + i] = 10 * (i + 1);
 		}
-		CHECK(t32_gamma_strength(sec) == 10);	/* EV 0 is below the first knot */
+		CHECK(gamma_strength(sec) == 10);	/* EV 0 is below the first knot */
 		sec[0x18] = sec[0x19] = 0;		/* knots 0, 200, ...: interpolates 0 .. 200 at EV 0 */
-		CHECK(t32_gamma_strength(sec) == 10);
+		CHECK(gamma_strength(sec) == 10);
 		/* full strength keeps the curve, strength 0 gives the ramp */
 		sec[0x48] = 0;
 		for (i = 0; i < 129; i++) {
@@ -297,7 +305,7 @@ int main(void)
 			CHECK(r == T32_LCE_WRITES);
 			if (wk && cu)
 				vs_vendor("lce", w, r);
-			CHECK(t32_lce_init(lc, 1920, 1080, 0, 0, w) == -1);
+			CHECK(t32_lce_init(lc, 1920, 1080, 0, 0, w) == T32_LCE_WRITES);	/* the vendor's table grid equals the formula */
 		}
 		if (tr_n)
 			printf("tx_isp_t32_tisp_test: %u of %u vendor AddSensor writes covered by this test\n",

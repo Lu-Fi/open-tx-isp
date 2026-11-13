@@ -15,6 +15,7 @@
 #define TX_ISP_T32_ABI_H
 
 #include <linux/types.h>
+#include <linux/miscdevice.h>
 
 /* ---- /dev/tx-isp (type 'T'; bases: DEVICE 0, TUNING 100, IVDC 110, FS 130,
  *      LDC 180, DEVICE1 200) ------------------------------------------------ */
@@ -36,13 +37,19 @@
 #define T32_IOC_GET_ISP_MEM_INFO	0x800c5410U	/* W t32_buf_info; driver writes size */
 #define T32_IOC_SET_ISP_IPC_MEM_INFO	0x800c5438U
 #define T32_IOC_GET_ISP_IPC_MEM_INFO	0x800c5439U	/* driver writes size (0 = none) */
+#define T32_IOC_SET_FRAME_DROP		0xc004542cU	/* RW 40 B {u8 vi, 3 x {enable, u8 lsize, fmark}} (vendor tx_isp_set_frame_drop) */
+#define T32_IOC_GET_FRAME_DROP		0xc004542dU	/* same block, driver fills lsize / fmark (tx_isp_get_frame_drop) */
+#define T32_IOC_SET_INTERNAL_CHN_ATTR	0xc004542fU	/* libimp IMP_ISP_SetInternalChnAttr: no vendor handler, answered 0, block untouched */
+#define T32_IOC_GET_INTERNAL_CHN_ATTR	0xc0045430U	/* libimp IMP_ISP_GetInternalChnAttr: same */
 #define T32_IOC_MEMORY_MALLOC		0x800c543aU	/* W {.., .., size}; driver writes {kva, pa, size} */
 #define T32_IOC_MEMORY_FREE		0x800c543bU	/* W {kva, 0, ..} */
 #define T32_IOC_SET_TIZIANO_PAR		0xc00454c8U	/* RW int: pa of a MEMORY_MALLOC buffer (IQ bin) */
 #define T32_IOC_DEFAULT_BIN		0xc00454c9U	/* arg: 880 B buffer, see core */
 
 /* ---- /dev/isp-m0 ---------------------------------------------------------- */
-#define T32_IOC_TUNING_DEFAULT		0xc0105467U	/* RW {dir, ?, cmd id, ptr/value} */
+#define T32_IOC_TUNING_DEFAULT		0xc0105467U	/* RW {vi, dir, cmd id, ptr/value} */
+#define T32_IOC_SET_AE_START_EV		0xc0045436U	/* {u8 vi, ev[2]} -> AE scene words 6, 7 */
+#define T32_IOC_GET_AE_START_EV		0xc0045437U
 #define T32_TUNING_DIR_SET		0
 #define T32_TUNING_DIR_GET		1
 #define T32_TUNING_ID_SENSOR_FPS	0x08000070U	/* value fps_num << 16 | fps_den; libimp GETs it
@@ -78,9 +85,10 @@ struct t32_buf_info {			/* ISP/IPC mem info, MALLOC, FREE */
 };
 
 /*
- * Kernel copy of the sensor registration (116 bytes).  libimp converts the
- * public 100-byte IMPSensorInfo into this and puts the VI number into
- * sensor_id.  Offsets match struct tx_isp_sensor_register_info of the SDK.
+ * Kernel copy of the sensor registration (116 bytes).  The public 2.x
+ * IMPSensorInfo is the same 116 bytes: vendor libimp 2.2.0 IMP_ISP_AddSensor
+ * writes the VI number at 0x5c (sensor_id) and passes the caller's struct
+ * unchanged (openimp #286).  Offsets match struct tx_isp_sensor_register_info.
  */
 struct t32_sensor_reginfo {
 	char name[32];			/* 0x00 */
@@ -111,34 +119,43 @@ struct t32_sensor_reginfo {
 };
 
 /* ---- objects shared with the prebuilt T32 sensor modules ------------------ */
-/* struct tx_isp_subdev (0x120 bytes) */
+/*
+ * struct tx_isp_subdev starts with struct tx_isp_module, which embeds a
+ * struct miscdevice at 0x0c.  The offsets below are the 4.4.94 ones (40-byte
+ * miscdevice); 3.10.14 has no miscdevice.groups (36 bytes), so every member
+ * from MODULE_PARENT on sits 4 bytes lower there.  Measured on the T33
+ * 3.10.14 sensor modules: notify at 0x94, dev_priv at 0x114, sensor
+ * attribute at 0x1a8 (T32 4.4.94: 0x98, 0x118, 0x1ac).
+ */
+#define T32_SD_KADJ			(40 - (int)sizeof(struct miscdevice))
+/* struct tx_isp_subdev (0x120 bytes on 4.4.94) */
 #define T32_SD_MODULE_DEV		0x004
 #define T32_SD_MODULE_NAME		0x008
-#define T32_SD_MODULE_PARENT		0x094
-#define T32_SD_MODULE_NOTIFY		0x098	/* tx_isp_call_subdev_notify() target */
-#define T32_SD_IRQDEV			0x09c
-#define T32_SD_CHIP			0x0c0	/* struct tx_isp_chip_ident (0x28) */
-#define T32_SD_RES			0x0e8
-#define T32_SD_BASE			0x0f4
-#define T32_SD_CLKS			0x100
-#define T32_SD_CLK_NUM			0x104
-#define T32_SD_OPS			0x108
-#define T32_SD_NUM_OUTPADS		0x10c
-#define T32_SD_NUM_INPADS		0x10e
-#define T32_SD_OUTPADS			0x110
-#define T32_SD_INPADS			0x114
-#define T32_SD_DEV_PRIV			0x118	/* i2c client (tx_isp_get_subdevdata) */
-#define T32_SD_HOST_PRIV		0x11c	/* struct tx_isp_sensor */
-#define T32_SD_SIZE			0x120
+#define T32_SD_MODULE_PARENT	(0x094 - T32_SD_KADJ)
+#define T32_SD_MODULE_NOTIFY	(0x098 - T32_SD_KADJ)	/* tx_isp_call_subdev_notify() target */
+#define T32_SD_IRQDEV	(0x09c - T32_SD_KADJ)
+#define T32_SD_CHIP	(0x0c0 - T32_SD_KADJ)	/* struct tx_isp_chip_ident (0x28) */
+#define T32_SD_RES	(0x0e8 - T32_SD_KADJ)
+#define T32_SD_BASE	(0x0f4 - T32_SD_KADJ)
+#define T32_SD_CLKS	(0x100 - T32_SD_KADJ)
+#define T32_SD_CLK_NUM	(0x104 - T32_SD_KADJ)
+#define T32_SD_OPS	(0x108 - T32_SD_KADJ)
+#define T32_SD_NUM_OUTPADS	(0x10c - T32_SD_KADJ)
+#define T32_SD_NUM_INPADS	(0x10e - T32_SD_KADJ)
+#define T32_SD_OUTPADS	(0x110 - T32_SD_KADJ)
+#define T32_SD_INPADS	(0x114 - T32_SD_KADJ)
+#define T32_SD_DEV_PRIV	(0x118 - T32_SD_KADJ)	/* i2c client (tx_isp_get_subdevdata) */
+#define T32_SD_HOST_PRIV	(0x11c - T32_SD_KADJ)	/* struct tx_isp_sensor */
+#define T32_SD_SIZE	(0x120 - T32_SD_KADJ)
 
 /* struct tx_isp_sensor (0x3ac bytes); sd at 0 */
-#define T32_SENSOR_DEV			0x120
-#define T32_SENSOR_INFO			0x138	/* struct t32_sensor_reginfo */
-#define T32_SENSOR_ATTR			0x1ac	/* struct tx_isp_sensor_attribute (0x190) */
-#define T32_SENSOR_VIDEO		0x33c	/* struct tx_isp_video_in (0x68) */
-#define T32_SENSOR_MCLK			0x3a4
-#define T32_SENSOR_PRIV			0x3a8
-#define T32_SENSOR_SIZE			0x3ac
+#define T32_SENSOR_DEV	(0x120 - T32_SD_KADJ)
+#define T32_SENSOR_INFO	(0x138 - T32_SD_KADJ)	/* struct t32_sensor_reginfo */
+#define T32_SENSOR_ATTR	(0x1ac - T32_SD_KADJ)	/* struct tx_isp_sensor_attribute (0x190) */
+#define T32_SENSOR_VIDEO	(0x33c - T32_SD_KADJ)	/* struct tx_isp_video_in (0x68) */
+#define T32_SENSOR_MCLK	(0x3a4 - T32_SD_KADJ)
+#define T32_SENSOR_PRIV	(0x3a8 - T32_SD_KADJ)
+#define T32_SENSOR_SIZE	(0x3ac - T32_SD_KADJ)
 
 /* struct tx_isp_video_in, relative to T32_SENSOR_VIDEO */
 #define T32_VIDEO_MBUS_WIDTH		0x00
@@ -176,6 +193,8 @@ struct t32_sensor_reginfo {
 
 /* sensor ops ioctl events (NOTIFICATION_TYPE_SENSOR_OPS 0x02000000 + n) with a
  * struct { int vinum; int value; } argument */
+#define T32_EVENT_SENSOR_SET_REG	0x02000011U	/* 64 B register block, in only */
+#define T32_EVENT_SENSOR_GET_REG	0x02000012U	/* 64 B register block, in and out */
 #define T32_EVENT_SENSOR_FPS		0x0200000aU	/* value fps_num << 16 | fps_den */
 #define T32_EVENT_SENSOR_EXPO		0x02000017U	/* value again << 16 | integration lines (cv8001: arg + 4) */
 

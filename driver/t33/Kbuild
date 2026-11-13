@@ -1,0 +1,21 @@
+# Open T33 (PRJ008) TX-ISP driver: the driver/t32 sources built with
+# TX_ISP_T33 (T33 plan step 1).  The T33 shares the T32 ioctl ABI, register
+# map and interrupt layout; per-SoC constants live in t32/tx_isp_t32_soc.h.
+# Each tx_isp_t33_*.c only includes its ../t32 counterpart, so the T32 and
+# T33 objects never share a directory.  IVDC direct mode (direct_mode=1, the
+# T33L vendor glue setting) comes from the shared tx_isp_t32_ivdcdrv.c (#349).
+tx-isp-t33-objs := tx_isp_t33_sinfo.o \
+		   tx_isp_t33_core.o \
+		   tx_isp_t33_funcs.o \
+		   tx_isp_t33_hw.o \
+		   tx_isp_t33_fs.o \
+		   tx_isp_t33_awbc.o \
+		   tx_isp_t33_aec.o \
+		   tx_isp_t33_ivdcdrv.o \
+		   tx_isp_t33_tunctl.o \
+		   tx_isp_t33_osd.o \
+		   tx_isp_t33_tunblk.o \
+		   tx_isp_t33_t32off.o
+obj-m += tx-isp-t33.o
+
+ccflags-y += -I$(src)/../include -I$(src)/../t32 -std=gnu99 -DTX_ISP_T33

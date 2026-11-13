@@ -1,6 +1,7 @@
 /* Host test: T32 MSCA polyphase curves (driver/t32/tx_isp_t32_msca_curve.h)
  * against the coefficients the vendor tisp loaded in our QEMU traces
  * (3840x2160 input; 1920x1080, 1280x720 and 640x360 outputs). */
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include "../driver/t32/tx_isp_t32_msca_curve.h"

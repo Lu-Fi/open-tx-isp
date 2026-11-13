@@ -1,0 +1,8 @@
+#!/bin/sh
+# Build-time variant of the ct_detect_simd_3 reference (ref/ stays untouched): stops at the label
+# named in $T32O_STOP (a phase boundary), copies the whole local stack to t32o_ct_stack, the
+# registers a0..a3, v0, v1, t0..t9, s0..s7 (in this order) to t32o_ct_reg and sets t32o_ct_stop.
+# Without the label the function runs to its end.  Stdin -> stdout.
+LBL=${T32O_STOP:-L_20ff4}
+sed -e "s/^\(u64 tisp_awb_ct_detect_simd_3\)/extern u32 t32o_ct_stop, t32o_ct_stack[208], t32o_ct_reg[28];\n\1/" \
+    -e "s/^$LBL:\$/$LBL:\n    { t32o_ct_stop = 1; __builtin_memcpy(t32o_ct_stack, stack, sizeof(stack));\n      { u32 r_[28] = { a0, a1, a2, a3, v0, v1, t0, t1, t2, t3, t4, t5, t6, t7, t8, t9, s0, s1, s2, s3, s4, s5, s6, s7, 0, 0, 0, 0 }; __builtin_memcpy(t32o_ct_reg, r_, sizeof(r_)); } return 0; }/"

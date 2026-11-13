@@ -1,0 +1,602 @@
+// SPDX-License-Identifier: GPL-2.0
+/*
+ * T32 host oracle: ISP device ioctl dispatcher (driver/t32/tx_isp_t32_txuioctl.h)
+ * against the vendor tx_isp_unlocked_ioctl (Matt Davis' recovered C, PR #15
+ * @ 2e2e06bc, symbols renamed op3_* by op3_ren.sh).
+ *
+ * The ioctl helpers (proven by t32_txioctl_oracle) are recorded hooks on
+ * both sides: our header's calls are mapped to the recorders by macros.
+ * Per case one command (every ported one, random unknown ones), file 0 or a
+ * file, a random ISP device / 16 subdevice world with recording core ioctl
+ * callbacks, scripted results.  Compared: the event log, every world byte,
+ * the return value.
+ * Exit 0 = all equal, 1 = mismatch.
+ */
+#include "t32_op3_glue.h"
+#include "tx_isp_t32_txioctl.h"
+
+#define NCASE	60000
+#define ARENA	0x7000u
+#define O_FILE	0x0000u
+#define O_ISP	0x0100u
+#define NSD	6
+#define O_SD(i)	(0x0400u + 0x200u * (i))
+#define O_USER	0x1400u
+#define O_CORE	0x2000u
+#define O_SENS	0x3000u		/* 8 sensor objects, 0x100 apart */
+#define O_LINKS	0x3800u		/* 12 link sets of up to 6 descriptors */
+#define O_PADS	0x4000u		/* 16 pads, 0x20 apart */
+#define O_XSD	0x1000u		/* subdevice 0 +88: the VIC subdevice */
+#define O_VIC	0x6000u		/* its device (+872 raw busy) */
+#define O_KMEM	0x6c00u		/* the kmalloc block (never touched) */
+#define O_FD	0x5000u		/* frame drop channel table: 8 inputs x 3 x 284 bytes */
+
+static u8 *arena;
+static u32 A(u32 off) { return T32O_PTR(arena) + off; }
+
+static u32 rtab[8], n_r;
+static u32 next_r(void) { return rtab[n_r++ & 7]; }
+
+/* the ioctl helpers: recorded on both sides */
+static u32 hrec(const char *name, u32 a0, u32 a1) { op3_call(name, 2, a0, a1, 0, 0); return next_r(); }
+#define t32_tx_driver_version(u)		((int)hrec("tx_isp_driver_version_isra_11", u, 0))
+#define t32_tx_sensor_register_sensor(i, a)	((int)hrec("tx_isp_sensor_register_sensor", i, a))
+#define t32_tx_sensor_release_sensor(i, a)	((int)hrec("tx_isp_sensor_release_sensor", i, a))
+#define t32_tx_video_s_stream(i, a)		((int)hrec("tx_isp_video_s_stream", i, a))
+#define t32_tx_video_link_stream(i, a)		((int)hrec("tx_isp_video_link_stream", i, a))
+#define t32_tx_multisensor_mode(i, a)		((int)hrec("tx_isp_multisensor_mode", i, a))
+#define t32_tx_set_ae_algo_open(i, a)		((int)hrec("tx_isp_set_ae_algo_open", i, a))
+#define t32_tx_set_default_bin_path(i, a)	((int)hrec("tx_isp_set_default_bin_path_isra_14", i, a))
+#define t32_tx_get_default_bin_path(i, a)	((int)hrec("tx_isp_get_default_bin_path_isra_17", i, a))
+#include "tx_isp_t32_txlink.h"
+#define t32_tx_video_link_destroy(i, a)	((int)hrec("tx_isp_video_link_destroy_isra_4", i, a))
+#include "tx_isp_t32_txbin.h"
+#define t32_tx_default_bin(i, a)		((int)hrec("tx_isp_default_bin_isra_23", i, a))
+#include "tx_isp_t32_txuioctl.h"
+
+#define HV(n) u64 op3_##n(u32 a0, u32 a1, u32 a2, u32 a3); \
+	u64 op3_##n(u32 a0, u32 a1, u32 a2, u32 a3) { (void)a2; (void)a3; return hrec(#n, a0, a1); }
+u64 op3_tx_isp_driver_version_isra_11(u32 a0, u32 a1, u32 a2, u32 a3);
+u64 op3_tx_isp_driver_version_isra_11(u32 a0, u32 a1, u32 a2, u32 a3) { (void)a1; (void)a2; (void)a3; return hrec("tx_isp_driver_version_isra_11", a0, 0); }
+HV(tx_isp_sensor_register_sensor) HV(tx_isp_sensor_release_sensor) HV(tx_isp_video_s_stream) HV(tx_isp_video_link_stream)
+HV(tx_isp_multisensor_mode) HV(tx_isp_set_ae_algo_open) HV(tx_isp_set_default_bin_path_isra_14)
+HV(tx_isp_get_default_bin_path_isra_17) HV(tx_isp_video_link_destroy_isra_4)
+HV(tx_isp_default_bin_isra_23)
+
+/* the subdevices' core ioctl */
+static u32 sd_index(u32 sd)
+{
+	u32 i;
+
+	for (i = 0; i < NSD; i++)
+		if (sd == A(O_SD(i)))
+			return i;
+	return NSD;
+}
+static u32 core_tab[NSD + 1];
+static int cb_filled;
+static u32 cb_core(u32 sd, u32 cmd, u32 arg)
+{
+	u32 *b = T32O_HOST(arg), k;
+
+	if (arg == A(O_USER) || !arg) {
+		op3_call("core_ioctl", 3, sd, cmd, arg, 0);
+	} else {	/* a kernel block: its content */
+		op3_call("core_ioctl", 4, sd, cmd, b[0], b[1]);
+		if (cmd == T32_CORE_AWB_OPEN) {
+			for (k = 2; k < T32_AWB_ALGO_BUF / 4; k++)
+				b[k] = sd * 31 + k;
+			cb_filled = 1;
+		}
+	}
+	return core_tab[sd_index(sd)];
+}
+static u32 fnvb(const u8 *p, u32 n)
+{
+	u32 h = 2166136261u, i;
+
+	for (i = 0; i < n; i++)
+		h = (h ^ p[i]) * 16777619u;
+	return h;
+}
+static u32 sens_tab[NSD + 1], notify_ret;
+static u32 sens_len(u32 cmd) { return cmd == T32_SENS_ENUM_INPUT ? 80 : cmd == T32_SENS_S_REGISTER || cmd == T32_SENS_G_REGISTER ? 64 : 8; }
+static u32 cb_sens(u32 sd, u32 cmd, u32 buf)
+{
+	u8 *b = T32O_HOST(buf);
+	u32 n = sens_len(cmd), k;
+
+	op3_call("sensor_ioctl", 3, sd, cmd, fnvb(b, n), 0);
+	for (k = 0; k < n; k++)
+		b[k] = (u8)(sd * 7 + k + cmd);
+	return sens_tab[sd_index(sd)];
+}
+static u32 cb_notify(u32 sd, u32 ev, u32 msg)
+{
+	u32 n = ev == T32_NOTIFY_0A ? 24 : ev == T32_NOTIFY_TIZIANO ? 20 : ev == T32_NOTIFY_IPC ? 4 : 8;
+
+	op3_call("sd_notify", 4, sd, ev, ((u32 *)T32O_HOST(msg))[0], fnvb(T32O_HOST(msg), n));
+	if (ev == T32_NOTIFY_IPC)
+		*(u32 *)T32O_HOST(msg) = notify_ret * 7;
+	return notify_ret;
+}
+
+/* user copies */
+static u32 cfu_ret, ctu_ret, ctu_lim;
+static u32 cfu_ret2, n_cfu;
+static u32 cfu_rec(void *d, u32 u, u32 n)
+{
+	op3_call("private_copy_from_user", 2, u, n, 0, 0);
+	memcpy(d, T32O_HOST(u), n);
+	return n_cfu++ ? cfu_ret2 : cfu_ret;	/* a second copy (wdr_set_buf) may fail on its own */
+}
+static u32 ctu_rec(u32 u, const void *s, u32 n)
+{
+	u32 c = (n == T32_AWB_ALGO_BUF && !cb_filled) ? 8 : n;	/* AWB algo open without a callback: stale stack bytes */
+
+	if (c > ctu_lim)	/* get_pm_control: stale stack bytes */
+		c = ctu_lim;
+
+	op3_call("private_copy_to_user", 3, u, n, fnvb(s, c), 0);
+	memcpy(T32O_HOST(u), s, c);
+	return ctu_ret;
+}
+u64 op3_private_copy_from_user(u32 a0, u32 a1, u32 a2, u32 a3) { (void)a3; return cfu_rec(T32O_HOST(a0), a1, a2); }
+u64 op3_private_copy_to_user(u32 a0, u32 a1, u32 a2, u32 a3) { (void)a3; return ctu_rec(a0, T32O_HOST(a1), a2); }
+u64 op3_memcpy(u32 a0, u32 a1, u32 a2, u32 a3) { (void)a3; memcpy(T32O_HOST(a0), T32O_HOST(a1), a2); return a0; }
+u32 t32_tx_os_copy_from_user(void *d, u32 u, u32 n) { return cfu_rec(d, u, n); }
+u32 t32_tx_os_copy_to_user(u32 u, const void *s, u32 n) { return ctu_rec(u, s, n); }
+
+/* lib / tisp hooks */
+static u32 memopt, memget_ret;
+static void memset_rec(u32 sel, u32 v) { op3_call("lib_tisp_set_isp_memory_space", 2, sel, v, 0, 0); }
+static u32 memget_rec(u32 sel, const u8 *opt) { op3_call("lib_tisp_get_isp_memory_space", 2, sel, opt[4], 0, 0); return memget_ret; }
+static u32 memopt_rec(void) { op3_call("get_isp_memopt", 0, 0, 0, 0, 0); return memopt; }
+static void wdren_rec(u32 in, u32 en, u32 why) { op3_call("tisp_s_wdr_en", 3, in, en, why, 0); }
+u64 op3_lib_tisp_set_isp_memory_space(u32 a0, u32 a1, u32 a2, u32 a3) { (void)a2; (void)a3; memset_rec(a0, a1); return 0; }
+u64 op3_lib_tisp_get_isp_memory_space(u32 a0, u32 a1, u32 a2, u32 a3) { (void)a2; (void)a3; return memget_rec(a0, T32O_HOST(a1)); }
+u64 op3_get_isp_memopt(u32 a0, u32 a1, u32 a2, u32 a3) { (void)a0; (void)a1; (void)a2; (void)a3; return memopt_rec(); }
+u64 op3_tisp_s_wdr_en(u32 a0, u32 a1, u32 a2, u32 a3) { (void)a3; wdren_rec(a0, a1, a2); return 0; }
+void t32_tx_os_lib_tisp_set_isp_memory_space(u32 sel, u32 v) { memset_rec(sel, v); }
+u32 t32_tx_os_lib_tisp_get_isp_memory_space(u32 sel, void *opt) { return memget_rec(sel, opt); }
+u32 t32_tx_os_get_isp_memopt(void) { return memopt_rec(); }
+void t32_tx_os_tisp_s_wdr_en(u32 in, u32 en, u32 why) { wdren_rec(in, en, why); }
+
+/* links: pads found per descriptor word, link destroy results */
+static u32 padmap[64], unlink_tab[4], n_unlink;
+static u32 pad_rec(u32 isp, u32 desc) { op3_call("find_subdev_link_pad", 2, isp, desc, 0, 0); return padmap[((desc - A(O_LINKS)) / 4) & 63]; }
+static u32 unlink_rec(u32 link) { op3_call("subdev_video_destroy_link", 1, link, 0, 0, 0); return unlink_tab[n_unlink++ & 3]; }
+u64 op3_find_subdev_link_pad(u32 a0, u32 a1, u32 a2, u32 a3) { (void)a2; (void)a3; return pad_rec(a0, a1); }
+u64 op3_subdev_video_destroy_link(u32 a0, u32 a1, u32 a2, u32 a3) { (void)a1; (void)a2; (void)a3; return unlink_rec(a0); }
+u32 t32_tx_os_find_subdev_link_pad(u32 isp, u32 desc) { return pad_rec(isp, desc); }
+int t32_tx_os_subdev_video_destroy_link(u32 link) { return (int)unlink_rec(link); }
+struct t32_tx_link_set t32_tx_link_sets[T32_LINK_SETS];
+u32 op3_t32_data_bed7c[2 * T32_LINK_SETS], t32_tx_link_mode;
+
+/* frame drop */
+static u32 fd_tab[4], n_fd;
+static u32 fdset_rec(u32 in, u32 k, const u8 *e) { op3_call("tisp_set_frame_drop", 3, in, k, fnvb(e, 12), 0); return fd_tab[n_fd++ & 3]; }
+static u32 fdget_rec(u32 in, u32 k, u8 *e)
+{
+	u32 i;
+
+	op3_call("tisp_get_frame_drop", 3, in, k, fnvb(e, 12), 0);
+	for (i = 0; i < 12; i++)
+		e[i] = (u8)(in * 13 + k * 5 + i);
+	return fd_tab[n_fd++ & 3];
+}
+u64 op3_tisp_set_frame_drop(u32 a0, u32 a1, u32 a2, u32 a3) { (void)a3; return fdset_rec(a0, a1, T32O_HOST(a2)); }
+u64 op3_tisp_get_frame_drop(u32 a0, u32 a1, u32 a2, u32 a3) { (void)a3; return fdget_rec(a0, a1, T32O_HOST(a2)); }
+int t32_tx_os_tisp_set_frame_drop(u32 in, u32 k, void *e) { return (int)fdset_rec(in, k, e); }
+int t32_tx_os_tisp_get_frame_drop(u32 in, u32 k, void *e) { return (int)fdget_rec(in, k, e); }
+
+/* AE scene attribute */
+static u32 sc_tab[4], n_sc, sc_seed;
+static u32 gsc_rec(u32 ch, u8 *b)
+{
+	u32 i, x = sc_seed;
+
+	op3_call("tisp_g_ae_scence_attr", 1, ch, 0, 0, 0);
+	for (i = 0; i < T32_AE_SCENE_BYTES; i++) {
+		x = x * 1103515245u + 12345u;
+		b[i] = (u8)(x >> 16);
+	}
+	return sc_tab[n_sc++ & 3];
+}
+static u32 ssc_rec(u32 ch, const u8 *b) { op3_call("tisp_s_ae_scence_attr", 2, ch, fnvb(b, T32_AE_SCENE_BYTES), 0, 0); return sc_tab[n_sc++ & 3]; }
+u64 op3_tisp_g_ae_scence_attr(u32 a0, u32 a1, u32 a2, u32 a3) { (void)a2; (void)a3; return gsc_rec(a0, T32O_HOST(a1)); }
+u64 op3_tisp_s_ae_scence_attr(u32 a0, u32 a1, u32 a2, u32 a3) { (void)a2; (void)a3; return ssc_rec(a0, T32O_HOST(a1)); }
+int t32_tx_os_tisp_g_ae_scence_attr(u32 ch, void *b) { return (int)gsc_rec(ch, b); }
+int t32_tx_os_tisp_s_ae_scence_attr(u32 ch, void *b) { return (int)ssc_rec(ch, b); }
+
+/* IPC memory, managed memory */
+static u32 cache_line, ipc_ret, kmalloc_ok;
+static u32 cl_rec(void) { op3_call("get_isp_cache_line", 0, 0, 0, 0, 0); return cache_line; }
+static void ipcset_rec(u32 sel, u32 v) { op3_call("lib_tisp_set_isp_ipc_memory_space", 2, sel, v, 0, 0); }
+static u32 ipcget_rec(u32 sel, const u8 *o) { op3_call("lib_tisp_get_isp_ipc_memory_space", 2, sel, *(const u32 *)o, 0, 0); return ipc_ret; }
+static u32 kmalloc_rec(u32 n, u32 f) { op3_call("private_kmalloc", 2, n, f, 0, 0); return kmalloc_ok ? A(O_KMEM) : 0; }
+static void kfree_rec(u32 p) { op3_call("private_kfree", 1, p, 0, 0, 0); }
+u64 op3_get_isp_cache_line(u32 a0, u32 a1, u32 a2, u32 a3) { (void)a0; (void)a1; (void)a2; (void)a3; return cl_rec(); }
+u64 op3_lib_tisp_set_isp_ipc_memory_space(u32 a0, u32 a1, u32 a2, u32 a3) { (void)a2; (void)a3; ipcset_rec(a0, a1); return 0; }
+u64 op3_lib_tisp_get_isp_ipc_memory_space(u32 a0, u32 a1, u32 a2, u32 a3) { (void)a2; (void)a3; return ipcget_rec(a0, T32O_HOST(a1)); }
+u64 op3_private_kmalloc(u32 a0, u32 a1, u32 a2, u32 a3) { (void)a2; (void)a3; return kmalloc_rec(a0, a1); }
+u64 op3_private_kfree(u32 a0, u32 a1, u32 a2, u32 a3) { (void)a1; (void)a2; (void)a3; kfree_rec(a0); return 0; }
+u64 op3_memset(u32 a0, u32 a1, u32 a2, u32 a3) { (void)a3; memset(T32O_HOST(a0), (int)a1, a2); return a0; }
+u32 t32_tx_os_get_isp_cache_line(void) { return cl_rec(); }
+void t32_tx_os_lib_tisp_set_isp_ipc_memory_space(u32 sel, u32 v) { ipcset_rec(sel, v); }
+u32 t32_tx_os_lib_tisp_get_isp_ipc_memory_space(u32 sel, void *o) { return ipcget_rec(sel, o); }
+u32 t32_tx_os_kmalloc(u32 n, u32 f) { return kmalloc_rec(n, f); }
+void t32_tx_os_kfree(u32 p) { kfree_rec(p); }
+void t32_tx_os_memset(u32 a, u32 c, u32 n) { memset(T32O_HOST(a), (int)c, n); }
+
+/* running mode switch, PM control, raw control */
+static u32 wfc_ret, prep_tab[4], n_prep, prep_up, sched_tab[4], n_sched, dma_on, pmcore;
+static u32 dma_tab[16];
+static u32 lst_ok(const u32 *e) { return e[3] == T32O_PTR(&e[3]) && e[4] == T32O_PTR(&e[3]); }
+static void initc_rec(u32 c) { op3_call("private_init_completion", 1, c, 0, 0, 0); }
+static u32 wfc_rec(u32 c, u32 t) { op3_call("private_wait_for_completion_timeout", 2, c, t, 0, 0); return wfc_ret; }
+static u32 prep_rec(u32 wq, const u32 *e, u32 st)
+{
+	op3_call("prepare_to_wait_event", 4, wq, e[0], lst_ok(e), st);
+	if (++n_prep == prep_up)	/* the switch count comes up */
+		*(u32 *)T32O_HOST(pmcore + T32_CORE_PM_COUNT) = 1;
+	return prep_tab[n_prep & 3];
+}
+static void fin_rec(u32 wq, const u32 *e) { op3_call("finish_wait", 3, wq, e[0], lst_ok(e), 0); }
+static u32 sched_rec(u32 t) { op3_call("schedule_timeout", 1, t, 0, 0, 0); return t ? sched_tab[n_sched++ & 3] % t : 0; }
+static void runm_rec(u32 m) { op3_call("lib_tisp_api_s_runningMode", 1, m, 0, 0, 0); }
+static u32 dma_cb(u32 dev, u32 a, u32 n, u32 dir) { op3_call("dma_sync_single_for_cpu", 4, dev, a, n, dir); return 0; }
+static void raw_rec(u32 a0, u32 a1, u32 a2, u32 a3) { op3_call("tx_isp_vic_save_raw", 4, a0, a1, a2, a3); }
+u64 op3_private_init_completion(u32 a0, u32 a1, u32 a2, u32 a3) { (void)a1; (void)a2; (void)a3; initc_rec(a0); return 0; }
+u64 op3_private_wait_for_completion_timeout(u32 a0, u32 a1, u32 a2, u32 a3) { (void)a2; (void)a3; return wfc_rec(a0, a1); }
+u64 op3_prepare_to_wait_event(u32 a0, u32 a1, u32 a2, u32 a3) { (void)a3; return prep_rec(a0, T32O_HOST(a1), a2); }
+u64 op3_finish_wait(u32 a0, u32 a1, u32 a2, u32 a3) { (void)a2; (void)a3; fin_rec(a0, T32O_HOST(a1)); return 0; }
+u64 op3_schedule_timeout(u32 a0, u32 a1, u32 a2, u32 a3) { (void)a1; (void)a2; (void)a3; return sched_rec(a0); }
+u64 op3_lib_tisp_api_s_runningMode(u32 a0, u32 a1, u32 a2, u32 a3) { (void)a1; (void)a2; (void)a3; runm_rec(a0); return 0; }
+u64 op3_tx_isp_vic_save_raw(u32 a0, u32 a1, u32 a2, u32 a3) { raw_rec(a0, a1, a2, a3); return 0; }
+u32 op3_mips_dma_map_ops[16];
+void t32_tx_os_init_completion(u32 c) { initc_rec(c); }
+int t32_tx_os_wait_for_completion_timeout(u32 c, u32 t) { return (int)wfc_rec(c, t); }
+int t32_tx_os_prepare_to_wait_event(u32 wq, void *e, u32 st) { return (int)prep_rec(wq, e, st); }
+void t32_tx_os_finish_wait(u32 wq, void *e) { fin_rec(wq, e); }
+int t32_tx_os_schedule_timeout(int t) { return (int)sched_rec((u32)t); }
+void t32_tx_os_atomic_dec(u32 a) { (*(u32 *)T32O_HOST(a))--; }
+void t32_tx_os_lib_tisp_api_s_running_mode(u32 m) { runm_rec(m); }
+void t32_tx_os_dma_sync_for_cpu(u32 a, u32 n)
+{
+	u32 *ops = T32O_HOST(op3_mips_dma_map_ops[0]);
+
+	if (ops[9])
+		dma_cb(0, a, n, 2);
+}
+void t32_tx_os_vic_save_raw(u32 in, u32 a, u32 b, u32 m) { raw_rec(in, a, b, m); }
+
+/* not yet exercised externals */
+
+
+
+
+
+
+
+
+
+u32 op3_t32_data_d9014, op3_t32_data_da784, t32_tx_isp_dev;
+#define S(n, v) char op3_t32_data_##n[] = v;
+S(be720, "tx_isp_memory_free") S(be734, "tx_isp_memory_malloc") S(be74c, "tx_isp_set_wdr_enable")
+S(be778, "tx_isp_set_tiziano_par") S(be790, "tx_isp_gpio_state_switch_trige") S(be7b0, "tx_isp_gpio_state_switch")
+S(be7cc, "tx_isp_get_isp_ipc_mem") S(be7e4, "tx_isp_set_isp_ipc_mem") S(be7fc, "tx_isp_get_ae_start_ev")
+S(be814, "tx_isp_set_ae_start_ev") S(be82c, "tx_isp_get_raw_control") S(be844, "tx_isp_get_pm_all_done")
+S(be85c, "tx_isp_get_pm_control") S(be874, "tx_isp_set_pm_control") S(be88c, "tx_isp_start_night_mode")
+S(be8a4, "tx_isp_get_frame_drop_once") S(be8c0, "tx_isp_set_frame_drop_once") S(be8dc, "tx_isp_get_frame_drop")
+S(be8f4, "tx_isp_set_frame_drop") S(be944, "tx_isp_set_awb_algo_close") S(be960, "tx_isp_set_awb_algo_open")
+S(be97c, "tx_isp_set_ae_algo_close") S(be9c8, "tx_isp_wdr_get_buf") S(be9dc, "tx_isp_wdr_set_buf")
+S(be9f0, "tx_isp_get_isp_mem") S(bea04, "tx_isp_set_isp_mem") S(bea18, "tx_isp_sensor_g_register")
+S(bea34, "tx_isp_sensor_s_register") S(bea6c, "subdev_video_setup_link") S(bea9c, "tx_isp_video_link_setup")
+S(beb0c, "tx_isp_sensor_set_input") S(beb24, "tx_isp_sensor_get_input") S(beb3c, "tx_isp_sensor_enum_input")
+S(beb58, "tx_isp_bypass_all") S(beb84, "tx_isp_unlocked_ioctl") S(c6ae4, "[ %s:%d ] copy from user error\n")
+S(c6b04, "[ %s:%d ] Ae Algo Function register version error\n") S(c6b38, "[ %s:%d ] copy to user error\n")
+S(c6e38, "[ %s:%d ] link(%d) is invalid!\n") S(c6e58, "[ %s:%d ] The link type is mismatch!\n")
+S(c6e80, "[ %s:%d ] Please stop active links firstly!\n")
+S(c6eb0, "[ %s:%d ] Not the wdr mode, do not need to alloc buf!!!\n")
+S(c6eec, "[ %s:%d ] tsize is %d, buf info size is %d, paddr is 0x%x\n") S(c6f28, "[ %s:%d ] buf size too small\n")
+S(c6f48, "[ %s:%d ] tsize is %d\n") S(c6f60, "FPS over 32 in the numerator or denominator!!! Setup failed!!!\n")
+S(c6fa0, "set frame drop chn:%d lsize:%d fmark:0x%x\n") S(c6fcc, "set frame drop chn:%d disable\n")
+S(c6fec, "[%s %d] aov_mode is %d\n") S(c7004, "\n[%s %d]isp already is normal mode !!!\n")
+S(c702c, "[%s %d] switch is normal\n") S(c7048, "Wait switch mode failed\n")
+S(c7064, "\n[%s %d]isp already is aov mode !!!\n")
+S(c708c, "\nvinum is %d, width is %d, height is %d, imagesize is %d\n, snap num is %d, buf size is %d, wdrmode %d, snaprawmode %d\n")
+S(c7104, "\n [%s %d] Can't output the width(%d)!\n") S(c712c, "\n[%s %d] The node is busy!\n")
+S(c7148, "[ %s:%d ] get ae scence failed!!!\n") S(c716c, "[ %s:%d ] set ae start ev failed!!!\n")
+S(c7194, "Failed to copy from user\n") S(c71b0, "[ %s:%d ] set gpio state switch failed!!!\n")
+S(c71dc, "[ %s:%d ] set gpio state switch trigger failed!!!\n")
+S(c7210, "[ISP] sensor id = %d, Multi-sensors don't support WDR mode !!!\n")
+S(c7250, "[ISP] Mode(%d) don't support WDR mode !!!\n") S(c727c, "Get isp driver running mode failed\n")
+S(c72a0, "[ %s:%d ] Failed to allocate memory\n") S(c72c8, "[ %s:%d ] The memory cannot be empty\n")
+S(c72f0, "[ %s:%d ] Unable to apply for manageable memory\n") S(c7324, "[ %s:%d ] Unmanageable memory\n")
+/* data.c:1515..1796 (names), 9950..10478 (formats) */
+
+u64 tx_isp_unlocked_ioctl(u32, u32, u32, u32);
+
+/* every command the vendor handles, and the ones ported so far */
+static const u32 vend_cmds[] = {
+	0x80045401, 0x80085403, 0x80085407, 0x80085408, 0x80085409, 0x8008540a, 0x80085418, 0x800c540f, 0x800c5410,
+	0x800c5411, 0x800c5412, 0x800c5438, 0x800c5439, 0x800c543a, 0x800c543b, 0x8040540e, 0x80745405, 0x80745406,
+	0xc0045402, 0xc0045415, 0xc004541b, 0xc004541c, 0xc004541d, 0xc004541e, 0xc0045423, 0xc0045424, 0xc0045425,
+	0xc0045426, 0xc004542a, 0xc004542b, 0xc004542c, 0xc004542d, 0xc004542e, 0xc0045431, 0xc0045432,
+	0xc0045433, 0xc0045434, 0xc0045436, 0xc0045437, 0xc004543c, 0xc004543d, 0xc004548e, 0xc004548f, 0xc00454b8,
+	0xc00454ba, 0xc00454c8, 0xc00454c9, 0xc00454ca, 0xc00454cb, 0xc00454cc, 0xc00454cd, 0xc00454ce, 0xc0085404,
+	0xc008540b, 0xc008540c, 0xc040540d
+};
+static const u32 cmds[] = {
+	/* helpers */
+	T32_UIO_VERSION, T32_UIO_SENSOR_REG, T32_UIO_SENSOR_REL, T32_UIO_S_STREAM, T32_UIO_S_STREAM2,
+	T32_UIO_LINK_STREAM, T32_UIO_LINK_STREAM2, T32_UIO_MULTISENSOR, T32_UIO_AE_ALGO, T32_UIO_SET_BINPATH,
+	T32_UIO_GET_BINPATH,
+	/* core broadcasts */
+	T32_UIO_CORE_16, T32_UIO_CORE_17, T32_UIO_CORE_1A, T32_UIO_CORE_SUM,
+	/* sensor */
+	T32_UIO_BYPASS, T32_UIO_ENUM_INPUT, T32_UIO_GET_INPUT, T32_UIO_SET_INPUT, T32_UIO_S_REGISTER, T32_UIO_G_REGISTER,
+	/* memory */
+	T32_UIO_SET_ISP_MEM, T32_UIO_GET_ISP_MEM, T32_UIO_WDR_SET_BUF, T32_UIO_WDR_GET_BUF,
+	/* links */
+	T32_UIO_LINK_SETUP, T32_UIO_LINK_DESTROY,
+	/* algo */
+	T32_UIO_AE_CLOSE, T32_UIO_AWB_CLOSE, T32_UIO_CORE_1B, T32_UIO_AWB_OPEN,
+	/* frame drop */
+	T32_UIO_SET_FDROP, T32_UIO_GET_FDROP, T32_UIO_SET_FDROP1, T32_UIO_GET_FDROP1,
+	/* misc */
+	T32_UIO_NIGHT_MODE, T32_UIO_GET_PM_CTRL, T32_UIO_PM_ALL_DONE, T32_UIO_SD_EV_0A, T32_UIO_SD_EV_0B,
+	T32_UIO_TIZIANO_PAR, T32_UIO_RUN_MODE,
+	/* AE start EV, GPIO, default bin, WDR enable */
+	T32_UIO_SET_AE_EV, T32_UIO_GET_AE_EV, T32_UIO_GPIO_SWITCH, T32_UIO_GPIO_TRIGGER, T32_UIO_DEFAULT_BIN,
+	T32_UIO_WDR_ENABLE,
+	/* IPC memory, managed memory */
+	T32_UIO_SET_IPC_MEM, T32_UIO_GET_IPC_MEM, T32_UIO_MEM_MALLOC, T32_UIO_MEM_FREE,
+	/* modes */
+	T32_UIO_RUN_SWITCH, T32_UIO_SET_PM_CTRL, T32_UIO_RAW_CONTROL, T32_UIO_CORE_SUM6,
+	/* default neighbours inside the vendor ranges */
+	0xc0045427, 0xc0045428, 0xc0045429, 0
+};
+#define NV	(sizeof(vend_cmds) / sizeof(vend_cmds[0]))
+#define NC	(sizeof(cmds) / sizeof(cmds[0]))
+
+static int handled(u32 c)
+{
+	unsigned int k;
+
+	for (k = 0; k < NV; k++)
+		if (vend_cmds[k] == c)
+			return 1;
+	return 0;
+}
+
+static u8 tmpl[ARENA];
+static void sw(u32 off, u32 v) { *(u32 *)(tmpl + off) = v; }
+
+static void build(u32 base)
+{
+	u32 k, i;
+
+	for (k = 0; k < ARENA; k += 4)
+		sw(k, op3_rnd());
+	sw(O_FILE + T32_FILE_PRIV, base + O_ISP + T32_FILE_PRIV_ADJ);
+	for (k = 0; k < T32_DEV_SD_N; k++)
+		sw(O_ISP + T32_DEV_SD + 4 * k, (op3_rnd() & 1) ? base + O_SD(op3_rnd() % NSD) : 0);
+	for (i = 0; i < NSD; i++) {
+		u32 s = O_SD(i), r = op3_rnd();
+
+		sw(s + T32_SD_OPS, base + s + 0x110);
+		sw(s + 0x110 + T32_OPS_CORE, (r & 3) ? base + s + 0x130 : 0);
+		sw(s + 0x130 + T32_CORE_IOCTL, (r & 4) ? T32O_PTR(cb_core) : 0);
+		sw(s + 0x110 + T32_OPS_SENSOR, (r & 0x18) ? base + s + 0x150 : 0);
+		sw(s + 0x150 + T32_SENSOR_IOCTL, (r & 0x20) ? T32O_PTR(cb_sens) : 0);
+		sw(s + T32_SD_NOTIFY, (r & 0xc0) ? T32O_PTR(cb_notify) : 0);
+		sw(s + T32_SD_PRIV_CORE, base + O_CORE);
+	}
+	if (!*(u32 *)(tmpl + O_ISP + T32_DEV_SD))	/* the vendor reads subdevice 0 unchecked */
+		sw(O_ISP + T32_DEV_SD, base + O_SD(0));
+	for (k = 0; k < 8; k++) {	/* per input: sensor (+148 WDR mode), width, height */
+		sw(O_CORE + T32_CORE_IN + T32_CORE_IN_BYTES * k, base + O_SENS + 0x100 * k);
+		sw(O_SENS + 0x100 * k + T32_SENSOR_WDR_MODE, (op3_rnd() & 1) ? 1 + (op3_rnd() & 1) : op3_rnd() % 5);
+		sw(O_CORE + T32_CORE_IN_BYTES * k + T32_CORE_IN_W, op3_rnd() % 64);
+		sw(O_CORE + T32_CORE_IN_BYTES * k + T32_CORE_IN_H, op3_rnd() % 64);
+	}
+	sw(O_USER, (op3_rnd() & 7) ? op3_rnd() % 4 : op3_rnd() % 8);	/* input (vendor: unchecked index) */
+	sw(O_USER + 8, op3_rnd() % 20000);
+	for (k = 0; k < T32_LINK_SETS; k++) {	/* link sets: descriptors, counts, the per-set link count of the device */
+		u32 n = (op3_rnd() & 15) ? op3_rnd() % 7 : op3_rnd(), d = O_LINKS + 6 * T32_LINK_BYTES * k;
+
+		t32_tx_link_sets[k].links = base + d;
+		t32_tx_link_sets[k].n = n > 6 && (int)n > 0 ? 6 : n;
+		op3_t32_data_bed7c[2 * k] = t32_tx_link_sets[k].links;
+		op3_t32_data_bed7c[2 * k + 1] = t32_tx_link_sets[k].n;
+		for (i = 0; i < 6; i++)
+			sw(d + T32_LINK_BYTES * i + T32_LINK_FLAGS, (op3_rnd() & 7) ? 1u << (op3_rnd() % 4) | (op3_rnd() & 0x30) : 0);
+		sw(O_ISP + T32_LK_COUNT(k), (op3_rnd() & 1) ? 0 : op3_rnd());
+	}
+	for (k = 0; k < 64; k++)
+		padmap[k] = (op3_rnd() & 7) ? base + O_PADS + 0x20 * (op3_rnd() % 16) : 0;
+	for (k = 0; k < 16; k++) {
+		u32 p = O_PADS + 0x20 * k, r = op3_rnd();
+
+		tmpl[p + T32_PAD_TYPE] = (r & 3) ? 0xff : (u8)op3_rnd();
+		tmpl[p + T32_PAD_STATE] = (r & 0xc) == 0 ? T32_PAD_STREAMING : (r & 0x10) ? T32_PAD_LINKED : (u8)(op3_rnd() % 5);
+		sw(p + T32_PAD_PEER, (r & 0x20) ? base + O_PADS + 0x20 * (op3_rnd() % 16) : op3_rnd());
+	}
+	for (k = 0; k < 4; k++)
+		unlink_tab[k] = (op3_rnd() & 1) ? 0 : (op3_rnd() & 1) ? (u32)-T32_ENOIOCTLCMD : op3_rnd();
+	t32_tx_link_mode = op3_rnd() % 6;
+	for (k = 0; k < 4; k++)
+		sw(O_ISP + T32_LK_SENSOR(k), (op3_rnd() & 1) ? 0 : op3_rnd());
+	memopt = op3_rnd();
+	sw(O_CORE + T32_CORE_FD_TAB, base + O_FD);
+	sw(O_CORE + T32_CORE_PM_CTRL, (op3_rnd() & 1) ? op3_rnd() % 3 : op3_rnd());
+	sw(O_CORE + T32_CORE_FD_TISP, (op3_rnd() & 1) ? 1 : op3_rnd() % 3);
+	for (k = 0; k < 4; k++) {
+		fd_tab[k] = (op3_rnd() & 1) ? 0 : op3_rnd();
+		sc_tab[k] = (op3_rnd() & 3) ? 0 : op3_rnd();
+	}
+	sc_seed = op3_rnd();
+	cache_line = (op3_rnd() & 1) ? 0 : op3_rnd();
+	ipc_ret = op3_rnd();
+	kmalloc_ok = (op3_rnd() & 7) != 0;
+	wfc_ret = (op3_rnd() & 1) ? 0 : op3_rnd();
+	for (k = 0; k < 4; k++) {
+		prep_tab[k] = (op3_rnd() & 3) ? 0 : (op3_rnd() & 1) ? (u32)-512 : op3_rnd() % 3;
+		sched_tab[k] = (op3_rnd() & 3) ? op3_rnd() : 0;
+	}
+	prep_up = op3_rnd() % 6;
+	pmcore = base + O_CORE;
+	sw(O_CORE + T32_CORE_PM_COUNT, (op3_rnd() & 1) ? op3_rnd() % 3 : (u32)-(int)(op3_rnd() % 3));
+	sw(O_ISP + T32_ISP_RUN_MODE, (op3_rnd() & 1) ? 1 : op3_rnd() % 3);
+	sw(O_ISP + T32_DEV_DONE_WAIT, (op3_rnd() & 3) ? 0 : op3_rnd());
+	for (k = 0; k < NSD; k++)
+		sw(O_SD(k) + T32_SD_VIC, base + O_XSD);
+	sw(O_XSD + T32_SD_PRIV_CORE, base + O_VIC);
+	sw(O_VIC + T32_VIC_RAW_BUSY, (op3_rnd() & 1) ? 0 : op3_rnd());
+	for (k = 0; k < 8; k++) {
+		sw(O_CORE + T32_CORE_IN_BYTES * k + T32_CORE_RAW_W, (op3_rnd() & 1) ? 3839 + op3_rnd() % 4 : op3_rnd() % 5000);
+		sw(O_CORE + T32_CORE_IN_BYTES * k + T32_CORE_RAW_H, op3_rnd() % 3000);
+	}
+	dma_on = op3_rnd() & 1;
+	sw(O_CORE + T32_CORE_IPC_FIX, (op3_rnd() & 1) ? 1 : op3_rnd() % 3);
+	sw(O_CORE + T32_CORE_WDR_MODE, (op3_rnd() & 1) ? T32_WDR_MODE_ON : op3_rnd() % 20);
+	for (k = 0; k < 8; k++)
+		sw(O_CORE + T32_CORE_IN_BYTES * k + T32_CORE_IN_W, (op3_rnd() & 7) ? op3_rnd() % 64 : 0);
+	for (k = 0; k < T32_ISP_MEM_SLOTS; k++)	/* managed slots: some free, some holding the user's pointer */
+		sw(O_ISP + T32_ISP_MEM_SLOT + T32_MEM_SLOT_BYTES * k, (op3_rnd() & 3) == 0 ? 0 :
+		   (op3_rnd() & 7) == 0 ? 0x1234u : op3_rnd());
+	if (op3_rnd() & 1)
+		sw(O_ISP + T32_ISP_MEM_SLOT + T32_MEM_SLOT_BYTES * (op3_rnd() % 16), 0);
+	memget_ret = op3_rnd();
+	sw(O_USER + 4, (op3_rnd() & 3) ? op3_rnd() % 6 : op3_rnd() % 512);	/* bypass / link input (vendor: unchecked index) */
+	for (i = 0; i <= NSD; i++) {
+		u32 r = op3_rnd() & 7;
+
+		core_tab[i] = r < 4 ? 0 : r < 6 ? (u32)-T32_ENOIOCTLCMD : op3_rnd();
+		r = op3_rnd() & 7;
+		sens_tab[i] = r < 4 ? 0 : r < 6 ? (u32)-T32_ENOIOCTLCMD : op3_rnd();
+	}
+	cfu_ret = (op3_rnd() & 7) ? 0 : op3_rnd();
+	ctu_ret = (op3_rnd() & 7) ? 0 : op3_rnd();
+	cfu_ret2 = (op3_rnd() & 7) ? 0 : op3_rnd();
+	notify_ret = op3_rnd();
+	for (k = 0; k < 8; k++)
+		rtab[k] = (op3_rnd() & 3) ? 0 : op3_rnd();
+}
+
+static void setup(void)
+{
+	t32o_reset();
+	memset(&op3_log, 0, sizeof(op3_log));
+	arena = t32o_alloc(ARENA);
+	memcpy(arena, tmpl, ARENA);
+	n_r = 0;
+	n_unlink = 0;
+	cb_filled = 0;
+	n_fd = 0;
+	n_sc = 0;
+	n_prep = n_sched = n_cfu = 0;
+}
+
+static u64 ours(u32 a0, u32 a1, u32 a2, u32 a3, u32 a4) { (void)a3; (void)a4; return (u32)t32_tx_isp_unlocked_ioctl(a0, a1, a2); }
+
+struct snap {
+	struct op3_log log;
+	u8 w[ARENA];
+	u32 ret;
+};
+static struct snap sv, so;
+
+int main(void)
+{
+	unsigned int i, k;
+	u32 base;
+
+	setup();
+	base = A(0);
+	for (i = 0; i < NCASE; i++) {
+		u32 m = op3_rnd(), cmd, file, arg;
+
+		cmd = cmds[op3_rnd() % NC];
+		if ((m & 7) == 0) {
+			do
+				cmd = (m & 8) ? (0xc0045400u | (op3_rnd() & 0xff)) : op3_rnd();
+			while (handled(cmd));
+		}
+		file = (m & 0x10) ? base + O_FILE : 0;
+		arg = base + O_USER;
+		build(base);
+		if (cmd == T32_UIO_SET_ISP_MEM || cmd == T32_UIO_GET_ISP_MEM || cmd == T32_UIO_SET_AE_EV || cmd == T32_UIO_GET_AE_EV)
+			sw(O_USER, op3_rnd());	/* the selector is the low byte */
+		if (cmd == T32_UIO_SET_FDROP || cmd == T32_UIO_SET_FDROP1)	/* { en, lsize, fmark } x 3 */
+			for (k = 0; k < T32_FD_CHN; k++) {
+				sw(O_USER + 4 + 12 * k, (op3_rnd() & 1) ? 1 : op3_rnd() % 3);
+				sw(O_USER + 8 + 12 * k, ((op3_rnd() & 7) ? op3_rnd() % 33 : op3_rnd() % 256) | (op3_rnd() & 0xff00));
+			}
+		if ((cmd == T32_UIO_PM_ALL_DONE || cmd == T32_UIO_SD_EV_0A || cmd == T32_UIO_SD_EV_0B ||
+		     cmd == T32_UIO_TIZIANO_PAR || cmd == T32_UIO_GPIO_SWITCH || cmd == T32_UIO_GPIO_TRIGGER) && !(op3_rnd() & 3))
+			sw(O_ISP + T32_DEV_SD, 0);	/* no subdevice 0 (commands that check it) */
+		ctu_lim = ~0u;
+		if (cmd == T32_UIO_GET_PM_CTRL) {
+			u32 v = *(u32 *)(tmpl + O_CORE + T32_CORE_PM_CTRL);
+
+			ctu_lim = v <= 1 ? 4 : 0;
+		}
+		if (cmd == T32_UIO_RUN_SWITCH) {
+			arg = (op3_rnd() & 7) ? op3_rnd() % 5 : op3_rnd();
+			if (!(op3_rnd() & 3))	/* no subdevices at all */
+				for (k = 0; k < T32_DEV_SD_N; k++)
+					sw(O_ISP + T32_DEV_SD + 4 * k, 0);
+		}
+		if (cmd == T32_UIO_SET_PM_CTRL)
+			sw(O_USER, (op3_rnd() & 1) ? 0 : (op3_rnd() & 1) ? 1 : op3_rnd());
+		if (cmd == T32_UIO_RAW_CONTROL)
+			sw(O_USER, op3_rnd() % 8 | (op3_rnd() & 0xffff00) | (op3_rnd() & 1 ? 3u << 24 : op3_rnd() & 0xff000000));
+		op3_mips_dma_map_ops[0] = T32O_PTR(dma_tab);
+		dma_tab[9] = dma_on ? T32O_PTR(dma_cb) : 0;
+		if (cmd == T32_UIO_MEM_FREE)
+			sw(O_USER, (op3_rnd() & 3) ? 0x1234u : (op3_rnd() & 1) ? 0 : op3_rnd());
+		if (cmd == T32_UIO_MEM_MALLOC && (op3_rnd() & 1))
+			for (k = 0; k < T32_ISP_MEM_SLOTS; k++)
+				sw(O_ISP + T32_ISP_MEM_SLOT + T32_MEM_SLOT_BYTES * k, 1 + k);
+		if (cmd == T32_UIO_WDR_ENABLE) {	/* { mode, u8 sensor } */
+			sw(O_USER, (op3_rnd() & 1) ? 2 : op3_rnd() % 4);
+			sw(O_USER + 4, (op3_rnd() & 1) ? op3_rnd() & 0xff00 : op3_rnd());
+		}
+		if (cmd == T32_UIO_AWB_OPEN && (op3_rnd() & 3))
+			sw(O_USER, T32_AE_ALGO_VERSION);
+		if (cmd == T32_UIO_WDR_SET_BUF && (op3_rnd() & 1)) {	/* size at the tsize boundary */
+			u32 in = O_CORE + T32_CORE_IN_BYTES * *(u32 *)(tmpl + O_USER);
+
+			sw(O_USER + 8, *(u32 *)(tmpl + in + T32_CORE_IN_W) * *(u32 *)(tmpl + in + T32_CORE_IN_H) * 4 + op3_rnd() % 3 - 1);
+		}
+
+		setup();
+		op3_t32_data_da784 = base + O_ISP;
+		op3_t32_data_d9014 = t32_tx_link_mode;
+		sv.ret = OP3_VC(tx_isp_unlocked_ioctl, file, cmd, arg, op3_rnd(), 0);
+		sv.log = op3_log;
+		memcpy(sv.w, arena, ARENA);
+		setup();
+		t32_tx_isp_dev = base + O_ISP;
+		so.ret = OP3_VC(ours, file, cmd, arg, 0, 0);
+		so.log = op3_log;
+		memcpy(so.w, arena, ARENA);
+		if (op3_log_cmp("unlocked_ioctl", &sv.log, &so.log)) {
+			fprintf(stderr, "  cmd %x file %x\n", cmd, file);
+			return 1;
+		}
+		if (sv.ret != so.ret || memcmp(sv.w, so.w, ARENA)) {
+			u32 j;
+
+			for (j = 0; j < ARENA && sv.w[j] == so.w[j]; j++)
+				;
+			fprintf(stderr, "unlocked_ioctl: cmd %x ret %x/%x, first world diff 0x%x\n", cmd, sv.ret, so.ret, j);
+			return 1;
+		}
+	}
+	printf("t32_txuio_oracle: %u cases equal (%u commands)\n", NCASE, (unsigned int)NC);
+	return 0;
+}

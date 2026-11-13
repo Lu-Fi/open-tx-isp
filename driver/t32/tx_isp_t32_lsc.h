@@ -21,6 +21,13 @@
  *  - a cell packs the 6 values (2 per plane, 12 bits) into 3 words;
  *  - gain dependent strength p[101 + i] interpolated over the log2 gain
  *    (Q16) as tisp_simple_intp_uint8 does.
+ *
+ * Checked against the vendor flow (Matt Davis' recovered C, PR #15) by tests/t32_oracle
+ * (t32_lsc_oracle): the enable, the 13 control registers, the port select and the cell
+ * count (t32_lsc_cell_count) are bit-exact for all 67 bins at three sizes and random
+ * sections.  The mesh words are bit-exact too: table choice and blend (tags, hysteresis, Q12 weight,
+ * 16-bit elements), the radial correction (byte 65 clear) and the ring format (byte 65 set).
+ * The per-frame accessors at the end are checked by t32_lscx_oracle.
  */
 #ifndef TX_ISP_T32_LSC_H
 #define TX_ISP_T32_LSC_H
@@ -61,6 +68,7 @@ struct t32_lsc {
 	u8 rows, cols;
 	u8 zone;		/* far corner distance class 0..4 */
 	u8 flags[6];		/* p[69..74] */
+	u8 none;		/* no table applies: the vendor's buffer stays zero */
 	u16 inv_main, inv_wdr;	/* 1024 / (p[115] - p[114]), 1024 / (p[64] - p[63]) */
 	u8 strength, strength_wdr;
 	unsigned int table_lo, table_hi, fraction;	/* CT choice (fraction Q12) */
@@ -142,19 +150,64 @@ static inline void t32_lsc_gain(const u8 *p, struct t32_lsc *s, u32 gain)
 	}
 }
 
-/* table(s) for the colour temperature: zones split by the 4 breakpoints */
+/*
+ * table(s) for the colour temperature (tisp_lsc_interp_by_ct, forced update, section byte
+ * p[116] = number of tables, at most three): each mesh table starts with the colour
+ * temperature it was measured at (u16 tag).  The hysteresis h is the u16 at p[48], lowered
+ * to a quarter of the smallest tag distance when that is smaller.  Then
+ *  - ct <= tag[0] + h: the first table; ct >= tag[last] - h: the last table;
+ *  - otherwise the tag pairs are walked: ct within h of the upper tag of a pair: that
+ *    table; between tag_lo + h and tag_hi - h: the pair is blended with the weight
+ *    (ct - (tag_lo + h)) / ((tag_hi - h) - (tag_lo + h)) in Q12 (a later pair replaces an
+ *    earlier one); if no pair applies the vendor leaves its buffer untouched (zero).
+ */
 static inline void t32_lsc_ct(const u8 *p, struct t32_lsc *s, u32 ct)
 {
-	u32 b0 = t32_le16(p + 0x18), b1 = t32_le16(p + 0x1a);
-	u32 b2 = t32_le16(p + 0x1c), b3 = t32_le16(p + 0x1e);
-	u32 zone = ct <= b0 ? 0 : ct < b1 ? 1 : ct <= b2 ? 2 : ct < b3 ? 3 : 4;
-	u32 first = zone == 1 ? b0 : b2, last = zone == 1 ? b1 : b3;
+	u32 tag[T32_LSC_NTABLES + 1], k, n = p[116], h = t32_le16(p + 48), md = 0x10000;
 
-	s->table_lo = zone / 2;
-	s->table_hi = s->table_lo + (zone & 1);
+	if (n < 1)
+		n = 1;
+	if (n > T32_LSC_NTABLES)
+		n = T32_LSC_NTABLES;
+	for (k = 0; k < n; k++)
+		tag[k] = t32_le16(p + T32_LSC_TABLES + k * T32_LSC_TABLE_STRIDE);
+	/* the vendor's distance loop runs one step past the last table; the tag there is read as 0 */
+	tag[n] = n < T32_LSC_NTABLES ? t32_le16(p + T32_LSC_TABLES + n * T32_LSC_TABLE_STRIDE) : 0;
+	for (k = 1; k <= n; k++) {
+		u32 d = tag[k] - tag[k - 1];
+
+		if (d < md)
+			md = d;
+		if (md < (h << 2))
+			h = md >> 2;
+	}
+	s->none = 0;
 	s->fraction = 0;
-	if ((zone & 1) && last > first)
-		s->fraction = ((ct - first) << 12) / (last - first);
+	s->table_lo = s->table_hi = 0;
+	if (!(tag[0] + h < ct)) {
+		/* first table */
+	} else if (!(ct < tag[n - 1] - h)) {
+		s->table_lo = s->table_hi = n - 1;
+	} else {
+		s->none = 1;
+		for (k = 1; k < n; k++) {
+			u32 hi = tag[k] - h, lo = tag[k - 1] + h;
+
+			if (ct < hi) {
+				if (!(lo < ct))
+					continue;
+				s->none = 0;
+				s->table_lo = k - 1;
+				s->table_hi = k;
+				s->fraction = ((ct - lo) << 12) / (hi - lo);
+			} else if (!(tag[k] + h < ct)) {
+				s->none = 0;
+				s->table_lo = s->table_hi = k;
+				s->fraction = 0;
+				break;
+			}
+		}
+	}
 	s->flags[0] = p[69];
 	s->flags[1] = p[70];
 	s->flags[2] = p[71];
@@ -186,15 +239,191 @@ static inline void t32_lsc_registers(const u8 *p, struct t32_lsc *s, int wdr)
 	r[12] = wdr ? (u32)p[64] << 8 | (u32)p[62] << 31 | p[63] | (s->inv_wdr & 0x3ffU) << 16 : r[2];
 }
 
-/* the mesh words of one cell from the chosen table (stage 1: no blend) */
-static inline void t32_lsc_cell(const u8 *p, const struct t32_lsc *s, unsigned int i, u32 w[3])
+/*
+ * Number of mesh cells the vendor's tisp_lsc_write_all_reg loads: with the section's
+ * mode byte p[65] set, a fixed 1152 for the IR Bayer patterns (index >= 4) and 576
+ * otherwise; with it clear, the grid of tisp_lsc_calc_para_refresh (rows * cols * 2).
+ */
+static inline u32 t32_lsc_cell_count(const u8 *p, const struct t32_lsc *s, u32 bayer)
 {
-	unsigned int t = s->fraction < 2048 ? s->table_lo : s->table_hi;
-	const u8 *pl = p + T32_LSC_TABLES + t * T32_LSC_TABLE_STRIDE + 2;
+	if (p[65])
+		return (bayer & 0x1f) >= 4 ? 1152 : 576;
+	return s->cells;
+}
+
+/* round(x / 2^n) as tisp_round_int64 does: arithmetic shift, the bit below added */
+static inline long long t32_lsc_round(long long x, unsigned int n)
+{
+	return (x >> n) + ((x >> (n - 1)) & 1);
+}
+
+/*
+ * The vendor's radial correction (tisp_lsc_interp_by_ct, section byte 65 clear, after the
+ * blend): the plane is a (2 rows) x (2 cols) grid of 16-bit elements, rows / cols being
+ * the grid of tisp_lsc_calc_para_refresh; an element at the quadrant distance (dx, dy) in
+ * half cells (1, 3, 5 ...) from the centre gets the gain of its normalised squared radius
+ * r = (dx^2 + dy^2) * 2^24 / ((2 cols + 1)^2 + (2 rows + 1)^2): the eight thresholds are the
+ * squares of the u16 at p[32 + 2 k], the gains the bytes p[77 + k] (plane 0), p[85 + k]
+ * (plane 1) and p[93 + k] (plane 2), interpolated linearly between two levels.  A gain
+ * (plus its bit 7) below 256 pulls the element towards the black level 2048 >> p[72 + plane]:
+ * level + round((element - level) * gain / 256).
+ */
+static inline u32 t32_lsc_radial(const u8 *p, const struct t32_lsc *s, unsigned int plane, unsigned int e, u32 v)
+{
+	unsigned int rows = s->rows, cols = s->cols, x, y;
+	int thr[9], r, k, lvl = 0, g, level;
+	long long dx, dy;
+	u32 gain, d;
+
+	if (!rows || !cols)
+		return v;
+	x = e % (2 * cols);
+	y = e / (2 * cols);
+	if (y >= 2 * rows)
+		return v;
+	dy = y < rows ? 2 * (rows - 1 - y) + 1 : 2 * (y - rows) + 1;
+	dx = x < cols ? 2 * (cols - 1 - x) + 1 : 2 * (x - cols) + 1;
+	for (k = 0; k < 8; k++) {
+		int t = (int)t32_le16(p + 32 + 2 * k);
+
+		thr[k] = t * t;
+	}
+	thr[8] = 0x1000000;
+	r = (int)((dx * dx + dy * dy) * (0x1000000 / ((int)((2 * cols + 1) * (2 * cols + 1) + (2 * rows + 1) * (2 * rows + 1)))));
+	while (lvl < 9 && !(r < thr[lvl]))
+		lvl++;
+	if (lvl == 0) {
+		g = p[77 + 8 * plane];
+	} else if (lvl >= 8) {
+		g = p[84 + 8 * plane];
+	} else if (thr[lvl] - thr[lvl - 1] <= 0) {
+		g = p[77 + 8 * plane + lvl];
+	} else {
+		int span = thr[lvl] - thr[lvl - 1], pos = r - thr[lvl - 1];
+
+		g = (p[77 + 8 * plane + lvl - 1] * (span - pos) + p[77 + 8 * plane + lvl] * pos) / span;
+	}
+	gain = (u32)g + (((u32)g >> 7) & 1);
+	if (gain >= 256)
+		return v;
+	level = 2048 >> p[72 + plane];
+	d = (int)v > level ? v - level : 0;
+	return (u32)level + (u32)t32_lsc_round((long long)d * gain, 8) > 4095 ? 4095 :
+	       (u32)level + (u32)t32_lsc_round((long long)d * gain, 8);
+}
+
+/* element e of plane `plane` straight from the chosen table(s) (copy or tisp_lsc_mesh_itp blend) */
+static inline u32 t32_lsc_raw_elem(const u8 *p, const struct t32_lsc *s, unsigned int plane, unsigned int e)
+{
+	const u8 *pa = p + T32_LSC_TABLES + s->table_lo * T32_LSC_TABLE_STRIDE + 2 + plane * T32_LSC_PLANE;
+	const u8 *pb = p + T32_LSC_TABLES + s->table_hi * T32_LSC_TABLE_STRIDE + 2 + plane * T32_LSC_PLANE;
+	u32 v;
+
+	if (s->none) {
+		v = 0;
+	} else if (s->table_lo == s->table_hi) {
+		v = t32_le16(pa + 2 * e);
+	} else {
+		u32 a = t32_le16(pa + 2 * e), b = t32_le16(pb + 2 * e);
+
+		v = (a + (((b - a) * s->fraction) >> 12)) & 0xffff;
+	}
+	return v;
+}
+
+/*
+ * Section byte 65 set: the mesh is the ring format of the first payload (three tables of
+ * 3464 bytes: a u16 tag and three planes of 577 u16 elements); the chosen table(s) are
+ * blended element by element (tisp_lsc_ring_itp).
+ */
+#define T32_LSC_RING_TABLES	120U		/* first payload, behind the 120-byte section */
+#define T32_LSC_RING_STRIDE	3464U
+#define T32_LSC_RING_PLANE	1154U
+#define T32_LSC_RING_ELEMS	577U
+
+static inline u32 t32_lsc_ring_elem(const u8 *p, const struct t32_lsc *s, unsigned int plane, unsigned int e)
+{
+	const u8 *pa = p + T32_LSC_RING_TABLES + s->table_lo * T32_LSC_RING_STRIDE + 2 + plane * T32_LSC_RING_PLANE;
+	const u8 *pb = p + T32_LSC_RING_TABLES + s->table_hi * T32_LSC_RING_STRIDE + 2 + plane * T32_LSC_RING_PLANE;
+	u32 a, b;
+
+	if (s->none || e >= T32_LSC_RING_ELEMS)
+		return 0;
+	a = t32_le16(pa + 2 * e);
+	b = t32_le16(pb + 2 * e);
+	return s->table_lo == s->table_hi ? a : (a + (((b - a) * s->fraction) >> 12)) & 0xffff;
+}
+
+/*
+ * The vendor keeps the planes of the mesh in a work buffer between updates.  Each update
+ * (tisp_lsc_interp_by_ct) with a new colour temperature copies or blends the chosen tables
+ * into it, or leaves it as it is when no table applies, and for byte 65 clear then applies
+ * the radial correction in place.
+ */
+struct t32_lsc_work {
+	u16 pl[3][2304];
+	u32 old_ct;
+};
+
+/*
+ * tisp_lsc_interp_by_ct.  A non-forced call returns 0 without touching anything unless the
+ * colour temperature moved by more than the section's threshold u32 p[12].  Otherwise the
+ * table choice (t32_lsc_ct) is made: a copy fills the planes completely (2304 elements, or
+ * 577 in the ring format), a blend only the first 2 * (grid cells) elements (the rest is never read, so all are done), no applicable
+ * table keeps the old planes.  Returns 1 when the planes were updated.
+ */
+static inline int t32_lsc_update(const u8 *p, struct t32_lsc *s, struct t32_lsc_work *wk, u32 ct, int force)
+{
+	unsigned int plane, e, n;
+	u32 diff = ct > wk->old_ct ? ct - wk->old_ct : wk->old_ct - ct;
+
+	if (!force && !(t32_le32(p + 12) < diff))
+		return 0;
+	wk->old_ct = ct;
+	t32_lsc_ct(p, s, ct);
+	if (!s->none) {
+		n = p[65] ? T32_LSC_RING_ELEMS : 2304U;
+		for (plane = 0; plane < 3; plane++)
+			for (e = 0; e < n; e++)
+				wk->pl[plane][e] = (u16)(p[65] ? t32_lsc_ring_elem(p, s, plane, e) :
+							 t32_lsc_raw_elem(p, s, plane, e));
+	}
+	if (!p[65])
+		for (plane = 0; plane < 3; plane++)
+			for (e = 0; e < 4 * (unsigned int)s->rows * s->cols && e < 2304; e++)
+				wk->pl[plane][e] = (u16)t32_lsc_radial(p, s, plane, e, wk->pl[plane][e]);
+	return 1;
+}
+
+/*
+ * the mesh words of one cell from the work planes.  Byte 65 clear: its 6 values (two elements of
+ * each plane, 12 bits packed).  Byte 65 set: the vendor's two blocks of 576 cells; cells 0..575
+ * pack one element of each plane and its neighbour, cells 576.. get the top byte of plane 1 and
+ * the packed plane 1 neighbours only (as the vendor's loop stores them).
+ */
+static inline void t32_lsc_cell(const u8 *p, const struct t32_lsc_work *wk, unsigned int i, u32 w[3])
+{
 	u32 v[6], k;
 
+	if (p[65]) {
+		unsigned int n = i < 576 ? i : i - 576;
+		u32 p0 = wk->pl[0][n], p0n = wk->pl[0][n + 1];
+		u32 p1 = wk->pl[1][n], p1n = wk->pl[1][n + 1];
+		u32 p2 = wk->pl[2][n], p2n = wk->pl[2][n + 1];
+
+		if (i < 576) {
+			w[0] = (p0 & 4095) | (p0n & 4095) << 12 | p1 << 24;
+			w[1] = ((p1 >> 8) & 15) | ((p1n << 4) & 0xffff) | (p2 & 4095) << 16 | p2n << 28;
+			w[2] = (p2n >> 4) & 0xff;
+		} else {
+			w[0] = p1 << 24;
+			w[1] = ((p1 >> 8) & 15) | ((p1n << 4) & 0xffff);
+			w[2] = 0;
+		}
+		return;
+	}
 	for (k = 0; k < 6; k++)
-		v[k] = t32_le16(pl + (k / 2) * T32_LSC_PLANE + i * 4 + (k & 1) * 2) & 4095;
+		v[k] = wk->pl[k / 2][i * 2 + (k & 1)] & 4095;
 	w[0] = v[0] | v[1] << 12 | v[2] << 24;
 	w[1] = (v[2] >> 8) | v[3] << 4 | v[4] << 16 | v[5] << 28;
 	w[2] = v[5] >> 4;
@@ -202,34 +431,482 @@ static inline void t32_lsc_cell(const u8 *p, const struct t32_lsc *s, unsigned i
 
 /*
  * The stream-on list as the vendor's: enable, the control registers, the
- * mesh through the port (always all 1152 cells), the tail register.
+ * mesh through the port (t32_lsc_cell_count cells), the tail register.
  */
-static inline int t32_lsc_fill_list(const u8 *p, struct t32_lsc *s, struct t32_rcfg_list *l,
-				    u32 *scratch)
+static inline int t32_lsc_fill_list(const u8 *p, struct t32_lsc *s, const struct t32_lsc_work *wk,
+				    struct t32_rcfg_list *l, u32 *scratch, u32 bayer)
 {
-	unsigned int i, k;
+	unsigned int i, k, cells = t32_lsc_cell_count(p, s, bayer);
 
 	t32_rcfg_add(l, T32_LSC_EN, 1);
 	for (k = 0; k < 13; k++)
 		t32_rcfg_add(l, T32_LSC_CTRL0 + 4 * k, s->regs[k]);
 	t32_rcfg_add(l, T32_LSC_PORT_SEL, 0x101);
-	for (i = 0; i < T32_LSC_CELLS; i++)
-		t32_lsc_cell(p, s, i, scratch + i * 3);
-	t32_rcfg_add_port(l, T32_LSC_PORT_DATA, scratch, T32_LSC_WORDS);
+	for (i = 0; i < cells; i++)
+		t32_lsc_cell(p, wk, i, scratch + i * 3);
+	t32_rcfg_add_port(l, T32_LSC_PORT_DATA, scratch, cells * 3);
 	t32_rcfg_add(l, T32_LSC_PORT_SEL, 0);
 	t32_rcfg_add(l, T32_LSC_LIST_TAIL, 0);
 	return l->overflow ? -1 : 0;
 }
 
 /* everything for a stream-on list at colour temperature ct and gain 0 */
-static inline int t32_lsc_setup(const u8 *p, struct t32_lsc *s, u32 width, u32 height, u32 ct)
+static inline int t32_lsc_setup(const u8 *p, struct t32_lsc *s, struct t32_lsc_work *wk, u32 width, u32 height, u32 ct)
 {
 	if (t32_lsc_geometry(p, s, width, height))
 		return -1;
 	t32_lsc_gain(p, s, 0);
-	t32_lsc_ct(p, s, ct);
+	memset(wk, 0, sizeof(*wk));
+	t32_lsc_update(p, s, wk, ct, 1);
 	t32_lsc_registers(p, s, 0);
 	return 0;
+}
+
+/*
+ * Per-frame paths: tisp_lsc_dn_params_refresh, tisp_lsc_wdr_en, tisp_lsc_wake_up
+ * (Matt Davis' recovered C).  The output of the vendor's LSC block is a shadow image
+ * (tisp_single_lsc_reg_write / _reg_lut_write: index -> value): 2 = enable, 4..16 = the
+ * 13 control registers, 18 = port select, 20 + w = mesh word w.  Checked by
+ * tests/t32_oracle (t32_lscd_oracle).
+ */
+#define T32_LSC_TUNING_OFF 26820U	/* section 7 in the tuning block */
+#define T32_LSC_IMG_EN		2
+#define T32_LSC_IMG_REG0	4
+#define T32_LSC_IMG_SEL		18
+#define T32_LSC_IMG_MESH	20
+
+/* the current values the vendor keeps next to the section (offsets 8, 20, 24, 28) */
+struct t32_lsc_cur {
+	u32 rsvd0[2];
+	u32 ct;			/* colour temperature */
+	u32 rsvd1[2];
+	u32 tgain;		/* total gain, log2 Q16 */
+	u32 tgain_s;		/* short exposure total gain (wdr strength) */
+	u32 wdr;		/* tisp_lsc_wdr_en */
+};
+
+struct t32_lsc_dwr {
+	u32 reg, val;
+};
+
+/* the vendor's payload info (t32_data_dc274[ch]): sizes of one table, the two payload buffers */
+struct t32_lsc_lut {
+	u16 size[2];		/* bytes of one table of payload 1 / payload 2 */
+	u8 *p1, *p2;
+};
+
+struct t32_lsc_ctx {
+	const u8 *sec;			/* section 7 (contiguous with its payloads) */
+	struct t32_lsc_cur *cur;
+	struct t32_lsc s;
+	struct t32_lsc_work wk;
+	u32 *img;			/* shadow image */
+	u32 width, height, bayer;
+	u8 direct;			/* vendor flag t32_data_d03a0 */
+	struct t32_lsc_dwr *dlog;	/* direct register writes */
+	unsigned int ndlog;
+	void (*cfg_trig)(struct t32_lsc_ctx *ctx, u8 ch);	/* tisp_single_lsc_rcfg_cfg_trig */
+	struct t32_lsc_lut *lut;	/* vendor t32_data_dc274[ch] */
+	u32 cap[2];			/* vendor t32_data_dc1a4[ch * 28 + 0 / 4]: payload buffer bytes */
+	u16 pub[2];			/* vendor t32_data_da850 + 232 / 234: published table sizes */
+	u8 *info;			/* vendor ctx + 8 (bytes 17 / 18: grid rows / columns) */
+	u8 *stats;			/* vendor ctx + 12: 12 bytes, [9] / [10] count flips */
+};
+
+static inline void t32_lsc_img_write(struct t32_lsc_ctx *ctx, u8 ch, u32 idx, u32 val)
+{
+	(void)ch;
+	ctx->img[idx] = val;
+}
+
+static inline void t32_lsc_reg_write(struct t32_lsc_ctx *ctx, u8 ch, u32 reg, u32 val)
+{
+	(void)ch;
+	ctx->dlog[ctx->ndlog].reg = reg;
+	ctx->dlog[ctx->ndlog].val = val;
+	ctx->ndlog++;
+}
+
+/* tisp_lsc_interp_by_tgain_s: the wdr strength from its own gain */
+static inline void t32_lsc_gain_s(const u8 *p, struct t32_lsc *s, u32 gain)
+{
+	struct t32_lsc t = *s;
+
+	t32_lsc_gain(p, &t, gain);
+	s->strength_wdr = t.strength_wdr;
+}
+
+/* tisp_lsc_write_all_reg: the constants 2, 7, 14, 15 are not part of it */
+static inline void t32_lsc_write_all_reg(struct t32_lsc_ctx *ctx, u8 ch)
+{
+	unsigned int i, j, k, cells = t32_lsc_cell_count(ctx->sec, &ctx->s, ctx->bayer);
+	u32 w[3];
+
+	/* wdr mode: 0x5050 = wdr strength << 16 | strength, 0x5070 the wdr range */
+	t32_lsc_registers(ctx->sec, &ctx->s, ctx->cur->wdr == 1);
+	for (k = 0; k < 13; k++)
+		if (k != 3 && k != 10 && k != 11)
+			t32_lsc_img_write(ctx, ch, 4 + k, ctx->s.regs[k]);
+	t32_lsc_img_write(ctx, ch, 18, 0x101);
+	for (i = 0; i < cells; i++) {
+		t32_lsc_cell(ctx->sec, &ctx->wk, i, w);
+		for (j = 0; j < 3; j++)
+			t32_lsc_img_write(ctx, ch, 20 + 3 * i + j, w[j]);
+	}
+}
+
+/* the common tail of dn_params_refresh and wdr_en */
+static inline int t32_lsc_refresh(struct t32_lsc_ctx *ctx, u8 ch)
+{
+	const u8 *p = ctx->sec;
+
+	if (t32_lsc_geometry(p, &ctx->s, ctx->width, ctx->height) < 0)
+		t32_lsc_geometry(p, &ctx->s, ctx->width, ctx->height);	/* the vendor retries once */
+	t32_lsc_update(p, &ctx->s, &ctx->wk, ctx->cur->ct, 1);
+	t32_lsc_gain(p, &ctx->s, ctx->cur->tgain);
+	t32_lsc_gain_s(p, &ctx->s, ctx->cur->tgain_s);
+	t32_lsc_write_all_reg(ctx, ch);
+	return 0;
+}
+
+static inline int t32_lsc_dn_params_refresh(struct t32_lsc_ctx *ctx, u8 ch, u8 *tuning_base)
+{
+	ctx->sec = tuning_base + T32_LSC_TUNING_OFF;
+	return t32_lsc_refresh(ctx, ch);
+}
+
+static inline int t32_lsc_wdr_en(struct t32_lsc_ctx *ctx, u8 ch, u32 en)
+{
+	ctx->cur->wdr = en;
+	return t32_lsc_refresh(ctx, ch);
+}
+
+static inline int t32_lsc_wake_up(struct t32_lsc_ctx *ctx, u8 ch)
+{
+	if (ctx->direct == 1) {
+		t32_lsc_reg_write(ctx, ch, 2763, 0);
+		t32_lsc_reg_write(ctx, ch, 2764, 0x04000400);
+		t32_lsc_reg_write(ctx, ch, 2756, 1);
+		t32_lsc_reg_write(ctx, ch, 2751, 1);
+	} else {
+		t32_lsc_img_write(ctx, ch, 14, 0);
+		t32_lsc_img_write(ctx, ch, 15, 0x04000400);
+		t32_lsc_img_write(ctx, ch, 7, 1);
+		t32_lsc_img_write(ctx, ch, 2, 1);
+	}
+	t32_lsc_write_all_reg(ctx, ch);
+	ctx->cfg_trig(ctx, ch);
+	return 0;
+}
+
+/*
+ * tisp_lsc_itp: linear interpolation between a and b by frac / 4096, 16-bit result.
+ */
+static inline u32 t32_lsc_itp(u32 a, u32 b, u32 frac)
+{
+	return (((b - a) * frac >> 12) + a) & 0xffff;
+}
+
+/*
+ * tisp_lsc_tgain_update_s: the wdr strength from its own gain, then the whole register
+ * image (tisp_lsc_write_all_reg).
+ */
+static inline int t32_lsc_tgain_update_s(struct t32_lsc_ctx *ctx, u8 ch, u32 gain)
+{
+	u32 val;
+
+	ctx->cur->tgain_s = gain;	/* the vendor stores it in cur + 24 */
+	t32_lsc_gain_s(ctx->sec, &ctx->s, gain);
+	/*
+	 * The vendor calls tisp_lsc_write_all_reg(ch, 1, 1, 0): only the strength register
+	 * (0x5050) is written: direct mode reg 2757 and the enable 2751, else the hardware
+	 * register 0x5050 (20560, logged when a log is attached) and shadow image 8.
+	 */
+	val = ctx->cur->wdr == 1 ? (u32)ctx->s.strength_wdr << 16 | ctx->s.strength :
+				   (u32)ctx->s.strength << 16 | ctx->s.strength;
+	if (ctx->direct == 1) {
+		t32_lsc_reg_write(ctx, ch, 2757, val);
+		t32_lsc_reg_write(ctx, ch, 2751, 1);
+	} else {
+		if (ctx->dlog)
+			t32_lsc_reg_write(ctx, ch, 20560, val);
+		t32_lsc_img_write(ctx, ch, 8, val);
+	}
+	return 0;
+}
+
+/*
+ * tisp_lsc_deinit: free the current values (vendor ctx + 4), the info (+ 8), the
+ * counters (+ 12) and the context itself, clear the slot.  The section (+ 0) points
+ * into the tuning block and is not freed.
+ */
+static inline int t32_lsc_deinit(void (*vfree)(void *p), struct t32_lsc_ctx **slot)
+{
+	struct t32_lsc_ctx *ctx = *slot;
+
+	if (ctx) {
+		if (ctx->cur) {
+			vfree(ctx->cur);
+			ctx->cur = NULL;
+		}
+		if (ctx->info) {
+			vfree(ctx->info);
+			ctx->info = NULL;
+		}
+		if (ctx->stats) {
+			vfree(ctx->stats);
+			ctx->stats = NULL;
+		}
+		vfree(ctx);
+		*slot = NULL;
+	}
+	return 0;
+}
+
+/*
+ * tisp_lsc_param_array_get: copy the 120-byte section and the 12-byte counter block
+ * (vendor ctx + 12) out of the context.
+ */
+static inline int t32_lsc_param_array_get(const struct t32_lsc_ctx *ctx, u8 *buf, u32 *len)
+{
+	memcpy(buf, ctx->sec, 120);
+	memcpy(buf + 120, ctx->stats, 12);
+	*len = 132;
+	return 0;
+}
+
+/*
+ * The vendor's tisp_lsc_interp_by_ct lowers the hysteresis u16 at section byte 48 in place
+ * to a quarter of the smallest tag distance (more than one table only; the distance loop runs
+ * one step past the last table, whose tag reads as 0 for three tables).  p2 = mesh tables.
+ */
+static inline void t32_lsc_hyst_lower(u8 *sec, const u8 *p2)
+{
+	u32 n = sec[116], k, h = t32_le16(sec + 48), md = 0x10000, prev, cur;
+
+	if (n < 2) return;
+	if (n > T32_LSC_NTABLES)
+		n = T32_LSC_NTABLES;
+	prev = t32_le16(p2);
+	for (k = 1; k <= n; k++) {
+		cur = k < T32_LSC_NTABLES ? t32_le16(p2 + k * T32_LSC_TABLE_STRIDE) : 0;
+		if (cur - prev < md)
+			md = cur - prev;
+		if (md < (h << 2))
+			h = md >> 2;
+		prev = cur;
+	}
+	sec[48] = (u8)h;
+	sec[49] = (u8)(h >> 8);
+}
+
+/*
+ * tisp_lsc_param_array_set.  idx 0: replace the section and make sure the two payload
+ * buffers hold the number of tables the new section says (3464 / 13826 bytes each),
+ * then refresh.  idx 1..16: replace table idx of both payloads from buf (the payload
+ * data starts at buf, not behind the section); refresh only when idx equals the
+ * section's number of tables.  idx >= 17 copies nothing.  The table sizes are
+ * published (vendor t32_data_da850 + 232 / 234) at the end, except after an
+ * allocation failure (-1).
+ */
+static inline int t32_lsc_param_array_set(struct t32_lsc_ctx *ctx, u8 ch, u32 idx, const u8 *buf,
+					  void *(*vmalloc)(u32 n), void (*vfree)(void *p))
+{
+	struct t32_lsc_lut *lut = ctx->lut;
+	u8 *sec = (u8 *)ctx->sec;
+	u32 need1, need2;
+
+	lut->size[0] = T32_LSC_RING_STRIDE;
+	lut->size[1] = T32_LSC_TABLE_STRIDE;
+	if (!idx) {
+		memcpy(sec, buf, 120);
+		need1 = sec[116] * T32_LSC_RING_STRIDE;
+		need2 = sec[116] * T32_LSC_TABLE_STRIDE;
+		if (ctx->cap[0] < need1) {
+			if (lut->p1) {
+				vfree(lut->p1);
+				lut->p1 = NULL;
+			}
+			lut->p1 = vmalloc(need1);
+			if (!lut->p1)
+				return -1;
+			ctx->cap[0] = need1;
+		}
+		if (ctx->cap[1] < need2) {
+			if (lut->p2) {
+				vfree(lut->p2);
+				lut->p2 = NULL;
+			}
+			lut->p2 = vmalloc(need2);
+			if (!lut->p2)
+				return -1;
+			ctx->cap[1] = need2;
+		}
+	} else {
+		if (idx < 17) {
+			memcpy(lut->p1 + (idx - 1) * lut->size[0], buf, lut->size[0]);
+			memcpy(lut->p2 + (idx - 1) * lut->size[1], buf + lut->size[0], lut->size[1]);
+		}
+		if (idx != sec[116])
+			goto publish;
+	}
+	t32_lsc_hyst_lower(sec, lut->p2);
+	t32_lsc_refresh(ctx, ch);
+	/* the vendor's full write mode also sets the enable (image 2) and closes the mesh port select (3608) */
+	t32_lsc_img_write(ctx, ch, 2, 1);
+	t32_lsc_img_write(ctx, ch, 3608,
+			  (t32_lsc_cell_count(sec, &ctx->s, ctx->bayer) - 1) << 16 | 0x102);
+publish:
+	ctx->pub[0] = lut->size[0];
+	ctx->pub[1] = lut->size[1];
+	return 0;
+}
+
+/*
+ * tisp_lsc_mirror_flip's helpers (lsc_exchange_line / lsc_exchange_data): their source
+ * is not part of the port, so they are passed in.
+ */
+struct t32_lsc_xops {
+	void (*xline)(u8 *plane, u8 *buf, u32 a2, u32 a3, u32 stride);
+	void (*xdata)(u8 *plane, u32 a1, u32 a2);
+};
+
+/*
+ * tisp_lsc_write_all_reg(ch, 2, 0, 1), the mode tisp_lsc_mirror_flip uses: the mesh
+ * (port open, cells, port close) and only the grid / zone registers and the enable.
+ */
+static inline void t32_lsc_write_flip_reg(struct t32_lsc_ctx *ctx, u8 ch)
+{
+	unsigned int i, j, cells = t32_lsc_cell_count(ctx->sec, &ctx->s, ctx->bayer);
+	u32 w[3];
+
+	t32_lsc_registers(ctx->sec, &ctx->s, ctx->cur->wdr == 1);
+	t32_lsc_img_write(ctx, ch, 18, 0x101);
+	for (i = 0; i < cells; i++) {
+		t32_lsc_cell(ctx->sec, &ctx->wk, i, w);
+		for (j = 0; j < 3; j++)
+			t32_lsc_img_write(ctx, ch, 20 + 3 * i + j, w[j]);
+	}
+	t32_lsc_img_write(ctx, ch, 3608, (cells - 1) << 16 | 0x102);
+	t32_lsc_img_write(ctx, ch, 4 + 1, ctx->s.regs[1]);
+	t32_lsc_img_write(ctx, ch, 4 + 7, ctx->s.regs[7]);
+	t32_lsc_img_write(ctx, ch, 2, 1);
+}
+
+/*
+ * tisp_lsc_mirror_flip: a3 == 1 exchanges the mesh lines of every table and plane, arg4 == 1
+ * exchanges the mesh elements; then the work planes are rebuilt (interp_by_ct forced with
+ * the current colour temperature) and written.  The vendor's spin lock around the
+ * exchange is left to the caller.  Oracle t32_lscm_oracle.
+ */
+static inline int t32_lsc_mirror_flip(struct t32_lsc_ctx *ctx, u8 ch, u32 a3, u32 arg4,
+				      const struct t32_lsc_xops *ops)
+{
+	u8 buf[256];
+	u32 rows = ctx->info[17], cols = ctx->info[18], ntab = ctx->sec[116];
+	u32 cols2 = cols * 2, last = (rows * 2 - 1) * cols2;
+	u32 y, x, t, k;
+	u8 *tab = ctx->lut->p2 + 2;
+
+	memset(buf, 0, sizeof(buf));
+	if (a3 == 1) {
+		for (y = 0; y < rows; y++)
+			for (t = 0; t < ntab; t++)
+				for (k = 0; k < 3; k++)
+					ops->xline(tab + t * T32_LSC_TABLE_STRIDE + k * T32_LSC_PLANE, buf,
+						   y * cols2, last - y * cols2, cols * 4);
+		ctx->stats[9]++;
+	}
+	if (arg4 == 1) {
+		for (y = 0; y != rows * 2; y++)
+			for (x = 0; x < cols; x++)
+				for (t = 0; t < ntab; t++)
+					for (k = 0; k < 3; k++)
+						ops->xdata(tab + t * T32_LSC_TABLE_STRIDE + k * T32_LSC_PLANE,
+							   x + y * cols2, y * cols2 + cols2 - 1 - x);
+		ctx->stats[10]++;
+	}
+	ctx->cur->rsvd1[0] = 5;
+	t32_lsc_update(ctx->sec, &ctx->s, &ctx->wk, ctx->cur->ct, 1);
+	t32_lsc_write_flip_reg(ctx, ch);
+	return 0;
+}
+
+/* tisp_lsc_hvflip: the vendor's wrapper around tisp_lsc_mirror_flip, always 0 */
+static inline int t32_lsc_hvflip(struct t32_lsc_ctx *ctx, u8 ch, u32 a3, u32 arg4,
+				 const struct t32_lsc_xops *ops)
+{
+	t32_lsc_mirror_flip(ctx, ch, a3, arg4, ops);
+	return 0;
+}
+
+/* ---- lsc_exchange_line / lsc_exchange_data (vendor 0x45ae4 / 0x45ac0), oracle t32_lscm_oracle ---- */
+
+/* lsc_exchange_line: swap n bytes at u16 index a and b of plane (buf = scratch, n bytes) */
+static inline void t32_lsc_exchange_line(u8 *plane, u8 *buf, u32 a, u32 b, u32 n)
+{
+	memcpy(buf, plane + 2 * a, n);
+	memmove(plane + 2 * a, plane + 2 * b, n);
+	memcpy(plane + 2 * b, buf, n);
+}
+
+/* lsc_exchange_data: swap the u16 elements a and b of plane */
+static inline void t32_lsc_exchange_data(u8 *plane, u32 a, u32 b)
+{
+	u16 x, y;
+
+	memcpy(&x, plane + 2 * a, 2);
+	memcpy(&y, plane + 2 * b, 2);
+	memcpy(plane + 2 * a, &y, 2);
+	memcpy(plane + 2 * b, &x, 2);
+}
+
+static const struct t32_lsc_xops t32_lsc_xops_default = { t32_lsc_exchange_line, t32_lsc_exchange_data };
+
+/*
+ * ---- tisp_lsc_tgain_update (vendor 0x44e28, oracle t32_lscx_oracle) ----
+ * The per-frame LSC hook of tisp_long_tgain_update (a0 = channel, a2 = total gain low
+ * word): tisp_lsc_interp_by_tgain stores the gain in cur + 20 and the strength (info + 10)
+ * for it (byte p[4..7] set: p[112], else p[101 + i] over the log2 gain), then
+ * tisp_lsc_write_all_reg(ch, 1, 1, 0) writes only the strength register 0x5050 (wdr 1:
+ * wdr strength << 16 | strength, else strength in both halves): direct mode reg 2757 and
+ * the enable 2751, else the hardware register 0x5050 (logged when a log is attached) and
+ * shadow image 8.  The wdr strength is not touched.
+ */
+static inline int t32_lsc_tgain_update(struct t32_lsc_ctx *ctx, u8 ch, u32 gain)
+{
+	struct t32_lsc t = ctx->s;
+	u32 val;
+
+	ctx->cur->tgain = gain;		/* the vendor stores it in cur + 20 */
+	t32_lsc_gain(ctx->sec, &t, gain);
+	ctx->s.strength = t.strength;
+	val = ctx->cur->wdr == 1 ? (u32)ctx->s.strength_wdr << 16 | ctx->s.strength :
+				   (u32)ctx->s.strength << 16 | ctx->s.strength;
+	if (ctx->direct == 1) {
+		t32_lsc_reg_write(ctx, ch, 2757, val);
+		t32_lsc_reg_write(ctx, ch, 2751, 1);
+	} else {
+		if (ctx->dlog)
+			t32_lsc_reg_write(ctx, ch, T32_LSC_CTRL0 + 0x10, val);
+		t32_lsc_img_write(ctx, ch, 8, val);
+	}
+	return 0;
+}
+
+/*
+ * The current values as tisp_lsc_init leaves them (vendor ctx + 4, 32 bytes, checked
+ * against the vendor's by t32_lscx_oracle): height, width, colour temperature 5000 (ct
+ * here), 255, Bayer pattern & 0x1f >= 4, both gains 0, wdr 0.
+ */
+static inline void t32_lsc_cur_init(struct t32_lsc_cur *cur, u32 width, u32 height, u32 bayer, u32 ct)
+{
+	memset(cur, 0, sizeof(*cur));
+	cur->rsvd0[0] = height;
+	cur->rsvd0[1] = width;
+	cur->ct = ct;
+	cur->rsvd1[0] = 255;
+	cur->rsvd1[1] = (bayer & 0x1f) >= 4;
 }
 
 #endif /* TX_ISP_T32_LSC_H */

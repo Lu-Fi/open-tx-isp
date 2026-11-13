@@ -109,7 +109,7 @@ int main(void)
 		}
 		n = t32_ae_stats_init(bin, 3840, 2160, 0x02d40000, w);
 		compare("AE", w, n, ae_vendor, sizeof(ae_vendor) / sizeof(ae_vendor[0]));
-		n = t32_awb_stats_init(bin, 0x02c80000, T32_AWB_INIT_EV, w);
+		n = t32_awb_stats_init(bin, 3840, 2160, 0x02c80000, T32_AWB_INIT_EV, w);
 		compare("AWB", w, n, awb_vendor, sizeof(awb_vendor) / sizeof(awb_vendor[0]));
 	} else {
 		printf("  (no T32_IQ_BIN: vendor comparison skipped)\n");

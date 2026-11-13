@@ -4,7 +4,8 @@
 257 samples of 1535 * sinc(x) * sinc(x / 2) over x = 0 .. 6 (step 6/256): a
 Lanczos-2 shaped kernel that is not cut off at x = 2.  The vendor firmware
 interpolates a table of this shape (tisp_sin); ours is computed here and can
-differ from the vendor's by 1 in some entries."""
+differ from the vendor's by 1 in 58 entries; the driver carries the vendor
+table as transcribed data instead."""
 import math
 
 def sinc(x):

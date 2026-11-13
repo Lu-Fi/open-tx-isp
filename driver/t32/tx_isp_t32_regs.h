@@ -49,9 +49,15 @@
 #define T32_MSCADONE_EN			0x300a0
 #define T32_MSCADONE_CLR		0x300a4
 #define T32_MSCADONE_STA		0x300a8	/* bit 1: MSCA frame done (OSD load point) */
+#define T32_MSCADONE_LSC		(1U << 4)	/* LSC frame done (interrupt bit 36) */
 #define T32_INT3_EN			0x300b0
 #define T32_INT3_CLR			0x300b4
 #define T32_INT3_STA			0x300b8
+/* 0x300c0 / 0x300d0: register-list done, bit N = list N / list 32 + N
+ * (T33: the vendor enables and clears both; the T32 driver only 0x300d0) */
+#define T32_INT5_EN			0x300c0
+#define T32_INT5_CLR			0x300c4
+#define T32_INT5_STA			0x300c8
 #define T32_INT4_EN			0x300d0
 #define T32_INT4_CLR			0x300d4
 #define T32_INT4_STA			0x300d8
@@ -82,6 +88,8 @@
 #define T32_MSCA_CH_EN2			0xf004c
 #define T32_MSCA_BUSY			0xf0054
 #define T32_MSCA_CH(n)			(0xf0100 + (n) * 0x100)
+#define T32_MSCA_FDROP_SKIP(n)		(0xf0120 + (n) * 0x100)	/* frame drop: pattern length - 1 */
+#define T32_MSCA_FDROP_MASK(n)		(0xf0124 + (n) * 0x100)	/* frame drop: drop mask */
 #define T32_MSCA_SHADOW_OPEN		0xf8000	/* (value, offset) pair port */
 #define T32_MSCA_SHADOW_DATA		0xf8004
 #define T32_MSCA_SHADOW_COUNT		0xf8100	/* pairs << 4 | 1 after a block */

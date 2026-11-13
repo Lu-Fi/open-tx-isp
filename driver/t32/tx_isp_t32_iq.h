@@ -10,6 +10,10 @@
  * constant: that is why the AE block is at tparamsP + 0x68 in the code but at
  * bin + 0x104, while the LSC block happens to sit at bin + 0x98 + 0x68c4.
  * Sections used here: 1 AE (3288 bytes), 2 AWB (6740), 7 LSC (120).
+ *
+ * Checked against the vendor flow (Matt Davis' recovered C, PR #15) by
+ * tests/t32_oracle (t32_iq_oracle): section and payload positions equal what
+ * the vendor's tisp_bin_data_parse copies, on generated bins and all 67 T32 bins.
  */
 #ifndef TX_ISP_T32_IQ_H
 #define TX_ISP_T32_IQ_H
@@ -39,6 +43,28 @@ typedef uint16_t u16;
  */
 static inline u32 t32_iq_payload(const u8 *sec, u32 avail, unsigned int idx)
 {
+#ifdef TX_ISP_T33
+	/*
+	 * T33 (PRJ008, tisp_bin_data_parse of the T33 module): the same
+	 * payloads with the size bytes elsewhere in their sections; LSC has
+	 * one table, gamma always 0x10a bytes per curve.  With these the
+	 * walk of the cv2005 PRJ008 bins lands on a section id (0x01350181
+	 * style) at every one of the 28 sections.
+	 */
+	switch (idx) {
+	case 7:
+		return avail > 0x94 ? (sec[0x94] * 0x3602U) & 0xffff : 0;
+	case 12:
+		return avail > 0x75e ? (sec[0x75e] * 0x28U) & 0xffff : 0;
+	case 13:
+		return avail > 0x46 ? (0x10aU * sec[0x46]) & 0xffff : 0;
+	case 19:
+		return avail > 0x4bf ? (sec[0x4bf] * 0x28U) & 0xffff : 0;
+	case 20:
+		return avail > 0x3b ? ((sec[0x3b] * 0x836U) & 0xffff) + ((sec[0x3b] * 0x41aU) & 0xffff) : 0;
+	}
+	return 0;
+#else
 	u32 gamma;
 
 	switch (idx) {
@@ -57,7 +83,20 @@ static inline u32 t32_iq_payload(const u8 *sec, u32 avail, unsigned int idx)
 		return avail > 0x23 ? ((sec[0x23] * 0x836U) & 0xffff) + ((sec[0x23] * 0x41aU) & 0xffff) : 0;
 	}
 	return 0;
+#endif
 }
+
+/*
+ * A block's section is usable when it is at least the size the T32 code
+ * reads.  T33: only when it has exactly the T32 size; the PRJ008 sections
+ * of other sizes have other layouts, and the T32 code must not read them
+ * (T33 plan step 4, section sizes in the T33 plan).
+ */
+#ifdef TX_ISP_T33
+#define T32_IQ_SEC_OK(len, need)	((len) == (need))
+#else
+#define T32_IQ_SEC_OK(len, need)	((len) >= (need))
+#endif
 
 /* tisp_bin_data_parse's walk: a section is present when its enable is 1, and
  * only present sections occupy the stream, followed by the payloads above.

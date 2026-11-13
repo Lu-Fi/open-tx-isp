@@ -20,6 +20,10 @@
  * the frame compression (the memory ratio is the value * 100 in 1/1000, the
  * driver's isp_memopt), 10 is off; the same value as the ISP memory size
  * uses (tx_isp_t32_mem.h).
+ *
+ * Checked bit-exact against the vendor flow (Matt Davis' recovered C, PR #15)
+ * by tests/t32_oracle (t32_mdns_oracle).  The vendor divides without a zero
+ * check (t32_mdns_sdiv etc.): ours returns what the MIPS core returns.
  */
 #ifndef TX_ISP_T32_MDNS_H
 #define TX_ISP_T32_MDNS_H
@@ -33,6 +37,39 @@
 #define T32_MDNS_CMP_WRITES	31
 /* cmp setup + func_en 3 + regs + start 2 + trigger + regs + trigger + enable */
 #define T32_MDNS_MAX_WRITES	(T32_MDNS_CMP_WRITES + 3 + T32_MDNS_REG_WRITES + 3 + T32_MDNS_REG_WRITES + 2)
+
+/*
+ * The vendor divides without a zero check.  The MIPS core returns, for a zero
+ * divisor, the quotient 1 (negative dividend) or -1 and the dividend as remainder
+ * (unsigned: -1 and the dividend); C would trap in the kernel.  INT_MIN / -1 gives
+ * INT_MIN with remainder 0.
+ */
+static inline int t32_mdns_sdiv(int a, int b)
+{
+	if (!b)
+		return a < 0 ? 1 : -1;
+	if (b == -1)
+		return (int)(0U - (u32)a);
+	return a / b;
+}
+
+static inline int t32_mdns_srem(int a, int b)
+{
+	if (!b)
+		return a;
+	if (b == -1)
+		return 0;
+	return a % b;
+}
+
+static inline u32 t32_mdns_udiv(u32 a, u32 b)
+{
+	return b ? a / b : 0xffffffffU;
+}
+
+#define T32_MDNS_SDIV(a, b)	t32_mdns_sdiv((int)(a), (int)(b))
+#define T32_MDNS_SREM(a, b)	t32_mdns_srem((int)(a), (int)(b))
+#define T32_MDNS_UDIV(a, b)	t32_mdns_udiv((u32)(a), (u32)(b))
 
 /* { kind (8: u8 -> u8, 16: u16 -> u16, 24: u8 -> u16), table offset in the section, offset in the value block } */
 static const u16 t32_mdns_map[1631][3] = {
@@ -366,7 +403,7 @@ static inline void t32_mdns_eq_dif(struct t32_mdns_eq *e, int p1, int p2, int p3
 		p2 = e->cutval + 1;
 	a = (unsigned int)(p4 - p3) * 0x2000;
 	a = (int)a < 0 ? -a : a;
-	d = (int)a / (p2 - e->cutval);
+	d = T32_MDNS_SDIV((int)a, p2 - e->cutval);
 	step = (0x100 - p1) / 7;
 	e->y[0] = p3;
 	for (k = 1; k < 8; k++)
@@ -400,7 +437,7 @@ static inline void t32_mdns_eq_smp15(struct t32_mdns_eq *e, int p1, int p2, int 
 		p2 = 0xf;
 	for (k = 0; k < 15; k++) {
 		if (p1 < k) {
-			v = (acc - p1 * d) / (p2 - p1) + p3;
+			v = T32_MDNS_SDIV(acc - p1 * d, p2 - p1) + p3;
 			e->grp[k] = (d > 0 ? v < p4 : p4 < v) ? v : p4;
 		} else {
 			e->grp[k] = p3;
@@ -462,16 +499,16 @@ static __attribute__((__noinline__)) void t32_mdns_regs(u8 *sec, const u8 *o, u3
 	T32_FWR(w, n, 0xd100,o[4]);
 	uVar31 = (u32)(u8)o[4];
 	iVar24 = (int)width;
-	iVar21 = (u8)o[5] * uVar31 + iVar24 % (int)uVar31;
+	iVar21 = (u8)o[5] * uVar31 + T32_MDNS_SREM(iVar24, (int)uVar31);
 	iVar23 = (int)height;
 	uVar32 = iVar24 - iVar21;
-	iVar20 = (u8)o[6] * uVar31 + iVar23 % (int)uVar31;
+	iVar20 = (u8)o[6] * uVar31 + T32_MDNS_SREM(iVar23, (int)uVar31);
 	iVar23 = iVar23 - iVar20;
 	T32_FWR(w, n, 0xd104,(iVar20 / 2 & 0xffU) << 8 | iVar21 / 2 & 0xffU);
 	T32_FWR(w, n, 0xd108,uVar32 & 0xffff | iVar23 * 0x10000);
-	T32_FWR(w, n, 0xd10c,(int)uVar32 / (int)uVar31 & 0xffffU | iVar23 / (int)uVar31 << 0x10);
+	T32_FWR(w, n, 0xd10c,T32_MDNS_SDIV((int)uVar32, (int)uVar31) & 0xffffU | T32_MDNS_SDIV(iVar23, (int)uVar31) << 0x10);
 	T32_FWR(w, n, 0xd110, ((u8)o[7] & 3) << 8 | ((u8)o[8] & 3) << 0x10 |
-			(uVar31 + 0x800) / (uVar31 << 1) & 0xff);
+			T32_MDNS_UDIV(uVar31 + 0x800, uVar31 << 1) & 0xff);
 	T32_FWR(w, n, 0xd114, (u32)(u8)o[3] << 0x18 | (u32)(u8)o[1] | ((u8)o[0x1b] & 1) << 0x17);
 	T32_FWR(w, n, 0xd118, (u32)(u8)o[0xd] << 0x18 | (u32)(u8)o[10] | ((u8)o[0xe] & 1) << 0x17);
 	T32_FWR(w, n, 0xd11c, (u32)(u8)o[0x19] << 0x18 | (u32)(u8)o[0x16] |
@@ -507,7 +544,7 @@ static __attribute__((__noinline__)) void t32_mdns_regs(u8 *sec, const u8 *o, u3
 			(uVar31 & 0xff) << 0x10);
 	T32_FWR(w, n, 0xd13c, ((u8)o[0x1e] & 0xf) << 0x10 | ((u8)o[0x1f] & 7) << 0x14 |
 			(u32)t32_tp_le16(o + 0x1c));
-	T32_FWR(w, n, 0xd140,o[0x18] << 4 | o[0xc] & 0xf);
+	T32_FWR(w, n, 0xd140, (o[0x18] & 0xfU) << 4 | (o[0xc] & 0xfU));
 	T32_FWR(w, n, 0xd144,o[2]);
 	T32_FWR(w, n, 0xd148,(u32)(u8)o[0x17] << 0x10 | (u32)(u8)o[0xb]);
 	T32_FWR(w, n, 0xd14c,(u32)(u8)o[0x49] << 0x10 | 0xff00);
@@ -792,9 +829,9 @@ static __attribute__((__noinline__)) void t32_mdns_regs(u8 *sec, const u8 *o, u3
 			(u32)(u8)o[0x78]);
 	T32_FWR(w, n, 0xd2a4,t32_front_le32(o + 0x7b));
 	T32_FWR(w, n, 0xd2a8, uVar27 << 8 | uVar32 |
-			(0x400 / (int)(uVar27 - uVar32) & 0xffU) << 0x10);
+			(T32_MDNS_SDIV(0x400, (int)(uVar27 - uVar32)) & 0xffU) << 0x10);
 	T32_FWR(w, n, 0xd2ac, uVar28 << 8 | uVar31 |
-			(0x400 / (int)(uVar28 - uVar31) & 0xffU) << 0x10);
+			(T32_MDNS_SDIV(0x400, (int)(uVar28 - uVar31)) & 0xffU) << 0x10);
 	T32_FWR(w, n, 0xd2b0,t32_front_le32(o + 0x83));
 	T32_FWR(w, n, 0xd364, ((u8)o[0x90] & 3) << 4 | ((u8)o[0x91] & 3) << 8 | (u8)o[0x8f] & 3 |
 			((u8)o[0x92] & 3) << 0xc);
@@ -1032,14 +1069,14 @@ static __attribute__((__noinline__)) void t32_mdns_regs(u8 *sec, const u8 *o, u3
 	if (uVar13 < 2) {
 		uVar33 = 0x2000;
 	} else {
-		uVar33 = (u16)(((uVar13 >> 1) + 0x2000) / (u32)uVar13);
+		uVar33 = (u16)(T32_MDNS_UDIV((uVar13 >> 1) + 0x2000, (u32)uVar13));
 	}
 	t32_tp_put16(sec + 0xb4, uVar33);
 	uVar13 = t32_tp_le16(o + 0x1e8);
 	if (uVar13 < 2) {
 		uVar33 = 0x2000;
 	} else {
-		uVar33 = (u16)(((uVar13 >> 1) + 0x2000) / (u32)uVar13);
+		uVar33 = (u16)(T32_MDNS_UDIV((uVar13 >> 1) + 0x2000, (u32)uVar13));
 	}
 	t32_tp_put16(sec + 0xb6, uVar33);
 	T32_FWR(w, n, 0xd66c, (t32_tp_le16(sec + 0xb6) & 0x3fff) << 0x10 |
@@ -1415,7 +1452,7 @@ static __attribute__((__noinline__)) void t32_mdns_regs(u8 *sec, const u8 *o, u3
 	T32_FWR(w, n, 0xd96c, (sec[0x2c86] & 0xf) << 8 | (sec[0x2c87] & 0xf) << 0xc |
 			(u32)(u8)o[0x42f] | (sec[0x2c88] & 0xf) << 0x10 |
 			(sec[0x2c89] & 0xf) << 0x14 | (sec[0x2c8a] & 0xf) << 0x18);
-	T32_FWR(w, n, 0xd970,((s8)sec[0x2c8c]) << 4 | sec[0x2c8b] & 0xf);
+	T32_FWR(w, n, 0xd970, (sec[0x2c8c] & 0xfU) << 4 | (sec[0x2c8b] & 0xfU));
 	T32_FWR(w, n, 0xd978, (u32)(u8)o[0x431] << 8 | (u32)(u8)o[0x432] << 0x10 |
 			(u32)(u8)o[0x430]);
 	T32_FWR(w, n, 0xd97c, (u32)(u8)o[0x434] << 8 | (u32)(u8)o[0x435] << 0x10 |
@@ -1443,14 +1480,14 @@ static __attribute__((__noinline__)) void t32_mdns_regs(u8 *sec, const u8 *o, u3
 	if (uVar13 < 2) {
 		uVar33 = 0x2000;
 	} else {
-		uVar33 = (u16)(((uVar13 >> 1) + 0x2000) / (u32)uVar13);
+		uVar33 = (u16)(T32_MDNS_UDIV((uVar13 >> 1) + 0x2000, (u32)uVar13));
 	}
 	t32_tp_put16(sec + 0x1ec0, uVar33);
 	uVar13 = t32_tp_le16(o + 0x44c);
 	if (uVar13 < 2) {
 		uVar33 = 0x2000;
 	} else {
-		uVar33 = (u16)(((uVar13 >> 1) + 0x2000) / (u32)uVar13);
+		uVar33 = (u16)(T32_MDNS_UDIV((uVar13 >> 1) + 0x2000, (u32)uVar13));
 	}
 	t32_tp_put16(sec + 0x1ec2, uVar33);
 	T32_FWR(w, n, 0xd9a8, (t32_tp_le16(sec + 0x1ec2) & 0x3fff) << 0x10 |
@@ -1896,8 +1933,8 @@ static inline void t32_mdns_cmp(u32 width, u32 height, u32 ratio_k, struct t32_f
 	u32 r30, r34, r3c, r40, r44, r48, r4c, r50, r54;
 	int bVar1;
 
-	r30 = (u32)((int)((0x5dc00 / uVar9) * iVar2 + 0x3f) / 0x40);
-	uVar5 = 0x2000 - (width * 16000) / uVar9;
+	r30 = (u32)((int)(T32_MDNS_UDIV(0x5dc00, uVar9) * iVar2 + 0x3f) / 0x40);
+	uVar5 = 0x2000 - T32_MDNS_UDIV(width * 16000, uVar9);
 	r34 = (height - 1) << 16 | (width - 1U);
 	if ((int)uVar5 < 0xc00) {
 		if (0x4b0 < uVar9) {
@@ -1910,8 +1947,8 @@ static inline void t32_mdns_cmp(u32 width, u32 height, u32 ratio_k, struct t32_f
 		if (!bVar1)
 			uVar8 = uVar5;
 	}
-	iVar10 = (int)(0x2000 - uVar8) / iVar2;
-	uVar5 = 0x5dc00 / uVar9 - iVar10;
+	iVar10 = T32_MDNS_SDIV((int)(0x2000 - uVar8), iVar2);
+	uVar5 = T32_MDNS_UDIV(0x5dc00, uVar9) - iVar10;
 	if ((int)uVar5 < 100)
 		uVar5 = 100;
 	uVar4 = (int)uVar5 < 0x181 ? uVar5 : 0x180;
@@ -1926,7 +1963,7 @@ static inline void t32_mdns_cmp(u32 width, u32 height, u32 ratio_k, struct t32_f
 	iVar10 = (0x2000 - uVar8) - iVar2 * iVar10;
 	if (iVar10 < 1)
 		iVar10 = 1;
-	uVar11 = (u32)(iVar2 / iVar10);
+	uVar11 = (u32)T32_MDNS_SDIV(iVar2, iVar10);
 	uVar5 = 0xff;
 	if ((int)uVar11 < 0xff) {
 		uVar5 = 1;
@@ -2005,6 +2042,547 @@ static inline int t32_mdns_init(u8 *sec, u32 width, u32 height, u32 memopt, u8 *
 	T32_FWR(w, n, 0xd014, 1);	/* tisp_mdns_reg_trig */
 	T32_FWR(w, n, 0xd084, 2);
 	return (int)n;
+}
+
+/*
+ * Per-frame paths: tisp_mdns_par_refresh / tisp_mdns_refresh /
+ * tisp_mdns_dn_params_refresh / tisp_mdns_wake_up (Matt Davis' recovered C,
+ * PR #15 @ 2e2e06bc).  The context is the vendor's per-channel block
+ * (t32_data_e22c8[ch]: +0 section, +8 last gain, +28 day/night word) plus the
+ * globals the functions read.
+ */
+struct t32_mdns_ctx {
+	u8 *sec;		/* ctx+0: section 16 (writable) */
+	u8 *val;		/* value block of the last tisp_mdns_intp */
+	u32 gain;		/* ctx+8: last accepted gain, -1 = none yet */
+	u32 dn_mode;		/* ctx+28: last day/night word */
+	u32 width, height;	/* frame size of tisp_mdns_init */
+	u32 memopt;		/* compression setting in 1/1000, > 1000 = on */
+	u8 hold_a;		/* t32_data_f0900[ch] */
+	u8 hold_b;		/* t32_data_e2150 */
+	u8 dn[5][44];		/* saved day/night tables, 11 bytes per channel */
+	u8 noref;		/* t32_data_dc074[ch] +11: 1 = no 0xd058 buffer (func_en) */
+};
+
+/* register values wake_up writes back (t32_data_e227c, e21d4, e226c, e2228, e21ec) */
+struct t32_mdns_shadow {
+	u32 a[15];
+	u32 b[6];
+	u32 c[4];
+	u32 d[17];
+	u32 e[15];
+};
+
+static inline int t32_mdns_cmp_on(const struct t32_mdns_ctx *c)
+{
+	return c->memopt > 1000;
+}
+
+/* tisp_mdns_intp at any gain (gain >> 16 = index, low 16 bits = fraction) */
+static inline void t32_mdns_intp_g(const u8 *sec, u8 *o, u32 gain)
+{
+	unsigned int k, a;
+	u32 gi = gain >> 16, gf = gain & 0xffff;
+
+	for (k = 0; k < T32_MDNS_VALUES; k++)
+		o[k] = 0;
+	for (k = 0; k < 1631; k++) {
+		if (t32_mdns_map[k][0] == 16)
+			t32_tp_put16(o + t32_mdns_map[k][2], t32_tp_intp_u16(gi, gf, sec + t32_mdns_map[k][1]));
+		else if (t32_mdns_map[k][0] == 24)
+			t32_tp_put16(o + t32_mdns_map[k][2], t32_tp_intp_u8(gi, gf, sec + t32_mdns_map[k][1]));
+		else
+			o[t32_mdns_map[k][2]] = t32_tp_intp_u8(gi, gf, sec + t32_mdns_map[k][1]);
+	}
+	for (a = 0x116; a <= 0x11c; a += 2)
+		t32_tp_put16(o + a, t32_mdns_widen(t32_tp_le16(o + a)));
+	for (a = 0x19a; a <= 0x1b6; a += 2)
+		if (t32_tp_le16(o + a) == 0xff)
+			t32_tp_put16(o + a, 0x100);
+	for (a = 0x3bc; a <= 0x3d8; a += 2)
+		if (t32_tp_le16(o + a) == 0xff)
+			t32_tp_put16(o + a, 0x100);
+}
+
+/* tisp_mdns_reg_trig */
+static inline void t32_mdns_reg_trig(struct t32_front_write *w, unsigned int *np)
+{
+	T32_FWR(w, *np, 0xd014, 1);
+}
+
+/* tisp_mdns_start */
+static inline void t32_mdns_start(struct t32_front_write *w, unsigned int *np)
+{
+	T32_FWR(w, *np, 0xd018, 1);
+	T32_FWR(w, *np, 0xd014, 1);
+}
+
+/* tisp_mdns_all_reg_refresh: intp, reg_cfg, trigger */
+static inline void t32_mdns_all_reg_refresh(struct t32_mdns_ctx *c, u32 gain,
+					    struct t32_front_write *w, unsigned int *np)
+{
+	t32_mdns_intp_g(c->sec, c->val, gain);
+	t32_mdns_regs(c->sec, c->val, c->width, c->height, w, np);
+	T32_FWR(w, *np, 0xd014, 1);
+}
+
+static inline void t32_mdns_par_refresh_impl(struct t32_mdns_ctx *c, u32 gain, u32 thr,
+					     struct t32_front_write *w, unsigned int *np)
+{
+	u32 old = c->gain, diff;
+
+	if (old == (u32)-1) {
+		c->gain = gain;
+		t32_mdns_func_en(c->sec, t32_mdns_cmp_on(c), w, np);
+		t32_mdns_all_reg_refresh(c, gain, w, np);
+		if (!c->hold_a || !c->hold_b)
+			t32_mdns_start(w, np);
+		else
+			T32_FWR(w, *np, 0xd018, 0);
+	} else {
+		diff = gain < old ? old - gain : gain - old;
+		if (diff < thr)
+			return;
+		c->gain = gain;
+		t32_mdns_all_reg_refresh(c, gain, w, np);
+	}
+	t32_mdns_reg_trig(w, np);
+}
+
+static inline int t32_mdns_par_refresh(struct t32_mdns_ctx *c, u32 gain, u32 thr,
+				       struct t32_front_write *w)
+{
+	unsigned int n = 0;
+
+	t32_mdns_par_refresh_impl(c, gain, thr, w, &n);
+	return (int)n;
+}
+
+static inline int t32_mdns_refresh(struct t32_mdns_ctx *c, u32 gain, struct t32_front_write *w)
+{
+	unsigned int n = 0;
+
+	t32_mdns_par_refresh_impl(c, gain, 256U, w, &n);
+	t32_mdns_all_reg_refresh(c, c->gain, w, &n);
+	return (int)n;
+}
+
+/* base: the tuning base (t32_data_dd0a4[ch]); the section is at +0x875c */
+static inline int t32_mdns_dn_params_refresh(struct t32_mdns_ctx *c, u8 ch, u8 *base, u32 flag,
+					     struct t32_front_write *w)
+{
+	static const u16 src[5] = { 0x13d, 0x1a0, 0x1e2, 0x494, 0x45d };
+	unsigned int n = 0, k, i;
+
+	c->sec = base + 0x875c;
+	t32_mdns_func_en(c->sec, t32_mdns_cmp_on(c), w, &n);
+	for (k = 0; k < 5; k++)
+		for (i = 0; i < 11; i++)
+			c->dn[k][ch * 11 + i] = c->sec[src[k] + i];
+	t32_mdns_all_reg_refresh(c, c->gain, w, &n);
+	t32_mdns_reg_trig(w, &n);
+	c->dn_mode = flag;
+	return (int)n;
+}
+
+/*
+ * Replays the saved registers, then func_en and cmp_reg_write, and ends with
+ * reg_cfg.  The vendor calls cmp_reg_write unconditionally; its result with
+ * the compression off is not known here, so that case is refused (-1).
+ */
+static inline int t32_mdns_wake_up(struct t32_mdns_ctx *c, const struct t32_mdns_shadow *sh,
+				   struct t32_front_write *w)
+{
+	static const u16 ra[15] = { 0xd02c, 0xd040, 0xd044, 0xd048, 0xd04c, 0xd050, 0xd054,
+				    0xd058, 0xd05c, 0xd080, 0xd084, 0xd088, 0xd08c, 0xd090, 0xdefc };
+	unsigned int n = 0, k;
+
+	if (!t32_mdns_cmp_on(c))
+		return -1;
+	for (k = 0; k < 15; k++)
+		T32_FWR(w, n, ra[k], sh->a[k]);
+	for (k = 0; k < 6; k++)
+		T32_FWR(w, n, 0xdf8c + 4 * k, sh->b[k]);
+	T32_FWR(w, n, 0xd018, 0);
+	t32_mdns_func_en(c->sec, 1, w, &n);
+	t32_mdns_cmp(c->width, c->height, c->memopt, w, &n);
+	for (k = 0; k < 4; k++)
+		T32_FWR(w, n, 0xd300 + 4 * k, sh->c[k]);
+	for (k = 0; k < 17; k++)
+		T32_FWR(w, n, 0xd318 + 4 * k, sh->d[k]);
+	for (k = 0; k < 15; k++)
+		T32_FWR(w, n, 0xdce0 + 4 * k, sh->e[k]);
+	t32_mdns_regs(c->sec, c->val, c->width, c->height, w, &n);
+	T32_FWR(w, n, 0xd014, 1);
+	return (int)n;
+}
+
+/*
+ * Control, memory and parameter paths of the MDNS block (Matt Davis'
+ * recovered C, PR #15 @ 2e2e06bc; checked by tests/t32_oracle t32_mdnsx_oracle):
+ * tisp_mdns_{buf_clc,wdr_en,get_mem_size,set_mem_cfg,malloc_cfg,deinit,
+ * dn_params_api,dn_params_api2,param_array_get,param_array_set,addr_alloc,
+ * addr_free,sleep}.  Direct register writes only (t32_data_d03a0 = 0).
+ */
+#define T32_MDNS_PART0_BYTES	7828U	/* param_array_get/set part 0: section +0 */
+#define T32_MDNS_PART1_BYTES	10424U	/* part 1: section +7828 */
+#define T32_MDNS_E_MEMOPT	0x80032002U	/* get_mem_size: setting above 2000 */
+#define T32_MDNS_ADDR_BASE	0x80000000U	/* uncached alias added to the buffer addresses */
+#define T32_MDNS_CTRL_BUSY	0x800U		/* module control bit of addr_alloc/free */
+
+/*
+ * Compression settings func_en is checked for (as t32_mdns_init accepts):
+ * <= 1000 off, 1100 .. 2000 in steps of 100 on.  For other values the
+ * vendor's func_en sets the 0xd024 mode field differently; set_mem_cfg (when
+ * it calls func_en) and param_array_set refuse them (-1, nothing changed).
+ */
+static inline int t32_mdns_memopt_ok(u32 memopt)
+{
+	return memopt <= 1000 || (memopt <= 2000 && !(memopt % 100));
+}
+
+/*
+ * tisp_mdns_func_en with the memory record flag (t32_data_dc074[ch] +11):
+ * flag 1 (no 0xd058 buffer) clears the 0xd024 mode field (bits 16..17).
+ */
+static inline void t32_mdns_func_en_mem(const u8 *sec, int cmp, u8 noref, struct t32_front_write *w,
+					unsigned int *np)
+{
+	unsigned int n = *np;
+	u32 a = sec[0x112], b = sec[0x113], c = sec[0x114], d = sec[0x115], e = sec[0x117];
+	u32 mode = noref == 1 ? 0 : (sec[0x116] & 3U);
+
+	T32_FWR(w, n, 0xd01c, sec[0x13a]);
+	T32_FWR(w, n, 0xd024, (a & 1) | (cmp ? 0x30000000U : 0x20000000U) | (b & 1) << 4 | (c & 1) << 8 |
+		(d & 1) << 12 | mode << 16 | (e & 0xf) << 20);
+	T32_FWR(w, n, 0xd014, 1);
+	*np = n;
+}
+
+/* tisp_mdns_buf_clc: the vendor function is empty */
+static inline int t32_mdns_buf_clc(void)
+{
+	return 0;
+}
+
+/* tisp_mdns_wdr_en: wdr = the vendor ctx field at +16 */
+static inline int t32_mdns_wdr_en(u32 *wdr, u32 en)
+{
+	*wdr = en;
+	return 0;
+}
+
+/* t32_data_dc074[ch]: 76 byte memory record of the channel */
+struct t32_mdns_mem {
+	u32 rsvd0, rsvd4;
+	u16 memopt;		/* +8: compression setting in 1/1000 */
+	u8 rsvd10;
+	u8 flag11;		/* +11: 1 = set_mem_cfg calls func_en */
+	u32 rsvd12;
+	u32 base;		/* +16: set by set_mem_cfg */
+	u32 rsvd20[3];
+	u32 size;		/* +32: set by get_mem_size */
+	u8 rsvd36[40];
+};
+
+/* tisp_mdns_get_mem_size: bytes of the block for width x height; pad_hi is the stack argument (byte) */
+static inline u32 t32_mdns_get_mem_size(struct t32_mdns_mem *m, u32 width, u32 height, u32 sel, u32 pad_hi)
+{
+	u32 w = width & 0xffff, h = height & 0xffff, cols = (w + 31) >> 5;
+	u32 total, a, b, cnt;
+
+	sel &= 0xff;
+	if (m->memopt <= 1000) {
+		a = (((w + 15) >> 4) << 4) * h;
+		b = (cols << 5) * h;
+		total = (((a >> 5) + a + 1023) >> 10) + (((b >> 1) + 1023 + (b >> 7)) >> 10);
+		total <<= 10;
+	} else if (m->memopt <= 2000) {
+		total = ((((((0x5dc00U / m->memopt) * (h * cols) + 63) >> 6) << 3) + 255) >> 8) + 2;
+		total <<= 8;
+	} else {
+		return T32_MDNS_E_MEMOPT;
+	}
+	cnt = (((w + 7) >> 3) + 11) / 12;
+	total += (((((cnt << 3) * h) >> 3) + 1023) >> 10) << 10;
+	if (sel != 1)
+		total += (((((cols << 4) * h) >> 1) + 1023) >> 10) << 10;
+	total = ((pad_hi & 0xff) << 20) + total + ((0x1000 - (total & 0xfff)) & 0xffff);
+	m->size = total;
+	return total;
+}
+
+/* set_mem_cfg: the expected values the vendor checks (t32_data_e4100) and the result */
+struct t32_mdns_memchk {
+	u32 exp_base, exp_end;	/* in */
+	u32 end;		/* out: end of the layout (aligned) */
+	int warn;		/* out: 0 ok, 1 base differs, 2 end differs (vendor printk) */
+};
+
+/* tisp_mdns_set_mem_cfg: the buffer addresses of the block starting at base */
+static inline int t32_mdns_set_mem_cfg(struct t32_mdns_mem *m, const u8 *sec, u32 width, u32 height, u32 base,
+				       u8 hold, struct t32_mdns_memchk *chk, struct t32_front_write *w)
+{
+	unsigned int n = 0;
+	u32 cols = (width + 31) >> 5, off, row, c32, c8, bytes;
+
+	if (m->flag11 == 1 && !t32_mdns_memopt_ok(m->memopt))
+		return -1;
+	m->base = base;
+	if (m->memopt <= 1000) {
+		row = ((width + 15) >> 4) << 4;
+		off = ((height * row + ((height * row) >> 5) + 1023) >> 10) << 10;
+		c32 = cols << 5;
+		bytes = ((((height * c32) >> 1) + 1023 + ((height * c32) >> 7)) >> 10) << 10;
+		T32_FWR(w, n, 0xd040, base);
+		T32_FWR(w, n, 0xd044, row);
+		T32_FWR(w, n, 0xd048, base + off);
+		T32_FWR(w, n, 0xd04c, c32);
+		off += bytes;
+	} else {
+		off = (height * cols) * (0x5dc00U / m->memopt);
+		T32_FWR(w, n, 0xd040, base);
+		off = ((((((off + 63) >> 6) << 3) + 255) >> 8) + 2) << 8;
+		T32_FWR(w, n, 0xd080, off >> 8);
+	}
+	c8 = ((((width + 7) >> 3) + 11) / 12) << 3;
+	T32_FWR(w, n, 0xd050, base + off);
+	T32_FWR(w, n, 0xd054, c8);
+	off += ((((height * c8) >> 3) + 1023) >> 10) << 10;
+	if (m->flag11 == 1) {
+		t32_mdns_func_en_mem(sec, m->memopt > 1000, m->flag11, w, &n);
+	} else {
+		u32 c16 = cols << 4;
+
+		T32_FWR(w, n, 0xd058, base + off);
+		T32_FWR(w, n, 0xd05c, c16);
+		off += ((((height * c16) >> 1) + 1023) >> 10) << 10;
+	}
+	chk->warn = 0;
+	if (hold == 1) {
+		if (base != chk->exp_base) {
+			chk->warn = 1;
+		} else {
+			off += (0x1000 - (off & 0xfff)) & 0xffff;
+			if (off != chk->exp_end)
+				chk->warn = 2;
+		}
+	}
+	chk->end = off;
+	return (int)n;
+}
+
+/* t32_data_e22b8[ch]: 20 byte descriptor of the buffers (32 bit addresses) */
+struct t32_mdns_bufs {
+	u32 addr[5];		/* +0 first block, +12 and +16 used by malloc_cfg */
+};
+
+/*
+ * tisp_mdns_malloc_cfg: allocate the buffers (vendor kmalloc flags 0x2400c0,
+ * zeroed here) and point the block at them.  ctx_words = ctx +48.
+ */
+static inline int t32_mdns_malloc_cfg(struct t32_mdns_bufs **slot, u32 ctx_words, u32 width, u32 height,
+				      void *(*alloc)(u32 size), struct t32_front_write *w)
+{
+	struct t32_mdns_bufs *b = alloc(sizeof(*b));
+	unsigned int n = 0;
+	u32 y, c16, c32, sz;
+
+	if (!b)
+		return -1;
+	memset(b, 0, sizeof(*b));
+	*slot = b;
+	y = ((((ctx_words << 3) + 255) >> 8) + 2) << 8;
+	b->addr[0] = (u32)(unsigned long)alloc(y);
+	T32_FWR(w, n, 0xd040, b->addr[0] + T32_MDNS_ADDR_BASE);
+	T32_FWR(w, n, 0xd080, y >> 8);
+	c16 = (u32)T32_MDNS_SDIV(T32_MDNS_SDIV(width + 7, 8) + 15, 16) << 4;
+	sz = ((((c16 * height) >> 2) + 1023) >> 10) << 10;
+	b->addr[3] = (u32)(unsigned long)alloc(sz);
+	T32_FWR(w, n, 0xd050, b->addr[3] + T32_MDNS_ADDR_BASE);
+	T32_FWR(w, n, 0xd054, c16);
+	c32 = (u32)T32_MDNS_SDIV(width + 31, 32) << 5;
+	sz = ((((height * c32) >> 1) + 1023) >> 10) << 10;
+	b->addr[4] = (u32)(unsigned long)alloc(sz);
+	T32_FWR(w, n, 0xd058, b->addr[4] + T32_MDNS_ADDR_BASE);
+	T32_FWR(w, n, 0xd05c, c32);
+	return (int)n;
+}
+
+/* tisp_mdns_deinit: free the value block and the context, then the buffers and their descriptor */
+static inline int t32_mdns_deinit(struct t32_mdns_ctx **ctx_slot, struct t32_mdns_bufs **bufs_slot,
+				  void (*vfree)(void *p), void (*kfree)(void *p))
+{
+	struct t32_mdns_ctx *c = *ctx_slot;
+	struct t32_mdns_bufs *b;
+	unsigned int k;
+
+	if (c) {
+		if (c->val) {
+			vfree(c->val);
+			c->val = NULL;
+		}
+		kfree(c);
+		*ctx_slot = NULL;
+	}
+	b = *bufs_slot;
+	if (b) {
+		for (k = 0; k < 5; k++) {
+			if (b->addr[k]) {
+				kfree((void *)(unsigned long)b->addr[k]);
+				b->addr[k] = 0;
+			}
+		}
+		kfree(b);
+		*bufs_slot = NULL;
+	}
+	return 0;
+}
+
+/* tisp_mdns_dn_params_api: the 0xd234 word from the value block and the section */
+static inline int t32_mdns_dn_params_api(const u8 *sec, const u8 *val, struct t32_front_write *w)
+{
+	unsigned int n = 0;
+
+	T32_FWR(w, n, 0xd234, (u32)val[0x67] << 8 | (u32)sec[0x34d] << 16 | val[0x66] | (u32)val[0x87] << 24);
+	return (int)n;
+}
+
+/* tisp_mdns_dn_params_api2: the same word without the 0x66 byte and the 0x67 byte */
+static inline int t32_mdns_dn_params_api2(const u8 *sec, const u8 *val, struct t32_front_write *w)
+{
+	unsigned int n = 0;
+
+	T32_FWR(w, n, 0xd234, (u32)sec[0x34d] << 16 | (u32)val[0x87] << 24);
+	return (int)n;
+}
+
+/* tisp_mdns_param_array_get: part 0 / 1 of the section; another part copies nothing */
+static inline int t32_mdns_param_array_get(const u8 *sec, u32 part, u8 *dst, u32 *len)
+{
+	if (part == 0) {
+		memcpy(dst, sec, T32_MDNS_PART0_BYTES);
+		*len = T32_MDNS_PART0_BYTES;
+	} else if (part == 1) {
+		memcpy(dst, sec + T32_MDNS_PART0_BYTES, T32_MDNS_PART1_BYTES);
+		*len = T32_MDNS_PART1_BYTES;
+	}
+	return 0;
+}
+
+/*
+ * tisp_mdns_param_array_set: replace a part of the section, with the day/night
+ * word dn == 1 write the two 0x140xx words (0x13a mode 64/65/130/131 selects
+ * 0x7fff80), then func_en, all_reg_refresh at the stored gain, start.
+ */
+static inline int t32_mdns_param_array_set(struct t32_mdns_ctx *c, u32 part, const u8 *buf, int dn,
+					   struct t32_front_write *w)
+{
+	unsigned int n = 0;
+	u32 mode;
+
+	if (!t32_mdns_memopt_ok(c->memopt))
+		return -1;
+	if (part == 0)
+		memcpy(c->sec, buf, T32_MDNS_PART0_BYTES);
+	else if (part == 1)
+		memcpy(c->sec + T32_MDNS_PART0_BYTES, buf, T32_MDNS_PART1_BYTES);
+	if (dn == 1) {
+		mode = c->sec[0x13a];
+		T32_FWR(w, n, 0x14054, (mode == 64 || mode == 65 || mode == 130 || mode == 131) ? 0x7fff80U : 0);
+		T32_FWR(w, n, 0x14010, 0xffffffffU);
+	}
+	t32_mdns_func_en_mem(c->sec, t32_mdns_cmp_on(c), c->noref, w, &n);
+	t32_mdns_all_reg_refresh(c, c->gain, w, &n);
+	t32_mdns_start(w, &n);
+	return (int)n;
+}
+
+/* kernel services of addr_alloc / addr_free (channel mutex, system register, module control) */
+struct t32_mdns_ops {
+	void (*lock)(u8 ch);
+	void (*unlock)(u8 ch);
+	u32 (*reg_read)(u32 reg);
+	u32 (*get_ctrl)(u8 ch);
+	void (*set_ctrl)(u8 ch, u32 ctrl);
+};
+
+/* tisp_mdns_addr_alloc: hand out the block the register points at; sets the busy bit */
+static inline int t32_mdns_addr_alloc(const struct t32_mdns_ops *ops, u8 ch, u32 *addr, u32 *size)
+{
+	u32 reg, ctrl;
+	int err;
+
+	ops->lock(ch);
+	reg = ops->reg_read(ch ? 983 : 0xd040);
+	ctrl = ops->get_ctrl(ch);
+	if (!reg) {
+		err = -6;
+	} else if (ctrl & T32_MDNS_CTRL_BUSY) {
+		err = -16;
+	} else {
+		ops->set_ctrl(ch, ctrl | T32_MDNS_CTRL_BUSY);
+		*(volatile u32 *)(unsigned long)(reg + T32_MDNS_ADDR_BASE) = 0xffffffffU;
+		*size = reg + 32;
+		*addr = reg + T32_MDNS_ADDR_BASE + 32;
+		ops->unlock(ch);
+		return 0;
+	}
+	*addr = 0;
+	*size = 0;
+	ops->unlock(ch);
+	return err;
+}
+
+/* tisp_mdns_addr_free: the block must carry the -1 marker; clears it and the busy bit */
+static inline int t32_mdns_addr_free(const struct t32_mdns_ops *ops, u8 ch)
+{
+	volatile u32 *p;
+	u32 reg, ctrl;
+	int err;
+
+	ops->lock(ch);
+	reg = ops->reg_read(ch ? 983 : 0xd040);
+	ctrl = ops->get_ctrl(ch);
+	if (!reg) {
+		err = -6;
+	} else {
+		p = (volatile u32 *)(unsigned long)(reg + T32_MDNS_ADDR_BASE);
+		err = *p == 0xffffffffU ? 0 : -16;
+		*p = 0;
+		ops->set_ctrl(ch, ctrl & ~T32_MDNS_CTRL_BUSY);
+	}
+	ops->unlock(ch);
+	return err;
+}
+
+/* register k (0..14) of the first group tisp_mdns_sleep saves */
+static inline u32 t32_mdns_sleep_reg(unsigned int k)
+{
+	if (k == 0)
+		return 0xd02c;
+	if (k < 9)
+		return 0xd040 + 4 * (k - 1);
+	if (k < 14)
+		return 0xd080 + 4 * (k - 9);
+	return 0xdefc;
+}
+
+/* tisp_mdns_sleep: save the registers wake_up writes back (struct t32_mdns_shadow) */
+static inline void t32_mdns_sleep(struct t32_mdns_shadow *sh, u32 (*rd)(u32 reg))
+{
+	unsigned int k;
+
+	for (k = 0; k < 15; k++)
+		sh->a[k] = rd(t32_mdns_sleep_reg(k));
+	for (k = 0; k < 6; k++)
+		sh->b[k] = rd(0xdf8cU + 4 * k);
+	for (k = 0; k < 4; k++)
+		sh->c[k] = rd(0xd300U + 4 * k);
+	for (k = 0; k < 17; k++)
+		sh->d[k] = rd(0xd318U + 4 * k);
+	for (k = 0; k < 15; k++)
+		sh->e[k] = rd(0xdce0U + 4 * k);
 }
 
 #endif /* TX_ISP_T32_MDNS_H */

@@ -13,6 +13,9 @@
  * the vendor's flow; the tables come from the bin.  "wide" selects the extra
  * 0x29144.. words of the short exposure (the vendor tests the ISP top
  * format register, bit field above 4).
+ *
+ * Checked bit-exact against the vendor flow (Matt Davis' recovered C, PR #15)
+ * by tests/t32_oracle (t32_dpc_oracle, t32_dpcf_oracle).
  */
 #ifndef TX_ISP_T32_DPC_H
 #define TX_ISP_T32_DPC_H
@@ -498,6 +501,209 @@ static inline int t32_dpc_init(const u8 *sec, int wide, struct t32_front_write *
 	t32_dpc_other(sec, wide, w, &n);
 	T32_FWR(w, n, 0x2000, T32_DPC_ID);
 	return (int)n;
+}
+
+/*
+ * Per-frame path: tisp_dpc_dn_params_refresh re-reads section 5, interpolates
+ * the 106 point tables at the fixed point gain and runs the three register
+ * functions; tisp_dpc_wake_up replays the value block without interpolating.
+ * The vendor keeps the section pointer, the gain, the value of the refresh
+ * and the 0xb4 byte value block in its context; those are the fields here.
+ */
+struct t32_dpc_ctx {
+	u8 *sec;		/* IQ bin section 5 (vendor ctx +0) */
+	u8 *o;			/* interpolated value block, T32_DPC_VALUES bytes (+4) */
+	u32 rsvd0;		/* +8, not touched here */
+	u32 gain;		/* fixed point gain index of the long exposure tables (+12) */
+	u32 gain1;		/* the same for the short exposure tables (+16) */
+	u32 arg;		/* stored by tisp_dpc_write_reg (+20) */
+	u8 wdr;			/* WDR enable byte, tisp_dpc_wdr_en (+8) */
+	u8 wide;		/* +9: vendor tisp_dpc_write_reg_other writes the extra words when set */
+	u8 tbl[88];		/* four 11 point u16 tables read by tisp_dpc_gain_interp (+24) */
+};
+
+/* tisp_dpc_gain_interp: sel 0 the long exposure tables, sel 1 the short ones */
+static inline void t32_dpc_gain_interp(struct t32_dpc_ctx *ctx, int sel)
+{
+	u32 g = sel ? ctx->gain1 : ctx->gain;
+	u32 ip = g >> 16, fp = g & 0xffff;
+	unsigned int k = sel ? 53 : 0, last = sel ? 106 : 53;
+
+	for (; k < last; k++) {
+		const u8 *src = ctx->sec + t32_dpc_map[k][1];
+
+		/* the vendor reads these four tables from its context, not from the section */
+		if (k == 0)
+			src = ctx->tbl;
+		else if (k == 13)
+			src = ctx->tbl + 22;
+		else if (k == 1)
+			src = ctx->tbl + 44;
+		else if (k == 14)
+			src = ctx->tbl + 66;
+		if (t32_dpc_map[k][0] == 16)
+			t32_tp_put16(ctx->o + t32_dpc_map[k][2],
+				     t32_tp_intp_u16(ip, fp, src));
+		else
+			ctx->o[t32_dpc_map[k][2]] =
+				t32_tp_intp_u8(ip, fp, src);
+	}
+}
+
+/* tisp_dpc_write_reg: the long, the short and the "other" register function from the value block */
+static inline void t32_dpc_write_reg(struct t32_dpc_ctx *ctx, int wide,
+				     struct t32_front_write *w, unsigned int *n)
+{
+	t32_dpc_long(ctx->sec, ctx->o, w, n);
+	t32_dpc_short(ctx->sec, ctx->o, w, n);
+	t32_dpc_other(ctx->sec, wide, w, n);
+}
+
+/*
+ * tisp_dpc_dn_params_refresh: section 5 of the tuning base, the gain
+ * interpolation of both halves, tisp_dpc_write_reg (= the long, the short and
+ * the "other" register function); the vendor stores its second argument in the
+ * context.  wide is the ISP top format test of t32_dpc_other (see above), read
+ * once by the caller.
+ */
+static inline int t32_dpc_dn_params_refresh(struct t32_dpc_ctx *ctx, u8 ch,
+					    u8 *tuning_base, int wide, u32 arg,
+					    struct t32_front_write *w)
+{
+	unsigned int n = 0;
+
+	(void)ch;
+	ctx->sec = tuning_base + 0x59c0;
+	memcpy(ctx->tbl, ctx->sec + 6, 22);
+	memcpy(ctx->tbl + 22, ctx->sec + 270, 22);
+	memcpy(ctx->tbl + 44, ctx->sec + 28, 22);
+	memcpy(ctx->tbl + 66, ctx->sec + 292, 22);
+	t32_dpc_gain_interp(ctx, 0);
+	t32_dpc_gain_interp(ctx, 1);
+	t32_dpc_write_reg(ctx, wide, w, &n);
+	ctx->arg = arg;
+	return (int)n;
+}
+
+/*
+ * tisp_dpc_wake_up: the value block as it is.  The vendor's copy of the
+ * "other" register function never writes the extra 0x2144.. / 0x29144.. words
+ * on this path (they belong to the long-exposure refresh), so only the base
+ * set goes out here.
+ */
+static inline int t32_dpc_wake_up(struct t32_dpc_ctx *ctx, u8 ch,
+				  struct t32_front_write *w)
+{
+	unsigned int n = 0;
+
+	(void)ch;
+	t32_dpc_long(ctx->sec, ctx->o, w, &n);
+	t32_dpc_short(ctx->sec, ctx->o, w, &n);
+	t32_dpc_other(ctx->sec, 0, w, &n);
+	return (int)n;
+}
+
+/*
+ * tisp_dpc_l_gain_update: store the gain in the long exposure slot, interpolate
+ * the long exposure tables and write the long register set.
+ */
+static inline int t32_dpc_l_gain_update(struct t32_dpc_ctx *ctx, u8 ch, u32 gain,
+					struct t32_front_write *w)
+{
+	unsigned int n = 0;
+
+	(void)ch;
+	ctx->gain = gain;
+	t32_dpc_gain_interp(ctx, 0);
+	t32_dpc_long(ctx->sec, ctx->o, w, &n);
+	return (int)n;
+}
+
+/*
+ * tisp_dpc_s_gain_update: store the gain in the short exposure slot,
+ * interpolate the short exposure tables and write the short register set.
+ */
+static inline int t32_dpc_s_gain_update(struct t32_dpc_ctx *ctx, u8 ch, u32 gain,
+					struct t32_front_write *w)
+{
+	unsigned int n = 0;
+
+	(void)ch;
+	ctx->gain1 = gain;
+	t32_dpc_gain_interp(ctx, 1);
+	t32_dpc_short(ctx->sec, ctx->o, w, &n);
+	return (int)n;
+}
+
+/*
+ * tisp_dpc_wdr_en: store the WDR enable byte, interpolate the long exposure
+ * tables and write the long register set; when the enable is 1 also
+ * interpolate the short exposure tables and write the short register set;
+ * then the "other" register set (without the extra wide words).
+ */
+static inline int t32_dpc_wdr_en(struct t32_dpc_ctx *ctx, u8 ch, u8 en,
+				 struct t32_front_write *w)
+{
+	unsigned int n = 0;
+
+	(void)ch;
+	ctx->wdr = en;
+	t32_dpc_gain_interp(ctx, 0);
+	t32_dpc_long(ctx->sec, ctx->o, w, &n);
+	if (en == 1) {
+		t32_dpc_gain_interp(ctx, 1);
+		t32_dpc_short(ctx->sec, ctx->o, w, &n);
+	}
+	t32_dpc_other(ctx->sec, ctx->wide, w, &n);
+	return (int)n;
+}
+
+/*
+ * Parameter accessors (tisp_dpc_param_array_get / _set / _deinit).  The vendor
+ * indexes the context array t32_data_e35f0 by channel; the port takes the
+ * context (or its slot) directly.
+ */
+
+/* tisp_dpc_param_array_get: the section is copied out whole */
+static inline int t32_dpc_param_array_get(const struct t32_dpc_ctx *ctx, u8 *buf, u32 *len)
+{
+	memcpy(buf, ctx->sec, T32_DPC_SEC_BYTES);
+	*len = T32_DPC_SEC_BYTES;
+	return 0;
+}
+
+/*
+ * tisp_dpc_param_array_set: replace the section, interpolate both halves at the
+ * stored gain and write the registers (tisp_dpc_write_reg); the saved argument stays.
+ * wide: see t32_dpc_dn_params_refresh.
+ */
+static inline int t32_dpc_param_array_set(struct t32_dpc_ctx *ctx, const u8 *buf, int wide,
+					  struct t32_front_write *w)
+{
+	unsigned int n = 0;
+
+	memcpy(ctx->sec, buf, T32_DPC_SEC_BYTES);
+	t32_dpc_gain_interp(ctx, 0);
+	t32_dpc_gain_interp(ctx, 1);
+	t32_dpc_write_reg(ctx, wide, w, &n);
+	return (int)n;
+}
+
+/*
+ * tisp_dpc_deinit: free the value block (if any, the pointer stays) and the
+ * context, clear the slot.
+ */
+static inline int t32_dpc_deinit(void (*kfree)(void *p), struct t32_dpc_ctx **slot)
+{
+	struct t32_dpc_ctx *ctx = *slot;
+
+	if (ctx) {
+		if (ctx->o)
+			kfree(ctx->o);
+		kfree(*slot);
+		*slot = NULL;
+	}
+	return 0;
 }
 
 #endif /* TX_ISP_T32_DPC_H */
