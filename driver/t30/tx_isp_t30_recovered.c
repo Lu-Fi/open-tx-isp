@@ -9155,9 +9155,9 @@ int32_t csi_set_on_lanes(void *arg1, int32_t arg2)
 
     ((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))isp_printf)((uintptr_t)(0), (uintptr_t)("%s:----------> lane num: %d\n"), (uintptr_t)("csi_set_on_lanes"), (uintptr_t)(arg2));
     ptr = *(uint32_t **)((char *)arg1 + 0xb8);
-    val = *(uint32_t *)((char *)ptr + 4);
+    val = readl((void __iomem *)((char *)ptr + 4));
     val = (val & 0xfffffffc) | ((arg2 - 1) & 3);
-    *(uint32_t *)((char *)ptr + 4) = val;
+    writel(val, (void __iomem *)((char *)ptr + 4));
     return 0;
 }
 
@@ -9236,10 +9236,10 @@ csi_core_ops_init0x30:
     v1 = *(uint32_t *)((char *)s0 + 184);
     a0 = -2;
     s1 = (uintptr_t *)&__udelay;
-    v0 = *(uint32_t *)((char *)v1 + 8);
+    v0 = readl((void __iomem *)((char *)v1 + 8));
     s2 = 10;
     v0 = (uintptr_t)v0 & a0;
-    *(uint32_t *)((char *)v1 + 8) = v0;
+    writel(v0, (void __iomem *)((char *)v1 + 8));
     s1 = s1;
     a0 = 1000;
 
@@ -9254,45 +9254,45 @@ csi_core_ops_init0xbc:
 
     /* fragment 18: CallSetup */
     s3 = -2;
-    *(uint32_t *)((char *)(*(uint32_t *)((char *)((uintptr_t)s0) + 184)) + 8) = (*(uint32_t *)((char *)(*(uint32_t *)((char *)((uintptr_t)s0) + 184)) + 8) | 1);
-    *(uint32_t *)((char *)(*(uint32_t *)((char *)((uintptr_t)s0) + 184)) + 12) = ((*(uint32_t *)((char *)(*(uint32_t *)((char *)((uintptr_t)s0) + 184)) + 12)) & (uintptr_t)s3);
+    writel((readl((void __iomem *)((char *)(*(uint32_t *)((char *)((uintptr_t)s0) + 184)) + 8)) | 1), (void __iomem *)((char *)(*(uint32_t *)((char *)((uintptr_t)s0) + 184)) + 8));
+    writel(((readl((void __iomem *)((char *)(*(uint32_t *)((char *)((uintptr_t)s0) + 184)) + 12))) & (uintptr_t)s3), (void __iomem *)((char *)(*(uint32_t *)((char *)((uintptr_t)s0) + 184)) + 12));
     msleep(10); /* jalr target resolved by relocation */
 
     /* fragment 19: MemoryAccess */
     v1 = *(uint32_t *)((char *)s0 + 184);
-    v0 = *(uint32_t *)((char *)v1 + 12);
+    v0 = readl((void __iomem *)((char *)v1 + 12));
     v0 = (uintptr_t)v0 | 1;
-    *(uint32_t *)((char *)v1 + 12) = v0;
+    writel(v0, (void __iomem *)((char *)v1 + 12));
     v1 = *(uint32_t *)((char *)s0 + 184);
-    v0 = *(uint32_t *)((char *)v1 + 48);
+    v0 = readl((void __iomem *)((char *)v1 + 48));
     v0 = (uintptr_t)v0 & (uintptr_t)s3;
-    *(uint32_t *)((char *)v1 + 48) = v0;
+    writel(v0, (void __iomem *)((char *)v1 + 48));
     v0 = *(uint32_t *)((char *)s0 + 184);
     v1 = 4294836224;
     v1 = v1 | 65535;
-    *(uint32_t *)((char *)v0 + 52) = 0;
+    writel(0, (void __iomem *)((char *)v0 + 52));
     a0 = *(uint32_t *)((char *)s0 + 184);
-    v0 = *(uint32_t *)((char *)a0 + 52);
+    v0 = readl((void __iomem *)((char *)a0 + 52));
     v0 = (uintptr_t)v0 & v1;
-    *(uint32_t *)((char *)a0 + 52) = v0;
+    writel(v0, (void __iomem *)((char *)a0 + 52));
     v1 = *(uint32_t *)((char *)s0 + 184);
     a0 = -3;
-    v0 = *(uint32_t *)((char *)v1 + 48);
+    v0 = readl((void __iomem *)((char *)v1 + 48));
     v0 = (uintptr_t)v0 & a0;
-    *(uint32_t *)((char *)v1 + 48) = v0;
+    writel(v0, (void __iomem *)((char *)v1 + 48));
     v0 = *(uint32_t *)((char *)s0 + 312);
     v1 = 125;
     a0 = 10;
-    *(uint32_t *)((char *)v0 + 0) = v1;
+    writel(v1, (void __iomem *)((char *)v0 + 0));
     v1 = *(uint32_t *)((char *)s0 + 312);
     v0 = 63;
-    *(uint32_t *)((char *)v1 + 296) = v0;
+    writel(v0, (void __iomem *)((char *)v1 + 296));
     v1 = *(uint32_t *)((char *)s0 + 312);
-    *(uint32_t *)((char *)v1 + 128) = v0;
+    writel(v0, (void __iomem *)((char *)v1 + 128));
 
     /* fragment 20: CallSetup */
-    *(uint32_t *)((char *)(*(uint32_t *)((char *)(s0) + 312)) + 768) = 30;
-    *(uint32_t *)((char *)(*(uint32_t *)((char *)(s0) + 312)) + 128) = 31;
+    writel(30, (void __iomem *)((char *)(*(uint32_t *)((char *)(s0) + 312)) + 768));
+    writel(31, (void __iomem *)((char *)(*(uint32_t *)((char *)(s0) + 312)) + 128));
     msleep(a0); /* jalr target resolved by relocation */
 
     /* fragment 21: MemoryAccess */
@@ -9306,9 +9306,9 @@ csi_core_ops_init0xbc:
     if (_bc_v1_22) { goto csi_core_ops_init0x1d4; }
 
     /* fragment 23: CallSetup */
-    *(uint32_t *)((char *)(*(uint32_t *)((char *)(s0) + 312)) + 256) = v0;
-    *(uint32_t *)((char *)(*(uint32_t *)((char *)(s0) + 312)) + 384) = v0;
-    *(uint32_t *)((char *)(*(uint32_t *)((char *)(s0) + 312)) + 512) = v0;
+    writel(v0, (void __iomem *)((char *)(*(uint32_t *)((char *)(s0) + 312)) + 256));
+    writel(v0, (void __iomem *)((char *)(*(uint32_t *)((char *)(s0) + 312)) + 384));
+    writel(v0, (void __iomem *)((char *)(*(uint32_t *)((char *)(s0) + 312)) + 512));
     msleep(10); /* jalr target resolved by relocation */
 
 csi_core_ops_init0x1d4:
@@ -9316,9 +9316,9 @@ csi_core_ops_init0x1d4:
     v1 = *(uint32_t *)((char *)s0 + 184);
     a0 = -2;
     s2 = 10;
-    v0 = *(uint32_t *)((char *)v1 + 16);
+    v0 = readl((void __iomem *)((char *)v1 + 16));
     v0 = (uintptr_t)v0 & a0;
-    *(uint32_t *)((char *)v1 + 16) = v0;
+    writel(v0, (void __iomem *)((char *)v1 + 16));
     a0 = 1000;
 
 csi_core_ops_init0x1f0:
@@ -9333,9 +9333,9 @@ csi_core_ops_init0x1f0:
     /* fragment 27: CallSetup */
     v1 = *(uint32_t *)((char *)s0 + 184);
     s2 = 10;
-    v0 = *(uint32_t *)((char *)v1 + 16);
+    v0 = readl((void __iomem *)((char *)v1 + 16));
     v0 = (uintptr_t)v0 | 1;
-    *(uint32_t *)((char *)v1 + 16) = v0;
+    writel(v0, (void __iomem *)((char *)v1 + 16));
     a0 = 1000;
 
 csi_core_ops_init0x218:
@@ -9368,19 +9368,19 @@ csi_core_ops_init0x238:
 
     /* fragment 35: MemoryAccess */
     v1 = *(uint32_t *)((char *)s0 + 184);
-    *(uint32_t *)((char *)v1 + 12) = 0;
+    writel(0, (void __iomem *)((char *)v1 + 12));
     v1 = *(uint32_t *)((char *)s0 + 184);
-    *(uint32_t *)((char *)v1 + 12) = v0;
+    writel(v0, (void __iomem *)((char *)v1 + 12));
     v1 = *(uint32_t *)((char *)s0 + 312);
-    *(uint32_t *)((char *)v1 + 0) = a0;
+    writel(a0, (void __iomem *)((char *)v1 + 0));
     v1 = *(uint32_t *)((char *)s0 + 312);
     a0 = 62;
-    *(uint32_t *)((char *)v1 + 128) = a0;
+    writel(a0, (void __iomem *)((char *)v1 + 128));
     v1 = *(uint32_t *)((char *)s0 + 312);
     a0 = 30;
-    *(uint32_t *)((char *)v1 + 768) = a0;
+    writel(a0, (void __iomem *)((char *)v1 + 768));
     v1 = *(uint32_t *)((char *)s0 + 312);
-    *(uint32_t *)((char *)v1 + 716) = v0;
+    writel(v0, (void __iomem *)((char *)v1 + 716));
 
     /* fragment 36: Branch */
     v0 = 3;
@@ -9398,17 +9398,17 @@ csi_core_ops_init0x2a4:
     /* fragment 39: MemoryAccess */
     a1 = *(uint32_t *)((char *)s0 + 184);
     a0 = -2;
-    v1 = *(uint32_t *)((char *)a1 + 8);
+    v1 = readl((void __iomem *)((char *)a1 + 8));
     v1 = v1 & a0;
-    *(uint32_t *)((char *)a1 + 8) = v1;
+    writel(v1, (void __iomem *)((char *)a1 + 8));
     a1 = *(uint32_t *)((char *)s0 + 184);
-    v1 = *(uint32_t *)((char *)a1 + 12);
+    v1 = readl((void __iomem *)((char *)a1 + 12));
     v1 = v1 & a0;
-    *(uint32_t *)((char *)a1 + 12) = v1;
+    writel(v1, (void __iomem *)((char *)a1 + 12));
     a1 = *(uint32_t *)((char *)s0 + 184);
-    v1 = *(uint32_t *)((char *)a1 + 16);
+    v1 = readl((void __iomem *)((char *)a1 + 16));
     v1 = v1 & a0;
-    *(uint32_t *)((char *)a1 + 16) = v1;
+    writel(v1, (void __iomem *)((char *)a1 + 16));
     v1 = 2;
 
     /* fragment 40: Branch */
@@ -11147,11 +11147,11 @@ apical_isp_core_ops_g_ctrl0xb6c:
     /* fragment 226: MemoryAccess */
     v0 = *(uint32_t *)((char *)s2 + 184);
     s3 = 46;
-    s0 = *(uint16_t *)((char *)v0 + 4);
-    s6 = *(uint16_t *)((char *)v0 + 6);
+    s0 = readw((void __iomem *)((char *)v0 + 4));
+    s6 = readw((void __iomem *)((char *)v0 + 6));
 
     /* fragment 227: Branch */
-    s5 = *(uint16_t *)((char *)(v0) + 8);
+    s5 = readw((void __iomem *)((char *)(v0) + 8));
     goto apical_isp_core_ops_g_ctrl0xad0;
 
 apical_isp_core_ops_g_ctrl0xb84:
@@ -19944,22 +19944,22 @@ ncu_pad_event_handle0x2a4:
     /* fragment 59: MemoryAccess */
     v0 = *(uint32_t *)((char *)s0 + 184);
     v1 = *(uint32_t *)((char *)s0 + 296);
-    *(uint32_t *)((char *)v0 + 52) = v1;
+    writel(v1, (void __iomem *)((char *)v0 + 52));
     v0 = *(uint32_t *)((char *)s0 + 184);
     v1 = *(uint32_t *)((char *)s0 + 296);
-    *(uint32_t *)((char *)v0 + 68) = v1;
+    writel(v1, (void __iomem *)((char *)v0 + 68));
     v0 = *(uint32_t *)((char *)s0 + 184);
     v1 = *(uint32_t *)((char *)s0 + 296);
-    *(uint32_t *)((char *)v0 + 60) = v1;
+    writel(v1, (void __iomem *)((char *)v0 + 60));
     v0 = *(uint32_t *)((char *)s0 + 184);
     v1 = *(uint32_t *)((char *)s0 + 296);
-    *(uint32_t *)((char *)v0 + 76) = v1;
+    writel(v1, (void __iomem *)((char *)v0 + 76));
     v0 = *(uint32_t *)((char *)s0 + 184);
     v1 = *(uint32_t *)((char *)s0 + 296);
-    *(uint32_t *)((char *)v0 + 84) = v1;
+    writel(v1, (void __iomem *)((char *)v0 + 84));
     v0 = *(uint32_t *)((char *)s0 + 184);
     v1 = *(uint32_t *)((char *)s0 + 296);
-    *(uint32_t *)((char *)v0 + 92) = v1;
+    writel(v1, (void __iomem *)((char *)v0 + 92));
     s3 = *(uint32_t *)((char *)s5 + 20);
     s3 = (uintptr_t)s3 & 16;
 
@@ -20032,10 +20032,10 @@ ncu_pad_event_handle0x388:
     local_20 = v0;
     v0 = *(uint32_t *)((char *)s0 + 184);
     *(uint32_t *)((char *)s0 + 396) = s3;
-    *(uint32_t *)((char *)v0 + 52) = v1;
+    writel(v1, (void __iomem *)((char *)v0 + 52));
     v0 = *(uint32_t *)((char *)s0 + 184);
     v1 = *(uint32_t *)((char *)s0 + 296);
-    *(uint32_t *)((char *)v0 + 68) = v1;
+    writel(v1, (void __iomem *)((char *)v0 + 68));
     s2 = (uint32_t *)&tx_isp_reg_set;
 
 ncu_pad_event_handle0x3c4:
@@ -20049,7 +20049,7 @@ ncu_pad_event_handle0x3c4:
 
     /* fragment 78: CallSetup */
     s7 = 1;
-    *(uint32_t *)((char *)(*(uint32_t *)((char *)((uintptr_t)s0) + 184)) + 44) = (((*(uint32_t *)((char *)((uintptr_t)s0) + 300)) << 16) | (*(uint32_t *)((char *)((uintptr_t)s0) + 296)));
+    writel((((*(uint32_t *)((char *)((uintptr_t)s0) + 300)) << 16) | (*(uint32_t *)((char *)((uintptr_t)s0) + 296))), (void __iomem *)((char *)(*(uint32_t *)((char *)((uintptr_t)s0) + 184)) + 44));
     local_10 = 0;
     v0 = (uintptr_t *)(uintptr_t)tx_isp_reg_set((void *)(uintptr_t)s0, 8, 0, 0, (int)(uintptr_t)local_10); /* #365: the 5th argument (the value) is the o32 stack slot local_10 */
 
@@ -20230,7 +20230,7 @@ ncu_pad_event_handle0x698:
 
     /* fragment 122: MemoryAccess */
     v0 = *(uint32_t *)((char *)s0 + 184);
-    v0 = *(uint32_t *)((char *)v0 + 4);
+    v0 = readl((void __iomem *)((char *)v0 + 4));
     v0 = (uintptr_t)v0 & v1;
 
     /* fragment 123: Branch */
@@ -20266,8 +20266,8 @@ ncu_pad_event_handle0x698:
 
     /* fragment 130: CallSetup */
     s2 = 1;
-    *(uint32_t *)((char *)(*(uint32_t *)((char *)(s0) + 184)) + 48) = (*(uint32_t *)((char *)(v0) + 8));
-    *(uint32_t *)((char *)(*(uint32_t *)((char *)(s0) + 184)) + 64) = ((*(uint32_t *)((char *)(v0) + 8)) + (*(uint32_t *)((char *)(s0) + 368)));
+    writel((*(uint32_t *)((char *)(v0) + 8)), (void __iomem *)((char *)(*(uint32_t *)((char *)(s0) + 184)) + 48));
+    writel(((*(uint32_t *)((char *)(v0) + 8)) + (*(uint32_t *)((char *)(s0) + 368))), (void __iomem *)((char *)(*(uint32_t *)((char *)(s0) + 184)) + 64));
     *(uint32_t *)((char *)s0 + 412) = v0;
     local_10 = s2;
     v0 = (uintptr_t *)(uintptr_t)tx_isp_reg_set((void *)(uintptr_t)s0, 4, 0, 0, (int)(uintptr_t)local_10); /* #365: the 5th argument (the value) is the o32 stack slot local_10 */
@@ -20524,31 +20524,31 @@ void tx_isp_sync_ldc(void)
 		return;
 	}
 	reg = *(char **)(ldc + 184);			/* 0x154a4 */
-	r52 = *(uint32_t *)(reg + 52);			/* 0x154b0..0x154bc kept over the reset */
-	r56 = *(uint32_t *)(reg + 56);
-	r44 = *(uint32_t *)(reg + 44);
-	r48 = *(uint32_t *)(reg + 48);
+	r52 = readl((void __iomem *)(reg + 52));			/* 0x154b0..0x154bc kept over the reset */
+	r56 = readl((void __iomem *)(reg + 56));
+	r44 = readl((void __iomem *)(reg + 44));
+	r48 = readl((void __iomem *)(reg + 48));
 	*(uint32_t *)(ldc + 488) = done_lo;		/* 0x154c4 start cnt = done cnt */
 	*(uint32_t *)(ldc + 492) = done_hi;
 	tx_isp_reg_set(ldc, 0, 1, 1, 1);		/* 0x154d8 CTR bit 1: reset */
 	reg = *(char **)(ldc + 184);
-	*(uint32_t *)(reg + 8) = *(uint32_t *)(ldc + 404);	/* 0x154ec..0x15548 job registers back */
-	*(uint32_t *)(reg + 12) = *(uint32_t *)(ldc + 408);
-	*(uint32_t *)(reg + 16) = *(uint32_t *)(ldc + 412);
-	*(uint32_t *)(reg + 20) = *(uint32_t *)(ldc + 416);
-	*(uint32_t *)(reg + 24) = *(uint32_t *)(ldc + 420);
-	*(uint32_t *)(reg + 28) = *(uint32_t *)(ldc + 424);
-	*(uint32_t *)(reg + 32) = *(uint32_t *)(ldc + 428);
-	*(uint32_t *)(reg + 36) = *(uint32_t *)(ldc + 432);
-	*(uint32_t *)(reg + 60) = *(uint32_t *)(ldc + 436);	/* 0x1554c..0x15578 */
-	*(uint32_t *)(reg + 64) = *(uint32_t *)(ldc + 436);
-	*(uint32_t *)(reg + 68) = *(uint32_t *)(ldc + 436);
-	*(uint32_t *)(reg + 72) = *(uint32_t *)(ldc + 436);
-	*(uint32_t *)(reg + 52) = r52;			/* 0x1557c..0x15598 */
-	*(uint32_t *)(reg + 56) = r56;
-	*(uint32_t *)(reg + 44) = r44;
-	*(uint32_t *)(reg + 48) = r48;
-	*(uint32_t *)(reg + 0) = *(uint32_t *)(ldc + 400) | 1;	/* 0x1559c CTR | start */
+	writel(*(uint32_t *)(ldc + 404), (void __iomem *)(reg + 8));	/* 0x154ec..0x15548 job registers back */
+	writel(*(uint32_t *)(ldc + 408), (void __iomem *)(reg + 12));
+	writel(*(uint32_t *)(ldc + 412), (void __iomem *)(reg + 16));
+	writel(*(uint32_t *)(ldc + 416), (void __iomem *)(reg + 20));
+	writel(*(uint32_t *)(ldc + 420), (void __iomem *)(reg + 24));
+	writel(*(uint32_t *)(ldc + 424), (void __iomem *)(reg + 28));
+	writel(*(uint32_t *)(ldc + 428), (void __iomem *)(reg + 32));
+	writel(*(uint32_t *)(ldc + 432), (void __iomem *)(reg + 36));
+	writel(*(uint32_t *)(ldc + 436), (void __iomem *)(reg + 60));	/* 0x1554c..0x15578 */
+	writel(*(uint32_t *)(ldc + 436), (void __iomem *)(reg + 64));
+	writel(*(uint32_t *)(ldc + 436), (void __iomem *)(reg + 68));
+	writel(*(uint32_t *)(ldc + 436), (void __iomem *)(reg + 72));
+	writel(r52, (void __iomem *)(reg + 52));			/* 0x1557c..0x15598 */
+	writel(r56, (void __iomem *)(reg + 56));
+	writel(r44, (void __iomem *)(reg + 44));
+	writel(r48, (void __iomem *)(reg + 48));
+	writel(*(uint32_t *)(ldc + 400) | 1, (void __iomem *)(reg + 0));	/* 0x1559c CTR | start */
 	lo = *(uint32_t *)(ldc + 488);			/* 0x155ac start cnt++ (u64) */
 	*(uint32_t *)(ldc + 492) += (lo + 1 < lo);
 	*(uint32_t *)(ldc + 392) = 1;			/* 0x155c8 busy */
@@ -20703,7 +20703,7 @@ int ldc_frame_channel_streamoff(void *arg1)
 		int32_t timeout = 0xc9;
 		while (1) {
 			timeout -= 1;
-			if ((**((uint32_t **)((uintptr_t)s0 + 0xb8)) & 4) == 0)
+			if ((readl(*(void __iomem **)((uintptr_t)s0 + 0xb8)) & 4) == 0)
 				break;
 			if (timeout == 0)
 				break;
@@ -21275,9 +21275,9 @@ int32_t *ldc_restart_module(void *arg1)
 
 	reg_base = *(uint32_t **)((char *)arg1 + 0xb8);
 	val = *(uint32_t *)((char *)ptr1 + 8);
-	*(uint32_t *)((char *)reg_base + 0x34) = val;
+	writel(val, (void __iomem *)((char *)reg_base + 0x34));
 	offset = *(uint32_t *)((char *)arg1 + 0x170);
-	*(uint32_t *)((char *)reg_base + 0x38) = val + offset;
+	writel(val + offset, (void __iomem *)((char *)reg_base + 0x38));
 	*(uint32_t **)((char *)arg1 + 0x1d8) = (void *)ptr1;
 
 	ptr2 = *(uint32_t **)((char *)arg1 + 0x1c4);
@@ -21295,9 +21295,9 @@ int32_t *ldc_restart_module(void *arg1)
 
 	reg_base = *(uint32_t **)((char *)arg1 + 0xb8);
 	val = *(uint32_t *)((char *)ptr2 + 8);
-	*(uint32_t *)((char *)reg_base + 0x2c) = val;
+	writel(val, (void __iomem *)((char *)reg_base + 0x2c));
 	offset = *(uint32_t *)((char *)arg1 + 0x170);
-	*(uint32_t *)((char *)reg_base + 0x30) = val + offset;
+	writel(val + offset, (void __iomem *)((char *)reg_base + 0x30));
 	*(uint32_t **)((char *)arg1 + 0x1cc) = (void *)ptr2;
 
 	tx_isp_reg_set(arg1, 0, 0, 0, 1);
@@ -21338,7 +21338,7 @@ int32_t ldc_core_interrupt_service_routine(uintptr_t a0)
     /* fragment 1: MemoryAccess */
     s0 = *(uint32_t *)((char *)a0 + 212);
     v0 = *(uint32_t *)((char *)s0 + 184);
-    s2 = *(uint32_t *)((char *)v0 + 4);
+    s2 = readl((void __iomem *)((char *)v0 + 4));
     v0 = (uintptr_t)s2 & 1;
 
     /* fragment 2: Branch */
@@ -21494,17 +21494,17 @@ int32_t ldc_pad_event_handle(int32_t *arg1, int32_t arg2, int32_t *arg3)
             return -1;
         }
         int32_t *reg = *(int32_t **)((char *)dev + 0xb8);
-        *reg = type;
+        writel(type, (void __iomem *)reg);
         if (*(int32_t *)((char *)arg1 + 0x14) & 0x20) {
             isp_printf(2, "The link must be DDR!\n", 0);
             private_mutex_unlock((struct mutex *)((char *)dev + 0x1dc));
             return -22;
         }
         int32_t base = *(int32_t *)((char *)dev + 0x128);
-        *(int32_t *)((char *)reg + 0x3c) = base;
-        *(int32_t *)((char *)reg + 0x40) = base;
-        *(int32_t *)((char *)reg + 0x44) = base;
-        *(int32_t *)((char *)reg + 0x48) = base;
+        writel(base, (void __iomem *)((char *)reg + 0x3c));
+        writel(base, (void __iomem *)((char *)reg + 0x40));
+        writel(base, (void __iomem *)((char *)reg + 0x44));
+        writel(base, (void __iomem *)((char *)reg + 0x48));
         int32_t ddr_flag = *(int32_t *)((uintptr_t)remote + 0x14) & 0x10;
         int32_t buf = 0;
         /*
@@ -21669,7 +21669,7 @@ int32_t ldc_pad_event_handle(int32_t *arg1, int32_t arg2, int32_t *arg3)
             }
         }
         if (dev != 0 && *(int32_t *)(dev + 0x178) == 4 &&
-            ((*(int32_t **)(dev + 0xb8))[1] & 6) != 2 &&
+            (readl((void __iomem *)(*(int32_t **)(dev + 0xb8) + 1)) & 6) != 2 &&
             *(int32_t *)(dev + 0x188) == 0)
             ldc_restart_module(dev);
         arch_local_irq_restore(flags);
@@ -22339,7 +22339,7 @@ mscaler_frame_channel_streamoff_isra_00x11c:
 
 mscaler_frame_channel_streamoff_isra_00x12c:
     /* fragment 21: MemoryAccess */
-    v1 = *(uint32_t *)((char *)v0 + 8);
+    v1 = readl((void __iomem *)((char *)v0 + 8));
     v0 = *(uint32_t *)((char *)s0 + 76);
     v0 = s7 << (uintptr_t)v0;
     v0 = (uintptr_t)v0 & v1;
@@ -22401,8 +22401,8 @@ mscaler_frame_channel_streamoff_isra_00x1a8:
     if (t0 != v1) { goto mscaler_frame_channel_streamoff_isra_00x260; }
 
     /* fragment 35: CallSetup */
-    *(uint32_t *)((char *)((*(uint32_t *)((char *)((uintptr_t)s2) + 184)) + ((*(uint32_t *)((char *)((uintptr_t)s0) + 76)) << 8)) + 412) = 1;
-    *(uint32_t *)((char *)((*(uint32_t *)((char *)((uintptr_t)s2) + 184)) + ((*(uint32_t *)((char *)((uintptr_t)s0) + 76)) << 8)) + 416) = 1;
+    writel(1, (void __iomem *)((char *)((*(uint32_t *)((char *)((uintptr_t)s2) + 184)) + ((*(uint32_t *)((char *)((uintptr_t)s0) + 76)) << 8)) + 412));
+    writel(1, (void __iomem *)((char *)((*(uint32_t *)((char *)((uintptr_t)s2) + 184)) + ((*(uint32_t *)((char *)((uintptr_t)s0) + 76)) << 8)) + 416));
     arch_local_irq_restore(a0); /* jalr target resolved by relocation */
 
     /* fragment 36: MemoryAccess */
