@@ -40,7 +40,13 @@ if [ "$1" = --mut ]; then	# worker of the mutation check below: run.sh --mut <or
 	one "$3" "$(echo "$MUTATIONS" | grep . | sed -n "$3p")"
 	exit 0
 fi
-NAME=$1; M=$O/mut/$NAME	# per oracle: different oracles may run at the same time in one worktree
+NAME=$1
+if [ ! -d "$H/ref" ]; then	# the reference C (upstream PR #15) is kept on claude/t32-ds-batch only, not in next
+	echo "$NAME: SKIP (reference C not in next: upstream PR #15 pending; run on claude/t32-ds-batch)"
+	[ "${T40_ORACLE_STRICT:-0}" = 1 ] && exit 2
+	exit 0
+fi
+M=$O/mut/$NAME	# per oracle: different oracles may run at the same time in one worktree
 . "$H/$NAME.conf"		# REFS="fn_..c ...", HDR=tx_isp_t32_xxx.h, MUTATIONS (one sed expression per line)
 mkdir -p "$O/ref"
 RF="-O1 -fno-pie -fwrapv -fno-strict-aliasing -w"

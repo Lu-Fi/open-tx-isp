@@ -12,6 +12,11 @@ here = os.path.dirname(os.path.abspath(__file__))
 hdr = os.path.abspath(sys.argv[2] if len(sys.argv) > 2 else os.path.join(here, '../../driver/t32/tx_isp_t32_tmotab.h'))
 show = lambda p: subprocess.run(['git', '-C', g, 'show', '2e2e06bc:driver/t32/' + p],
                                 check=True, capture_output=True, text=True).stdout
+if subprocess.run(['git', '-C', g, 'cat-file', '-e', '2e2e06bc^{commit}'], capture_output=True).returncode != 0:
+    # the recovered tree (upstream PR #15) is not part of next; the check runs where 2e2e06bc is fetched
+    print('%s: SKIP (reference tree 2e2e06bc not in this repository: upstream PR #15 pending; run on claude/t32-ds-batch)'
+          % os.path.basename(__file__)[:-3])
+    sys.exit(2 if os.environ.get('T40_ORACLE_STRICT') == '1' else 0)
 aliases, lines = show('data-aliases.lds'), show('data.c').split('\n')
 
 # vendor symbol, element type, element count (what the port reads; d88a4 .. d88f4 the whole adjacent block)

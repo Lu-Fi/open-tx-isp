@@ -46,6 +46,11 @@ Function-level diff (instructions with relocations compared by symbol, `jr`/`jr.
 
 ## T32 host oracles (tests/t32_oracle, planned work)
 
+**In next the reference C is not present** (`t32_oracle/ref/` stays on `claude/t32-ds-batch` until upstream PR #15 lands):
+every `t32_*_oracle` then prints `SKIP (reference C not in next ...)` and exits 0 (a failure under `T40_ORACLE_STRICT=1` /
+`check-oracles`); `t32_tmotab_check` and `t32_rdnstab_check` skip the same way when commit 2e2e06bc is not in the repository.
+Run the T32 oracles on `claude/t32-ds-batch`.
+
 Reference = Matt Davis' mechanical MIPS-to-C recovery of the vendor T32 module (opensensor/open-tx-isp PR #15, branch
 `t32/recovered-baseline` 2e2e06bc), the needed functions copied unchanged into `t32_oracle/ref/` by `t32_oracle/import_ref.sh`
 (provenance header). They build for the host with `ref_compat.h` + `env.c` (non-PIE, all memory below 4 GiB, o32-shaped stubs; memcpy

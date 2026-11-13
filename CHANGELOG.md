@@ -4,6 +4,13 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD[-rcN]` are set on the `aperto` branch, the same tag in open-tx-isp and OpenIMP: RC1 `v2026.10.11-rc1`, RC2 `v2026.10.25-rc2`, RC3 `v2026.11.07-rc3` (2026-11-07). Gate SoCs of RC3 and Release 1: T10, T20, T21, T23, T30, T31, T40, T41 (T32/T33 planned, QEMU only); release notes: [docs/releases/ in OpenIMP](https://github.com/Lu-Fi/openimp/blob/next/docs/releases/README.md). Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-11-13: T32/T33 driver port merged into next (openimp #234, #392; built, host-tested)
+
+- T32/T33 driver port merged; reference-C oracles stay on claude/t32-ds-batch until upstream PR #15 lands.
+- `driver/t32` (T32 and T33 modules), its host tests and the oracle harness (`tests/t32_oracle/*.c`, `.conf`, `run.sh`) are in next; the recovered reference functions (`tests/t32_oracle/ref/`, copied from the still-open upstream PR #15) are not.
+- Without `tests/t32_oracle/ref/` every `t32_*_oracle` prints `SKIP (reference C not in next ...)` and exits 0 (exit 2 with `T40_ORACLE_STRICT=1`, i.e. in `check-oracles`); `t32_tmotab_check` / `t32_rdnstab_check` skip the same way when commit 2e2e06bc is not in the repository. Run the oracles on claude/t32-ds-batch.
+- Build fix found by the merge build: the ds-batch tip (e20dd3a2, openimp #54) added a second `T32_IOC_BYPASS_SENSOR` case and a second `core.bypass` member next to the #446 ones, so `tx-isp-t32.ko` / `tx-isp-t33.ko` did not compile (duplicate member / duplicate case value). The #446 handler (vendor `tx_isp_bypass_all`, 4 input words) is kept, the duplicate is removed. Built: T32 (4.4 kernel), T33, and T30 / T31 / T40 unchanged.
+
 ## 2026-11-13: T30 lift pointer-scale class fixed vendor-equal (openimp #463; device-tested T30X b82)
 
 - Cause: the lift indexed FSM fields as `((void **)p)[byte_off]` or added byte offsets to typed pointers (`int32_t *` + N = 4N) and used typed pointers as loop counters (i++ = +4). `sensor_fsm_clear` (every ISP init) wrote 0x1a5e0 / 0 / 1080 as words into the AE histogram (ae+0x7c..+0xcc, bins 19/21/25/27/37/39) instead of sensor+0xde..+0xf2, so the first AE/iridix pass after ISP init saw a fake dark histogram and sensor+0xe6 (1080) was never set.
