@@ -12858,17 +12858,18 @@ static int32_t ispcore_irq_thread_handle_body(void *arg1)
 int64_t ispcore_frame_channel_streamoff_isra_0(uintptr_t a0) __asm__("ispcore_frame_channel_streamoff.isra.0");
 #endif
 /* Direct (bypass) writer counters, see tx_isp_t30_core_direct_irq(). */
-static u32 tx_isp_t30_direct_stat[7];
+static u32 tx_isp_t30_direct_stat[8];
 
 static void tx_isp_t30_core_direct_report(const char *when, int index)
 {
 	u32 base = 0xb00 + index * 0x100;
 
-	pr_err("tx-isp-t30: direct ch=%d %s irq fs=%u fe=%u fr=%u ds=%u filled=%u done=%u nobank=%u wr=%08x ctl=%08x banks=%08x b0=%08x b1=%08x\n",
+	pr_err("tx-isp-t30: direct ch=%d %s irq fs=%u fe=%u fr=%u ds=%u filled=%u done=%u nobank=%u ch1ev=%u wr=%08x ctl=%08x banks=%08x b0=%08x b1=%08x\n",
 	       index, when, tx_isp_t30_direct_stat[0], tx_isp_t30_direct_stat[1],
 	       tx_isp_t30_direct_stat[2], tx_isp_t30_direct_stat[3],
 	       tx_isp_t30_direct_stat[4], tx_isp_t30_direct_stat[5],
-	       tx_isp_t30_direct_stat[6], APICAL_READ_32(base),
+	       tx_isp_t30_direct_stat[6], tx_isp_t30_direct_stat[7],
+	       APICAL_READ_32(base),
 	       APICAL_READ_32(base + 0x24), APICAL_READ_32(base + 0x1c),
 	       APICAL_READ_32(base + 0x08), APICAL_READ_32(base + 0x0c));
 }
@@ -15388,7 +15389,7 @@ static void tx_isp_t30_ispcore_enable_lfb_channel(
  * buffers stayed in chan->fifo, no bank address was written and the writer
  * was never enabled (T30X: 0/10 raw frames, #218).
  */
-/* tx_isp_t30_direct_stat[]: fs fe fr ds filled done nobank */
+/* tx_isp_t30_direct_stat[]: fs fe fr ds filled done nobank ch1ev(bit 13) */
 
 static bool tx_isp_t30_core_chan_direct(struct tx_isp_t30_core_output_channel *chan)
 {
@@ -15511,6 +15512,92 @@ static void tx_isp_t30_core_direct_irq(struct tx_isp_t30_core_video_view *core,
 			if (tx_isp_t30_core_chan_direct(&core->channels[i]))
 				tx_isp_t30_core_direct_fill(&core->channels[i]);
 	}
+}
+
+/*
+ * OEM isp_enable_dma_transfer.isra.0 (0xc274): writer on (2) or off (3) for a
+ * core output channel; NV12/NV21 switch the UV writer (+0xa4) first.
+ */
+static void tx_isp_t30_core_dma_transfer(struct tx_isp_t30_core_output_channel *chan,
+					 int on)
+{
+	u32 base = 0xb00 + chan->index * 0x100;
+	u32 val = on ? 0x02 : 0x03;
+
+	if (chan->fmt.pix.pixelformat == V4L2_PIX_FMT_NV12 ||
+	    chan->fmt.pix.pixelformat == V4L2_PIX_FMT_NV21)
+		APICAL_WRITE_32(base + 0xa4, val);
+	APICAL_WRITE_32(base + 0x24, val);
+}
+
+/*
+ * OEM isp_modify_dma_direction.isra.0 (0xd3c8): running channel linked
+ * without the LFB bit: when the vflip flag of the next bank differs from the
+ * current direction, write the line offset again (UV writer first for NV12).
+ */
+static void tx_isp_t30_core_modify_dma_direction(struct tx_isp_t30_core_output_channel *chan)
+{
+	u32 base = 0xb00 + chan->index * 0x100;
+	u32 next;
+
+	if (chan->state != TX_ISP_T30_MODULE_RUNNING ||
+	    (chan->pad->link.flag & BIT(5)))
+		return;
+	next = (((APICAL_READ_32(base + 0x24) >> 8) & 7) + 1) % chan->usingbanks;
+	if (chan->vflip_state == chan->vflip_flag[next])
+		return;
+	chan->vflip_state = chan->vflip_flag[next];
+	if (chan->fmt.pix.pixelformat == V4L2_PIX_FMT_NV12 ||
+	    chan->fmt.pix.pixelformat == V4L2_PIX_FMT_NV21)
+		APICAL_WRITE_32(base + 0xa0, chan->lineoffset);
+	APICAL_WRITE_32(base + 0x20, chan->lineoffset);
+}
+
+/*
+ * OEM ispcore_interrupt_service_routine case 13 (0xde94..0xdf6c): status
+ * bit 13 (firmware event 50) is the per-frame writer check of core output
+ * channel 1: direction update, then the writer is switched on or off like
+ * channel 0 at frame end (LFB link: on while running; direct link: on while
+ * the next bank holds a buffer).  Unhandled until #451, so channel 1's writer
+ * never followed its banks.
+ */
+static void tx_isp_t30_core_chan1_event(struct tx_isp_t30_core_video_view *core)
+{
+	struct tx_isp_t30_core_output_channel *chan;
+	u32 base;
+	u32 next;
+	u8 want;
+
+	if (!core->channels || core->num_channels < 2)
+		return;
+	chan = &core->channels[1];
+	if (!chan->pad || IS_ERR(chan->pad) || !chan->usingbanks ||
+	    chan->usingbanks > 5)
+		return;
+	tx_isp_t30_direct_stat[7]++;
+	tx_isp_t30_core_modify_dma_direction(chan);
+	if (chan->dma_state == 1)
+		return;
+	base = 0xb00 + chan->index * 0x100;
+	next = APICAL_READ_32(base + 0x24);
+	if (chan->pad->link.flag & BIT(5)) {
+		if (chan->state == TX_ISP_T30_MODULE_RUNNING) {
+			if (!chan->dma_state)
+				tx_isp_t30_core_dma_transfer(chan, 1);
+			chan->dma_state = 1;
+		} else {
+			if (chan->dma_state)
+				tx_isp_t30_core_dma_transfer(chan, 0);
+			chan->dma_state = 0;
+		}
+		return;
+	}
+	next = (((next >> 8) & 7) + 1) % chan->usingbanks;
+	want = chan->bank_flag[next];
+	if (want == chan->dma_state)
+		return;
+	chan->dma_state = want;
+	tx_isp_t30_core_dma_transfer(chan, want);
 }
 
 /*
@@ -15667,9 +15754,15 @@ static int tx_isp_t30_ispcore_interrupt(struct tx_isp_t30_subdev *sd)
 		tx_isp_sync_ldc();
 	}
 	tx_isp_t30_core_direct_irq(core, irq_status);
+	if (irq_status & BIT(13))
+		tx_isp_t30_core_chan1_event(core);
 	tx_isp_t30_dispatch_firmware_irqs(irq_status);
-	if (simple_3a && (irq_status & BIT(3)))
-		ret = IRQ_WAKE_THREAD;
+	/*
+	 * The IRQ thread (sensor gain/integration writes queued by AE) is woken
+	 * on frame start only, like the OEM ISR (0xd5ec, its only
+	 * IRQ_WAKE_THREAD).  It was also woken on AE (bit 3): with IRQF_ONESHOT
+	 * that kept the line masked over the I2C writes mid-frame (#451).
+	 */
 
 	return ret;
 }
