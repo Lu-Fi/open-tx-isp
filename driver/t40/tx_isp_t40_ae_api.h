@@ -441,7 +441,24 @@ static inline u32 t40_ae_log2_ratio(u32 num, u32 den)
  * lowers it by at most new_it / it (exposure ends >= old).  log2_gain gives
  * the 16.16 log2 gain of an index; lo / hi bound the index.
  */
-#define T40_AE_AGAIN_LADDER_MAX	25U
+/*
+ * #483: the analog gain index is a fine ladder, log2 gain = index x 1/64 octave (16.16: index x 1024, 1.1 % steps),
+ * 0..400 = 1x..76x.  The vendor analog gain is continuous: tisp_set_sensor_analog_gain (tx-isp-t40.ko 0x37778) hands
+ * the requested gain to the sensor's alloc_again and keeps what it returns, the rest goes to the ISP digital gain
+ * (tisp_set_ae_long_ag 0x37978).  The sc830ai alloc_again table has 64 entries per octave, so this ladder floored by
+ * the sensor gives the vendor's analog gain within one sensor step.  (Was the 26-entry GC4653 ladder, 1.17x steps:
+ * every ladder change swapped 17 % between analog and ISP digital gain, visible as single-frame jumps.)
+ * T40_AE_AGAIN_COARSE indices (~1.17x) = one step of the legacy gain-stage ladders (frame-AE fallback, soft AE).
+ */
+#define T40_AE_AGAIN_LADDER_MAX	400U
+#define T40_AE_AGAIN_FINE_LOG2	1024U
+#define T40_AE_AGAIN_COARSE	15U
+
+/* #483: log2 gain (16.16) of a fine-ladder analog index, clamped to the ladder */
+static inline u32 t40_ae_fine_ladder_log2(u32 idx)
+{
+	return (idx > T40_AE_AGAIN_LADDER_MAX ? T40_AE_AGAIN_LADDER_MAX : idx) * T40_AE_AGAIN_FINE_LOG2;
+}
 
 static inline u32 t40_ae_af_trade_again(u32 it, u32 new_it, u32 again,
 					u32 lo, u32 hi,
@@ -451,7 +468,7 @@ static inline u32 t40_ae_af_trade_again(u32 it, u32 new_it, u32 again,
 
 	if (!it || !new_it || it == new_it || !log2_gain)
 		return again;
-	/* Opus review C3 (2026-11-06): the gain ladder has 26 indices (0..25) and log2_gain()
+	/* Opus review C3 (2026-11-06): the gain ladder has T40_AE_AGAIN_LADDER_MAX + 1 indices and log2_gain()
 	 * clamps above it, so an unclamped hi (module parameter) would let the loop run to hi. */
 	if (hi > T40_AE_AGAIN_LADDER_MAX)
 		hi = T40_AE_AGAIN_LADDER_MAX;
@@ -474,7 +491,7 @@ static inline u32 t40_ae_af_trade_again(u32 it, u32 new_it, u32 again,
  * #219 C1: the per-index log2 gain the SENSOR applies (its alloc_again floors the ladder value to its own table; the
  * OEM AE likewise works with the gain alloc_again returns, tisp_ae_long_tune2 l.722 + the sensor allocation), cached
  * for the frame AE: refilled when key (alloc_again pointer / enable) changes or after `period` lookups, so a rung
- * trade costs array reads, not up to 26 alloc_again table walks.  sensor_log2 must be monotonic in idx like the
+ * trade costs array reads, not up to 401 alloc_again table walks.  sensor_log2 must be monotonic in idx like the
  * ladder (a floor of a rising ladder is).
  */
 struct t40_ae_gain_cache {
@@ -632,13 +649,19 @@ static inline bool t40_ae_oem_split(u32 *it, u32 *again, u32 *dgain,
 	while (na < hi && log2_gain(na + 1U) - g0 <= gl)
 		na++;
 	/*
-	 * At most one analog index up per sample: the ISP dgain
+	 * At most one coarse analog step (T40_AE_AGAIN_COARSE, ~1.17x) up per sample: the ISP dgain
 	 * acts on the next frame, the sensor gain 1-2 frames later, so a big
 	 * dgain -> again move would show as a dark frame; one 1.17x step is
 	 * no larger than a normal AE gain step.
 	 */
-	if (na > a + 1U)
-		na = a + 1U;
+	if (na > a + 1U) {
+		/* one coarse step in gain (log2), at least one index: GC4653-style ladders one index, the fine ladder 15 */
+		u32 cap = a + 1U, ga = log2_gain(a);
+
+		while (cap < na && log2_gain(cap + 1U) - ga <= T40_AE_AGAIN_COARSE * T40_AE_AGAIN_FINE_LOG2)
+			cap++;
+		na = cap;
+	}
 	if (ni == i && na == a)
 		return false;
 	d = t40_ae_q10_exp2_floor(gl - (log2_gain(na) - g0));
@@ -714,7 +737,7 @@ static inline u64 t40_ae_exp2_q10(u32 l)
  * deflicker ladder branch; tisp_ae_ev_list_alloc_calc keeps the same order on the T40 bins): integration time
  * first (antiflicker: the highest rung not above EV / minimum gain, the top rung clamped to max_it = it_cap;
  * without antiflicker or below one rung in AUTO mode continuous), then the analog gain (here the highest ladder
- * index the rest covers: the OEM analog gain is continuous, this ladder has 1.17x steps), the ISP digital gain
+ * index the rest covers: the OEM analog gain is continuous, #483: the fine ladder floored by the sensor), the ISP digital gain
  * the remainder below one analog step or above the analog maximum, clamped to [1024, dgain_max].  A fixed
  * (manual) stage keeps its value and the others take the rest.  ev_q10 = lines x gain (Q10, t40_aet_ev_q10).
  * Returns bit 0 when *it / *again changed (sensor write), bit 1 when *dgain changed.
@@ -767,9 +790,18 @@ static inline u32 t40_ae_oem_alloc(u32 ev_q10, u32 *it, u32 *again, u32 *dgain,
 		u32 avail = rem > (l->dg_fixed ? t40_ae_log2_ratio(d, 1024U) : 0U) ?
 			    rem - (l->dg_fixed ? t40_ae_log2_ratio(d, 1024U) : 0U) : 0U;
 
+		u32 top = hi;
+
+		/* highest index whose gain the rest covers (log2_gain is monotonic): binary search on the fine ladder */
 		a = lo;
-		while (a < hi && log2_gain(a + 1U) <= avail)
-			a++;
+		while (a < top) {
+			u32 mid = a + (top - a + 1U) / 2U;
+
+			if (log2_gain(mid) <= avail)
+				a = mid;
+			else
+				top = mid - 1U;
+		}
 	}
 	if (!l->dg_fixed) {
 		u32 g = log2_gain(a);

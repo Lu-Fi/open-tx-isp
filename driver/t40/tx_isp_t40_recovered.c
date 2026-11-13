@@ -9685,9 +9685,28 @@ static uint32_t regtrace_t40_frame_3a_target_eff(void)
     /* OEM tisp_ae_s_comp factor (128 = 1.0, 255 = 3.34x) on the output target (legacy) */
     return t40_ae_comp_target(t, READ_ONCE(t40_ae_sc.comp), 8U, 250U);
 }
+/*
+ * #483: ISP digital gain ceiling from the live tuning bank like the vendor: tisp_ae_sensor_inform (tx-isp-t40.ko
+ * 0x31e94) takes the AE limit block of stMainAeOuter (bank + 0x80, "Long max isp dg"), sc830ai bin: day 5120
+ * (5x), night 4096 (4x) at bank + 0x140 (block: max IT 2241, max again 32768, sensor dgain 1024, max ISP dgain,
+ * min IT 3).  The open ceiling was the fixed ae_isp_dgain_max 4096, so the day dark limit was 32x x 4x where the
+ * vendor reaches 32x x 5x (Eufy box, lamps off: total gain 32766 vs 40960).  t40_ae_isp_dgain_max_bin=0 or a value
+ * outside 1x..32x = the ae_isp_dgain_max parameter (pre-#483).  The user cap (SetAeExprInfo) still applies.
+ */
+#define T40_AE_BANK_MAX_ISP_DG	0x140U
+static bool t40_ae_isp_dgain_max_bin = true;
+module_param(t40_ae_isp_dgain_max_bin, bool, 0644);
 static uint32_t regtrace_t40_ae_isp_dgain_max_eff(void)
 {
     uint32_t m = clamp_t(uint32_t, regtrace_ae_isp_dgain_max, 1024U, 32767U);
+
+    if (READ_ONCE(t40_ae_isp_dgain_max_bin) && tparamsN[0]) {
+        const uint8_t *b = (const uint8_t *)(uintptr_t)tparamsN[0] + T40_AE_BANK_MAX_ISP_DG;
+        uint32_t v = (uint32_t)b[0] | (uint32_t)b[1] << 8 | (uint32_t)b[2] << 16 | (uint32_t)b[3] << 24;
+
+        if (v >= 1024U && v <= 32767U)
+            m = v;
+    }
 
     if (regtrace_ae_user_max_isp_dgain_x1024)
         m = min_t(uint32_t, m, clamp_t(uint32_t, regtrace_ae_user_max_isp_dgain_x1024, 1024U, 32767U));
@@ -10010,7 +10029,7 @@ static bool regtrace_oem_event_pre_csi_stream;
 static uint regtrace_oem_event_pre_csi_stage_limit;
 static uint regtrace_oem_event_pre_csi_delay_ms;
 static uint regtrace_ae_sensor_apply_force_packed;
-static uint regtrace_ae_sensor_apply_max_again_index = 25U;
+static uint regtrace_ae_sensor_apply_max_again_index = T40_AE_AGAIN_LADDER_MAX;   /* #483: fine ladder index (was 25 on the GC4653 ladder) */
 t40_bringup_param_named(delegate_tx_isp_ioctl, regtrace_delegate_tx_isp_ioctl, bool, 0644);
 t40_bringup_param_named(delegate_framechan_ioctl, regtrace_delegate_framechan_ioctl, bool, 0644);
 t40_bringup_param_named(activate_core_direct, regtrace_activate_core_direct, bool, 0644);
@@ -11621,12 +11640,10 @@ static uint16_t regtrace_t40_blc_self_gain(uint16_t max_blc)
 }
 
 /*
- * GC4653 again_lut[] from the T40 sensor driver.  The ISP tuning tables use
- * log2(gain) in 16.16, while the sensor EXPO ioctl takes a LUT index.  Keep
- * the two domains explicit so BLC/GIB/DMSC/LSC follow the gain actually sent
- * to the sensor instead of a checkpoint-era fixed value.
+ * GC4653 again_lut[] from the T40 sensor driver (log2 16.16 per sensor LUT index).  #483: no longer the AE ladder;
+ * only used to send a GC4653-style LUT index when t40_ae_sensor_alloc_again=0 (no alloc_again call).
  */
-static uint32_t regtrace_gc4653_again_log2_gain(uint32_t index)
+static uint32_t regtrace_gc4653_index_of_log2(uint32_t log2)
 {
     static const uint32_t gain_lut[] = {
         0U, 14995U, 31177U, 47704U, 65535U, 81158U, 97241U,
@@ -11635,16 +11652,28 @@ static uint32_t regtrace_gc4653_again_log2_gain(uint32_t index)
         309955U, 327675U, 343689U, 359480U, 375518U, 393210U,
         409243U,
     };
+    uint32_t i = 0;
 
-    if (index >= ARRAY_SIZE(gain_lut))
-        index = ARRAY_SIZE(gain_lut) - 1U;
-    return gain_lut[index];
+    while (i + 1U < ARRAY_SIZE(gain_lut) && gain_lut[i + 1U] <= log2)
+        i++;
+    return i;
 }
 
 /*
- * T40-QUALITY2: the AE gain ladder above is the GC4653 one (index 25 =
- * 6.24 log2 = 76x).  The sc830ai stops at max_again 5.0 log2 (32x): the
- * sensor's alloc_again clamps indices 21..25 silently, while every
+ * #483: the AE analog gain index -> log2 gain (16.16), fine ladder of T40_AE_AGAIN_FINE_LOG2 (1/64 octave) per index
+ * (tx_isp_t40_ae_api.h).  The ISP tuning tables use log2(gain); the sensor gets the gain through its alloc_again
+ * (floor to its own table, like the vendor tisp_set_sensor_analog_gain), so BLC/GIB/DMSC/LSC follow the gain sent
+ * to the sensor.
+ */
+static uint32_t regtrace_t40_again_log2_gain(uint32_t index)
+{
+    return t40_ae_fine_ladder_log2(index);
+}
+
+/*
+ * T40-QUALITY2: the AE gain ladder above reaches 76x (#483: index 400 =
+ * 6.25 log2).  The sc830ai stops at max_again 5.0 log2 (32x, index 320): the
+ * sensor's alloc_again clamps the indices above silently, while every
  * gain-indexed table (DNS/YSP/LSC/DMSC, GIB black level) and the reported
  * AeAGain used the ladder value.  Like the OEM (tisp_ae_main_s_max_again
  * from the attribute) the ceiling is the highest ladder step that does not
@@ -12304,7 +12333,7 @@ t40_bringup_param_named(t40_awb_tgain_last, t40_awb_tgain_last, uint, 0444);
 static uint32_t t40_awb_tgain_total = 0xffffffffU;	/* total gain of the last AE gain update, for the AWB thread (#84) */
 static void regtrace_gc4653_tuning_again_update(uint32_t again_index)
 {
-    uint32_t gain = regtrace_gc4653_again_log2_gain(again_index);
+    uint32_t gain = regtrace_t40_again_log2_gain(again_index);
     /* T40-AE-ISPDGAIN: BLC/GIB follow the sensor analog gain (OEM
      * tisp_*_a_gian_update); the gain-driven denoise/sharpen/LSC/DMSC tables
      * follow the total gain including the ISP digital gain. */
@@ -15368,8 +15397,8 @@ static uint32_t regtrace_t40_ae_max_again_index(void)
         if (ma && ma < 0x800000U) {
             uint32_t i = 0;
 
-            while (i + 1U < 26U &&
-                   regtrace_gc4653_again_log2_gain(i + 1U) <= ma)
+            while (i < T40_AE_AGAIN_LADDER_MAX &&
+                   regtrace_t40_again_log2_gain(i + 1U) <= ma)
                 i++;
             if (i < idx)
                 idx = i;
@@ -15378,8 +15407,8 @@ static uint32_t regtrace_t40_ae_max_again_index(void)
     if (regtrace_ae_user_max_again_x1024 >= 1024U) {
         uint32_t i = 0;
 
-        while (i + 1U < 26U &&
-               tx_isp_exp2_u32(regtrace_gc4653_again_log2_gain(i + 1U), 16, 10) <=
+        while (i < T40_AE_AGAIN_LADDER_MAX &&
+               tx_isp_exp2_u32(regtrace_t40_again_log2_gain(i + 1U), 16, 10) <=
                regtrace_ae_user_max_again_x1024)
             i++;
         if (i < idx)
@@ -20902,7 +20931,7 @@ static void regtrace_t40_dmsc_day_shadow_switch(bool lit_on)
 static int regtrace_t40_refresh_daynight_pipeline(void)
 {
     uint32_t nbuf = *(uint32_t *)((char *)&tparamsN);
-    uint32_t gain = regtrace_gc4653_again_log2_gain(
+    uint32_t gain = regtrace_t40_again_log2_gain(
         READ_ONCE(regtrace_ae_soft_cur_again));
     uint32_t width = regtrace_sensor_full_width_override;
     uint32_t height = regtrace_sensor_full_height_override;
@@ -21147,7 +21176,7 @@ static int regtrace_t40_tuning_copy_ae_expr(uintptr_t user_ptr)
 
     t40_ae_rep_get(&rep_it, &again_index, &dg);   /* #474 d: OEM reporting lag */
     again_index = min_t(uint32_t, again_index, regtrace_t40_ae_max_again_index());
-    again_log2 = regtrace_gc4653_again_log2_gain(again_index);
+    again_log2 = regtrace_t40_again_log2_gain(again_index);
     again_x1024 = tx_isp_exp2_u32(again_log2, 16, 10);
     if (!again_x1024)
         again_x1024 = 1024U;
@@ -21155,7 +21184,7 @@ static int regtrace_t40_tuning_copy_ae_expr(uintptr_t user_ptr)
     exposure = (uint64_t)rep_it * again_x1024;
     exposure = div64_u64(exposure * dg, 1024U * 1024U);   /* T40-AE-ISPDGAIN */
     max_it = regtrace_t40_ae_max_it();
-    max_ag = tx_isp_exp2_u32(regtrace_gc4653_again_log2_gain(regtrace_t40_ae_max_again_index()), 16, 10);
+    max_ag = tx_isp_exp2_u32(regtrace_t40_again_log2_gain(regtrace_t40_ae_max_again_index()), 16, 10);
 
     memset(&l, 0, sizeof(l));
     l.it = rep_it;
@@ -21163,7 +21192,7 @@ static int regtrace_t40_tuning_copy_ae_expr(uintptr_t user_ptr)
     l.dgain = e.dgain_manual ? e.dgain : 1024U;
     l.ispdgain = dg;
     l.min_it = READ_ONCE(regtrace_ae_soft_min_it);
-    l.min_again = tx_isp_exp2_u32(regtrace_gc4653_again_log2_gain(READ_ONCE(t40_ae_ex_min_again_idx)), 16, 10);
+    l.min_again = tx_isp_exp2_u32(regtrace_t40_again_log2_gain(READ_ONCE(t40_ae_ex_min_again_idx)), 16, 10);
     l.max_it = max_it;
     l.max_again = max_ag ? max_ag : 1024U;
     l.max_dgain = e.max_dgain_mode ? e.max_dgain : 1024U;
@@ -21951,7 +21980,7 @@ static int regtrace_ae_sensor_apply_maybe(int channel, const char *reason)
         uintptr_t fn = regtrace_is_kernel_ptr((void *)attr) ? regtrace_get_u32(attr, 0xc4) : 0;
 
         if (regtrace_is_kernel_ptr((void *)fn)) {
-            uint32_t log2 = regtrace_gc4653_again_log2_gain(again);
+            uint32_t log2 = regtrace_t40_again_log2_gain(again);
             unsigned int sensor_again = 0;
             static unsigned int alloc_log;
 
@@ -21960,7 +21989,12 @@ static int regtrace_ae_sensor_apply_maybe(int channel, const char *reason)
                 printk(KERN_INFO "tx_isp_t40_recovered: AE alloc_again idx=%u log2=%u -> sensor_again=0x%x\n",
                        again, log2, sensor_again);
             packed = (sensor_again << 16) | (packed & 0xffffU);
+        } else {
+            /* #483: no alloc_again: the GC4653 LUT index nearest below the fine-ladder gain */
+            packed = (regtrace_gc4653_index_of_log2(regtrace_t40_again_log2_gain(again)) << 16) | (packed & 0xffffU);
         }
+    } else {
+        packed = (regtrace_gc4653_index_of_log2(regtrace_t40_again_log2_gain(again)) << 16) | (packed & 0xffffU);
     }
 
     regtrace_ae_sensor_apply_last_dirty[channel] = dirty;
@@ -42460,10 +42494,10 @@ static uint32_t regtrace_t40_again_index_of(uint32_t x1024)
     uint32_t i = 0;
 
     while (i < max_idx &&
-           regtrace_gc4653_again_log2_gain(i + 1U) <= want)
+           regtrace_t40_again_log2_gain(i + 1U) <= want)
         i++;
     if (i < max_idx &&
-        regtrace_gc4653_again_log2_gain(i + 1U) - want < want - regtrace_gc4653_again_log2_gain(i))
+        regtrace_t40_again_log2_gain(i + 1U) - want < want - regtrace_t40_again_log2_gain(i))
         i++;
     return i;
 }
@@ -47469,7 +47503,7 @@ static void regtrace_frame_done_tuning_follow(void)
 
     /* Explicit forensic CT remains live when automatic gain-derived
      * tracking is disabled. */
-    regtrace_t40_ev_fanout(regtrace_gc4653_again_log2_gain(min_t(uint32_t,
+    regtrace_t40_ev_fanout(regtrace_t40_again_log2_gain(min_t(uint32_t,
         READ_ONCE(regtrace_ae_soft_cur_again), regtrace_t40_ae_max_again_index())));
     /* fixed CT (ccm_ct_track=0): follow a changed ccm_ct parameter; the EV side runs in t40_main_long_ev_update (#85) */
     if (regtrace_enable_ccm && !regtrace_ccm_ct_track &&
@@ -74583,7 +74617,7 @@ static inline void t40_ae_custom_event(uint32_t ch, uint32_t id, uint32_t val)
  * sensor's own gain table; the ladder value itself is GC4653's.  Without an alloc_again the ladder value is what is sent. */
 static uint32_t t40_ae_sensor_again_log2(uint32_t idx)
 {
-    uint32_t log2 = regtrace_gc4653_again_log2_gain(idx);
+    uint32_t log2 = regtrace_t40_again_log2_gain(idx);
 
     if (regtrace_t40_ae_sensor_alloc_again && regtrace_is_kernel_ptr(regtrace_sensor_subdev)) {
         uintptr_t attr = regtrace_get_u32((uintptr_t)regtrace_sensor_subdev, 0x304);
@@ -74614,8 +74648,8 @@ static void t40_ae_trade_gain_sync(void)
             key ^= (uint32_t)regtrace_get_u32(attr, 0xc4);
     }
     /* frame-3A worker (process context): alloc_again is a table walk without locks or bus access (sensor drivers);
-     * refilled on a new sensor / switch and every 4096 lookups */
-    t40_ae_gain_cache_sync(&t40_ae_trade_gc, key, 4096U, t40_ae_sensor_again_log2);
+     * refilled on a new sensor / switch and every 65536 lookups (#483: 401 fine-ladder entries) */
+    t40_ae_gain_cache_sync(&t40_ae_trade_gc, key, 65536U, t40_ae_sensor_again_log2);
 }
 static uint32_t t40_ae_trade_log2_gain(uint32_t idx)
 {
@@ -74660,9 +74694,21 @@ int32_t tisp_ae_algo_handle(uintptr_t a0, uintptr_t a1)
         {
             uint32_t bd = 0xffffffffU;
 
-            best = 0;
-            for (k = 0; k <= maxidx && k < 26U; k++) {
-                uint32_t g = t40_ae_sensor_again_log2(k), d = g > v ? g - v : v - g;
+            uint32_t lo = 0, hi = min_t(uint32_t, maxidx, T40_AE_AGAIN_LADDER_MAX);
+
+            /* #483: binary search on the cached sensor gains of the fine ladder (monotonic), then the nearer neighbour */
+            t40_ae_trade_gain_sync();
+            while (lo < hi) {
+                uint32_t mid = lo + (hi - lo + 1U) / 2U;
+
+                if (t40_ae_trade_log2_gain(mid) <= v)
+                    lo = mid;
+                else
+                    hi = mid - 1U;
+            }
+            best = lo;
+            for (k = lo; k <= lo + 1U && k <= min_t(uint32_t, maxidx, T40_AE_AGAIN_LADDER_MAX); k++) {
+                uint32_t g = t40_ae_trade_log2_gain(k), d = g > v ? g - v : v - g;
 
                 if (d < bd) { bd = d; best = k; }
             }
@@ -77049,7 +77095,7 @@ int32_t tisp_awb_main_init(uint32_t a0, uint32_t a1)
     t40_awb_tgain_last = 0xffffffffU;	/* fresh AWB context: the next AWB pass sets the interpolation position (#84) */
     /* #84: the current total gain, so the first AWB pass sets the thresholds even when the gain does not move (manual
      * exposure) */
-    WRITE_ONCE(t40_awb_tgain_total, regtrace_gc4653_again_log2_gain(READ_ONCE(regtrace_ae_soft_cur_again)) +
+    WRITE_ONCE(t40_awb_tgain_total, regtrace_t40_again_log2_gain(READ_ONCE(regtrace_ae_soft_cur_again)) +
                                     regtrace_t40_ae_isp_dgain_log2());
     WRITE_ONCE(t40_vawb_live, vret == 0);
     if (vret)
@@ -77711,7 +77757,7 @@ ae_meter:
             t40_aet_band_params(b, 0, &p3, &p4, &p10);
             lum = t40_aet_wmean_b(s[0], s[1], s[2], c[0], c[1], rowh, colw, rows, cols, wz, p3, p4, p10, f3a_band);
             lumb = b->hl[0] == 1U ? t40_aet_hl_boost(lum, hs, b->zone[35], p4, p10, npix) : lum;
-            ag = tx_isp_exp2_u32(regtrace_gc4653_again_log2_gain(READ_ONCE(regtrace_ae_soft_cur_again)), 16, 10);
+            ag = tx_isp_exp2_u32(regtrace_t40_again_log2_gain(READ_ONCE(regtrace_ae_soft_cur_again)), 16, 10);
             ev = t40_aet_ev_q10(READ_ONCE(regtrace_ae_soft_cur_it), ag ? ag : 1024U,
                                 clamp_t(uint32_t, READ_ONCE(regtrace_ae_isp_dgain_cur), 1024U, 32767U));
             t40_aet_lists(b, t40_aet_comp_word(b->sc[2], READ_ONCE(t40_ae_sc.comp)), evl, tgl);
@@ -77772,7 +77818,7 @@ ae_meter:
         bool oem_split = !READ_ONCE(t40_ae_split_legacy), oem_step, oem_dg_write = false;
         /* #219 C1: rung trades in the gain the sensor applies */
         uint32_t (*trade_gain)(uint32_t) = READ_ONCE(t40_ae_trade_sensor_gain) ?
-                                          t40_ae_trade_log2_gain : regtrace_gc4653_again_log2_gain;
+                                          t40_ae_trade_log2_gain : regtrace_t40_again_log2_gain;
         unsigned long flags;
 
         spin_lock_irqsave(&t40_ae_api_lock, flags);
@@ -77911,7 +77957,8 @@ ae_meter:
                     .lo = ag_fixed ? again : min_again, .hi = ag_fixed ? again : max_again,
                     .dgain_max = dgain_max, .it_fixed = it_fixed, .ag_fixed = ag_fixed, .dg_fixed = dg_fixed,
                 };
-                uint32_t agq = tx_isp_exp2_u32(regtrace_gc4653_again_log2_gain(again), 16, 10);
+                /* #483: the gain the sensor applies (its alloc_again floor, cached), like the vendor's EV bookkeeping */
+                uint32_t agq = tx_isp_exp2_u32(trade_gain(again), 16, 10);
                 uint32_t ev0 = t40_aet_ev_q10(it, agq ? agq : 1024U, dgain), ev1;
 
                 ev1 = t40_aet_tune2(&f3a_bank, f3a_evl, f3a_tgl, &t40_ae_tune_st, ev0, t40_ae_oem_diag[1],
@@ -77924,8 +77971,7 @@ ae_meter:
                     ev1 = ev1 > ev0 ? ev0 + dv : (ev0 > dv + 1024U ? ev0 - dv : 1024U);
                 }
                 if (ev1 != ev0) {   /* OEM: no allocation while the step holds the EV */
-                    uint32_t r = t40_ae_oem_alloc(ev1, &it, &again, &dgain, &al,
-                                                  regtrace_gc4653_again_log2_gain);
+                    uint32_t r = t40_ae_oem_alloc(ev1, &it, &again, &dgain, &al, trade_gain);
 
                     if (r & 1U)
                         changed = true;
@@ -78008,7 +78054,7 @@ ae_meter:
                 break;
             } else if (!ag_fixed && again < max_again &&
                        luma_ae + again_band < target) {
-                again++;
+                again = min_t(uint32_t, again + T40_AE_AGAIN_COARSE, max_again);   /* #483: ~1.17x step */
                 changed = true;
             } else if (!dg_fixed && dgain < dgain_max &&
                        luma_ae + dgain_band < target) {
@@ -78028,7 +78074,7 @@ ae_meter:
             } else if (!ag_fixed && again > min_again &&
                        (protect_highlights ||
                         luma_ae > target + again_band)) {
-                again--;
+                again = again > min_again + T40_AE_AGAIN_COARSE ? again - T40_AE_AGAIN_COARSE : min_again;   /* #483 */
                 changed = true;
             } else if ((!dg_fixed && dgain > 1024U) ||
                        (!ag_fixed && again > min_again)) {
@@ -78104,7 +78150,7 @@ ae_meter:
         if (!oem_step && oem_split && !ex.freeze && !ag_fixed && !dg_fixed &&
             t40_ae_oem_split(&it, &again, &dgain, af_step, max_it,
                              min_again, max_again, dgain_max, !it_fixed && !it_down,
-                             regtrace_gc4653_again_log2_gain)) {
+                             regtrace_t40_again_log2_gain)) {
             changed = true;
             dgain_changed = true;
             WRITE_ONCE(t40_ae_split_moves, t40_ae_split_moves + 1U);
@@ -78344,12 +78390,12 @@ static void regtrace_awb_grayworld_update(void)
                         it = regtrace_ae_soft_max_it;
                     changed = true;
                 } else if (again < max_again) {
-                    again++;
+                    again = min_t(uint32_t, again + T40_AE_AGAIN_COARSE, max_again);   /* #483: ~1.17x step */
                     changed = true;
                 }
             } else if (mean > regtrace_ae_soft_target + regtrace_ae_soft_hyst) {
                 if (again > 0) {
-                    again--;
+                    again = again > T40_AE_AGAIN_COARSE ? again - T40_AE_AGAIN_COARSE : 0U;
                     changed = true;
                 } else if (it > regtrace_ae_soft_min_it) {
                     it = it - it / 4;
@@ -132868,7 +132914,7 @@ static int t40_isp_status_show(struct seq_file *m, void *unused)
         it = READ_ONCE(t40_vendor_it_sensor) & 0xffffU;
         again_log2 = READ_ONCE(t40_vendor_again_log2);
     } else {
-        again_log2 = regtrace_gc4653_again_log2_gain(min_t(uint32_t, rep_ag, regtrace_t40_ae_max_again_index()));
+        again_log2 = regtrace_t40_again_log2_gain(min_t(uint32_t, rep_ag, regtrace_t40_ae_max_again_index()));
     }
     again_x1024 = tx_isp_exp2_u32(again_log2, 16, 10);
     if (!again_x1024)

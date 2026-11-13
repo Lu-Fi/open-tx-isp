@@ -499,19 +499,19 @@ static void test_gain_cache(void)
 
 	memset(&c, 0, sizeof(c));
 	t40_ae_gain_cache_sync(&c, 5, 4, t_coarse_log2);
-	assert(coarse_calls == 26U && c.valid && c.key == 5U);
-	for (i = 1; i <= 25U; i++)
+	assert(coarse_calls == T40_AE_AGAIN_LADDER_MAX + 1U && c.valid && c.key == 5U);
+	for (i = 1; i <= T40_AE_AGAIN_LADDER_MAX; i++)
 		assert(c.g[i] >= c.g[i - 1U]);
 	assert(c.g[7] == c.g[6] && c.g[2] == 29491U && c.g[3] == 29491U && c.g[4] == 58982U);
-	assert(t40_ae_gain_cache_get(&c, 99) == c.g[25]);
+	assert(t40_ae_gain_cache_get(&c, 999) == c.g[T40_AE_AGAIN_LADDER_MAX]);
 	t40_ae_gain_cache_sync(&c, 5, 4, t_coarse_log2);	/* same key, 1 use < 4: no refill */
-	assert(coarse_calls == 26U);
+	assert(coarse_calls == T40_AE_AGAIN_LADDER_MAX + 1U);
 	t40_ae_gain_cache_sync(&c, 6, 4, t_coarse_log2);	/* new sensor key: refill */
-	assert(coarse_calls == 52U);
+	assert(coarse_calls == 2U * (T40_AE_AGAIN_LADDER_MAX + 1U));
 	for (i = 0; i < 4U; i++)
 		(void)t40_ae_gain_cache_get(&c, i);
 	t40_ae_gain_cache_sync(&c, 6, 4, t_coarse_log2);	/* period reached: refill */
-	assert(coarse_calls == 78U && c.uses == 0);
+	assert(coarse_calls == 3U * (T40_AE_AGAIN_LADDER_MAX + 1U) && c.uses == 0);
 	/*
 	 * rung down 1350 -> 900 at idx 0 (room 0.585 stop): the GC4653 ladder trade gives idx 2 (1.39x modelled) but this
 	 * sensor applies only 29491 there; traded with the sensor gains the index goes to 3 (still 29491 <= room, idx 4 =
@@ -548,9 +548,9 @@ static void test_af_trade(void)
 	assert(t40_ae_log2_ratio(900, 900) == 0 && t40_ae_log2_ratio(5, 0) == 0);
 	/* rung down 1350 -> 900 at 1x: two gain indices (1.39x, exposure 1251 of 1350) */
 	assert(t40_ae_af_trade_again(1350, 900, 0, 0, 25, t_log2_gain) == 2);
-	/* Opus review C3: an unclamped hi must not run past the 26-index ladder */
-	assert(t40_ae_af_trade_again(1350, 900, 0, 0, 0x7fffffffU, t_log2_gain) <= 25U);
-	assert(t40_ae_af_trade_again(1350, 900, 100, 0, 0x7fffffffU, t_log2_gain) <= 25U);
+	/* Opus review C3: an unclamped hi must not run past the ladder (#483: T40_AE_AGAIN_LADDER_MAX fine indices) */
+	assert(t40_ae_af_trade_again(1350, 900, 0, 0, 0x7fffffffU, t_log2_gain) <= T40_AE_AGAIN_LADDER_MAX);
+	assert(t40_ae_af_trade_again(1350, 900, 1000, 0, 0x7fffffffU, t_log2_gain) <= T40_AE_AGAIN_LADDER_MAX);
 	/* 900 -> 450: four indices (exactly 2x, 65535 <= 65536) */
 	assert(t40_ae_af_trade_again(900, 450, 0, 0, 25, t_log2_gain) == 4);
 	/* rung up 900 -> 1350 from index 1 (the logged 1350 / AGain 1200 state) and 3 */

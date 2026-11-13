@@ -594,7 +594,7 @@ static u64 t40_vawb_ev_q10(void)
 		again_log2 = READ_ONCE(t40_vendor_again_log2);
 	} else {
 		it = READ_ONCE(regtrace_ae_soft_cur_it);
-		again_log2 = regtrace_gc4653_again_log2_gain(min_t(uint32_t, READ_ONCE(regtrace_ae_soft_cur_again),
+		again_log2 = regtrace_t40_again_log2_gain(min_t(uint32_t, READ_ONCE(regtrace_ae_soft_cur_again),
 					READ_ONCE(regtrace_ae_sensor_apply_max_again_index)));
 		dg = clamp_t(u32, READ_ONCE(regtrace_ae_isp_dgain_cur), 1024U, 32767U);
 	}

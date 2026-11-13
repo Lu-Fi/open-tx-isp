@@ -269,6 +269,71 @@ static void test_alloc(void)
 	puts("alloc ok");
 }
 
+/*
+ * #483: continuous analog gain like the vendor (tisp_set_sensor_analog_gain 0x37778: alloc_again floors the request
+ * to the sensor table, the rest goes to the ISP dgain).  Fine ladder (index x 1/64 octave) floored by an sc830ai-like
+ * table (64 entries per octave, first steps 1500 / 1386 / 1456 log2 16.16 like the SDK sensor_again_lut, max 32x):
+ * over a slow EV ramp at the IT ceiling the ISP dgain stays below one sensor step (< 2 %) and the applied total
+ * gain moves in steps < 2.5 %, where the GC4653 ladder swapped up to 17 % between analog and ISP dgain.
+ */
+static u32 t_sc830_floor(u32 l)
+{
+	u32 g, step, k;
+
+	if (l >= 327680U)
+		return 327680U;
+	/* table: 0, 1500, 2886, 4342, then 1024-ish steps; model = 64 per octave with the first three SDK values */
+	if (l < 1500U)
+		return 0;
+	if (l < 2886U)
+		return 1500U;
+	if (l < 4342U)
+		return 2886U;
+	step = 1024U;
+	k = (l - 4342U) / step;
+	g = 4342U + k * step;
+	return g;
+}
+
+static u32 t_fine_sensor(u32 i)
+{
+	return t_sc830_floor(t40_ae_fine_ladder_log2(i));
+}
+
+static void test_fine_alloc(void)
+{
+	struct t40_ae_alloc_lim l = lim;
+	u32 it = 2241, ag = 0, dg = 1024, n, worst_dg = 1024, swaps = 0;
+	double prev = 0.0, worst_step = 0.0;
+
+	l.hi = 320;	/* 32x */
+	l.dgain_max = 5120;
+	for (n = 0; n < 4000; n++) {
+		double ev = 2241.0 * 1.01 * pow(32.0 * 5.0 / 1.01, n / 3999.0);
+		u32 pa = ag, r;
+		double tot;
+
+		r = t40_ae_oem_alloc((u32)(ev * 1024.0), &it, &ag, &dg, &l, t_fine_sensor);
+		(void)r;
+		assert(it == 2241U);
+		tot = t_exp2(t_fine_sensor(ag) / 65536.0) * dg / 1024.0;
+		if (prev > 0.0 && fabs(tot / prev - 1.0) > worst_step)
+			worst_step = fabs(tot / prev - 1.0);
+		prev = tot;
+		assert(fabs(2241.0 * tot / ev - 1.0) < 0.003);		/* allocation is exposure-exact */
+		if (ag < 320U && dg > worst_dg)
+			worst_dg = dg;
+		if (ag != pa && pa < 320U && ag < 320U)
+			swaps++;
+	}
+	assert(ag == 320U && dg == 5120U);				/* dark limit 32x x 5x (vendor day bank) */
+	assert(worst_dg <= 1024U + 1024U * 20U / 1000U);		/* below one sensor step (<= 1802 log2 at the top of this
+									 * model table), vendor 1.024..1.038 */
+	assert(worst_step < 0.01);
+	printf("fine alloc ok: worst ISP dgain below max again %.4f, worst total-gain step %.4f, %u analog changes\n",
+	       worst_dg / 1024.0, worst_step, swaps);
+}
+
 /* #410: same scene, bright and dark history -> same end exposure */
 static void test_path(double ev_eq)
 {
@@ -602,6 +667,7 @@ int main(void)
 	test_sq();
 	test_irq_order();
 	test_alloc();
+	test_fine_alloc();
 	test_path(4700.0);	/* IT at the ceiling, analog gain + ISP dgain (Eufy comp 128) */
 	test_path(1500.0);	/* below the ceiling: IT rungs (Eufy comp 40: vendor IT 1500) */
 	/* lamps on: dark state 2241 lines x 32x x 1.2 -> scene needs ~1/20 of it (frames clipped at the start) */
