@@ -42,6 +42,12 @@
 #define T32_IOC_GET_FRAME_DROP		0xc004542dU	/* same block, driver fills lsize / fmark (tx_isp_get_frame_drop) */
 #define T32_IOC_SET_INTERNAL_CHN_ATTR	0xc004542fU	/* libimp IMP_ISP_SetInternalChnAttr: no vendor handler, answered 0, block untouched */
 #define T32_IOC_GET_INTERNAL_CHN_ATTR	0xc0045430U	/* libimp IMP_ISP_GetInternalChnAttr: same */
+#define T32_IOC_BYPASS_SENSOR		0x80085418U	/* W {enable, input}: IMP_ISP_SetISPBypass */
+#define T32_IOC_SET_PM_CTRL		0xc0045431U	/* RW {mode, vinum}: libimp IMP_ISP_PM_SetMode (T33 path) */
+#define T32_IOC_GET_PM_CTRL		0xc0045432U	/* RW {mode, vinum}: IMP_ISP_PM_GetMode */
+#define T32_IOC_RUN_SWITCH		0xc004543cU	/* value 0 / 1 / 2 / 3: IMP_ISP_OneShotDisable / Enable / Tick */
+#define T32_IOC_GET_RUN_MODE		0xc004543dU	/* R u32: IMP_ISP_GET_DriverMode */
+#define T32_IOC_LDC_MODE		0xc00454b8U	/* W u32 0 online / 1 offline: IMP_ISP_LDC_SetMode */
 #define T32_IOC_MEMORY_MALLOC		0x800c543aU	/* W {.., .., size}; driver writes {kva, pa, size} */
 #define T32_IOC_MEMORY_FREE		0x800c543bU	/* W {kva, 0, ..} */
 #define T32_IOC_SET_TIZIANO_PAR		0xc00454c8U	/* RW int: pa of a MEMORY_MALLOC buffer (IQ bin) */

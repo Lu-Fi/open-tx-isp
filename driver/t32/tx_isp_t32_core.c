@@ -120,6 +120,9 @@ static struct t32_core {
 	u32 bin_wdr[T32_BIN_VIS], bin_night[T32_BIN_VIS];	/* last SET_TIZIANO_PAR */
 	u32 bypass[T32_BIN_VIS];	/* BYPASS_SENSOR flag per input */
 	unsigned int ioctls;
+	u32 run_mode;			/* RUN_SWITCH 0 normal / 1 one-shot (AOV) */
+	u32 ldc_mode;			/* LDC_MODE 0 online / 1 offline */
+	u32 bypass[T32_MAX_VI];		/* BYPASS_SENSOR {enable, input} */
 	struct proc_dir_entry *proc;
 } core;
 
@@ -772,6 +775,47 @@ static long t32_isp_ioctl(struct file *file, unsigned int cmd, unsigned long arg
 		break;
 	case T32_IOC_GET_FRAME_DROP:
 		ret = t32_frame_drop_get(arg);
+		break;
+	case T32_IOC_GET_RUN_MODE:
+		/* tx_isp_get_isp_driver_running_mode: the running-mode word */
+		ret = T32_PUT(arg, core.run_mode);
+		break;
+	case T32_IOC_RUN_SWITCH:
+		/* the value itself is the argument: 0 normal, 1 one-shot, 2 / 3 one
+		 * frame in one-shot mode (refused otherwise, as the vendor); the
+		 * frame trigger of the low-power path is not modelled: frames keep
+		 * flowing (QEMU proof only; AOV effect: T32/T33 camera) */
+		if (arg == 0 || arg == 1)
+			core.run_mode = arg;
+		else if (arg == 2 || arg == 3)
+			ret = core.run_mode == 1 ? 0 : -EINVAL;
+		else
+			ret = -EINVAL;
+		break;
+	case T32_IOC_LDC_MODE:
+		/* broadcast to the subdevices, sum of the results (0): the mode is kept */
+		ret = T32_GET(arg, v);
+		if (!ret)
+			core.ldc_mode = v;
+		break;
+	case T32_IOC_BYPASS_SENSOR: {
+		/* tx_isp_bypass_all: {enable, input} kept per input (libimp
+		 * IMP_ISP_SetISPBypass); the sensor-side switch of the vendor's
+		 * notify is not modelled (QEMU proof only, picture: camera) */
+		u32 b[2];
+
+		if (copy_from_user(b, (void __user *)arg, sizeof(b))) {
+			ret = -EFAULT;
+			break;
+		}
+		if (b[1] < T32_MAX_VI)
+			core.bypass[b[1]] = b[0];
+		break;
+	}
+	case T32_IOC_SET_PM_CTRL:
+	case T32_IOC_GET_PM_CTRL:
+		/* vendor tx-isp-t33.ko (QEMU, openimp #54): 0, the user block {mode,
+		 * vinum} comes back unchanged */
 		break;
 	case T32_IOC_SET_INTERNAL_CHN_ATTR:
 	case T32_IOC_GET_INTERNAL_CHN_ATTR:
