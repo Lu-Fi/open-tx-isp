@@ -372,6 +372,49 @@ static void t40_dfg_write_table(const struct t40_dfg_soft *s)
 	system_reg_write(0xc2ac, 1);
 }
 
+#ifdef __KERNEL__
+/* #332 diagnostics (read-only): last soft pass per cell as hex lines y (prev_y = cell luma), t (transmission out[3]),
+ * m (motion weight), a (air light out[0]); header: EV, the 5 levels at the current EV, ctl[0..9], frames, cached
+ * transmission entries (flags bit 4).  Unlocked snapshot: a line can mix two frames. */
+static int t40_defog_dump_get(char *buf, const struct kernel_param *kp)
+{
+	const struct t40_dfg_ctx *c = t40_dfg;
+	static const char hx[] = "0123456789abcdef";
+	static const char tag[4] = { 'y', 't', 'm', 'a' };
+	const uint8_t *rows[4];
+	unsigned int i, j, nc = 0;
+	int n;
+
+	(void)kp;
+	if (!c)
+		return scnprintf(buf, PAGE_SIZE, "off\n");
+	for (i = 0; i < 256; i++)
+		nc += !!(c->soft.flags[i] & 0x10);
+	n = scnprintf(buf, PAGE_SIZE, "ev %u lv %u %u %u %u %u ctl", t40_dfg_ev, c->tool[DFG_T_CUR],
+		      c->tool[DFG_T_CUR + 1], c->tool[DFG_T_CUR + 2], c->tool[DFG_T_CUR + 3], c->tool[DFG_T_CUR + 4]);
+	for (i = 0; i < 10; i++)
+		n += scnprintf(buf + n, PAGE_SIZE - n, " %u", c->soft.ctl[i]);
+	n += scnprintf(buf + n, PAGE_SIZE - n, " frames %u tcached %u sumt %u suma %u\n", t40_dfg_frames, nc,
+		       t40_dfg_sum_trans, t40_dfg_sum_air);
+	rows[0] = c->soft.prev_y; rows[1] = c->soft.out[3]; rows[2] = c->motion; rows[3] = c->soft.out[0];
+	for (j = 0; j < 4 && n < (int)PAGE_SIZE - 2 * (int)T40_DFG_CELLS - 8; j++) {
+		buf[n++] = tag[j]; buf[n++] = ' ';
+		for (i = 0; i < T40_DFG_CELLS; i++) {
+			buf[n++] = hx[rows[j][i] >> 4];
+			buf[n++] = hx[rows[j][i] & 15];
+		}
+		buf[n++] = '\n';
+	}
+	buf[n] = 0;
+	return n;
+}
+
+static const struct kernel_param_ops t40_defog_dump_ops = {
+	.get = t40_defog_dump_get,
+};
+module_param_cb(t40_defog_dump, &t40_defog_dump_ops, NULL, 0444);
+#endif
+
 /* weighted mean over the window of in[] around each cell (OEM img_filter9 / img_filter25):
  * radius 1 or 2, the window clipped at the edges; result (sum + w/2) / w */
 static void t40_dfg_smooth(uint8_t *io, const uint8_t *k, int rad)
