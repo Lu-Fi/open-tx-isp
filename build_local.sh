@@ -22,6 +22,9 @@
 #   CROSS   cross-compile prefix          (default: mipsel-linux-)
 #   ARCH    target arch                   (default: mips)
 #   SOC     per-SoC driver subdir         (default: t31 -> driver/t31/)
+#   OTX_BUILD_ID  build id string in the probe log (default: "local"; a long
+#           git-describe id moves .rodata/.data/.bss of the loaded module and
+#           so differs in layout from the firmware ko, which uses a short id)
 #
 # Examples:
 #   ./build_local.sh                       # autodetect everything, build modules
@@ -61,6 +64,10 @@ export PATH="$ROOT/host/bin:$PATH"
 
 KCFLAGS="-Wno-error=implicit-function-declaration -Wno-error=int-conversion -Wno-error=implicit-int"
 GOAL="${1:-modules}"
+# Short fixed build id: same module layout as the firmware package build
+# (open-tx-isp.mk passes OTX_BUILD_ID=<release tag>), not the long git describe.
+OTX_BUILD_ID="${OTX_BUILD_ID:-local}"
+export OTX_BUILD_ID
 
 # Same per-SoC XBurst include paths as the firmware package
 # (thingino-firmware package/open-tx-isp/open-tx-isp.mk: EXTRA_CFLAGS with
