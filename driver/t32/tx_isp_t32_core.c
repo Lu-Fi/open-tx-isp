@@ -122,7 +122,6 @@ static struct t32_core {
 	unsigned int ioctls;
 	u32 run_mode;			/* RUN_SWITCH 0 normal / 1 one-shot (AOV) */
 	u32 ldc_mode;			/* LDC_MODE 0 online / 1 offline */
-	u32 bypass[T32_MAX_VI];		/* BYPASS_SENSOR {enable, input} */
 	struct proc_dir_entry *proc;
 } core;
 
@@ -798,20 +797,6 @@ static long t32_isp_ioctl(struct file *file, unsigned int cmd, unsigned long arg
 		if (!ret)
 			core.ldc_mode = v;
 		break;
-	case T32_IOC_BYPASS_SENSOR: {
-		/* tx_isp_bypass_all: {enable, input} kept per input (libimp
-		 * IMP_ISP_SetISPBypass); the sensor-side switch of the vendor's
-		 * notify is not modelled (QEMU proof only, picture: camera) */
-		u32 b[2];
-
-		if (copy_from_user(b, (void __user *)arg, sizeof(b))) {
-			ret = -EFAULT;
-			break;
-		}
-		if (b[1] < T32_MAX_VI)
-			core.bypass[b[1]] = b[0];
-		break;
-	}
 	case T32_IOC_SET_PM_CTRL:
 	case T32_IOC_GET_PM_CTRL:
 		/* vendor tx-isp-t33.ko (QEMU, openimp #54): 0, the user block {mode,
