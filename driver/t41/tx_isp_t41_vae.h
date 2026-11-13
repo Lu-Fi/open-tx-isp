@@ -401,7 +401,14 @@ static int t41_ae_algo_open(uintptr_t file, u32 user)
 		kfree(info_blk);
 		return ret;
 	}
+	/* The recovered code writes done at +0 and initialises the wait queue
+	 * at +4; the total size may differ on a mainline kernel (k7 patch 0046).
+	 * The OEM 4.4 layout is still pinned to its 16-byte slot. */
+	BUILD_BUG_ON(offsetof(struct completion, done) != 0U);
+	BUILD_BUG_ON(offsetof(struct completion, wait) != 4U);
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 0, 0)
 	BUILD_BUG_ON(sizeof(struct completion) != 16U);
+#endif
 	if (!t41_ae_algo_comp_ready) {		/* once: a completion with a waiter must never be initialised again */
 		init_completion(T41_AE_ALGO_COMP);
 		t41_ae_algo_comp_ready = true;

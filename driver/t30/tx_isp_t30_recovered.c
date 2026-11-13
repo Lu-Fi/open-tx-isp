@@ -6280,6 +6280,7 @@ int32_t isp_core_config_top_ctl_register(int32_t arg1, int32_t arg2);
 int32_t ispcore_core_ops_ioctl(void *file, uint32_t cmd, void *arg);
 int32_t isp_fw_process(void);
 static void tx_isp_t30_stop_fw_thread(struct task_struct **threadp);
+static void tx_isp_t30_cancel_ae_work(void);
 int32_t ispcore_frame_channel_set_scaler(void *arg1, void *arg2, int32_t arg3);
 int dump_isp_info_open(struct inode *inode, struct file *file);
 int32_t isp_info_show(struct seq_file *m);
@@ -12398,6 +12399,7 @@ static void tx_isp_t30_stop_fw_thread(struct task_struct **threadp)
 	raise_semaphore((uintptr_t)TX_ISP_T30_FW_PTR(0xc));
 	kthread_stop(thread);
 	*threadp = NULL;
+	tx_isp_t30_cancel_ae_work();
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000000a550 origin=model_output original=ispcore_frame_channel_set_scaler */
@@ -19098,6 +19100,8 @@ void tx_isp_free_irq(struct tx_isp_t30_irq_device *irqdev)
 	if (irqdev->irq)
 		private_free_irq(irqdev->irq, irqdev);
 	irqdev->irq = 0;
+	/* no IRQ can queue the AE work any more (#451): wait for a running one */
+	tx_isp_t30_cancel_ae_work();
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000012330 origin=fragment_seed original=ncu_core_ops_ioctl */
@@ -40780,6 +40784,22 @@ uint32_t ae_read_full_histogram_data(uintptr_t a0)
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000031f6c origin=model_output original=AE_fsm_process_interrupt */
+/*
+ * #451: AE histogram (0x10000 + 4 * bin, 256 bins) copied in the AE statistics
+ * IRQ, like the OEM ae_read_full_histogram_data() in AE_fsm_process_interrupt;
+ * the AE math then runs in process context on this copy (the registers belong
+ * to the next frame by then).
+ */
+static u32 tx_isp_t30_ae_hist_raw[256];
+
+static void tx_isp_t30_ae_snapshot_histogram(void)
+{
+	u32 i;
+
+	for (i = 0; i < 256; i++)
+		tx_isp_t30_ae_hist_raw[i] = APICAL_READ_32(0x10000 + i * sizeof(u32));
+}
+
 static u32 tx_isp_t30_decode_histogram_bin(u32 raw)
 {
 	u32 value = raw & 0xfff;
@@ -40802,7 +40822,7 @@ static u32 tx_isp_t30_histogram_metered_mean(
 	tail_start = 256 - highlight_tail;
 	for (i = 0; i < 256; i++) {
 		u32 count = tx_isp_t30_decode_histogram_bin(
-			APICAL_READ_32(0x10000 + i * sizeof(u32)));
+			tx_isp_t30_ae_hist_raw[i]);
 		u32 weight = 1;
 
 		statistics->histogram[i] = count;
@@ -41369,12 +41389,37 @@ static void tx_isp_t30_simple_ae_update(void)
 			system_gain->max_isp_digital_gain);
 }
 
+/* kernel/workqueue.c exports it (GPL) but this 3.10 header does not declare it */
+extern struct workqueue_struct *system_highpri_wq;
+
+static void tx_isp_t30_ae_work_fn(struct work_struct *work)
+{
+	tx_isp_t30_simple_ae_update();
+}
+static DECLARE_WORK(tx_isp_t30_ae_work, tx_isp_t30_ae_work_fn);
+
+static void tx_isp_t30_cancel_ae_work(void)
+{
+	cancel_work_sync(&tx_isp_t30_ae_work);
+}
+
 int32_t AE_fsm_process_interrupt(int32_t *arg1, char arg2)
 {
 	if ((arg2 & 0xff) != 3)
 		return 3;
 	if (simple_3a) {
-		tx_isp_t30_simple_ae_update();
+		/*
+		 * #451: the compact AE (histogram mean, exposure curve, sensor
+		 * gain allocation) ran here in the hard IRQ and kept the core line
+		 * busy past the AWB / frame-end events 70-100 us later.  Like the
+		 * OEM, where the AE statistics IRQ only raises an event and the AE
+		 * math runs in the firmware thread, it now runs in process context
+		 * (high-priority work, well before the frame start that applies
+		 * the queued sensor writes).  The histogram is copied here, in
+		 * the IRQ, as the OEM does before raising the AE event.
+		 */
+		tx_isp_t30_ae_snapshot_histogram();
+		queue_work(system_highpri_wq, &tx_isp_t30_ae_work);
 		/*
 		 * The OEM state graph re-arms histogram source 3 after consuming
 		 * each statistics buffer.  The compact controller bypasses that
@@ -42041,49 +42086,89 @@ static void tx_isp_t30_awb_apply_calibrated_gains(void)
 }
 
 /*
- * awb_normalise() combines the two feedback factors with all four values of
- * CALIBRATION_STATIC_WB and raises the minimum channel to unity, in the
- * hardware's Q8 linear gain domain.
+ * OEM cmos_fsm_process_interrupt(0), white-balance stage (SDK ko 0x25548..0x256f8):
+ * the four awb_normalise() log2 gains (AWB +0x760..+0x76c, Q16) become the Q8
+ * hardware gains 0x300..0x30c through math_exp2 (input precision 17 in the WDR
+ * modes 1/2, isp +0x1524), clamped to 0xfff.  In the WDR modes 1..3 each gain is
+ * scaled by the black-level factor (0xfff00 / (0xfff - BL)) >> 8 with BL from
+ * 0x310..0x31c (32-bit product, low 16 bits kept like the OEM sh).  The OEM
+ * divides by zero (teq trap) at BL 0xfff; this path keeps the gain instead.
+ */
+static noinline void tx_isp_t30_awb_gain_registers(const u8 *isp)
+{
+	const s32 *log_gain = (const s32 *)(isp + 0x748 + 0x760);
+	u16 gain[4];
+	u32 i;
+
+	for (i = 0; i < 4; i++) {
+		u32 mode = isp[0x1524];
+		u32 v = math_exp2((u32)log_gain[i], mode - 1 < 2 ? 17 : 16, 8);
+
+		gain[i] = v < 0x1000 ? (u16)v : 0xfff;
+	}
+	if ((u32)isp[0x1524] - 1 <= 2) {
+		u16 bl[4];
+
+		for (i = 0; i < 4; i++)
+			bl[i] = APICAL_READ_32(0x310 + 4 * i) & 0xfff;
+		for (i = 0; i < 4; i++) {
+			u32 den = 0xfff - bl[i];
+
+			if (den)
+				gain[i] = (u16)(((0xfff00U / den) * gain[i]) >> 8);
+		}
+	}
+	for (i = 0; i < 4; i++)
+		APICAL_WRITE_32(0x300 + 4 * i,
+				(APICAL_READ_32(0x300 + 4 * i) & ~0xfffU) |
+				(gain[i] & 0xfff));
+}
+
+/*
+ * The OEM white-balance gain chain (openimp #459): AWB_fsm_clear seeds
+ * +0x770..+0x776 with CALIBRATION_STATIC_WB, awb_normalise() adds the red/blue
+ * feedback (+0x18/+0x1a, or the system items 49/50 while AWB is manual) in the
+ * log2 domain and moves the minimum to log2(4096 / (4096 - isp +0xe6)), the
+ * black-level factor, and the CMOS interrupt converts that to the registers.
+ * The recovery AWB used to raise the minimum channel to exactly 1.0 in the
+ * linear domain and had neither the factor nor the WDR stage.
  */
 static void tx_isp_t30_awb_write_gains(struct tx_isp_t30_simple_3a_state *state,
-				       const u16 *static_wb, u32 red_scale,
-				       u32 blue_scale)
+				       int32_t *awb_fsm, const u16 *static_wb,
+				       u32 red_scale, u32 blue_scale)
 {
-	u32 gains[4];
-	u32 minimum_gain;
+	static bool reported;
+	u8 *isp = (u8 *)(uintptr_t)awb_fsm[0];
+	u16 *seed = (u16 *)((char *)awb_fsm + 0x770);
+	u8 item49 = stab[49];
+	u8 item50 = stab[50];
+	u32 i;
 
-	gains[0] = ((u32)static_wb[0] * red_scale + 0x80) >> 8;
-	gains[1] = static_wb[1];
-	gains[2] = static_wb[2];
-	gains[3] = ((u32)static_wb[3] * blue_scale + 0x80) >> 8;
-	minimum_gain = min(min(gains[0], gains[1]), min(gains[2], gains[3]));
-	if (!minimum_gain)
+	if (!isp)
 		return;
-	gains[0] = clamp_t(u32,
-		(gains[0] * 0x100U + minimum_gain / 2) / minimum_gain,
-		0x40, 0xfff);
-	gains[1] = clamp_t(u32,
-		(gains[1] * 0x100U + minimum_gain / 2) / minimum_gain,
-		0x40, 0xfff);
-	gains[2] = clamp_t(u32,
-		(gains[2] * 0x100U + minimum_gain / 2) / minimum_gain,
-		0x40, 0xfff);
-	gains[3] = clamp_t(u32,
-		(gains[3] * 0x100U + minimum_gain / 2) / minimum_gain,
-		0x40, 0xfff);
-	state->gain_00 = gains[0];
-	state->gain_01 = gains[1];
-	state->gain_10 = gains[2];
-	state->gain_11 = gains[3];
-
-	APICAL_WRITE_32(0x300, (APICAL_READ_32(0x300) & ~0xfffU) |
-			state->gain_00);
-	APICAL_WRITE_32(0x304, (APICAL_READ_32(0x304) & ~0xfffU) |
-			state->gain_01);
-	APICAL_WRITE_32(0x308, (APICAL_READ_32(0x308) & ~0xfffU) |
-			state->gain_10);
-	APICAL_WRITE_32(0x30c, (APICAL_READ_32(0x30c) & ~0xfffU) |
-			state->gain_11);
+	for (i = 0; i < 4; i++)
+		seed[i] = static_wb[i];
+	if (!stab[12]) {
+		*(u16 *)((char *)awb_fsm + 0x18) = (u16)red_scale;
+		*(u16 *)((char *)awb_fsm + 0x1a) = (u16)blue_scale;
+	}
+	awb_normalise(awb_fsm);
+	/* awb_normalise publishes (u8)(feedback >> 1); keep the saturated
+	 * system items 49/50 of the recovery AWB (#202) instead. */
+	if (!stab[12]) {
+		stab[49] = item49;
+		stab[50] = item50;
+	}
+	tx_isp_t30_awb_gain_registers(isp);
+	state->gain_00 = APICAL_READ_32(0x300) & 0xfff;
+	state->gain_01 = APICAL_READ_32(0x304) & 0xfff;
+	state->gain_10 = APICAL_READ_32(0x308) & 0xfff;
+	state->gain_11 = APICAL_READ_32(0x30c) & 0xfff;
+	if (!reported) {
+		pr_info("tx-isp-t30: AWB normalise black level (isp +0xe6) %u, WDR mode %u\n",
+			*(u16 *)(isp + 0xe6), isp[0x1524]);
+		reported = true;
+	}
 }
 
 /*
@@ -42175,7 +42260,7 @@ static void tx_isp_t30_simple_awb_update(int32_t *awb_fsm)
 		u32 red = (u32)stab[49] << 1;
 		u32 blue = (u32)stab[50] << 1;
 
-		tx_isp_t30_awb_write_gains(state, static_wb, red, blue);
+		tx_isp_t30_awb_write_gains(state, awb_fsm, static_wb, red, blue);
 		tx_isp_t30_awb_light_source(awb_fsm,
 					    tx_isp_t30_awb_manual_ct(red, blue));
 		return;
@@ -42276,7 +42361,7 @@ static void tx_isp_t30_simple_awb_update(int32_t *awb_fsm)
 		 * so leaving manual WB restores the last automatic gains at once
 		 * (openimp #450: the open picture stayed blue after SetWB(auto)).
 		 */
-		tx_isp_t30_awb_write_gains(state, static_wb,
+		tx_isp_t30_awb_write_gains(state, awb_fsm, static_wb,
 					   state->awb_red_scale,
 					   state->awb_blue_scale);
 		tx_isp_t30_awb_light_source(awb_fsm,
@@ -42362,7 +42447,8 @@ static void tx_isp_t30_simple_awb_update(int32_t *awb_fsm)
 		stab[50] = (u8)min_t(u32, state->awb_blue_scale >> 1, 0xff);
 	}
 
-	tx_isp_t30_awb_write_gains(state, static_wb, state->awb_red_scale,
+	tx_isp_t30_awb_write_gains(state, awb_fsm, static_wb,
+				   state->awb_red_scale,
 				   state->awb_blue_scale);
 	tx_isp_t30_awb_light_source(awb_fsm, state->awb_color_temperature);
 	state->awb_updates++;

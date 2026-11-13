@@ -960,4 +960,89 @@ static inline u32 t40_ae_dg_ring_step(struct t40_ae_dg_ring *r, u32 dg, u32 dept
 	return r->v[depth];
 }
 
+/*
+ * #82: AE driven by the AE statistics interrupts like the OEM.  Vendor tx-isp-t40.ko (Eufy, Ghidra):
+ * tisp_ae_main_interrupt_hist 0x34df4 (hard IRQ, status bit 5) syncs the histogram bank, tisp_ae_get_hist, then
+ * tisp_event_push(0, event 1) and returns 2; the event thread runs tisp_ae_main_process 0x3b120 (long_ctrls_update,
+ * tisp_ae_long_alogrithm, tisp_ae_main_long_ev_alloc) once per statistics frame, whether or not a frame channel
+ * consumes frames.  The sensor IT / analog gain of a step wait in the pending slots for the frame-done worker of the
+ * next ISP frame (ispcore_irq_main_fd_work 0x867c8).
+ *
+ * The driver runs the step from event 1 and, before it, writes the sensor part of the previous step (the ISP frame
+ * clock is the histogram interrupt; the channel frame-done skips frames a channel drops).  The channel frame-done
+ * keeps the frame-3A sample every frame_3a_interval frames (AWB trims, tuning follow).  t40_ae_f3a_mode() picks what
+ * the frame-done work does:
+ *   FULL - the frame-3A sample is due (it meters too; its AE step only runs on a statistics frame that has not
+ *          stepped yet, t40_ae_stats_new());
+ *   AE   - no sample due, AE not driven by the interrupt: the #412 AE-only pass from the frame-done;
+ *   NONE - nothing (AE driven by the interrupt, or no OEM step).
+ */
+enum t40_ae_f3a_mode {
+	T40_F3A_NONE = 0,
+	T40_F3A_FULL = 1,
+	T40_F3A_AE = 2,
+};
+
+static inline enum t40_ae_f3a_mode t40_ae_f3a_mode(bool sample_due, bool irq_drive, bool fd_ae_ok)
+{
+	if (sample_due)
+		return T40_F3A_FULL;
+	if (irq_drive)
+		return T40_F3A_NONE;
+	return fd_ae_ok ? T40_F3A_AE : T40_F3A_NONE;
+}
+
+/*
+ * #82: sensor part of the steps.  Each step pushes its EXPO word tagged with the histogram count it used; a write
+ * point (the next event-1 pass, or a frame-3A work in between) takes the newest entry whose tag is older than the
+ * current histogram count (t40_ae_sq_due) and drops the older ones (the OEM pending slot holds only the newest), so
+ * the step of statistics frame k reaches the sensor in ISP frame k + 1, never in frame k, whichever of the event
+ * thread and the frame-done work runs first.
+ */
+struct t40_ae_sq {
+	u32 v[2], tag[2];
+	u32 n;
+};
+
+static inline void t40_ae_sq_push(struct t40_ae_sq *q, u32 v, u32 tag)
+{
+	if (q->n >= 2U) {
+		q->v[0] = q->v[1];
+		q->tag[0] = q->tag[1];
+		q->n = 1U;
+	}
+	q->v[q->n] = v;
+	q->tag[q->n] = tag;
+	q->n++;
+}
+
+static inline bool t40_ae_sq_due(struct t40_ae_sq *q, u32 hist_now, u32 *v)
+{
+	int i;
+
+	for (i = (int)q->n - 1; i >= 0; i--) {
+		if ((int32_t)(hist_now - q->tag[i]) > 0) {
+			u32 j, k = 0;
+
+			*v = q->v[i];
+			for (j = (u32)i + 1U; j < q->n; j++, k++) {
+				q->v[k] = q->v[j];
+				q->tag[k] = q->tag[j];
+			}
+			q->n = k;
+			return true;
+		}
+	}
+	return false;
+}
+
+/* One AE step per statistics frame: true (and remember it) when the statistics counter moved since the last step. */
+static inline bool t40_ae_stats_new(u32 cnt, u32 *last)
+{
+	if (cnt == *last)
+		return false;
+	*last = cnt;
+	return true;
+}
+
 #endif

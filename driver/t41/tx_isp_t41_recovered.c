@@ -22,6 +22,7 @@
 #include "tx_isp_t41_tmo_map.h"
 #include "tx_isp_t41_tmo_mxu3.h"
 #include <linux/random.h>
+#include <linux/version.h>
 #include "tx_isp_t41_ccm.h"
 bool t41_dfg_ready(void);
 #define T41_MODCTL_DEFOG_MAY_RUN() t41_dfg_ready()
@@ -2561,7 +2562,14 @@ static struct platform_device tx_isp_platform_device = {
 #else
 static struct platform_device tx_isp_platform_device;
 #endif
-static unsigned char ae_algo_comp_storage[16] __attribute__((aligned(4)));
+/* The OEM 4.4 completion slot is 16 bytes; a mainline build may need more
+ * (swait/lockdep), so keep the larger of the two (k7 patch 0046). On 4.4
+ * sizeof(struct completion) is 16 and alignof 4: same slot as before. */
+#define AE_ALGO_COMP_STORAGE_BYTES 16
+static unsigned char ae_algo_comp_storage[
+	sizeof(struct completion) > AE_ALGO_COMP_STORAGE_BYTES ?
+	sizeof(struct completion) : AE_ALGO_COMP_STORAGE_BYTES]
+	__attribute__((aligned(__alignof__(struct completion))));
 #define ae_algo_comp (*(uint32_t *)(void *)ae_algo_comp_storage)
 static uint32_t ae_info_mine;
 static struct file_operations tx_isp_fops;
@@ -26950,6 +26958,12 @@ proc_ivdc_writel0x4b0:
         dma_addr_t ivdc_dma_handle = 0;
 
         s7 = *(uint32_t *)((char *)s5 + 4);
+        /* 7.x does not fill the vendor subdev's device pointer here; the
+         * IVDC platform device is the owner of this buffer (k7 patch 0048).
+         * 4.4 accepted a NULL device here; the IVDC device (32-bit DMA
+         * mask, :6172) gives the same coherent buffer there. */
+        if (!s7)
+            s7 = (uint32_t)(uintptr_t)&tx_isp_ivdc_platform_device.dev;
         s2 = (uintptr_t)dma_alloc_coherent((struct device *)(uintptr_t)s7,
                                            s1, &ivdc_dma_handle, GFP_KERNEL);
         local_40 = s2 ? (uint32_t)ivdc_dma_handle : 0;
@@ -154291,6 +154305,14 @@ static int t41_tmo_map_selftest __attribute__((section(".data")));
 module_param_call(t41_tmo_map_selftest, t41_tmo_map_selftest_set, param_get_int,
 		  &t41_tmo_map_selftest, 0644);
 MODULE_PARM_DESC(t41_tmo_map_selftest, "write 1: compare MXU3/fast/reference TMO map on random inputs (dmesg)");
+#endif
+
+/* The T41 is XBurst2-MXU3.1. The mainline kernel does not expose the
+ * vendor's cpu_has_mxuv3 feature flag, and this module only builds for
+ * the T41, so the SIMD path is always available there (k7 patch 0045).
+ * The 4.4 vendor kernel keeps its own runtime flag. */
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 0, 0) && !defined(cpu_has_mxuv3)
+#define cpu_has_mxuv3 1
 #endif
 
 static bool t41_tmo_mxu3_available(void)

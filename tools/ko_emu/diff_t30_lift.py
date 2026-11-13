@@ -23,6 +23,9 @@ Runs functions of the SDK-built vendor tx-isp-t30.ko (4ea12e1f) and of our drive
   tx_isp_sync_ldc / tx_isp_sync_ncu             frame-end watchdog: reg_set calls, counters, registers (#377)
   ldc_core_ops_init                             spin lock address, param file size check, checksum loop step, memcpy (#418)
   cmos_set_exposure_target                      isp+0x11c hysteresis, +0x2fc gate, ratio clamp (#428)
+  AWB gain registers                            vendor cmos_fsm_process_interrupt(0) WB stage vs our
+                                                tx_isp_t30_awb_gain_registers: 0x300..0x30c from AWB +0x760,
+                                                exp2 precision, 0xfff clamp, WDR black-level factor (#459)
 
 Callees outside the function under test are hooked at their entry in both modules and logged; the
 calibration getters return synthetic tables (no vendor data).  Return values are compared only where the
@@ -900,12 +903,44 @@ def t_set_target(V, O, rnd, n):
                 print("DIFF set_exposure_target thr=%#x cur=%#x tgt=%#x ratio=%#x gate=%d stop=%s/%s bytes %s" % (thr, cur, tgt, ratio, gate, res[0][0], res[1][0], d[:8]))
     return bad
 
+def t_wb_regs(V, O, rnd, n):
+    """WB gain registers (#459): vendor cmos_fsm_process_interrupt(cmos, 0) (ko 0x25548..0x256f8) against our
+    tx_isp_t30_awb_gain_registers(isp): math_exp2 of the four awb_normalise log2 gains (Q17 in WDR modes 1/2),
+    0xfff clamp, black-level factor 0xfff00/(0xfff-BL)>>8 in WDR modes 1..3; the 0x300..0x30c writes in order"""
+    bad = 0
+    for k in range(n):
+        mode = rnd.choice([0, 0, 1, 2, 3, 4, 0xff])
+        logs = [rnd.choice([0, 0x10000, rnd.getrandbits(20), rnd.getrandbits(32)]) for _ in range(4)]
+        regs0 = {a: rnd.getrandbits(32) for a in (0x300, 0x304, 0x308, 0x30c)}
+        for a in (0x310, 0x314, 0x318, 0x31c):       # BL 0xfff traps in the OEM (teq): not a valid input
+            regs0[a] = (rnd.getrandbits(32) & ~0xfff) | rnd.choice([0, 0x51, 0x100, 0xffe, rnd.randrange(0, 0xfff)])
+        res = []
+        for m in (V, O):
+            m.e.heap_reset()
+            isp = bytearray(0x1600); isp[0x1524] = mode
+            for i, v in enumerate(logs): struct.pack_into("<I", isp, 0x748 + 0x760 + 4 * i, v)
+            ia = m.e.alloc(len(isp), isp); struct.pack_into("<I", isp, 0x100, ia); m.e.write(ia, isp)
+            xs = m.e.alloc(0x40, bytes(0x40))
+            regs, wl = dict(regs0), []
+            regfile(m, regs, wl)
+            m.hook("math_exp2", lambda e: (e.get_reg(UC_MIPS_REG_A0) * 0x9e37 + e.get_reg(UC_MIPS_REG_A1) * 0x101 + e.get_reg(UC_MIPS_REG_A2) * 7) & 0x1fff)
+            for h in ("cmos_get_frame_exposure_set", "_process_fps_cnt", "cmos_move_exposure_history"):
+                m.hook(h, lambda e, xs=xs: xs)
+            if m is V: m.call("cmos_fsm_process_interrupt", ia + 0x100, 0)
+            else: m.call("tx_isp_t30_awb_gain_registers", ia)
+            for h in ("math_exp2", "cmos_get_frame_exposure_set", "_process_fps_cnt", "cmos_move_exposure_history"): m.unhook(h)
+            res.append([w for w in wl if 0x300 <= w[0] <= 0x30c])
+        if res[0] != res[1] or len(res[0]) != 4:
+            bad += 1
+            if bad < 4: print("DIFF wb_gain_registers mode=%d logs=%s: vendor %s open %s" % (mode, [hex(x) for x in logs], res[0], res[1]))
+    return bad
+
 TESTS = [("nr_selectors", t_nr), ("general_frame_start", t_general), ("fsm_switch_state", t_fsm), ("crop_event", t_crop),
          ("sbus_write_u8", t_sbus), ("awb_normalise", t_normalise), ("awb_detect_light_source", t_detect_ls), ("event_queue_push", t_queue),
          ("awb_mesh_chain", t_mesh), ("compute_weight", t_weight), ("awb_calc_mesh", t_calc),
          ("gp_lock_paths", t_gp_lock), ("ioctl_uaccess", t_uaccess),
          ("ptr_scale", t_ptr_scale), ("fci_args", t_fci_args), ("sync_watchdog", t_sync), ("ldc_ncu_counts", t_counts), ("ldc_core_ops_init", t_ldc_init),
-         ("set_exposure_target", t_set_target),
+         ("set_exposure_target", t_set_target), ("awb_gain_registers", t_wb_regs),
          ("dqbuf_signal(expected diff)", t_dqbuf_signal)]
 
 def main():
