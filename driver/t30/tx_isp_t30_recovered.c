@@ -704,11 +704,6 @@ static int print_level = 1;
 module_param(print_level, int, 0);
 MODULE_PARM_DESC(print_level, "isp print level");
 
-/* #451: core ISR entries that found new Apical events after handling (re-polled in the same entry) */
-static unsigned int tx_isp_t30_isr_repoll;
-module_param_named(isr_repoll, tx_isp_t30_isr_repoll, uint, 0444);
-MODULE_PARM_DESC(isr_repoll, "core ISR re-polls (read-only counter, openimp #451)");
-
 static bool simple_3a = true;
 module_param(simple_3a, bool, 0);
 MODULE_PARM_DESC(simple_3a,
@@ -15675,7 +15670,6 @@ static int tx_isp_t30_ispcore_interrupt(struct tx_isp_t30_subdev *sd)
 	u32 irq_status;
 	u32 clear;
 	int ret = IRQ_HANDLED;
-	int pass = 0;
 
 	if (!sd || IS_ERR(sd))
 		return IRQ_HANDLED;
@@ -15702,7 +15696,6 @@ static int tx_isp_t30_ispcore_interrupt(struct tx_isp_t30_subdev *sd)
 			APICAL_WRITE_32(0xa4, clear);
 		return IRQ_HANDLED;
 	}
-again:
 	clear = APICAL_READ_32(0xa4) & 0xffff0000;
 	APICAL_WRITE_32(0xa4, clear);
 	APICAL_WRITE_32(0xa4, clear | irq_status);
@@ -15783,20 +15776,6 @@ again:
 	if (irq_status & BIT(13))
 		tx_isp_t30_core_chan1_event(core);
 	tx_isp_t30_dispatch_firmware_irqs(irq_status);
-	/*
-	 * Events that latched while this entry ran: the VIC handler, called after
-	 * this one on the same line, acks the whole glue state 0x2000c including
-	 * Apical bits 15:0, so an event that arrived during a long entry lost its
-	 * line edge and stayed in 0xa0 until the next frame start (#451 b76: AWB,
-	 * frame end, FR and slot 13 ~8 ms late).  Handle them here (max 3 passes).
-	 */
-	if (++pass < 4) {
-		irq_status = APICAL_READ_32(0xa0) & 0xffff;
-		if (irq_status) {
-			tx_isp_t30_isr_repoll++;
-			goto again;
-		}
-	}
 	/*
 	 * The IRQ thread (sensor gain/integration writes queued by AE) is woken
 	 * on frame start only, like the OEM ISR (0xd5ec, its only
@@ -40805,6 +40784,22 @@ uint32_t ae_read_full_histogram_data(uintptr_t a0)
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000031f6c origin=model_output original=AE_fsm_process_interrupt */
+/*
+ * #451: AE histogram (0x10000 + 4 * bin, 256 bins) copied in the AE statistics
+ * IRQ, like the OEM ae_read_full_histogram_data() in AE_fsm_process_interrupt;
+ * the AE math then runs in process context on this copy (the registers belong
+ * to the next frame by then).
+ */
+static u32 tx_isp_t30_ae_hist_raw[256];
+
+static void tx_isp_t30_ae_snapshot_histogram(void)
+{
+	u32 i;
+
+	for (i = 0; i < 256; i++)
+		tx_isp_t30_ae_hist_raw[i] = APICAL_READ_32(0x10000 + i * sizeof(u32));
+}
+
 static u32 tx_isp_t30_decode_histogram_bin(u32 raw)
 {
 	u32 value = raw & 0xfff;
@@ -40827,7 +40822,7 @@ static u32 tx_isp_t30_histogram_metered_mean(
 	tail_start = 256 - highlight_tail;
 	for (i = 0; i < 256; i++) {
 		u32 count = tx_isp_t30_decode_histogram_bin(
-			APICAL_READ_32(0x10000 + i * sizeof(u32)));
+			tx_isp_t30_ae_hist_raw[i]);
 		u32 weight = 1;
 
 		statistics->histogram[i] = count;
@@ -41420,8 +41415,10 @@ int32_t AE_fsm_process_interrupt(int32_t *arg1, char arg2)
 		 * OEM, where the AE statistics IRQ only raises an event and the AE
 		 * math runs in the firmware thread, it now runs in process context
 		 * (high-priority work, well before the frame start that applies
-		 * the queued sensor writes).
+		 * the queued sensor writes).  The histogram is copied here, in
+		 * the IRQ, as the OEM does before raising the AE event.
 		 */
+		tx_isp_t30_ae_snapshot_histogram();
 		queue_work(system_highpri_wq, &tx_isp_t30_ae_work);
 		/*
 		 * The OEM state graph re-arms histogram source 3 after consuming
