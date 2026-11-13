@@ -671,7 +671,8 @@ night picture 69 % darker than the vendor. Findings and fixes, all device-tested
   110 -> 118 (vendor day luma 122 at the same EV; ours now 127), two gain steps per sample far from target, and gain
   bands (`9 %` analog / `5 %` ISP dgain of the target) so a 1.17x gain step cannot limit-cycle inside the 4-level
   deadband (it did: frames alternating 113/124). Settle after a light step < 1 s (vendor 1.5 s).
-- ISP digital gain stage (`ae_isp_dgain_max`, Q10, default 4096 = 4x like the vendor's AeIspDGain at night): after
+- ISP digital gain stage (#483: ceiling from the tuning bank like the vendor `tisp_ae_sensor_inform`, sc830ai day 5x /
+  night 4x, `t40_ae_isp_dgain_max_now` read-only; `t40_ae_isp_dgain_max_bin=0` = `ae_isp_dgain_max`, Q10, default 4096): after
   integration time and sensor analog gain (the sc830ai ends at 32x), the AE raises the GIB final gain through the OEM
   entry `tisp_gib_ae_write_dgain` (0x8000/0x8004 + latch 0x8040; checked by devmem: 0x0445 -> 0x1116 lifts the night
   luma 24.6 -> 64.0). Night luma 66 vs vendor 79 (was 24), light step to 100 holds 124 (vendor 105, was 63).
@@ -717,6 +718,9 @@ vendor (`audit/ab-t41/COMPARE.md`, open184d).
   (vendor 12 / 11 %); 0 oops, ISR and process once per frame. With all four chains (`open184f`, defaults since
   cf49b97c): TOP `0x7FD9000D` (vendor `0x7FD9004D`, bit 6 = AWB stage 2 differs), day edge 5.02 / luma 120 / std 49.6 /
   p1 15, night luma 88 / std 37.1 / edge 2.8 / p1 20 (vendor 7), grey balance 1.5 / 0.9 %.
+- #483 (2026-11-14): the analog gain index is a fine ladder (`regtrace_t40_again_log2_gain`, 1/64 octave, 0..400) floored
+  by the sensor's alloc_again like the vendor's continuous gain; the ISP dgain carries only the remainder below one
+  sensor step (no 17 % analog/ISP-dgain swaps any more). The text below is about the earlier GC4653 ladder.
 - AE gain ceiling from the sensor attribute (`ae_max_again_from_sensor`, default 1; `t40_ae_max_again_index_eff`
   read-only): the gain ladder (`regtrace_gc4653_again_log2_gain`) is the GC4653 one, index 25 = 76x, while the sc830ai
   attribute says max_again 5.0 log2 (32x). The sensor's alloc_again clamped indices 21..25 silently, but AeAGain and
@@ -825,6 +829,9 @@ ISP digital gain is 1x there. `SetModule_Ratio` defog -> literal `tisp_s_defog_r
 - The night bank bypasses AWB1 (TOP bit 6). Re-enabling it on a running pipe broke the day colour in about half of the
   night->day switches (grey, green/magenta hues; registers unchanged, healed only by a later TOP change). Default 1
   keeps AWB1 at the day-bank state at night; night stays monochrome through BCSH saturation 0. 0 = follow the bank.
+- #332 (2026-11-14, user decision): default 0 = AWB1 follows the bank like the vendor (night TOP 0x7FD9004D). The day
+  return is handled like `tisp_day_or_night_s_ctrl`: TOP is written before the block refreshes and the AWB refresh
+  runs on the new TOP word (`t40_dn_top_first`, default 1). Box: 0 of 6 bad night->day returns on both stacks.
 
 ## Tuning controls and guards of the lifted bodies (2026-10-24, evening)
 
