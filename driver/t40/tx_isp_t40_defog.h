@@ -29,6 +29,8 @@
  * behind parameters (default on, 0 = OEM-exact): caches kept across a
  * day/night refresh, 180 of 256 transmission cache entries dropped on an
  * EV/strength change, motion "variance" from the last window cell only.
+ * The visible result of the first two (day transmission for luma >= 180 at
+ * night) is kept by default, see t40_defog_trans_day (#332).
  */
 #ifndef TX_ISP_T40_DEFOG_H
 #define TX_ISP_T40_DEFOG_H
@@ -151,6 +153,19 @@ static bool t40_defog_air_day T40C2 = true;
 module_param(t40_defog_air_day, bool, 0644);
 MODULE_PARM_DESC(t40_defog_air_day, "defog: 1 (default, OEM-equal) air light curve + output range from the day bank in both modes, 0 = from the active bank");
 
+/* Transmission of the bright cells from the day bank (#332).  The OEM drops only the transmission cache entries of luma
+ * 0..179 on an EV/strength change (tisp_defog_ev_update 0x63144 / tisp_defog_update_trans_k: soft+0xc6b..0xd1f) and
+ * none on the day/night refresh (tisp_defog_dn_params_refresh 0x638a8), so luma 180..255 keeps the transmission it
+ * was first computed with: in the day bank, because the OEM driver always starts there (see t40_defog_air_day).  On
+ * the sc830ai bank the day levels are 0 and the night levels 36..68: the vendor applies no transmission to the bright
+ * cells at night, which is the stronger contrast of the vendor night picture (Unicorn: tools/ko_emu/diff_defog_dn.py
+ * --trans 1).  Here luma >= 180 takes the day-bank levels (at the EV current when the value is first computed, kept
+ * across EV, strength and day/night changes like the OEM), without the OEM's history dependence.
+ * 0 = transmission of the active bank for every luma (t40_defog_trans_reset_all / t40_defog_dn_cache_reset rules). */
+static bool t40_defog_trans_day T40C2 = true;
+module_param(t40_defog_trans_day, bool, 0644);
+MODULE_PARM_DESC(t40_defog_trans_day, "defog: 1 (default, OEM-equal) transmission of luma >= 180 from the day bank, kept across EV/day-night changes; 0 = active bank for all luma");
+
 static const uint16_t t40_dfg_w24_base[24] = {
 	255, 521, 799, 1090, 1395, 1717, 2057, 2417, 2799, 3207, 3643, 4114,
 	4624, 5180, 5792, 6471, 7237, 8111, 9133, 10359, 11896, 13953, 17075, 23792
@@ -189,18 +204,16 @@ static inline unsigned int t40_dfg_levels(const struct t40_dfg_ctx *c)
 	return c->wdr_sel ? DFG_T_WDR_LEVELS : DFG_T_LEVELS;
 }
 
-/* levels at the given EV, linear between the two knots around it (OEM tisp_defog_interp_trans_k) */
-static void t40_dfg_interp_levels(struct t40_dfg_ctx *c, uint32_t ev)
+/* levels lt[5][9] at the given EV, linear between the two EV knots around it (OEM tisp_defog_interp_trans_k) */
+static void t40_dfg_interp(const uint8_t *tool, unsigned int kn, const uint8_t *lt, uint32_t ev, uint8_t *out)
 {
-	uint8_t *tool = c->tool;
-	unsigned int kn = t40_dfg_knots(c), lv = t40_dfg_levels(c), i, j;
-	uint8_t *out = tool + DFG_T_CUR;
+	unsigned int i, j;
 
 	for (i = 0; i < 9; i++)
 		if (ev < t40_dfg_u32(tool, kn + 4 * i))
 			break;
 	for (j = 0; j < 5; j++) {
-		const uint8_t *l = tool + lv + 9 * j;
+		const uint8_t *l = lt + 9 * j;
 
 		if (i == 0 || i == 9) {
 			out[j] = l[i ? 8 : 0];
@@ -213,6 +226,11 @@ static void t40_dfg_interp_levels(struct t40_dfg_ctx *c, uint32_t ev)
 	}
 }
 
+static void t40_dfg_interp_levels(struct t40_dfg_ctx *c, uint32_t ev)
+{
+	t40_dfg_interp(c->tool, t40_dfg_knots(c), c->tool + t40_dfg_levels(c), ev, c->tool + DFG_T_CUR);
+}
+
 /* new levels for the EV / strength; drops the cached transmission values when they changed */
 static void t40_dfg_relevel(struct t40_dfg_ctx *c, uint32_t ev)
 {
@@ -222,8 +240,8 @@ static void t40_dfg_relevel(struct t40_dfg_ctx *c, uint32_t ev)
 	memcpy(old, c->tool + DFG_T_CUR, 5);
 	t40_dfg_interp_levels(c, ev);
 	if (memcmp(old, c->tool + DFG_T_CUR, 5))
-		for (i = 0; i < (t40_defog_trans_reset_all ? 256U : T40_DFG_CELLS); i++)	/* OEM: 180 of the 256 */
-			c->soft.flags[i] &= 0x0f;
+		for (i = 0; i < (t40_defog_trans_reset_all && !t40_defog_trans_day ? 256U : T40_DFG_CELLS); i++)
+			c->soft.flags[i] &= 0x0f;	/* OEM: 180 of the 256 */
 }
 
 /* OEM tisp_defog_update_trans_k */
@@ -418,15 +436,38 @@ static uint8_t t40_dfg_curve(struct t40_dfg_soft *s, uint32_t v)
 	return x;
 }
 
-/* transmission by luma: 5-knot curve (knots tool+149, levels tool+154), cached per luma */
-static uint8_t t40_dfg_trans(struct t40_dfg_soft *s, const uint8_t *tool, int32_t y)
+/* levels of the day bank at the current EV and strength (t40_defog_trans_day): what the OEM computes in day mode */
+static void t40_dfg_day_levels(const struct t40_dfg_ctx *c, const uint8_t *d, uint8_t *lv)
 {
+	unsigned int src = c->wdr_sel ? DFG_T_WDR_LEVELS : DFG_T_LEVELS, i;
+	uint8_t lt[45], s = t40_dfg_strength;
+
+	for (i = 0; i < 45; i++) {	/* strength as t40_defog_ratio_apply */
+		uint8_t a = d[src + i];
+
+		lt[i] = s < 0x80 ? (a * s) >> 7 : s == 0x80 ? a : (uint8_t)~(((uint8_t)~a * (uint8_t)~s) >> 7);
+	}
+	t40_dfg_interp(d, c->wdr_sel ? DFG_T_WDR_KNOTS : DFG_T_KNOTS, lt,
+		       d[DFG_T_MANUAL] ? t40_dfg_u32(d, DFG_T_EV) : t40_dfg_ev, lv);
+}
+
+/* transmission by luma: 5-knot curve (knots tool+149, levels tool+154), cached per luma */
+static uint8_t t40_dfg_trans(struct t40_dfg_ctx *c, const uint8_t *tool, int32_t y)
+{
+	struct t40_dfg_soft *s = &c->soft;
 	const uint8_t *kn = tool + DFG_T_YKNOTS, *lv = tool + DFG_T_CUR;
-	uint8_t v;
+	uint8_t v, dl5[5];
 	int j;
 
 	if (s->flags[y] & 0x10)
 		return s->cache_trans[y];
+	if (t40_defog_trans_day && y >= (int32_t)T40_DFG_CELLS && tparams_day) {
+		const uint8_t *d = (const uint8_t *)(uintptr_t)tparams_day + T40_DFG_TOOL_OFFSET;
+
+		t40_dfg_day_levels(c, d, dl5);
+		kn = d + DFG_T_YKNOTS;
+		lv = dl5;
+	}
 	if (y < kn[0]) {
 		v = lv[0];
 	} else {
@@ -532,7 +573,7 @@ static void t40_dfg_soft(struct t40_dfg_ctx *c)
 				for (i = 0; i < 3; i++)
 					s->out[i][k] = t40_dfg_curve(s, v[i]);
 			}
-			s->out[3][k] = t40_dfg_trans(s, c->tool, y);
+			s->out[3][k] = t40_dfg_trans(c, c->tool, y);
 		}
 	if (s->ctl[5] == 1) {
 		t40_dfg_motion(c);
@@ -851,8 +892,12 @@ static int t40_defog_dn_refresh(uint32_t width, uint32_t height)
 	} else {
 		memcpy(c->tool + DFG_T_W24, keep, sizeof(keep));
 	}
-	if (t40_defog_dn_cache_reset)	/* the cached values belong to the old bank's curves */
-		memset(c->soft.flags, 0, sizeof(c->soft.flags));
+	if (t40_defog_dn_cache_reset) {	/* the cached values belong to the old bank's curves */
+		unsigned int i;
+
+		for (i = 0; i < 256; i++)	/* t40_defog_trans_day: day transmission of luma >= 180 stays */
+			c->soft.flags[i] &= t40_defog_trans_day && i >= T40_DFG_CELLS ? 0x10 : 0;
+	}
 	t40_dfg_apply(c);
 	return t40_defog_ratio_apply(c);
 }

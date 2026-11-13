@@ -3,7 +3,7 @@
 # curve, transmission by luma, motion weighting, output smoothing, value caches) against the OEM instructions of
 # Tiziano_defog_soft (Unicorn, tools/ko_emu/diff_defog_soft.py), several frames per case with the state carried over,
 # (host side with t40_defog_motion_var=0, OEM-exact) plus one-token mutations of the header that must be detected; with
-# T40_TUNING_BIN also the day/night flow (tools/ko_emu/diff_defog_dn.py, air light curve).  Needs T40_OEM_KO and python3 unicorn + pyelftools, else SKIP.
+# T40_TUNING_BIN also the day/night flow (tools/ko_emu/diff_defog_dn.py, air light curve + transmission).  Needs T40_OEM_KO and python3 unicorn + pyelftools, else SKIP.
 H=$(cd "$(dirname "$0")" && pwd); f=$H/../driver/t40/tx_isp_t40_defog.h
 if [ ! -r "${T40_OEM_KO:-}" ] || ! python3 -c "import unicorn, elftools" 2>/dev/null; then echo "t40_defog_host: SKIP (T40_OEM_KO / python3 unicorn+pyelftools missing)"; [ -z "${T40_ORACLE_STRICT:-}" ] || exit 1; exit 0; fi
 W=$(mktemp -d); trap 'rm -rf "$W"' EXIT
@@ -42,6 +42,13 @@ if [ -r "${T40_TUNING_BIN:-}" ]; then
 		python3 "$P" "$T40_OEM_KO" "$T40_TUNING_BIN" "$W/dn" --n ${N_DN:-6} --air-day 1 || fail=1
 		if python3 "$P" "$T40_OEM_KO" "$T40_TUNING_BIN" "$W/dn" --n 2 --air-day 0 > /dev/null; then
 			echo "t40_defog_host: air_day=0 NOT detected by the day/night oracle"; fail=1
+		fi
+		# transmission (fourth output): bright day cells + EV change after the switch; OEM order and this driver's
+		# order (night bank at init) must both match with t40_defog_trans_day=1; =0 (night levels) must not
+		python3 "$P" "$T40_OEM_KO" "$T40_TUNING_BIN" "$W/dn" --n ${N_DN:-6} --trans 1 --ev 2000 || fail=1
+		python3 "$P" "$T40_OEM_KO" "$T40_TUNING_BIN" "$W/dn" --n 3 --trans 1 --ev 7000 --night-start 1 || fail=1
+		if python3 "$P" "$T40_OEM_KO" "$T40_TUNING_BIN" "$W/dn" --n 2 --trans 1 --ev 2000 --trans-day 0 > /dev/null; then
+			echo "t40_defog_host: trans_day=0 NOT detected by the day/night oracle"; fail=1
 		fi
 	else
 		fail=1

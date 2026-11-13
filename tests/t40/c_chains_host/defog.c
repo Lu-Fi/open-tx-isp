@@ -211,7 +211,7 @@ static unsigned better_tests(const char *path)
     }
     td[DFG_T_MANUAL] = 0;
     for (on = 0; on < 2; on++) {
-        t40_defog_dn_cache_reset = t40_defog_trans_reset_all = t40_defog_motion_var = on; t40_defog_air_day = 0;
+        t40_defog_dn_cache_reset = t40_defog_trans_reset_all = t40_defog_motion_var = on; t40_defog_air_day = t40_defog_trans_day = 0;
         side = 1; tparamsN[0] = (uintptr_t)day; lcg_state = 4242;
         t40_defog_init(1920, 1080); c_frames(6, 1); c_frames(4, 3);	/* fills curve and transmission caches up to 255 */
         /* 1: night bank arrives */
@@ -231,7 +231,7 @@ static unsigned better_tests(const char *path)
     printf("better: stale caches after day/night OEM %u fixed %u; after EV change OEM %u fixed %u; motion cells off the window variance OEM %u fixed %u\n",
            st[0][0], st[1][0], st[0][1], st[1][1], st[0][2], st[1][2]);
     for (i = 0; i < 3; i++) if (st[1][i] || !st[0][i]) fail++;	/* fixed must be clean, the OEM case must show the flaw */
-    t40_defog_dn_cache_reset = t40_defog_trans_reset_all = t40_defog_motion_var = t40_defog_air_day = 0;
+    t40_defog_dn_cache_reset = t40_defog_trans_reset_all = t40_defog_motion_var = t40_defog_air_day = t40_defog_trans_day = 0;
     return fail;
 }
 
@@ -246,7 +246,7 @@ static int chain_main(int argc, char **argv)
     *(uint32_t *)(tispinfo + 64) = ST_PHYS;
     tune = arena_alloc(4096); memset(tune, 0, 4096);
     /* OEM-exact comparison: the better-than-OEM fixes off */
-    t40_defog_dn_cache_reset = t40_defog_trans_reset_all = t40_defog_motion_var = t40_defog_air_day = 0;
+    t40_defog_dn_cache_reset = t40_defog_trans_reset_all = t40_defog_motion_var = t40_defog_air_day = t40_defog_trans_day = 0;
     for (k = 1; k < (unsigned)argc; k++) {
         size_t mark = used;	/* everything of a bin is gone after its final cleanup (kfree is a no-op here) */
         uint8_t *bin0 = load_bin(argv[k]), *bin = arena_alloc(BIN_BYTES); unsigned bad = 0, r, f, stop = 0, var;
