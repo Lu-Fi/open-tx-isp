@@ -180,6 +180,10 @@ Five open-tx-isp patches that the thingino-firmware `feature/kernel-7` branch ca
 
 - New `tests/t40_defog_host.sh` (+ `tests/t40_defog/harness.c`, `tools/ko_emu/diff_defog_soft.py`, target `t40_defog_host`): `t40_dfg_soft` (driver/t40/tx_isp_t40_defog.h) against the vendor `Tiziano_defog_soft` in Unicorn, random tool/soft state, 3 frames per case with state carried over (statistics, luma, air-light curve, transmission, motion weighting, smoothing, value caches): 0 differences; 9/9 header mutations detected. No driver change.
 - #332 finding (Eufy .184, night, IT 2200 / again 2x on both stacks): the night shadow lift comes from the defog block (TOP bit 11). With defog bypassed both stacks are equal (frame mean 88.6 vs 88.4, p10 41.5/41.5, p50 84.5/84.5); with defog on the vendor darkens (mean -4, p50 -5.5) and the open driver does not (+0.4). Defog registers 0xc000..0xc2a0, EV levels and the soft step are vendor-equal; the open table needs about 1.25x the air light to match. Cause still open (see the issue).
+## 2026-11-13: T33 beyond-vendor items approved (openimp #436, #437, #442)
+
+- docs/BEYOND_VENDOR.md: the T33 range refusals for OSD window / mask / draw block (incl. draw windows below 32), the OSD window GET returning the stored word, the cleared 96 B block in the OSD / mask / draw GETs, and the AF window-count refusal are approved by the user (2026-11-13); still QEMU only.
+
 ## 2026-11-13: T33 LSF register list 37 (openimp #388; planned, QEMU only)
 
 - `tx-isp-t33.ko` builds the last missing block list, LSF (module 37, 0x25040..), at init from the LCE section like the vendor `tisp_lce_init`: layout of `tisp_rcfg_lsf_reg_init`, LSF buffer (0x2420 B) in slots 7 / 8, the init's u8 EV / BV interpolations, `tisp_lce_bin_para_update` / `func_lce_para_update` fields, the 7 x 7 Gauss low pass (`tisp_lce_gauss_lpf`) and the four 32-weight Gauss sets (`tisp_lce_gauss_wgt`). Like the vendor it is not started at stream-on (the vendor starts it only from its LCE interrupt); that per-frame LCE / LSF path is #444.
