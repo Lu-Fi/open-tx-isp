@@ -988,6 +988,23 @@ void t33_awb_list_slot(int slot, u32 v)
 	T33_SW(l, slot, v);
 }
 
+/* tisp_reg_write_t33(ch, 23, slot, v): MSCA list memory only (the OSD / mask registers) */
+void t33_msca_list_slot(int slot, u32 v)
+{
+	u32 *l;
+
+	if (slot < 1 || !(t33_mod_built & (1ULL << T33_MOD_MSCA)) || !(l = t33_mod_buf(T33_MOD_MSCA)))
+		return;
+	T33_SW(l, slot, v);
+}
+
+/* tispMscaRefresh = 1: list 23 runs at the next frame end */
+void t33_msca_list_refresh(void)
+{
+	if (t33_mod_built & (1ULL << T33_MOD_MSCA))
+		t33_mod_dirty |= 1U << T33_MOD_MSCA;
+}
+
 /*
  * tisp_awb_init's lists: AWB statistics set-up (list 29) on our statistics
  * buffers at the init interpolation point, AWBG (list 7) at the section's

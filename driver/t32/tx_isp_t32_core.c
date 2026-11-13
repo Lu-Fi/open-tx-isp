@@ -433,6 +433,13 @@ static int t32_set_tiziano_par(const struct t32_tiziano_par *par)
  * 0x02000012, block copied out; a sensor without a handler (-ENOIOCTLCMD
  * -515) is skipped, any other error is returned, no sensor answers 0.
  */
+/* the sensor picture size of the running input (T33 OSD bounds) */
+void t32_core_in_size(u32 *w, u32 *h)
+{
+	*w = core.vi[0].width;
+	*h = core.vi[0].height;
+}
+
 static long t32_sensor_g_register(struct t32_vi *vi, unsigned long arg)
 {
 	u8 b[64];

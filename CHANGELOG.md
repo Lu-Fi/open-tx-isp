@@ -4,6 +4,12 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD[-rcN]` are set on the `aperto` branch, the same tag in open-tx-isp and OpenIMP: RC1 `v2026.10.11-rc1`, RC2 `v2026.10.25-rc2`, RC3 `v2026.11.07-rc3` (2026-11-07). Gate SoCs of RC3 and Release 1: T10, T20, T21, T23, T30, T31, T40, T41 (T32/T33 planned, QEMU only); release notes: [docs/releases/ in OpenIMP](https://github.com/Lu-Fi/openimp/blob/next/docs/releases/README.md). Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-11-13: T33 MSCA OSD window and mask outputs (openimp #436; planned, QEMU only)
+
+- `tx-isp-t33.ko` now runs the tuning ids 0xa1 (OSD attribute), 0xa2 (OSD block) and 0x74 (mask block) on a port of the vendor `tisp_msca_t33_api_{set,get}_osd_out_cfg` / `_osd_out_attribute_cfg` / `_set_osd_reg` / `_mask_out_cfg` / `_set_mask_reg` (T33 module 0xe48e4 .. 0xe553c; `driver/t32/tx_isp_t33_osd.h`, `driver/t33/tx_isp_t33_osd.c`) instead of only storing the blocks. The words go to MSCA list 23 (tisp_reg_write_t33 slots) and the list runs at the next frame end (tispMscaRefresh). Window geometry is aligned as the vendor does (x, y even; w, h even, or w a multiple of 4 for the 4-pixel-aligned mode), windows past the image or past 4 stacks are refused with the vendor messages.
+- Not in this step: the draw block (line / rectangle, 0xa0) is still stored only (own issue); the T32 module is unchanged.
+- Evidence: host test `tx_isp_t33_osd_test` (list words of a window / mask set, alignment, refusals, get round trips); QEMU `-M ingenic-t33`, `IMP_OSD_SetRgnAttr_ISP` cover (mask) with the same libimp on the vendor module and ours: the MSCA list 23 words 0xf0400 / 0xf0408 / 0xf0404 / 0xf0044 are equal. Remaining list-23 differences are the draw block (0xf04c4, 0xf0580) and stream state. Not tested on a camera.
+
 ## 2026-11-13: T32/T33 /dev/tx-isp: sensor S_REGISTER (openimp #434; planned, QEMU only)
 
 - `0xc040540d` S_REGISTER (vendor `tx_isp_sensor_s_register`, T33 module `tx_isp_unlocked_ioctl` 0x267a0): 64 B block in, sensor event 0x02000011, a sensor without a handler is skipped, no sensor answers 0, nothing copied back. Before: -ENOTTY. Same handler shape as G_REGISTER (#429), `tx_isp_t32_core.c`, both modules.
