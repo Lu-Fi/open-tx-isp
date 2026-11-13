@@ -4,6 +4,12 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD[-rcN]` are set on the `aperto` branch, the same tag in open-tx-isp and OpenIMP: RC1 `v2026.10.11-rc1`, RC2 `v2026.10.25-rc2`, RC3 `v2026.11.07-rc3` (2026-11-07). Gate SoCs of RC3 and Release 1: T10, T20, T21, T23, T30, T31, T40, T41 (T32/T33 planned, QEMU only); release notes: [docs/releases/ in OpenIMP](https://github.com/Lu-Fi/openimp/blob/next/docs/releases/README.md). Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-11-13: T30 common objects at -Os, -Os groundwork for the recovered unit (openimp #274; QEMU-tested, device pending)
+
+- `driver/t30/Kbuild`: only `tx_isp_t30_recovered.o` keeps `-O0` (code byte-identical); the shared common objects build at `-Os` like on the other SoCs. size(1) text 554883 -> 536783 (data/bss unchanged), QEMU lsmod 639536 -> 621440.
+- `tx_isp_vic_start`: VIC register accesses volatile. An `-Os` build turned the plain-pointer poll of the VIC control register into an endless loop (QEMU hung at stream on) and could merge the START/RUN writes; `-O0` code unchanged.
+- `TX_ISP_T30_OS=y` (experimental, not for images): recovered unit at `-Os` with inlining / IPA / sibling calls off, so `tests/t30_lift_oracle.sh` hooks the vendor's callees: oracle ok, tests/t30_qemu programs ok in QEMU, lsmod 340048 (vendor ~348 KB). Left: register-access audit of 84 functions where `-Os` drops stores, then a device A/B (docs/SIZE.md).
+
 ## 2026-11-13: T30 Iridix exposure input through the vendor hysteresis (openimp #428; host-tested, device pending)
 
 - Cause: the compact T30 AE wrote its raw exposure request to isp+0x11c, the exposure input of `iridix_control_strength_calculate` and the other exposure modulations. The vendor AE hands it to `cmos_set_exposure_target` (vendor tx-isp-t30.ko 0x36058): isp+0x11c moves only when the request is table 146 word 5 or more away, then to request -/+ word5/2, and not while owner byte +0x2fc is set; exposure ratio +0x1bc clamped at 0x400.

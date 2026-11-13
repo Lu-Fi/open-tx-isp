@@ -7605,7 +7605,7 @@ vic_core_ops_ioctl0x6c:
     return ((int64_t)(uint32_t)v1 << 32) | (uint32_t)v0;
 }
 
-/* WHOLE_DRIVER_CANDIDATE fn_00000000000000a8 origin=model_output original=tx_isp_vic_start */
+/* WHOLE_DRIVER_CANDIDATE fn_00000000000000a8 origin=model_output original=tx_isp_vic_start; VIC registers volatile so -Os keeps START/poll/RUN (openimp #274) */
 int tx_isp_vic_start(void *arg1)
 {
 	void *vic = *(void **)((char *)arg1 + 0xb8);
@@ -7618,52 +7618,52 @@ int tx_isp_vic_start(void *arg1)
 	int bits;
 
 	if (mode == 1) {
-		*(int *)((char *)vic + 0xc) = 2;
+		*(volatile int *)((char *)vic + 0xc) = 2;
 		if (sensor_id >= 0x3015) {
 			val = width;
 		} else if (sensor_id >= 0x3001) {
 			int bit = mode << ((sensor_id - 0x3001) & 0x1f);
 			if (bit & 0x38080) {
-				*(int *)((char *)vic + 0x14) = 2;
+				*(volatile int *)((char *)vic + 0x14) = 2;
 				val = width;
 			} else if (bit & 0x6240) {
-				*(int *)((char *)vic + 0x14) = mode;
+				*(volatile int *)((char *)vic + 0x14) = mode;
 				val = width;
 			} else if ((bit & 0xc0003) == 0) {
 				val = width;
 			} else {
-				*(int *)((char *)vic + 0x14) = 0;
+				*(volatile int *)((char *)vic + 0x14) = 0;
 				val = width;
 			}
 		} else if (sensor_id == 0x1008) {
-			*(int *)((char *)vic + 0x14) = 4;
+			*(volatile int *)((char *)vic + 0x14) = 4;
 			val = width;
 		} else if (sensor_id < 0x1009) {
 			if (sensor_id == 0x1004)
-				*(int *)((char *)vic + 0x14) = 3;
+				*(volatile int *)((char *)vic + 0x14) = 3;
 			val = width;
 		} else if (sensor_id < 0x2006) {
 			if (sensor_id >= 0x2002) {
-				*(int *)((char *)vic + 0x14) = 7;
+				*(volatile int *)((char *)vic + 0x14) = 7;
 				val = width;
 			} else {
 				val = width;
 			}
 		} else if (sensor_id == 0x2011) {
-			*(int *)((char *)vic + 0x14) = 7;
+			*(volatile int *)((char *)vic + 0x14) = 7;
 			val = width;
 		} else {
 			val = width;
 		}
-		*(int *)((uintptr_t)vic + 4) = (val << 16) | height;
-		*(int *)((char *)vic + 8) = 1;
-		*(int *)((char *)vic + 0) = 2;
-		while (*(int *)((char *)vic + 0) != 0)
+		*(volatile int *)((uintptr_t)vic + 4) = (val << 16) | height;
+		*(volatile int *)((char *)vic + 8) = 1;
+		*(volatile int *)((char *)vic + 0) = 2;
+		while (*(volatile int *)((char *)vic + 0) != 0)
 			;
-		*(int *)((char *)vic + 0) = 1;
+		*(volatile int *)((char *)vic + 0) = 1;
 		return 0;
 	} else if (mode == 2) {
-		*(int *)((char *)vic + 0xc) = 3;
+		*(volatile int *)((char *)vic + 0xc) = 3;
 		int v0_18;
 		if (sensor_id >= 0x3015) {
 			v0_18 = 0;
@@ -7732,28 +7732,28 @@ int tx_isp_vic_start(void *arg1)
 			v0_18 |= 2;
 		if (*(unsigned char *)((char *)sensor + 0x25) == 2)
 			v0_18 |= 1;
-		*(int *)((char *)vic + 0x10) = v0_18;
+		*(volatile int *)((char *)vic + 0x10) = v0_18;
 		uint16_t h0 = *(uint16_t *)((char *)sensor + 0x22);
 		if (h0 != 0)
-			*(int *)((uintptr_t)vic + 0x20) = (h0 << 16) + width;
+			*(volatile int *)((uintptr_t)vic + 0x20) = (h0 << 16) + width;
 		uint16_t h1 = *(uint16_t *)((char *)sensor + 0x20);
 		if (h1 != 0)
-			*(int *)((char *)vic + 0x3c) = h1;
-		*(int *)((uintptr_t)vic + 0x20) = (h0 << 16) + width;
-		*(int *)((char *)vic + 0x150) = 2;
-		*(int *)((uintptr_t)vic + 4) = (width << 16) | height;
-		*(int *)((char *)vic + 0x50) = 0;
-		*(int *)((char *)vic + 0) = 2;
-		*(int *)((char *)vic + 0) = 1;
+			*(volatile int *)((char *)vic + 0x3c) = h1;
+		*(volatile int *)((uintptr_t)vic + 0x20) = (h0 << 16) + width;
+		*(volatile int *)((char *)vic + 0x150) = 2;
+		*(volatile int *)((uintptr_t)vic + 4) = (width << 16) | height;
+		*(volatile int *)((char *)vic + 0x50) = 0;
+		*(volatile int *)((char *)vic + 0) = 2;
+		*(volatile int *)((char *)vic + 0) = 1;
 		return 0;
 	} else {
 		/* ko 0x428-0x470: lui 0x4 (value), no poll of VIC_CONTROL before START in this branch */
-		*(int *)((char *)vic + 0x10) = 0x40000;
-		*(int *)((char *)vic + 0xc) = 3;
-		*(int *)((uintptr_t)vic + 4) = (width << 16) | height;
-		*(int *)((char *)vic + 0x50) = 0;
-		*(int *)((char *)vic + 0xb0) = 0x80008000;
-		*(int *)((char *)vic + 0) = 1;
+		*(volatile int *)((char *)vic + 0x10) = 0x40000;
+		*(volatile int *)((char *)vic + 0xc) = 3;
+		*(volatile int *)((uintptr_t)vic + 4) = (width << 16) | height;
+		*(volatile int *)((char *)vic + 0x50) = 0;
+		*(volatile int *)((char *)vic + 0xb0) = 0x80008000;
+		*(volatile int *)((char *)vic + 0) = 1;
 		return 0;
 	}
 }
