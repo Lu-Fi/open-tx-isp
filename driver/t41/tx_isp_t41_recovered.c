@@ -26958,6 +26958,12 @@ proc_ivdc_writel0x4b0:
         dma_addr_t ivdc_dma_handle = 0;
 
         s7 = *(uint32_t *)((char *)s5 + 4);
+        /* 7.x does not fill the vendor subdev's device pointer here; the
+         * IVDC platform device is the owner of this buffer (k7 patch 0048).
+         * 4.4 accepted a NULL device here; the IVDC device (32-bit DMA
+         * mask, :6172) gives the same coherent buffer there. */
+        if (!s7)
+            s7 = (uint32_t)(uintptr_t)&tx_isp_ivdc_platform_device.dev;
         s2 = (uintptr_t)dma_alloc_coherent((struct device *)(uintptr_t)s7,
                                            s1, &ivdc_dma_handle, GFP_KERNEL);
         local_40 = s2 ? (uint32_t)ivdc_dma_handle : 0;
