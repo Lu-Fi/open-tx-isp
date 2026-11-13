@@ -71,7 +71,7 @@ static int rj_alloc(uint32_t bytes)
 		pr_err("t41_rawinject: isp_malloc_buffer(%u) failed (ispmem/rmem?)\n", bytes);
 		return -ENOMEM;
 	}
-	rj_virt = ioremap_nocache(rj_paddr, bytes);
+	rj_virt = ioremap(rj_paddr, bytes);
 	if (!rj_virt) {
 		isp_free_buffer(rj_paddr);
 		rj_paddr = 0;
