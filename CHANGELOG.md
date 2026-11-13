@@ -4,6 +4,10 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD[-rcN]` are set on the `aperto` branch, the same tag in open-tx-isp and OpenIMP: RC1 `v2026.10.11-rc1`, RC2 `v2026.10.25-rc2`, RC3 `v2026.11.07-rc3` (2026-11-07). Gate SoCs of RC3 and Release 1: T10, T20, T21, T23, T30, T31, T40, T41 (T32/T33 planned, QEMU only); release notes: [docs/releases/ in OpenIMP](https://github.com/Lu-Fi/openimp/blob/next/docs/releases/README.md). Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-11-13: T33 beyond-vendor items approved (openimp #436, #437, #442)
+
+- docs/BEYOND_VENDOR.md: the T33 range refusals for OSD window / mask / draw block (incl. draw windows below 32), the OSD window GET returning the stored word, the cleared 96 B block in the OSD / mask / draw GETs, and the AF window-count refusal are approved by the user (2026-11-13); still QEMU only.
+
 ## 2026-11-13: T33 LSF register list 37 (openimp #388; planned, QEMU only)
 
 - `tx-isp-t33.ko` builds the last missing block list, LSF (module 37, 0x25040..), at init from the LCE section like the vendor `tisp_lce_init`: layout of `tisp_rcfg_lsf_reg_init`, LSF buffer (0x2420 B) in slots 7 / 8, the init's u8 EV / BV interpolations, `tisp_lce_bin_para_update` / `func_lce_para_update` fields, the 7 x 7 Gauss low pass (`tisp_lce_gauss_lpf`) and the four 32-weight Gauss sets (`tisp_lce_gauss_wgt`). Like the vendor it is not started at stream-on (the vendor starts it only from its LCE interrupt); that per-frame LCE / LSF path is #444.
