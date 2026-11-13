@@ -129,6 +129,10 @@ tx_isp_t33_awb_test: tx_isp_t33_awb_test.c $(wildcard ../driver/t32/tx_isp_t3*.h
 TESTS += tx_isp_t33_ae_test
 
 TESTS += tx_isp_t33_osd_test
+
+TESTS += tx_isp_t33_afattr_test
+tx_isp_t33_afattr_test: tx_isp_t33_afattr_test.c $(wildcard ../driver/t32/tx_isp_t3*.h)
+	$(CC) $(CFLAGS) -o $@ $<
 tx_isp_t33_osd_test: tx_isp_t33_osd_test.c ../driver/t32/tx_isp_t33_osd.h
 	$(CC) $(CFLAGS) -o $@ $<
 tx_isp_t33_ae_test: tx_isp_t33_ae_test.c $(wildcard ../driver/t32/tx_isp_t3*.h)

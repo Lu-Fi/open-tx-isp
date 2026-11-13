@@ -41,12 +41,18 @@ void t32_afgsm_attach_af(const u8 *bin, u32 bytes, u32 width, u32 height) { }
 void t32_afgsm_attach_gsm(u32 width, u32 height) { }
 void t32_afgsm_exit(void) { }
 /* the tuning API on the AF / GSM blocks: not attached on the T33 yet (tunblk answers the stored / zero words) */
-bool t32_afgsm_af_get_attr(u32 ch, u8 *out) { return false; }
-bool t32_afgsm_af_set_attr(u32 ch, const u8 *in) { return false; }
-bool t32_afgsm_af_set_weight(u32 ch, const u8 *buf) { return false; }
-bool t32_afgsm_af_get_weight(u32 ch, u8 *buf) { return false; }
+/* AF on the T33 section (tx_isp_t32_hw.c, #437) */
+bool t33_af_attr_get(u8 *o);
+bool t33_af_attr_set(const u8 *a);
+bool t33_af_weight_set(const u8 *b);
+bool t33_af_weight_get(u8 *b);
+bool t33_af_metric_get(u8 *b);
+bool t32_afgsm_af_get_attr(u32 ch, u8 *out) { return t33_af_attr_get(out); }
+bool t32_afgsm_af_set_attr(u32 ch, const u8 *in) { return t33_af_attr_set(in); }
+bool t32_afgsm_af_set_weight(u32 ch, const u8 *buf) { return t33_af_weight_set(buf); }
+bool t32_afgsm_af_get_weight(u32 ch, u8 *buf) { return t33_af_weight_get(buf); }
 bool t32_afgsm_af_get_statis(u32 ch, u8 *buf) { return false; }
-bool t32_afgsm_af_get_metric(u32 ch, u8 *buf) { return false; }
+bool t32_afgsm_af_get_metric(u32 ch, u8 *buf) { return t33_af_metric_get(buf); }
 bool t32_afgsm_gsm_api_set(u32 ch, const u8 *scratch) { return false; }
 void t32_awbc_detach(void) { }
 void t32_blk_exit(void) { }

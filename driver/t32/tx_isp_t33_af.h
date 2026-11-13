@@ -329,4 +329,53 @@ static inline int t33_af_init(u8 *s, u32 w, u32 h, u32 dma, u32 *l, u32 cap)
 	return len;
 }
 
+/*
+ * tisp_af_api_set_attr / _get_attr (vendor 0x463a8 / 0x462d4) on the section copy s (the vendor's
+ * af_info + 0x4e8 block): the 24 B attribute a { u32 .., u32 .., u8 @8, u8 shift @9, u16 @10, u16 @12,
+ * u16 @14 (low byte stored), u16 @16, u8 @18 .. @21, u16 @22 }.  set patches the section words, the
+ * caller then runs t33_af_init (tisp_af_par_init + tisp_af_t33_all_reg_write) again; get answers the
+ * section words (0x44 / 0x40 shifted by the attribute's @9) and the attribute's own bytes 8, 9.
+ */
+static inline void t33_af_attr_patch(u8 *s, const u8 *a)
+{
+	static const u8 off[4] = { 0x54, 0x50, 0x56, 0x52 };
+	int i;
+
+	s[0x1e4] = a[10]; s[0x1e5] = a[11];
+	s[0x1e6] = a[12]; s[0x1e7] = a[13];
+	s[0x213] = a[14];
+	s[0x1e0] = a[16]; s[0x1e1] = a[17];
+	for (i = 0; i < 4; i++) {
+		s[off[i]] = a[0x12 + i];
+		s[off[i] + 1] = 0;
+	}
+	s[0x1e2] = a[0x16]; s[0x1e3] = a[0x17];
+}
+
+static inline u32 t33_af_le32(const u8 *p)
+{
+	return (u32)p[0] | (u32)p[1] << 8 | (u32)p[2] << 16 | (u32)p[3] << 24;
+}
+
+static inline void t33_af_attr_read(const u8 *s, const u8 *par, u8 *o)
+{
+	u32 sh = par[9] & 0x1f, v;
+	int i;
+
+	v = t33_af_le32(s + 0x44) >> sh;
+	for (i = 0; i < 4; i++)
+		o[i] = (u8)(v >> (8 * i));
+	v = t33_af_le32(s + 0x40) >> sh;
+	for (i = 0; i < 4; i++)
+		o[4 + i] = (u8)(v >> (8 * i));
+	o[8] = par[8];
+	o[9] = par[9];
+	o[10] = s[0x1e4]; o[11] = s[0x1e5];
+	o[12] = s[0x1e6]; o[13] = s[0x1e7];
+	o[14] = s[0x213]; o[15] = 0;
+	o[16] = s[0x1e0]; o[17] = s[0x1e1];
+	o[0x12] = s[0x54]; o[0x13] = s[0x50]; o[0x14] = s[0x56]; o[0x15] = s[0x52];
+	o[0x16] = s[0x1e2]; o[0x17] = s[0x1e3];
+}
+
 #endif /* TX_ISP_T33_AF_H */

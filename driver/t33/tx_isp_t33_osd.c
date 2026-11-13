@@ -25,6 +25,13 @@ static struct t33_osd osd[T33_OSD_CH];
 static struct t33_draw draw[T33_OSD_CH];
 static struct t33_colors colors;	/* the vendor's g_colotList: global */
 static bool osd_touched, mask_touched, draw_touched;
+/*
+ * GET: the vendor dispatcher hands the getter an uninitialised stack block (no copy-in), so the
+ * window / mask number the getter reads is stack garbage; the answer is the entry the stack happened
+ * to name.  Here the block is cleared and names the window / mask written last (deterministic, and
+ * no stack bytes reach user space), #442.
+ */
+static u8 last_osd, last_mask_ch, last_mask_win, last_draw;
 
 static void os_slot(u32 ch, u32 slot, u32 v) { t33_msca_list_slot((int)slot, v); }
 static void os_refresh(u32 ch) { t33_msca_list_refresh(); }
@@ -71,6 +78,7 @@ int t32_tx_os_tisp_g_osd_attr(u32 ch, void *buf)
 
 	if (!o)
 		return -EINVAL;
+	memset(buf, 0, 32);
 	t33_osd_get_attr(o, buf);
 	return 0;
 }
@@ -82,6 +90,7 @@ int t32_tx_os_tisp_s_osd_block_attr(u32 ch, void *buf)
 	if (!o)
 		return -EINVAL;
 	osd_touched = true;
+	last_osd = ((u8 *)buf)[0];
 	t33_osd_set_out(o, &os_ops, ch, buf);
 	return 0;
 }
@@ -92,6 +101,8 @@ int t32_tx_os_tisp_g_osd_block_attr(u32 ch, void *buf)
 
 	if (!o)
 		return -EINVAL;
+	memset(buf, 0, 20);
+	((u8 *)buf)[0] = last_osd;
 	t33_osd_get_out(o, buf);
 	return 0;
 }
@@ -103,6 +114,8 @@ int t32_tx_os_tisp_s_mscaler_mask_block_attr(u32 ch, void *buf)
 	if (!o)
 		return -EINVAL;
 	mask_touched = true;
+	last_mask_ch = ((u8 *)buf)[0];
+	last_mask_win = ((u8 *)buf)[1];
 	t33_mask_set_out(o, &os_ops, ch, buf);
 	return 0;
 }
@@ -113,6 +126,9 @@ int t32_tx_os_tisp_g_mscaler_mask_block_attr(u32 ch, void *buf)
 
 	if (!o)
 		return -EINVAL;
+	memset(buf, 0, 24);
+	((u8 *)buf)[0] = last_mask_ch;
+	((u8 *)buf)[1] = last_mask_win;
 	t33_mask_get_out(o, buf);
 	return 0;
 }
@@ -122,6 +138,7 @@ int t32_tx_os_tisp_s_draw_block_attr(u32 ch, void *buf)
 	if (ch >= T33_OSD_CH)
 		return -EINVAL;
 	draw_touched = true;
+	last_draw = ((u8 *)buf)[0];
 	t33_draw_set_out(&draw[ch], &colors, &os_ops, ch, buf);
 	return 0;
 }
@@ -130,6 +147,8 @@ int t32_tx_os_tisp_g_draw_block_attr(u32 ch, void *buf)
 {
 	if (ch >= T33_OSD_CH)
 		return -EINVAL;
+	memset(buf, 0, 36);
+	((u8 *)buf)[0] = last_draw;
 	t33_draw_get_out(&draw[ch], buf);
 	return 0;
 }

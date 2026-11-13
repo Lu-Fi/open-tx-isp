@@ -1009,6 +1009,88 @@ void t33_msca_list_refresh(void)
 }
 
 /*
+ * AF API on the T33 section (tisp_af_api_{set,get}_attr / _{set,get}_weight / _get_metric, vendor
+ * 0x463a8 / 0x462d4 / 0x4621c / 0x46248 / 0x4627c): the section copy t33_af_sec is the vendor's
+ * af_info + 0x4e8 block.  set_attr keeps the 24 B attribute (af_par_attr), patches the section words,
+ * runs tisp_af_par_init + tisp_af_t33_all_reg_write again (t33_af_init on the patched section: the
+ * list 31 words) and marks the list for the next frame end (tispAfRefresh; the vendor runs it at the
+ * next AF interrupt).  All return false until the section exists (stream-on).
+ */
+static u8 t33_af_par_attr[24];
+
+static bool t33_af_ready(void)
+{
+	return t33_af_pages && (t33_mod_built & (1ULL << T33_MOD_AF));
+}
+
+bool t33_af_attr_set(const u8 *a)
+{
+	u32 w, h;
+	u32 *l;
+	u8 tmp[T33_AF_SEC_BYTES];
+	int n;
+
+	memcpy(t33_af_par_attr, a, 24);
+	if (!t33_af_ready() || t32_core_sensor_size(&w, &h) || !(l = t33_mod_buf(T33_MOD_AF)))
+		return false;
+	/*
+	 * Patch a copy and build the list from it: the vendor divides by the window counts in
+	 * tisp_af_par_init (a zero count crashes it); here a refused attribute leaves section and list as
+	 * they were.
+	 */
+	memcpy(tmp, t33_af_sec, sizeof(tmp));
+	t33_af_attr_patch(tmp, a);
+	n = t33_af_init(tmp, w, h, (u32)virt_to_phys((void *)t33_af_pages), l, T33_SLOT_WORDS);
+	if (n < 0) {
+		isp_printf(1, "tx-isp-t33: AF attribute refused (window counts / sizes)\n");
+		return false;
+	}
+	memcpy(t33_af_sec, tmp, sizeof(tmp));
+	t33_mod_dirty |= 1U << T33_MOD_AF;
+	return true;
+}
+
+bool t33_af_attr_get(u8 *o)
+{
+	if (!t33_af_ready())
+		return false;
+	t33_af_attr_read(t33_af_sec, t33_af_par_attr, o);
+	return true;
+}
+
+bool t33_af_weight_set(const u8 *b)
+{
+	if (!t33_af_ready())
+		return false;
+	memcpy(t33_af_sec + 0x21f, b, 0xe1);
+	return true;
+}
+
+bool t33_af_weight_get(u8 *b)
+{
+	if (!t33_af_ready())
+		return false;
+	memcpy(b, t33_af_sec + 0x21f, 0xe1);
+	return true;
+}
+
+/* tisp_af_api_get_metric: two words of the section (written by the AF algorithm), shifted by the attribute */
+bool t33_af_metric_get(u8 *b)
+{
+	u32 sh = t33_af_par_attr[9] & 0x1f, v;
+
+	if (!t33_af_ready())
+		return false;
+	memcpy(&v, t33_af_sec + 0x44, 4);
+	v >>= sh;
+	memcpy(b, &v, 4);
+	memcpy(&v, t33_af_sec + 0x40, 4);
+	v >>= sh;
+	memcpy(b + 4, &v, 4);
+	return true;
+}
+
+/*
  * tisp_awb_init's lists: AWB statistics set-up (list 29) on our statistics
  * buffers at the init interpolation point, AWBG (list 7) at the section's
  * start gains.
