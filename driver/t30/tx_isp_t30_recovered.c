@@ -6996,7 +6996,7 @@ int32_t iir_filter_v2(int32_t arg1, int32_t arg2, int32_t arg3, int32_t *arg4);
 int32_t validate_complexity_test(void *arg1, int32_t arg2);
 int32_t validate_motion_vectors(int32_t arg1, void *arg2, int32_t arg3, int32_t arg4);
 int32_t get_gmv_gauss_init(void **arg1, int32_t arg2);
-int32_t get_gmv_gauss_method_fast_v2(void *arg1, int32_t arg2, int32_t *arg3);
+int32_t get_gmv_gauss_method_fast_v2(void *arg1, int32_t arg2, int32_t arg3, int32_t arg4, int32_t *out);
 int tx_isp_vic_remove(struct platform_device *pdev);
 int tx_isp_vin_remove(struct platform_device *pdev);
 int tx_isp_csi_remove(struct platform_device *pdev);
@@ -44350,31 +44350,34 @@ int32_t dis_clip_gmv_vector(void *arg1, int32_t *arg2)
 /* WHOLE_DRIVER_CANDIDATE fn_000000000003745c origin=model_output original=dis_analyze */
 int32_t dis_analyze(void *arg1, void *arg2, int32_t *arg3, int32_t *arg4)
 {
-    int32_t *var_28 = 0;
-    int32_t var_24 = 0;
-    int32_t var_30 = 0;
-    int32_t var_2c = 0;
+	/*
+	 * #463: vendor 36b7c.  The motion vector and the filtered vector are two-word stack blocks
+	 * (sp+32 / sp+24); the lift kept them as separate scalars, so the method callback's second
+	 * word and the copies to arg3/arg4 missed them.  Returns the iir_filter_v2 result.
+	 */
+	int32_t filt[2] = { 0, 0 };
+	int32_t gmv[2] = { 0, 0 };
+	int32_t mv_x, mv_y, ret;
+	int32_t (*cb)(void *, void *, int32_t, int32_t, int32_t *);
 
-    if (arg1 != 0) {
-        int32_t mv_x = *(int32_t *)((uintptr_t)arg1 + 8);
-        int32_t mv_y = *(int32_t *)((uintptr_t)arg1 + 12);
-        int32_t (*cb)(void *, void *, int32_t, int32_t, int32_t *) =
-            (int32_t (*)(void *, void *, int32_t, int32_t, int32_t *))
-                (*(void **)((uintptr_t)arg1 + 0x24));
+	if (arg1 == 0)
+		return -1;
 
-        if (validate_motion_vectors(arg1, arg2, mv_x, mv_y) == 0 &&
-            cb(arg1, arg2, mv_x, mv_y, &var_28) == 0) {
-            iir_filter_v2(arg1, var_28, var_24, &var_30);
-            dis_clip_gmv_vector(arg1, &var_30);
-            ((void **)arg3)[0] = var_30;
-            ((void **)arg3)[1] = var_2c;
-            ((void **)arg4)[0] = var_28;
-            ((void **)arg4)[1] = var_24;
-            return 0;
-        }
-    }
+	mv_x = *(int32_t *)((uintptr_t)arg1 + 8);
+	mv_y = *(int32_t *)((uintptr_t)arg1 + 12);
+	if (validate_motion_vectors((int32_t)(uintptr_t)arg1, arg2, mv_x, mv_y) != 0)
+		return -1;
+	cb = (int32_t (*)(void *, void *, int32_t, int32_t, int32_t *))(*(void **)((uintptr_t)arg1 + 0x24));
+	if (cb(arg1, arg2, mv_x, mv_y, gmv) != 0)
+		return -1;
 
-    return -1;
+	ret = iir_filter_v2((int32_t)(uintptr_t)arg1, gmv[0], gmv[1], filt);
+	dis_clip_gmv_vector(arg1, filt);
+	arg3[0] = filt[0];
+	arg3[1] = filt[1];
+	arg4[0] = gmv[0];
+	arg4[1] = gmv[1];
+	return ret;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000037700 origin=model_output original=apical_wdr_fs_isp_setup */
@@ -44567,72 +44570,61 @@ int32_t get_gmv_gauss_init(void **arg1, int32_t arg2)
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000381c0 origin=model_output original=get_gmv_gauss_method_fast_v2 */
-int32_t get_gmv_gauss_method_fast_v2(void *arg1, int32_t arg2, int32_t *arg3)
+int32_t get_gmv_gauss_method_fast_v2(void *arg1, int32_t arg2, int32_t arg3, int32_t arg4, int32_t *out)
 {
-    int32_t *pts = (int32_t *)arg1;
-    int32_t count = pts[2] * pts[3];
-    int32_t limit;
-    int32_t best_score = 0;
-    int32_t total_score = 0;
-    int32_t best_idx = -1;
-    int32_t *i;
-    int32_t j;
-    int32_t *cur_pt;
-    int32_t cur_x, cur_y;
-    int32_t *other_pt;
-    int32_t dx, dy;
-    int32_t dist_sq;
-    int32_t threshold;
-    int32_t *gauss_table;
-    int32_t inner_score;
-    int32_t self_dist_sq;
+	/*
+	 * #463: vendor 378e0.  Integer point counter (the lift typed it int32_t *, i++ = +4); the result
+	 * goes to the 5th (stack) argument as dis_analyze passes it, not to a2; unsigned score compares,
+	 * 32-bit squared distances compared unsigned against the table size +0x100.
+	 */
+	const uint8_t *pts = (const uint8_t *)arg1;
+	const uint8_t *mv = (const uint8_t *)(uintptr_t)arg2;
+	const uint32_t *gauss = (const uint32_t *)(uintptr_t)*(const uint32_t *)(pts + 0xfc);
+	uint32_t lim = *(const uint32_t *)(pts + 0x100);
+	int32_t count = *(const int32_t *)(pts + 8) * *(const int32_t *)(pts + 12);
+	uint32_t best = 0, total = 0;
+	int32_t best_idx = -1, i, j;
 
-    if (count >= 257)
-        limit = 256;
-    else
-        limit = count;
+	(void)arg3; (void)arg4;
+	if (count >= 257)
+		count = 256;
 
-    for (i = 0; i < limit; i++) {
-        cur_pt = (int32_t *)(arg2 + (uintptr_t)i * 24);
-        cur_x = cur_pt[0];
-        cur_y = cur_pt[1];
-        inner_score = 0;
+	for (i = 0; i < count; i++) {
+		int32_t cx = *(const int32_t *)(mv + i * 24);
+		int32_t cy = *(const int32_t *)(mv + i * 24 + 4);
+		uint32_t inner = 0, d;
 
-        for (j = 0; j < limit; j++) {
-            if (j != i) {
-                other_pt = (int32_t *)(arg2 + j * 24);
-                dx = other_pt[0] - cur_x;
-                dy = other_pt[1] - cur_y;
-                dist_sq = dx * dx + dy * dy;
-                if (dist_sq < pts[0x100 / 4]) {
-                    gauss_table = (int32_t *)pts[0xfc / 4];
-                    inner_score += gauss_table[dist_sq];
-                }
-            }
-        }
+		for (j = 0; j < count; j++) {
+			int32_t dx, dy;
 
-        if (inner_score > best_score || (best_idx < 0 && inner_score > best_score)) {
-            best_score = inner_score;
-            best_idx = i;
-        }
+			if (j == i)
+				continue;
+			dx = *(const int32_t *)(mv + j * 24) - cx;
+			dy = *(const int32_t *)(mv + j * 24 + 4) - cy;
+			d = (uint32_t)dy * (uint32_t)dy + (uint32_t)dx * (uint32_t)dx;
+			if (d < lim)
+				inner += gauss[d];
+		}
 
-        self_dist_sq = cur_x * cur_x + cur_y * cur_y;
-        if (self_dist_sq < pts[0x100 / 4]) {
-            gauss_table = (int32_t *)pts[0xfc / 4];
-            total_score += gauss_table[self_dist_sq];
-        }
-    }
+		if (best < inner || best_idx < 0) {
+			best = inner;
+			best_idx = i;
+		}
 
-    if (best_score >= (total_score * 3) / 2) {
-        int32_t *result_pt = (int32_t *)(arg2 + best_idx * 24);
-        ((void **)arg3)[0] = result_pt[0];
-        ((void **)arg3)[1] = result_pt[1];
-    } else {
-        ((void **)arg3)[0] = 0;
-        ((void **)arg3)[1] = 0;
-    }
+		d = (uint32_t)cy * (uint32_t)cy + (uint32_t)cx * (uint32_t)cx;
+		if (d < lim)
+			total += gauss[d];
+	}
 
-    return 0;
+	if (best < (total * 3) >> 1) {
+		out[1] = 0;
+		out[0] = 0;
+	} else {
+		out[0] = *(const int32_t *)(mv + best_idx * 24);
+		out[1] = *(const int32_t *)(mv + best_idx * 24 + 4);
+	}
+
+	return 0;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000038530 origin=model_output original=tx_isp_vic_remove */
