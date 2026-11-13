@@ -939,6 +939,24 @@ GIB trigger 0x8040 (`system_reg_set_ae_trig(3)`); `depth` = bank +0x288 u16[10] 
 re-split (A/B), `t40_ae_every_frame=0` = the step on the 3-frame samples only; diagnostics `t40_ae_oem_steps`, `t40_ae_oem_allocs`, `t40_ae_only_runs`. HLC / BLC / face AE
 and the frame-grid fallback keep the ladder.
 
+AE from the statistics interrupts (#82, 2026-11-13): like the OEM (`tisp_ae_main_interrupt_hist` 0x34df4 pushes
+event 1, the event thread runs `tisp_ae_main_process` 0x3b120) the AE histogram interrupt pushes event 1 and the
+tisp event thread (channel 0) runs the AE pass on the hardware statistics (`t40_ae_main_process_open`: OEM metering,
+`t40_aet_tune2`, `t40_ae_oem_alloc`, ISP dgain ring), one step per histogram interrupt (`t40_ae_stats_new`), also
+while no channel consumes frames. Each pass first writes the sensor part of the previous step, then steps: the OEM
+writes the pending IT / again from the frame-done worker of the next ISP frame (`ispcore_irq_main_fd_work` 0x867c8),
+and the ISP frame clock here is the histogram interrupt, not the channel frame-done (a channel drops frames: on the
+Eufy 12-14 % fewer ch0 frame-dones than histogram interrupts; a write tied to them lagged the steps, run1). The
+sensor part waits in a two-entry queue tagged with the histogram count of its step (`t40_ae_sq_push` /
+`t40_ae_sq_due`, `tx_isp_t40_ae_api.h`), so the step of statistics frame k is written in ISP frame k + 1, never in
+frame k, whether the event pass or a frame-3A work comes first (host test `tx_isp_t40_ae_step_test`; with the
+interrupt before the frame-done this is the #412 timing). The channel frame-done keeps the frame-3A sample every
+`frame_3a_interval` frames (AWB trims, tuning follow). A mutex serialises the event pass and the frame-3A work
+(shared metering scratch); `tisp_ae_main_deinit` unregisters event 1 first. `t40_ae_irq_event=0` = the #412 path
+(AE-only pass and sensor write from the channel frame-done); counters `t40_ae_ev_pushes`, `t40_ae_ev_push_fail`,
+`t40_ae_ev_runs`. Not changed: the histogram handler still returns 0 where the OEM returns 2 (no
+`isp_irq_thread_handle` wake); a custom AE library still gets its completion from the interrupt.
+
 Night antiflicker per tuning bank (#84): the OEM `tisp_s_antiflick` writes the request into tparamsN and into the
 bank of the running mode, and the day/night switch loads the other bank's words (+0x80 + 0x314 enable / NORMAL,
 +0x320 frequency). A day request therefore does not reach the night; the sc830ai night bank has antiflicker off,

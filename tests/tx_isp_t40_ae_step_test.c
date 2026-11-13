@@ -13,6 +13,10 @@
  *         OEM step alone on a continuous exposure, overshoot <= 3 %, no single wrong frame; the same plant with
  *         the ISP dgain at once, and with the pre-#412b driver (sensor write from the AE work landing 2 or 3
  *         frames later, one-frame dgain queue), must show single wrong frames (device .184: +12..14 %).
+ *   #82:  AE from the histogram interrupt (event 1): t40_ae_sq_push / t40_ae_sq_due write each step's sensor part in
+ *         the next ISP frame like the OEM (= the #412 frame-done path when the interrupt comes first), with either
+ *         order of interrupt and frame-done, a late event thread and dropped frame-dones; t40_ae_stats_new gives one
+ *         step per statistics frame; t40_ae_f3a_mode work selection.
  */
 #include <assert.h>
 #include <math.h>
@@ -435,6 +439,159 @@ static void test_ring(void)
 	puts("ring ok");
 }
 
+/* #82: the pending queue against a plain reference (newest entry older than the histogram count, older ones dropped) */
+static void test_sq(void)
+{
+	struct t40_ae_sq q;
+	unsigned int x = 3;
+	u32 v, rv[64], rt[64], rn = 0, now = 100, i, n;
+
+	memset(&q, 0, sizeof(q));
+	assert(!t40_ae_sq_due(&q, now, &v));
+	t40_ae_sq_push(&q, 11, now);
+	assert(!t40_ae_sq_due(&q, now, &v));		/* the step of this histogram frame is not due yet */
+	assert(t40_ae_sq_due(&q, now + 1U, &v) && v == 11U && q.n == 0U);
+	/* wrap of the interrupt counter */
+	t40_ae_sq_push(&q, 12, 0xffffffffU);
+	assert(!t40_ae_sq_due(&q, 0xffffffffU, &v));
+	assert(t40_ae_sq_due(&q, 0U, &v) && v == 12U);
+	for (n = 0; n < 20000; n++) {
+		x = x * 1103515245U + 12345U;
+		if ((x >> 12) & 1U) {
+			now++;
+			continue;
+		}
+		if ((x >> 13) & 1U) {
+			u32 val = x >> 16, j;
+
+			t40_ae_sq_push(&q, val, now);
+			if (rn == 2U) {
+				rv[0] = rv[1];
+				rt[0] = rt[1];
+				rn = 1;
+			}
+			rv[rn] = val;
+			rt[rn++] = now;
+			(void)j;
+		} else {
+			bool want = false;
+			u32 wv = 0, k = 0;
+
+			for (i = rn; i-- > 0;)
+				if (rt[i] != now) {
+					want = true;
+					wv = rv[i];
+					for (k = 0; i + 1U + k < rn; k++) {
+						rv[k] = rv[i + 1U + k];
+						rt[k] = rt[i + 1U + k];
+					}
+					rn = k;
+					break;
+				}
+			assert(t40_ae_sq_due(&q, now, &v) == want);
+			if (want)
+				assert(v == wv);
+			assert(q.n == rn);
+		}
+	}
+	puts("sq ok");
+}
+
+/*
+ * #82: frame-level timeline.  ISP frame k: histogram interrupt k, channel frame-done k (either order, or missing:
+ * channels drop frames), the event-1 pass of interrupt k right after it or late (after that frame-done).  Event pass:
+ * write the due sensor entry, then step (t40_ae_stats_new) and push the EXPO word (value = statistics frame) tagged
+ * with the histogram count.  A frame-done with a frame-3A sample due (every 3rd) also writes the due entry.  Every
+ * step must be written in ISP frame s + 1 (the OEM: next frame's fd worker), never in frame s, one step per
+ * statistics frame.  #412 path, interrupt first: written at frame-done s + 1 as well (the device-proven timing).
+ */
+static int wr412[256], wrev[256];
+
+static void sim_412(void)
+{
+	u32 hist = 0, last = 0, pend = 0;
+	int k, have = 0;
+
+	memset(wr412, -1, sizeof(wr412));
+	for (k = 1; k < 200; k++) {
+		hist = (u32)k;			/* interrupt first */
+		if (have) {			/* frame-done k: write the pending step, then step on new statistics */
+			if (wr412[pend] < 0)
+				wr412[pend] = k;
+			have = 0;
+		}
+		if (t40_ae_stats_new(hist, &last)) {
+			pend = hist;
+			have = 1;
+		}
+	}
+}
+
+static void sim_ev(int order_hist_first, unsigned int seed)
+{
+	struct t40_ae_sq q;
+	u32 hist = 0, last = 0, v, steps = 0;
+	unsigned int x = seed;
+	int k;
+
+	memset(&q, 0, sizeof(q));
+	memset(wrev, -1, sizeof(wrev));
+	for (k = 1; k < 200; k++) {
+		int late, fd_on, full;
+
+		x = x * 1103515245U + 12345U;
+		late = seed && ((x >> 16) & 1U);
+		fd_on = !seed || ((x >> 17) & 7U) != 0U;	/* the channel drops 1 frame in 8 */
+		full = fd_on && k % 3 == 0;
+		if (!order_hist_first && full && t40_ae_sq_due(&q, hist, &v) && wrev[v] < 0)
+			wrev[v] = k;		/* frame-done before the interrupt */
+		hist = (u32)k;
+		if (!late) {
+			if (t40_ae_sq_due(&q, hist, &v) && wrev[v] < 0)
+				wrev[v] = k;
+			if (t40_ae_stats_new(hist, &last)) {
+				t40_ae_sq_push(&q, hist, hist);
+				steps++;
+			}
+		}
+		if (order_hist_first && full && t40_ae_sq_due(&q, hist, &v) && wrev[v] < 0)
+			wrev[v] = k;
+		if (late) {			/* event thread after the frame-done */
+			if (t40_ae_sq_due(&q, hist, &v) && wrev[v] < 0)
+				wrev[v] = k;
+			if (t40_ae_stats_new(hist, &last)) {
+				t40_ae_sq_push(&q, hist, hist);
+				steps++;
+			}
+		}
+	}
+	assert(steps == 199U);		/* one step per histogram interrupt */
+}
+
+static void test_irq_order(void)
+{
+	int order, s;
+	unsigned int seed;
+
+	sim_412();
+	for (order = 0; order < 2; order++)
+		for (seed = 0; seed < 6; seed++) {
+			sim_ev(order, seed);
+			for (s = 2; s < 190; s++) {
+				assert(wrev[s] == s + 1);
+				if (order)
+					assert(wrev[s] == wr412[s]);
+			}
+		}
+	/* work selection of the frame-done */
+	assert(t40_ae_f3a_mode(true, true, true) == T40_F3A_FULL);
+	assert(t40_ae_f3a_mode(false, true, true) == T40_F3A_NONE);
+	assert(t40_ae_f3a_mode(false, false, true) == T40_F3A_AE);
+	assert(t40_ae_f3a_mode(false, false, false) == T40_F3A_NONE);
+	puts("irq-driven AE: every step reaches the sensor in the next ISP frame (both orders, late event thread, dropped "
+	     "frame-dones), one step per statistics frame");
+}
+
 int main(void)
 {
 	int sp;
@@ -442,6 +599,8 @@ int main(void)
 	setvbuf(stdout, NULL, _IONBF, 0);
 	bank_init();
 	test_ring();
+	test_sq();
+	test_irq_order();
 	test_alloc();
 	test_path(4700.0);	/* IT at the ceiling, analog gain + ISP dgain (Eufy comp 128) */
 	test_path(1500.0);	/* below the ceiling: IT rungs (Eufy comp 40: vendor IT 1500) */

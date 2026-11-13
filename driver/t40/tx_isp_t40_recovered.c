@@ -9483,7 +9483,24 @@ static uint t40_ae_only_runs T40C2;             /* AE-only passes between the fr
 module_param_named(t40_ae_only_runs, t40_ae_only_runs, uint, 0444);
 static struct t40_aet_tune t40_ae_tune_st T40C2;
 static uint32_t f3a_evl[T40_AET_N] T40C2, f3a_tgl[T40_AET_N] T40C2, f3a_band[3] T40C2;
-static uint32_t t40_ae_tune_irqs T40C2;         /* hardware zone interrupt count of the last step */
+static uint32_t t40_ae_tune_irqs T40C2;         /* statistics interrupt count of the last step (#82: hist with t40_ae_irq_event) */
+/*
+ * #82: AE from the AE statistics interrupts like the OEM (tx_isp_t40_ae_api.h t40_ae_f3a_mode): the histogram
+ * interrupt pushes event 1 and the event thread runs the AE pass (t40_ae_main_process_open, the OEM metering on the
+ * hardware statistics + t40_aet_tune2 + t40_ae_oem_alloc), one step per histogram interrupt, also without a frame
+ * consumer; each pass first writes the sensor part of the previous step (the OEM fd worker of the next ISP frame).
+ * The channel frame-done keeps the frame-3A sample (every frame_3a_interval).  t40_ae_irq_event 0 = the #412 path
+ * (AE-only pass and sensor write from the channel frame-done).
+ */
+static uint t40_ae_irq_event T40C2 = 1;
+module_param_named(t40_ae_irq_event, t40_ae_irq_event, uint, 0644);
+static uint t40_ae_ev_pushes T40C2, t40_ae_ev_push_fail T40C2, t40_ae_ev_runs T40C2;
+module_param_named(t40_ae_ev_pushes, t40_ae_ev_pushes, uint, 0444);
+module_param_named(t40_ae_ev_push_fail, t40_ae_ev_push_fail, uint, 0444);
+module_param_named(t40_ae_ev_runs, t40_ae_ev_runs, uint, 0444);
+static struct t40_ae_sq t40_ae_sq T40C2;   /* #82: sensor part of the last steps, tagged with their statistics frame */
+static DEFINE_MUTEX(t40_ae_pass_mutex);   /* AE state / metering scratch: event-1 pass vs frame-3A work */
+static bool t40_ae_ev_live T40C2;          /* event 1 registered by tisp_ae_main_init, cleared by tisp_ae_main_deinit */
 static uintptr_t t40_ae_tune_bank T40C2;        /* tuning bank of the last step (day / night switch = refresh) */
 static uint32_t t40_ae_tune_comp T40C2;
 static bool t40_ae_tune_on T40C2;
@@ -47293,7 +47310,7 @@ out:
  * EXPO write) to its own work item.
  */
 static uint32_t regtrace_frame_3a_work_y, regtrace_frame_3a_work_uv;
-static bool regtrace_frame_3a_work_ae_only;   /* #412: AE-only pass (see regtrace_frame_3a_tick) */
+static uint32_t regtrace_frame_3a_work_mode;   /* #412 / #82: enum t40_ae_f3a_mode (see regtrace_frame_3a_tick) */
 static int regtrace_frame_3a_work_chn;
 /*
  * T40-DN1025: the frame 3A (AE/AWB/EV fan-out) samples completed main-channel
@@ -47444,11 +47461,21 @@ static void regtrace_frame_done_tuning_follow(void)
 
 }
 
+/* #82: the sensor part that is due at this frame-done (t40_ae_sq_due) becomes the forced EXPO value */
+static void t40_ae_sq_take(uint32_t hist_now)
+{
+    uint32_t pk;
+
+    if (t40_ae_sq_due(&t40_ae_sq, hist_now, &pk))
+        regtrace_ae_sensor_apply_force_packed = pk;
+}
+
 static void regtrace_frame_3a_workfn_run(struct work_struct *work)
 {
     uint32_t y = READ_ONCE(regtrace_frame_3a_work_y);
     uint32_t uv = READ_ONCE(regtrace_frame_3a_work_uv);
     int chn = READ_ONCE(regtrace_frame_3a_work_chn);
+    uint32_t mode = READ_ONCE(regtrace_frame_3a_work_mode);
     bool fd_write;
 
     (void)work;
@@ -47456,18 +47483,22 @@ static void regtrace_frame_3a_workfn_run(struct work_struct *work)
     regtrace_frame_3a_work_runs++;
     if (!regtrace_enable_frame_3a || !y || !uv)
         return;
+    mutex_lock(&t40_ae_pass_mutex);   /* #82: the event-1 AE pass shares the AE state and the metering scratch */
     /*
      * #412b: with the OEM step the sensor part of the last AE step is written at the next frame-done (this work runs
      * right after it), before the new step, like the OEM ispcore_irq_main_fd_work; not right after the step, where
      * the I2C landed before or after the sensor's frame latch.
      */
     fd_write = READ_ONCE(t40_ae_sensor_fd) && READ_ONCE(t40_ae_dg_ring_on);
-    if (fd_write)
+    if (fd_write) {
+        t40_ae_sq_take(READ_ONCE(t40_ae_hw_hist_irqs));
         regtrace_ae_sensor_apply_maybe(0, "fd-work");
-    if (READ_ONCE(regtrace_frame_3a_work_ae_only)) {
+    }
+    if (mode == T40_F3A_AE) {
         regtrace_frame_3a_sample(chn, y, uv, true);
         if (!fd_write)
             regtrace_ae_sensor_apply_maybe(0, "frame-ae-work");
+        mutex_unlock(&t40_ae_pass_mutex);
         return;
     }
     if (chn)
@@ -47475,8 +47506,55 @@ static void regtrace_frame_3a_workfn_run(struct work_struct *work)
     regtrace_frame_3a_sample(chn, y, uv, false);
     if (!fd_write)
         regtrace_ae_sensor_apply_maybe(0, "frame-3a-work");
+    mutex_unlock(&t40_ae_pass_mutex);
     regtrace_frame_done_tuning_follow();
 }
+
+/*
+ * #82: OEM event 1 (tisp_ae_main_process 0x3b120), pushed by the histogram interrupt: the AE pass on the hardware
+ * statistics in the event thread, one step per histogram interrupt.  Like the #412 frame-done pass it first writes
+ * the sensor part of the previous step (pending queue: the step of an older histogram interrupt), then steps: the
+ * OEM writes the pending IT / again from the frame-done worker of the next ISP frame (ispcore_irq_main_fd_work
+ * 0x867c8).  The ISP frame clock here is the histogram interrupt, not the channel frame-done, which skips frames when
+ * a channel drops them (Eufy run1: 12-14 % fewer ch0 frame-dones than histogram interrupts; a sensor write tied to
+ * them lagged the steps) and stops without a consumer.
+ */
+static int32_t t40_ae_main_process_open(uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3,
+                                        uint32_t a4, uint32_t a5, uint32_t a6, uint32_t a7)
+{
+    bool fd_write;
+
+    (void)a0; (void)a1; (void)a2; (void)a3; (void)a4; (void)a5; (void)a6; (void)a7;
+    if (!READ_ONCE(t40_ae_irq_event) || !regtrace_enable_frame_3a || READ_ONCE(ta_custom_en[0]) == 1)
+        return 0;
+    mutex_lock(&t40_ae_pass_mutex);
+    if (!t40_ae_ev_live) {   /* queued before tisp_ae_main_deinit freed the AE state */
+        mutex_unlock(&t40_ae_pass_mutex);
+        return 0;
+    }
+    t40_ae_ev_runs++;
+    fd_write = READ_ONCE(t40_ae_sensor_fd) && READ_ONCE(t40_ae_dg_ring_on);
+    if (fd_write) {
+        t40_ae_sq_take(READ_ONCE(t40_ae_hw_hist_irqs));
+        regtrace_ae_sensor_apply_maybe(0, "fd-work");
+    }
+    regtrace_frame_3a_sample(0, READ_ONCE(regtrace_frame_3a_completed_y_phys), 0, true);
+    if (!fd_write)
+        regtrace_ae_sensor_apply_maybe(0, "ae-ev");
+    mutex_unlock(&t40_ae_pass_mutex);
+    return 0;
+}
+
+/* #82: the AE runs from event 1 while the histogram interrupt pushes it and the last pass stepped on the hardware
+ * statistics (else the frame-done drives it as before #82) */
+static bool t40_ae_irq_drives(void)
+{
+    return READ_ONCE(t40_ae_irq_event) && READ_ONCE(t40_ae_every_frame) && READ_ONCE(t40_ae_oem_step) &&
+           READ_ONCE(t40_ae_oem_live) && READ_ONCE(t40_ae_oem_hw) && READ_ONCE(t40_ae_tune_on) &&
+           READ_ONCE(t40_ae_ev_runs) &&
+           (uint32_t)jiffies - READ_ONCE(t40_ae_hw_hist_jif) < (uint32_t)msecs_to_jiffies(200);
+}
+
 TX_LS_TIMED_WORK(regtrace_frame_3a_work_timed, regtrace_frame_3a_workfn_run, T40_LS_WORK_FRAME3A)
 static DECLARE_WORK(regtrace_frame_3a_work, regtrace_frame_3a_work_timed);
 
@@ -47484,31 +47562,33 @@ static void regtrace_frame_3a_tick(int channel, uint32_t y, uint32_t uv)
 {
     static uint32_t f3a_tick;
     uint32_t iv = max_t(uint32_t, regtrace_frame_3a_interval, 1U);
-    bool ae_only = false;
+    bool due;
+    enum t40_ae_f3a_mode mode;
 
     if (!regtrace_enable_frame_3a || !y || !uv)
         return;
     WRITE_ONCE(t40_ae_fseq, t40_ae_fseq + 1U);
-    if (++f3a_tick < iv) {
-        /*
-         * #412: the OEM AE steps on every AE statistics frame (tisp_ae_main_process); between the samples an
-         * AE-only pass while the last sample ran the OEM step on the hardware statistics.
-         */
-        if (!READ_ONCE(t40_ae_every_frame) || !READ_ONCE(t40_ae_oem_step) || !READ_ONCE(t40_ae_oem_live) ||
-            !READ_ONCE(t40_ae_oem_hw) || !READ_ONCE(t40_ae_tune_on))
-            return;
-        ae_only = true;
-    }
+    due = ++f3a_tick >= iv;
+    /*
+     * #412: the OEM AE steps on every AE statistics frame (tisp_ae_main_process); between the samples an
+     * AE-only pass while the last sample ran the OEM step on the hardware statistics.  #82: nothing while the
+     * histogram interrupt drives the AE (event 1 steps and writes the sensor).
+     */
+    mode = t40_ae_f3a_mode(due, t40_ae_irq_drives(),
+                           READ_ONCE(t40_ae_every_frame) && READ_ONCE(t40_ae_oem_step) && READ_ONCE(t40_ae_oem_live) &&
+                           READ_ONCE(t40_ae_oem_hw) && READ_ONCE(t40_ae_tune_on));
+    if (mode == T40_F3A_NONE)
+        return;
     if (atomic_cmpxchg(&regtrace_frame_3a_work_pending, 0, 1) != 0) {
-        if (!ae_only) {
+        if (mode == T40_F3A_FULL) {
             regtrace_frame_3a_work_busy++;
             f3a_tick = iv - 1U;   /* the full sample (AWB) is not dropped behind an AE-only pass: next frame */
         }
         return;
     }
-    if (!ae_only)
+    if (mode == T40_F3A_FULL)
         f3a_tick = 0;
-    WRITE_ONCE(regtrace_frame_3a_work_ae_only, ae_only);
+    WRITE_ONCE(regtrace_frame_3a_work_mode, (uint32_t)mode);
     WRITE_ONCE(regtrace_frame_3a_work_chn, channel);
     WRITE_ONCE(regtrace_frame_3a_work_y, y);
     WRITE_ONCE(regtrace_frame_3a_work_uv, uv);
@@ -69893,6 +69973,12 @@ int32_t tisp_ae_main_deinit(void)
     uintptr_t *s0 = 0;
     uintptr_t *v0 = 0;
 
+    /* #82: no event-1 AE pass after this point (the pass checks t40_ae_ev_live under the same mutex) */
+    tisp_event_set_cb(0, 1, 0);
+    mutex_lock(&t40_ae_pass_mutex);
+    t40_ae_ev_live = false;
+    mutex_unlock(&t40_ae_pass_mutex);
+
     /* fragment 0: CallSetup */
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_kfree)(*(uint32_t *)((char *)((char *)&fliker_info))); /* jalr target resolved by relocation */
 
@@ -72267,7 +72353,12 @@ int64_t tisp_ae_main_init(uint32_t a0, uint32_t a1)
     v0 = (uintptr_t *)(uintptr_t)system_irq_func_set(4, (int32_t)(uintptr_t)&tisp_ae_main_interrupt_static); /* jalr target resolved by relocation */
 
     /* T40-DROP-OEM-AE: the OEM registers tisp_ae_main_process as event 1 here.  The lifted OEM AE was
-     * never usable (oops in tisp_ae_long_tune2) and is removed; exposure is the frame-3A AE (ae_soft_*). */
+     * never usable (oops in tisp_ae_long_tune2) and is removed; exposure is the frame-3A AE (ae_soft_*).
+     * #82: event 1 = the open AE pass on the hardware statistics (OEM tune2 / alloc translations). */
+    mutex_lock(&t40_ae_pass_mutex);
+    t40_ae_ev_live = true;
+    mutex_unlock(&t40_ae_pass_mutex);
+    tisp_event_set_cb(0, 1, (int32_t)(uintptr_t)&t40_ae_main_process_open);
     printk(KERN_INFO "tx_isp_t40_recovered: AECHK registered irq_func_cb[4] OK\n");
 
     /* fragment 26: CallSetup */
@@ -72622,6 +72713,19 @@ int32_t tisp_ae_main_interrupt_hist(void)
      * statistics it reads are the ones filled above. */
     if (READ_ONCE(ta_custom_en[0]) == 1)
         private_complete((uintptr_t)&ae_algo_comp[0]);
+    /*
+     * #82: OEM 0x34df4 pushes event 1 here (tisp_ae_main_process 0x3b120); the event thread runs the open AE pass
+     * (t40_ae_main_process_open: OEM metering + tisp_ae_long_tune2 + ev_alloc on these statistics).
+     */
+    else if (READ_ONCE(t40_ae_irq_event) && regtrace_enable_frame_3a) {
+        uint32_t ev[12] = { 0 };
+
+        ev[2] = 1;
+        if (tisp_event_push(0, (uintptr_t)ev) == 0)
+            t40_ae_ev_pushes++;
+        else
+            t40_ae_ev_push_fail++;
+    }
 
     /* fragment 6: Epilogue */
     /* function epilogue: restore registers and return */
@@ -74531,6 +74635,7 @@ int32_t tisp_ae_algo_handle(uintptr_t a0, uintptr_t a1)
         regtrace_ae_soft_cur_it = it_r;
         regtrace_ae_soft_cur_again = idx;
         regtrace_ae_sensor_apply_force_packed = (idx << 16) | (it_r & 0xffffU);
+        WRITE_ONCE(t40_ae_sq.n, 0);   /* #82: no queued open step overrides the library's exposure */
         WRITE_ONCE(regtrace_ae_isp_dgain_cur, ispdg);
         (void)regtrace_t40_ae_isp_dgain_apply();
         regtrace_gc4653_tuning_again_update(idx);
@@ -77256,8 +77361,10 @@ static void regtrace_frame_3a_sample(int channel, uint32_t y_phys, uint32_t uv_p
     if (ae_only) {
         oem = READ_ONCE(t40_ae_target_oem) && tparamsN[0] &&
               !t40_aet_parse((const uint8_t *)(uintptr_t)tparamsN[0], &f3a_bank);
-        if (!oem)
+        if (!oem) {
+            WRITE_ONCE(t40_ae_oem_live, false);   /* #82: hands the step back to the frame-3A sample */
             return;
+        }
         luma = regtrace_frame_3a_last_luma;
         umean = regtrace_frame_3a_last_u;
         vmean = regtrace_frame_3a_last_v;
@@ -77740,7 +77847,9 @@ ae_meter:
         oem_step = READ_ONCE(t40_ae_oem_step) && oem_split && READ_ONCE(t40_ae_oem_live) &&
                    READ_ONCE(t40_ae_oem_hw);
         if (oem_step) {
-            uint32_t irqs = READ_ONCE(t40_ae_hw_zone_irqs), comp = READ_ONCE(t40_ae_sc.comp);
+            /* #82: with the interrupt-driven AE one step per histogram interrupt (OEM event 1), else per zone IRQ */
+            uint32_t irqs = READ_ONCE(t40_ae_irq_event) ? READ_ONCE(t40_ae_hw_hist_irqs) :
+                            READ_ONCE(t40_ae_hw_zone_irqs), comp = READ_ONCE(t40_ae_sc.comp);
             /* #412b: OEM refresh byte pstMainAeOri[0x2c] (day / night bank switch, start): ISP dgain at once */
             bool dg_fill = !t40_ae_dg_ring_on || t40_ae_tune_bank != (uintptr_t)tparamsN[0] || dg_fixed;
 
@@ -77753,7 +77862,7 @@ ae_meter:
                 t40_ae_tune_bank = (uintptr_t)tparamsN[0];
             }
             t40_ae_tune_on = !ex.freeze;
-            if (!ex.freeze && irqs != t40_ae_tune_irqs) {
+            if (!ex.freeze && t40_ae_stats_new(irqs, &t40_ae_tune_irqs)) {
                 struct t40_ae_alloc_lim al = {
                     .it_floor = it_floor, .it_cap = it_fixed ? max_it : it_cap, .af_step = af_step,
                     .lo = ag_fixed ? again : min_again, .hi = ag_fixed ? again : max_again,
@@ -77762,7 +77871,6 @@ ae_meter:
                 uint32_t agq = tx_isp_exp2_u32(regtrace_gc4653_again_log2_gain(again), 16, 10);
                 uint32_t ev0 = t40_aet_ev_q10(it, agq ? agq : 1024U, dgain), ev1;
 
-                t40_ae_tune_irqs = irqs;
                 ev1 = t40_aet_tune2(&f3a_bank, f3a_evl, f3a_tgl, &t40_ae_tune_st, ev0, t40_ae_oem_diag[1],
                                     f3a_band);
                 t40_ae_tune_st.refresh = 0;   /* OEM: cleared by tisp_ae_main_long_ev_alloc after the step */
@@ -77966,10 +78074,17 @@ ae_meter:
         if (oem_dg_write && regtrace_t40_ae_isp_dgain_write(t40_ae_dg_written) == 0)
             system_reg_set_ae_trig(3, 0);
         if (changed) {
+            uint32_t pk = (again << 16) | (it & 0xffffU);
+
             regtrace_ae_soft_cur_it = it;
             regtrace_ae_soft_cur_again = again;
-            regtrace_ae_sensor_apply_force_packed =
-                (again << 16) | (it & 0xffffU);
+            /* #82: an OEM step from the interrupt-driven AE waits in the pending queue for the next ISP frame */
+            if (oem_dg_write && READ_ONCE(t40_ae_irq_event) && READ_ONCE(t40_ae_sensor_fd)) {
+                t40_ae_sq_push(&t40_ae_sq, pk, t40_ae_tune_irqs);
+            } else {
+                t40_ae_sq.n = 0;
+                regtrace_ae_sensor_apply_force_packed = pk;
+            }
             regtrace_ae_soft_updates++;
         }
         if (changed || dgain_changed)
@@ -78203,6 +78318,7 @@ static void regtrace_awb_grayworld_update(void)
                 regtrace_ae_soft_cur_again = again;
                 regtrace_ae_sensor_apply_force_packed =
                     (again << 16) | (it & 0xffffU);
+                t40_ae_sq.n = 0;   /* #82 */
                 regtrace_gc4653_tuning_again_update(again);
                 regtrace_ae_soft_updates++;
                 if (regtrace_ae_soft_updates <= 8 ||
