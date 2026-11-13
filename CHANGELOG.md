@@ -137,6 +137,14 @@ marked otherwise. Release tags `vYYYY.MM.DD[-rcN]` are set on the `aperto` branc
 
 - New `tests/t40_defog_host.sh` (+ `tests/t40_defog/harness.c`, `tools/ko_emu/diff_defog_soft.py`, target `t40_defog_host`): `t40_dfg_soft` (driver/t40/tx_isp_t40_defog.h) against the vendor `Tiziano_defog_soft` in Unicorn, random tool/soft state, 3 frames per case with state carried over (statistics, luma, air-light curve, transmission, motion weighting, smoothing, value caches): 0 differences; 9/9 header mutations detected. No driver change.
 - #332 finding (Eufy .184, night, IT 2200 / again 2x on both stacks): the night shadow lift comes from the defog block (TOP bit 11). With defog bypassed both stacks are equal (frame mean 88.6 vs 88.4, p10 41.5/41.5, p50 84.5/84.5); with defog on the vendor darkens (mean -4, p50 -5.5) and the open driver does not (+0.4). Defog registers 0xc000..0xc2a0, EV levels and the soft step are vendor-equal; the open table needs about 1.25x the air light to match. Cause still open (see the issue).
+## 2026-11-13: T33 LSF register list 37 (openimp #388; planned, QEMU only)
+
+- `tx-isp-t33.ko` builds the last missing block list, LSF (module 37, 0x25040..), at init from the LCE section like the vendor `tisp_lce_init`: layout of `tisp_rcfg_lsf_reg_init`, LSF buffer (0x2420 B) in slots 7 / 8, the init's u8 EV / BV interpolations, `tisp_lce_bin_para_update` / `func_lce_para_update` fields, the 7 x 7 Gauss low pass (`tisp_lce_gauss_lpf`) and the four 32-weight Gauss sets (`tisp_lce_gauss_wgt`). Like the vendor it is not started at stream-on (the vendor starts it only from its LCE interrupt); that per-frame LCE / LSF path is #444.
+- Evidence: host test `tx_isp_t33_rcfg_test` with `T33_LSF_REF` = the vendor module's list 37 memory after its init (read in QEMU `-M ingenic-t33` by a local helper module): 70/70 words equal on the day / night / cust / dw70 bins (buffer address aside); T33 Gauss weights equal to the oracle-checked T32 port. QEMU with our module: list 37 memory equal to the vendor's but the buffer address, list 37 never run (vendor: never run), 1500/1500 frames. `tx-isp-t32.ko` code unchanged. Not tested on a camera (no T33 camera).
+
+## 2026-11-13: T32/T33 BYPASS_SENSOR request served (openimp #446; planned, QEMU only)
+
+- `/dev/tx-isp` answers `BYPASS_SENSOR` 0x80085418 (vendor `tx_isp_bypass_all`): the {enable, input} flag is kept per input; vendor libimp 2.x `IMP_ISP_SetISPBypass` issues it. The vendor's follow-up notify 0x200001d of subdevice 0 (its VIC reads the request from address 0) is not repeated; no register is written. Before, the request ended in -ENOTTY. Evidence: QEMU apitest T32 and T33 with OpenIMP (`IMP_ISP_Set/GetISPBypass` round trip PASS, frames flow, 0 oopses).
 
 ## 2026-11-13: T33 AF attribute path on list 31 (openimp #437 slice 1; planned, QEMU only)
 
