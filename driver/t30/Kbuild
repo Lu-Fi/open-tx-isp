@@ -35,24 +35,26 @@ ccflags-y += -DTX_ISP_T30_SHARED_FRAME
 ccflags-y += -DTX_ISP_T30_SHARED_IO
 ccflags-y += -DTX_ISP_T30_SHARED_VIDEOBUF
 ccflags-y += -I$(src)/../include
-# Module size (Lu-Fi/openimp#274).  The recovered unit builds at -O0: the lift relies on -O0 memory
-# semantics (plain-pointer register polls and write sequences; an -Os build compiled the VIC start
-# poll into an endless loop and hung QEMU at stream on, docs/SIZE.md), so it needs a volatile/MMIO
-# audit before it can be optimised.  The shared common objects (sinfo, subdev, exposure, region
-# allocator, math, io, frame, exports, v4l2) are the same sources the other SoCs build at -Os, so
-# they use the kernel's -Os here too.
-# TX_ISP_T30_OS=y: recovered unit at -Os as well, every function kept with all its calls (no
-# inlining / IPA clones / pure-const-modref call elimination / sibling calls), so
-# tests/t30_lift_oracle.sh can hook the same callees as in the vendor ko.  Experimental: oracle ok,
-# QEMU tests/t30_qemu ok (lsmod 340 KB), not device-tested, 84 functions still lose memory stores
-# at -Os that need a register-access audit (docs/SIZE.md); not for images yet.
-TX_ISP_T30_OS ?= n
+# Module size (Lu-Fi/openimp#274).  The recovered unit was lifted against -O0 memory semantics
+# (plain-pointer register polls and write sequences; an early -Os build compiled the VIC start poll
+# into an endless loop and hung QEMU at stream on, docs/SIZE.md); the register accesses are now
+# readl/writel/volatile.  The shared common objects (sinfo, subdev, exposure, region allocator,
+# math, io, frame, exports, v4l2) are the same sources the other SoCs build at -Os.
+# TX_ISP_T30_OS=y (default since #274, 2026-11): recovered unit at -Os as well, every function kept with
+# all its calls (no inlining / IPA clones / pure-const-modref call elimination / sibling calls), so
+# tests/t30_lift_oracle.sh can hook the same callees as in the vendor ko.  Gates passed: lift oracle,
+# tests/t30_optdiff (-O0 vs -Os Unicorn diff + YUV sequence) against its reviewed baseline, QEMU
+# tests/t30_qemu, T30X device A/B (b83: picture/registers equal to -O0 and vendor, 0 oops) and soak
+# (b84).  lsmod ~343 KB (vendor ~348 KB, -O0 ~628 KB).  TX_ISP_T30_OS=n builds the old -O0 unit
+# (reference build for tests/t30_optdiff and for bisecting an -Os-only fault).
+TX_ISP_T30_OS ?= y
 ifneq ($(TX_ISP_T30_OS),y)
 CFLAGS_tx_isp_t30_recovered.o += -O0 -fno-tree-dce -fno-ipa-pure-const -fno-ipa-reference
 else
 CFLAGS_tx_isp_t30_recovered.o += -fno-inline -fno-inline-small-functions -fno-inline-functions-called-once \
 	-fno-partial-inlining -fno-ipa-sra -fno-ipa-cp -fno-ipa-icf -fno-ipa-pure-const \
-	-fno-ipa-reference -fno-ipa-ra -fno-optimize-sibling-calls $(call cc-option,-fno-ipa-modref)
+	-fno-ipa-reference -fno-ipa-ra -fno-optimize-sibling-calls $(call cc-option,-fno-ipa-modref) \
+	-fno-ipa-vrp -fno-ipa-bit-cp
 endif
 # Only the layout changes below; code generation per function is unchanged.
 #  - per-function sections + --gc-sections drop functions nothing references

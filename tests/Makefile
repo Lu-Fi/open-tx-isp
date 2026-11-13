@@ -1439,8 +1439,8 @@ t30_core_slake_oracle:
 t30_lift_oracle:
 	sh ./t30_lift_oracle.sh
 
-# T30 -O0 vs -Os (TX_ISP_T30_OS=y) of the same source: YUV matrix sequence + differential fuzz of every function (#274, #478).
-# Gate before shipping TX_ISP_T30_OS=y; slow (~15 min at JOBS=4), NOT in `check`.  Needs T30_O0_O / T30_OS_O, else SKIP.
+# T30 -O0 (TX_ISP_T30_OS=n) vs -Os (default TX_ISP_T30_OS=y) of the same source: YUV matrix sequence + differential fuzz of every function (#274, #478).
+# Gate for the -Os default (#274); slow (~15 min at JOBS=4), NOT in `check`.  Needs T30_O0_O / T30_OS_O, else SKIP.
 t30_optdiff:
 	sh ./t30_optdiff.sh
 

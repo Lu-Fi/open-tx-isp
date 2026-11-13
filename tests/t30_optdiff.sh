@@ -1,6 +1,6 @@
 #!/bin/sh
 # t30_optdiff.sh: gate before a TX_ISP_T30_OS=y build (Lu-Fi/openimp#274, #478).
-# Differential fuzz of the SAME T30 source built twice, -O0 (default) and -Os (TX_ISP_T30_OS=y):
+# Differential fuzz of the SAME T30 source built twice, -O0 (TX_ISP_T30_OS=n) and -Os (TX_ISP_T30_OS=y, default):
 #   1. tools/ko_emu/seq_yuv.py: the b72/b73 YUV matrix sequence (initialize, saturation 128/0/230/128) must write
 #      identical 0x540..0x7b0 values in both builds and with stack fills 0x00 / 0xa5.
 #   2. tools/ko_emu/optdiff.py: every function of both objects in Unicorn on the same random inputs (SHARDS shards,
@@ -8,7 +8,7 @@
 #      hit must be in tests/t30_optdiff_baseline.txt (reviewed fuzz artefacts); a new one fails.
 # Inputs (SKIP without them): T30_O0_O / T30_OS_O = `ld -r tx_isp_t30_recovered.o tx_isp_t30_math.o
 # tx_isp_t30_exposure.o` of the two builds (see tests/README.oracles.md).  Slow (~15 min at JOBS=4), therefore
-# not part of `make check`; run `make -C tests t30-optdiff` before shipping TX_ISP_T30_OS=y.
+# not part of `make check`; run `make -C tests t30_optdiff` before changing the -Os flags / a T30 release.
 H=$(cd "$(dirname "$0")" && pwd); T=$H/../tools/ko_emu; BASE=$H/t30_optdiff_baseline.txt
 [ -r "${T30_O0_O:-}" ] && [ -r "${T30_OS_O:-}" ] && python3 -c 'import unicorn, elftools' 2>/dev/null || {
 	echo "t30_optdiff: SKIP (set T30_O0_O and T30_OS_O, python3 unicorn+pyelftools)"; [ -z "${T40_ORACLE_STRICT:-}" ] || exit 1; exit 0; }

@@ -154,9 +154,9 @@ WDR store); see the deviations in the header.
 ## T30 -O0 vs -Os gate (2026-11-13, #274 / #478)
 
 `make -C tests t30_optdiff` (`tests/t30_optdiff.sh`, not in `check`: about 15 min at `JOBS=4`) compares two builds of the
-same T30 source, the default -O0 and `TX_ISP_T30_OS=y` (-Os). Run it before shipping an `OS=y` module.
+same T30 source, `TX_ISP_T30_OS=n` (-O0) and the default `TX_ISP_T30_OS=y` (-Os). Run it before every T30 release / change of the -Os flags.
 
-    SOC=t30 ./build_local.sh && ld -r -o /tmp/o0.o driver/t30/tx_isp_t30_{recovered,math,exposure}.o
+    SOC=t30 TX_ISP_T30_OS=n ./build_local.sh && ld -r -o /tmp/o0.o driver/t30/tx_isp_t30_{recovered,math,exposure}.o
     SOC=t30 TX_ISP_T30_OS=y ./build_local.sh && ld -r -o /tmp/os.o driver/t30/tx_isp_t30_{recovered,math,exposure}.o
     T30_O0_O=/tmp/o0.o T30_OS_O=/tmp/os.o JOBS=4 make -C tests t30_optdiff     # ld = mipsel-linux-ld of the toolchain
 
