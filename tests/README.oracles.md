@@ -150,3 +150,21 @@ WDR store); see the deviations in the header.
 `T23_OEM_KO=<vendor tx-isp-t23.ko (ISVP T23 1.3.0)>` and a built T23 module (`T23_OBJ`, default
 `driver/t23/tx-isp-t23.o`; the .ko has no local symbols); else SKIP.
 
+
+## T30 -O0 vs -Os gate (2026-11-13, #274 / #478)
+
+`make -C tests t30_optdiff` (`tests/t30_optdiff.sh`, not in `check`: about 15 min at `JOBS=4`) compares two builds of the
+same T30 source, the default -O0 and `TX_ISP_T30_OS=y` (-Os). Run it before shipping an `OS=y` module.
+
+    SOC=t30 ./build_local.sh && ld -r -o /tmp/o0.o driver/t30/tx_isp_t30_{recovered,math,exposure}.o
+    SOC=t30 TX_ISP_T30_OS=y ./build_local.sh && ld -r -o /tmp/os.o driver/t30/tx_isp_t30_{recovered,math,exposure}.o
+    T30_O0_O=/tmp/o0.o T30_OS_O=/tmp/os.o JOBS=4 make -C tests t30_optdiff     # ld = mipsel-linux-ld of the toolchain
+
+1. `tools/ko_emu/seq_yuv.py`: matrix_yuv_initialize, then saturation 128 / 0 / 230 / 128 through matrix_yuv_update; the 0x540..0x7b0
+   writes must be identical in both builds with the stack pre-filled 0x00 and 0xa5.
+2. `tools/ko_emu/optdiff.py`: every function of both objects in Unicorn on the same random arguments, heap, low memory and
+   .bss (SHARDS shards, a shard restarts after a Unicorn crash). UNINIT = depends on the stack fill, OPT = differs between the
+   builds. Every function with such a hit must be listed in `tests/t30_optdiff_baseline.txt` (reviewed fuzz artefacts: fuzzed
+   `_Bool`/`u8` arguments, `kmalloc` constant folding, step limits); a new one fails. Single thread, no IRQ interleaving.
+
+The vendor comparison of the same YUV sequence is the `matrix_yuv` case of `t30_lift_oracle` (in `check`).

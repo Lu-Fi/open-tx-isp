@@ -1,0 +1,31 @@
+# t30_optdiff baseline: functions whose -O0 vs -Os (or stack-fill) difference is a reviewed fuzz artefact (#274 Fable
+# triage, audit/issue274/fable/REPORT.md section 4; re-run on claude/t30-478 2026-11-13).  One name per line, reason after it.
+# A function NOT listed here with an UNINIT_A / UNINIT_B / OPT hit fails tests/t30_optdiff.sh.
+_init_fps_cnt                         fuzzed .bss bool decides the timer init; data symbol written only by one build
+_process_fps_cnt                      fuzzed pointer in the fps counter: heap word holds a code address, build-dependent
+ae_roi_part_1                         -O0 runs into the instruction limit (stop max | None)
+apical_init_calibrations              fuzzed function pointer; gone with BOOLSAFE=1
+apical_switch_wdr_mode                one .bss-fuzzed seed with a random WDR mode byte (WDR only, not on the linear sensors); unresolved, Fable 4
+compute_weight                        -O0 runs into the instruction limit (stop max | None)
+init_semaphore                        kmalloc constant folding (__kmalloc vs kmem_cache_alloc)
+private_i2c_add_driver                driver struct address differs between the objects (seed-dependent hit)
+subdev_video_destroy_link_isra_0      random link pointer: -O0 reads a field the -Os build keeps in a register (stop None | unmapped)
+tctl_csc_program                      u8/bool argument > 1 (night flag): the builds test the byte differently
+tctl_dn_last                          random table pointer: stop unmapped | None depending on the fill
+tctl_wait_frame                       fill-dependent might_sleep path on a random wait object (no frame source in the emulator)
+tx_isp_core_probe                     kmalloc constant folding
+tx_isp_csi_probe                      kmalloc constant folding
+tx_isp_csi_remove                     fuzzed .bss bool (dump_csd)
+tx_isp_free_irq                       work item address of the two objects (cancel_work_sync argument)
+tx_isp_fs_probe                       kmalloc constant folding
+tx_isp_ldc_probe                      kmalloc constant folding
+tx_isp_mscaler_probe                  kmalloc constant folding
+tx_isp_ncu_probe                      kmalloc constant folding
+tx_isp_probe                          kmalloc constant folding
+tx_isp_subdev_deinit                  resource struct address differs between the objects (seed-dependent hit)
+tx_isp_t30_awb_apply_calibrated_gains fuzzed _Bool awb_initialized (0xe5); -O0 and -Os test it differently
+tx_isp_t30_color_write_mesh_blend     u8 argument > 0xff from the fuzz
+tx_isp_t30_load_parameters            kmalloc vs __get_free_pages size folding
+tx_isp_t30_mscaler_output_channels_init  -Os runs into the instruction limit
+tx_isp_t30_sequence_write             -O0 runs into the instruction limit
+tx_isp_t30_simple_awb_update          fuzzed _Bool awb_initialized: one build prints the calibration line
