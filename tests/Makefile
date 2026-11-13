@@ -569,6 +569,11 @@ t30_system_item_host_test: t30_system_item_host_test.c ../driver/t30/tx_isp_t30_
 	$(CC) $(CFLAGS) -o $@ $<
 
 TESTS += t20_expr_time_host_test
+TESTS += t20_fifo_467_host_test
+
+t20_fifo_467_host_test: t20_fifo_467_host_test.c ../driver/t20/sdk/source/tx-isp-t2x-fifo.h t20_fifo_shim/linux/list.h
+	$(CC) $(CFLAGS) -Wno-unused-function -It20_fifo_shim -o $@ $<
+
 
 t20_expr_time_host_test: t20_expr_time_host_test.c ../driver/t20/sdk/tx-isp-expr-time.h
 	$(CC) $(CFLAGS) -o $@ $<
@@ -933,7 +938,7 @@ clean:
 	$(RM) tx_isp_t41_awb_runtime_test
 	$(RM) tx_isp_t41_awb_detect_test
 	$(RM) tx_isp_t41_awb_long_test
-	$(RM) t30_tuning_ctl_host_test t30_ae_manual_host_test t30_fps_cnt_host_test t30_ae_gain_host_test t30_system_item_host_test t31_awb_simd_host_test t31_awb_defs.inc t31_awb_region.inc tx_isp_t41_tuning_ctl_test t21_sepia_host_test t21_it_block_host_test t30_stab_host_test t30_gctrl_host_test t20_expr_time_host_test t31_sharpness_host_test t31_ae_step_host_test sinfo_vendor_host_test
+	$(RM) t20_fifo_467_host_test t30_tuning_ctl_host_test t30_ae_manual_host_test t30_fps_cnt_host_test t30_ae_gain_host_test t30_system_item_host_test t31_awb_simd_host_test t31_awb_defs.inc t31_awb_region.inc tx_isp_t41_tuning_ctl_test t21_sepia_host_test t21_it_block_host_test t30_stab_host_test t30_gctrl_host_test t20_expr_time_host_test t31_sharpness_host_test t31_ae_step_host_test sinfo_vendor_host_test
 	$(RM) tx_isp_t41_awb_stats_test
 	$(RM) tx_isp_math_test tx_isp_modulation_test \
 		tx_isp_awb_mesh_test \

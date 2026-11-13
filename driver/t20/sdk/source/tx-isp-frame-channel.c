@@ -20,6 +20,7 @@
 #include "tx-isp-videobuf.h"
 #include "tx-isp-debug.h"
 #include "tx_isp/tx_isp_guard.h"
+#include "tx-isp-t2x-fifo.h"
 
 /* 0: log QBUF buffers outside rmem but accept them (pre-guard behaviour). */
 static bool frame_channel_qbuf_guard = true;
@@ -43,7 +44,7 @@ static int frame_channel_video_irq_notify(frame_chan_vdev_t  *vdev, u32 phyaddr,
 	list_for_each_entry(pos, &vdev->active_list, entry){
 		if(pos->buf.addr == phyaddr){
 			buf = pos;
-			list_del(&buf->entry);
+			list_del_init(&buf->entry);
 			break;
 		}
 	}
@@ -110,6 +111,9 @@ static int frame_channel_vb2_buffer_init(struct vb2_buffer *vb)
 	struct frame_channel_video_buffer *buf =
 		container_of(vb, struct frame_channel_video_buffer, vb);
 	buf->buf.priv = vdev;
+	/* "not queued" must be detectable (buffer_cleanup, queue_buffer) */
+	INIT_LIST_HEAD(&buf->entry);
+	INIT_LIST_HEAD(&buf->buf.entry);
 
 	return 0;
 }
@@ -117,9 +121,33 @@ static int frame_channel_vb2_buffer_init(struct vb2_buffer *vb)
 static void frame_channel_vb2_buffer_cleanup(struct vb2_buffer *vb)
 {
 	/*
-	* 如果MMAP，只会调用一次。
-	* 如果USERPTR，driver可以初始化一些私有变量
-	*/
+	 * openimp #467: vb2 frees the buffer after this call (REQBUFS of the
+	 * next streamer, USERPTR change, queue release).  An entry left on
+	 * vdev->active_list or on the core channel FIFO (stream-on refused,
+	 * core stopped the channel first, ...) then pointed to freed memory;
+	 * the next REQBUFS reused the same address and the next QBUF linked it
+	 * twice, and the frame IRQ (isp_configure_base_addr -> pop_buffer_fifo)
+	 * did a list_del on a poisoned entry (BadVA 00200200, panic, reset).
+	 * Unlink it from both lists here.
+	 */
+	frame_chan_vdev_t *vdev = vb2_get_drv_priv(vb->vb2_queue);
+	struct frame_channel_video_buffer *buf =
+		container_of(vb, struct frame_channel_video_buffer, vb);
+	struct isp_private_ioctl ioctl;
+	unsigned long flags;
+
+	spin_lock_irqsave(&vdev->slock, flags);
+	if (tx_isp_t2x_entry_linked(&buf->entry)) {
+		list_del_init(&buf->entry);
+		pr_warn_ratelimited("tx-isp: chan%d: freed buffer %d was still on the active list (#467)\n",
+				    vdev->index, vb->v4l2_buf.index);
+	}
+	spin_unlock_irqrestore(&vdev->slock, flags);
+
+	ioctl.dir = TX_ISP_PRIVATE_IOCTL_SET;
+	ioctl.cmd = TX_ISP_T2X_PRIVATE_IOCTL_FRAME_CHAN_FREE_BUFFER;
+	ioctl.value = (int)buf;
+	v4l2_subdev_call(vdev->parent, core, ioctl, VIDIOC_ISP_PRIVATE_IOCTL, &ioctl);
 }
 
 #define TX_ISP_VIDEO_BUFFER_CACHE (1<<31)
@@ -215,7 +243,8 @@ static void frame_channel_vb2_buffer_queue(struct vb2_buffer *vb)
 
 //	ISP_PRINT(ISP_INFO_LEVEL,"%s==========%d\n", __func__, __LINE__);
 	spin_lock_irqsave(&vdev->slock, flags);
-	list_add_tail(&buf->entry, &vdev->active_list);
+	if (!tx_isp_t2x_entry_linked(&buf->entry))	/* #467: never link twice */
+		list_add_tail(&buf->entry, &vdev->active_list);
 	spin_unlock_irqrestore(&vdev->slock, flags);
 
 //	ISP_PRINT(ISP_INFO_LEVEL,"%s[%d] %p\n", __func__, __LINE__, &buf->buf);
@@ -223,6 +252,25 @@ static void frame_channel_vb2_buffer_queue(struct vb2_buffer *vb)
 	ioctl.cmd = TX_ISP_PRIVATE_IOCTL_FRAME_CHAN_QUEUE_BUFFER;
 	ioctl.value = (int)buf;
 	ret = v4l2_subdev_call(parent, core, ioctl, VIDIOC_ISP_PRIVATE_IOCTL, &ioctl);
+}
+
+static void frame_channel_vb2_drop_queued(frame_chan_vdev_t *vdev)
+{
+	struct frame_channel_video_buffer *buf, *tmp;
+	struct isp_private_ioctl ioctl;
+	unsigned long flags;
+	LIST_HEAD(done);
+
+	spin_lock_irqsave(&vdev->slock, flags);
+	list_splice_init(&vdev->active_list, &done);
+	spin_unlock_irqrestore(&vdev->slock, flags);
+	list_for_each_entry_safe(buf, tmp, &done, entry) {
+		list_del_init(&buf->entry);
+		ioctl.dir = TX_ISP_PRIVATE_IOCTL_SET;
+		ioctl.cmd = TX_ISP_T2X_PRIVATE_IOCTL_FRAME_CHAN_FREE_BUFFER;
+		ioctl.value = (int)buf;
+		v4l2_subdev_call(vdev->parent, core, ioctl, VIDIOC_ISP_PRIVATE_IOCTL, &ioctl);
+	}
 }
 
 static int frame_channel_vb2_start_streaming(struct vb2_queue *vq, unsigned int count)
@@ -234,7 +282,8 @@ static int frame_channel_vb2_start_streaming(struct vb2_queue *vq, unsigned int 
 	unsigned long flags;
 
 	if(atomic_read(&vdev->state) != TX_ISP_STATE_START){
-		return -EBUSY;
+		ret = -EBUSY;
+		goto refused;
 	}
 	ioctl.dir = TX_ISP_PRIVATE_IOCTL_SET;
 	ioctl.cmd = TX_ISP_PRIVATE_IOCTL_FRAME_CHAN_STREAM_ON;
@@ -244,6 +293,14 @@ static int frame_channel_vb2_start_streaming(struct vb2_queue *vq, unsigned int 
 		spin_lock_irqsave(&vdev->slock, flags);
 		atomic_set(&vdev->state, TX_ISP_STATE_RUN);
 		spin_unlock_irqrestore(&vdev->slock, flags);
+	} else {
+refused:
+		/*
+		 * #467: vb2 3.10 cancels a refused stream-on without
+		 * stop_streaming(), but buf_queue already put every queued
+		 * buffer on active_list and the core FIFO: take them back.
+		 */
+		frame_channel_vb2_drop_queued(vdev);
 	}
 	ISP_PRINT(ISP_INFO_LEVEL,"%s==========%d\n", __func__, __LINE__);
 	return ret;
@@ -260,10 +317,15 @@ static int frame_channel_vb2_stop_streaming(struct vb2_queue *vq)
 	int ret = ISP_SUCCESS;
 	unsigned long flags;
 
+	/*
+	 * #467: always tell the core, also when this channel is not RUN: the
+	 * core stops a stopped channel cheaply and empties its FIFO, so no
+	 * buffer vb2 is about to take back stays queued there.
+	 */
+	ioctl.dir = TX_ISP_PRIVATE_IOCTL_SET;
+	ioctl.cmd = TX_ISP_PRIVATE_IOCTL_FRAME_CHAN_STREAM_OFF;
+	ioctl.value = (int)vdev;
 	if(atomic_read(&vdev->state) == TX_ISP_STATE_RUN){
-		ioctl.dir = TX_ISP_PRIVATE_IOCTL_SET;
-		ioctl.cmd = TX_ISP_PRIVATE_IOCTL_FRAME_CHAN_STREAM_OFF;
-		ioctl.value = (int)vdev;
 		ret = v4l2_subdev_call(parent, core, ioctl, VIDIOC_ISP_PRIVATE_IOCTL, &ioctl);
 		if(ret == ISP_SUCCESS){
 			spin_lock_irqsave(&vdev->slock, flags);
@@ -271,10 +333,9 @@ static int frame_channel_vb2_stop_streaming(struct vb2_queue *vq)
 			spin_unlock_irqrestore(&vdev->slock, flags);
 		}
 		ISP_PRINT(ISP_INFO_LEVEL,"%s==========%d\n", __func__, __LINE__);
-	}else if(atomic_read(&vdev->state) == TX_ISP_STATE_START){
-		ret = ISP_SUCCESS;
 	}else{
-		ret = -EINVAL;
+		v4l2_subdev_call(parent, core, ioctl, VIDIOC_ISP_PRIVATE_IOCTL, &ioctl);
+		ret = atomic_read(&vdev->state) == TX_ISP_STATE_START ? ISP_SUCCESS : -EINVAL;
 	}
 
 	/*
@@ -286,7 +347,7 @@ static int frame_channel_vb2_stop_streaming(struct vb2_queue *vq)
 	list_splice_init(&vdev->active_list, &done);
 	spin_unlock_irqrestore(&vdev->slock, flags);
 	list_for_each_entry_safe(buf, tmp, &done, entry){
-		list_del(&buf->entry);
+		list_del_init(&buf->entry);
 		if (buf->vb.state == VB2_BUF_STATE_ACTIVE)
 			vb2_buffer_done(&buf->vb, VB2_BUF_STATE_ERROR);
 	}
