@@ -11889,7 +11889,7 @@ long isp_core_tunning_unlocked_ioctl(struct file *file, unsigned int cmd, unsign
 	if (tuning->state != 3)
 		return -EPERM;
 
-	pr_err("tx-isp-t30: tuning ioctl cmd=%08x\n", cmd);
+	pr_debug("tx-isp-t30: tuning ioctl cmd=%08x\n", cmd);
 	switch (cmd) {
 	case VIDIOC_S_CTRL:
 		if (copy_from_user(&control, (void __user *)arg,
@@ -11957,7 +11957,7 @@ long isp_core_tunning_unlocked_ioctl(struct file *file, unsigned int cmd, unsign
 		if (copy_from_user(&default_control, (void __user *)arg,
 				   sizeof(default_control)))
 			return -EFAULT;
-		pr_err("tx-isp-t30: tuning default dir=%u id=%08x value=%d\n",
+		pr_debug("tx-isp-t30: tuning default dir=%u id=%08x value=%d\n",
 		       default_control.direction, default_control.control.id,
 		       default_control.control.value);
 		if (default_control.direction == 0) {
