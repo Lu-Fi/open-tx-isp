@@ -44,8 +44,8 @@ ccflags-y += -I$(src)/../include
 # all its calls (no inlining / IPA clones / pure-const-modref call elimination / sibling calls), so
 # tests/t30_lift_oracle.sh can hook the same callees as in the vendor ko.  Gates passed: lift oracle,
 # tests/t30_optdiff (-O0 vs -Os Unicorn diff + YUV sequence) against its reviewed baseline, QEMU
-# tests/t30_qemu, T30X device A/B (b83: picture/registers equal to -O0 and vendor, 0 oops) and soak
-# (b84).  lsmod ~343 KB (vendor ~348 KB, -O0 ~628 KB).  TX_ISP_T30_OS=n builds the old -O0 unit
+# tests/t30_qemu, T30X device A/B (b83: picture/registers equal to -O0 and vendor, 0 oops) and the
+# 35-min soak b86 (#487).  lsmod ~343 KB (vendor ~348 KB, -O0 ~628 KB).  TX_ISP_T30_OS=n builds the old -O0 unit
 # (reference build for tests/t30_optdiff and for bisecting an -Os-only fault).
 TX_ISP_T30_OS ?= y
 ifneq ($(TX_ISP_T30_OS),y)

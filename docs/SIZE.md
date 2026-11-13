@@ -273,6 +273,6 @@ have to come back together (`tisp_event_init` caller + queue path in
   sequence identical, every function fuzzed, no hit outside the reviewed
   baseline), lift oracle (strict), `make -C tests check`, QEMU load/unload,
   T30X b83 (registers 0x540..0x570 and picture equal to -O0 and the
-  vendor, 0 oops) and the b84 soak. lsmod ~343 KB (vendor ~348 KB, -O0
+  vendor, 0 oops) and the b86 35-min soak (#487). lsmod ~343 KB (vendor ~348 KB, -O0
   ~628 KB). `TX_ISP_T30_OS=n` still builds the -O0 unit (optdiff reference,
   bisecting an -Os-only fault).
