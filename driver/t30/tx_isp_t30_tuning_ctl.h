@@ -638,10 +638,10 @@ static int tctl_csc_set(void *tuning, void *core, int32_t value)
 static int tctl_csc_get(void *core, int32_t value)
 {
 	u32 attr[TX_ISP_CSC_ATTR_WORDS];
-	u16 lut[12], clip[4];
+	u16 lut[12] = { 0 }, clip[4];
 	unsigned long flags;
 	u32 ret = 0;
-	int err;
+	int err, rc;
 
 	err = tctl_csc_ready(core);
 	if (err)
@@ -653,11 +653,17 @@ static int tctl_csc_get(void *core, int32_t value)
 		return -1;
 	}
 	/* what is in effect: the firmware table and the day clip */
-	apical_api_calibration(TCTL_CAL_RGB2YUV, TCTL_DIR_GET, (uintptr_t)lut,
-			       sizeof(lut), (uintptr_t)&ret);
+	/*
+	 * #477: lut starts zeroed and the call's own result counts too: the
+	 * early "not available" exits return 5 without touching the status, and
+	 * a GET that fills less than 12 entries must not hand stack residue to
+	 * user space.
+	 */
+	rc = apical_api_calibration(TCTL_CAL_RGB2YUV, TCTL_DIR_GET,
+				    (uintptr_t)lut, sizeof(lut), (uintptr_t)&ret);
 	memcpy(clip, tctl_csc_clip, sizeof(clip));
 	spin_unlock_irqrestore(&tctl_csc_lock, flags);
-	if (ret)
+	if (rc || ret)
 		return -EIO;
 	tx_isp_csc_from_apical(lut, clip, attr);
 	return copy_to_user(tctl_uptr(value), attr, sizeof(attr)) ? -EFAULT : 0;
