@@ -62,13 +62,21 @@ export PATH="$ROOT/host/bin:$PATH"
 KCFLAGS="-Wno-error=implicit-function-declaration -Wno-error=int-conversion -Wno-error=implicit-int"
 GOAL="${1:-modules}"
 
+# Same per-SoC XBurst include paths as the firmware package
+# (thingino-firmware package/open-tx-isp/open-tx-isp.mk: EXTRA_CFLAGS with
+# soc-$(SOC_FAMILY), core, common). Without them the ko differs from the
+# firmware build (openimp #461). Passed for every SoC, T10..T41.
+EXTRA_CFLAGS="-I$KDIR/arch/mips/xburst/soc-${SOC:-t31}/include \
+-I$KDIR/arch/mips/xburst/core/include \
+-I$KDIR/arch/mips/xburst/common/include"
+
 # Per-SoC ISP driver (driver/<SOC>/, default t31) -> tx-isp-<soc>.ko
 make -C "$KDIR" M="$HERE/driver/${SOC:-t31}" DIR=. \
-     ARCH="$ARCH" CROSS_COMPILE="$CROSS" KCFLAGS="$KCFLAGS" "$GOAL"
+     ARCH="$ARCH" CROSS_COMPILE="$CROSS" KCFLAGS="$KCFLAGS" EXTRA_CFLAGS="$EXTRA_CFLAGS" "$GOAL"
 
 # Shared SoC-agnostic diagnostics (driver/) -> tx_isp_trace.ko
 make -C "$KDIR" M="$HERE/driver" DIR=. \
-     ARCH="$ARCH" CROSS_COMPILE="$CROSS" KCFLAGS="$KCFLAGS" "$GOAL"
+     ARCH="$ARCH" CROSS_COMPILE="$CROSS" KCFLAGS="$KCFLAGS" EXTRA_CFLAGS="$EXTRA_CFLAGS" "$GOAL"
 
 # Load check (no camera needed): undefined symbols of the built modules must
 # resolve against the kernel's Module.symvers / sibling modules. Fails the build.

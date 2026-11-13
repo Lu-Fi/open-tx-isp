@@ -12,6 +12,10 @@ marked otherwise. Release tags `vYYYY.MM.DD[-rcN]` are set on the `aperto` branc
 - Host: `tests/tx_isp_t40_ae_step_test.c` (queue against a reference model, timeline with both interrupt orders, late event thread, dropped frame-dones: every step written in the next ISP frame, one step per statistics frame; 4/4 mutations caught).
 - Device (Eufy T40XP .184, runtime swap from /tmp, light box lamps off, scene lit by the camera's own IR switching; run2): event pass 1:1 with the histogram interrupts (2187 pushes, 0 failed), frame-3A work items 3x fewer; comp 128->200: 41 steps / 0.6 % overshoot (previous path same run 41 / 1.2 %); comp 128->40: 32 steps / 21.4 % undershoot (previous path 41 / 28.6 %); IR light-on edges 25-26 steps, 0 single-frame spikes; 0 oops, module restored. Vendor reference not run (no lamp scene).
 
+## 2026-11-13: build_local.sh passes the firmware package's XBurst EXTRA_CFLAGS for every SoC (openimp #461)
+- `build_local.sh` now adds `-I$KDIR/arch/mips/xburst/{soc-<soc>,core,common}/include` like `package/open-tx-isp/open-tx-isp.mk` (EXTRA_CFLAGS), also for the shared trace module.
+- Host proof (same ROOT, same tree): T41 (4.4.94) and T31 (3.10.14) kos built with build_local and with the firmware flags are byte-identical (.text objdump diff empty). The old build_local ko had the same .text too (only the build-id string differs), so these flags alone do not explain the #460 snapshot-size difference.
+
 ## 2026-11-13: kernel-7 patches 0045-0049 adopted from the firmware side (openimp #460; T41 device-tested on 4.4, T31 build-tested on 3.10 and 7.3.3)
 
 Five open-tx-isp patches that the thingino-firmware `feature/kernel-7` branch carried under `package/open-tx-isp/` are now in the driver, so the firmware can drop them. 7.x-only parts are version-guarded; the 3.10 and 4.4 builds behave as before.
