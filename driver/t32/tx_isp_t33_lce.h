@@ -18,9 +18,9 @@
  *    at 0x1fc interpolated over the EV (sec[0x3d9] = 0, knots 0x2fc) or the
  *    BV (knots 0x328); at init both are 0.
  *
- * Not here: the LSF list 37 (written by the same init; not run in the
- * QEMU trace), the mode with sec[0x2fb] = sec[0xc8] = 1 (0xc0a4 then takes
- * the LSF buffer: the list is not built), the per-frame soft process.
+ * Not here: the LSF list 37 (written by the same init: tx_isp_t33_lsf.h),
+ * the mode with sec[0x2fb] = sec[0xc8] = 1 (0xc0a4 then takes the LSF
+ * buffer: the list is not built), the per-frame soft process (openimp #444).
  * QEMU trace of the vendor module (openimp #388): list 16 word-equal but
  * for the DMA addresses.
  */

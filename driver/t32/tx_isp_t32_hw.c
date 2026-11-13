@@ -40,6 +40,7 @@
 #include "tx_isp_t33_gamma.h"
 #include "tx_isp_t33_defog.h"
 #include "tx_isp_t33_lce.h"
+#include "tx_isp_t33_lsf.h"
 #include "tx_isp_t33_af.h"
 #include "tx_isp_t33_bcsh.h"
 #include "tx_isp_t33_tmo.h"
@@ -335,6 +336,11 @@ static unsigned long t33_lce_curve_pages, t33_lce_stat_pages;
 static u8 t33_lce_sec[T33_LCE_SEC_BYTES];
 #define T33_LCE_CURVE_ORDER	get_order(T33_LCE_CURVE_BYTES)
 #define T33_LCE_STAT_ORDER	get_order(T33_LCE_STAT_BYTES)
+/* LSF buffer (list 37 slots 7 / 8) and, in the LSF mode, its histogram buffer (slot 5) */
+static unsigned long t33_lsf_pages, t33_lsf_hist_pages;
+static u8 t33_lsf_sec[T33_LCE_SEC_BYTES];
+#define T33_LSF_ORDER		get_order(T33_LSF_BUF_BYTES)
+#define T33_LSF_HIST_ORDER	get_order(T33_LSF_HIST_BYTES)
 /* AF statistics buffer (0x18108..0x18114, written by the core) */
 static unsigned long t33_af_pages;
 static u8 t33_af_sec[T33_AF_SEC_BYTES];
@@ -373,6 +379,14 @@ static void t33_mod_free(void)
 	if (t33_lce_stat_pages)
 		free_pages(t33_lce_stat_pages, T33_LCE_STAT_ORDER);
 	t33_lce_stat_pages = 0;
+#ifdef TX_ISP_T33
+	if (t33_lsf_pages)
+		free_pages(t33_lsf_pages, T33_LSF_ORDER);
+	t33_lsf_pages = 0;
+	if (t33_lsf_hist_pages)
+		free_pages(t33_lsf_hist_pages, T33_LSF_HIST_ORDER);
+	t33_lsf_hist_pages = 0;
+#endif
 	if (t33_af_pages)
 		free_pages(t33_af_pages, T33_AF_ORDER);
 	t33_af_pages = 0;
@@ -411,6 +425,13 @@ static void t33_rcfg_core_init(void)
 	isp_wr(T33_RCFG_MASK1, 0xffffffff);
 }
 
+/* lists the vendor's tisp_rcfg_t33_write_all_reg does not start (LSF 37: LCE irq only) */
+#ifdef TX_ISP_T33
+#define T33_NOT_AT_STREAMON	(1ULL << T33_MOD_LSF)
+#else
+#define T33_NOT_AT_STREAMON	0ULL
+#endif
+
 /*
  * tisp_rcfg_t33_write_all_reg + lib_tisp_stream_on: every built list into
  * its table word, all but the top list started together, then the top list,
@@ -426,7 +447,7 @@ static void t33_rcfg_write_all(void)
 		return;
 	memset(table, 0, T32_RCFG_TABLE_WORDS * 4);
 	for (i = 0; i < T33_MODULES; i++) {
-		if (!(t33_mod_built & (1ULL << i)))
+		if (!(t33_mod_built & (1ULL << i)) || (T33_NOT_AT_STREAMON & (1ULL << i)))
 			continue;
 		table[i] = virt_to_phys((void *)t33_mod_page[i]);
 		if (i < 32)
@@ -1419,6 +1440,29 @@ out:
 	mutex_unlock(&t33_gr_lock);
 }
 
+/*
+ * LSF list 37 from the LCE section (tisp_lce_init / malloc_cfg): built at
+ * init like the vendor's, not started at stream-on (the vendor runs it from
+ * its LCE interrupt only).  Own frame: the Gauss tables are large.
+ */
+static noinline void t33_tisp_init_lsf(const u8 *sec, u32 width, u32 height)
+{
+	u32 *buf = t33_mod_buf(T33_MOD_LSF);
+
+	if (!t33_lsf_pages)
+		t33_lsf_pages = __get_free_pages(GFP_KERNEL | __GFP_ZERO, T33_LSF_ORDER);
+	memcpy(t33_lsf_sec, sec, sizeof(t33_lsf_sec));
+	if (t33_lsf_sec[0x2fb] == 1 && t33_lsf_sec[0xc8] == 1 && !t33_lsf_hist_pages)
+		t33_lsf_hist_pages = __get_free_pages(GFP_KERNEL | __GFP_ZERO, T33_LSF_HIST_ORDER);
+	if (!buf || !t33_lsf_pages)
+		return;
+	t33_lce_size(t33_lsf_sec, height, width);
+	t33_mod_done(T33_MOD_LSF,
+		     t33_lsf_init(t33_lsf_sec, 0, 0, (u32)virt_to_phys((void *)t33_lsf_pages),
+				  t33_lsf_hist_pages ? (u32)virt_to_phys((void *)t33_lsf_hist_pages) : 0,
+				  buf, T33_SLOT_WORDS));
+}
+
 static void t33_tisp_init(const u8 *bin, u32 bytes)
 {
 	u32 off, len, code, width, height;
@@ -1525,6 +1569,7 @@ static void t33_tisp_init(const u8 *bin, u32 bytes)
 						  (u32)virt_to_phys((void *)t33_lce_curve_pages),
 						  (u32)virt_to_phys((void *)t33_lce_stat_pages), buf, T33_SLOT_WORDS));
 		}
+		t33_tisp_init_lsf(bin + off, width, height);
 	}
 	t33_tisp_init_tone(bin, bytes);
 	t33_tisp_init_mdns(bin, bytes);

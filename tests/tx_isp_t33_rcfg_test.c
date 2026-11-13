@@ -23,6 +23,7 @@
 #include "../driver/t32/tx_isp_t33_gamma.h"
 #include "../driver/t32/tx_isp_t33_defog.h"
 #include "../driver/t32/tx_isp_t33_lce.h"
+#include "../driver/t32/tx_isp_t33_lsf.h"
 #include "../driver/t32/tx_isp_t33_af.h"
 #include "../driver/t32/tx_isp_t33_bcsh.h"
 #include "../driver/t32/tx_isp_t33_tmo.h"
@@ -210,6 +211,30 @@ int main(void)
 	const char *bp = getenv("T33_IQ_BIN"), *rp = getenv("T33_LIST_REF");
 
 	test_stats();
+	/* LSF Gauss weights: the T33 keeps all 32, the T32 port (oracle-checked) 8 + every second */
+	{
+		static const u8 p[5][3] = { { 0x10, 8, 0 }, { 0xff, 40, 128 }, { 3, 1, 255 }, { 0x80, 200, 64 }, { 1, 0x30, 0x7f } };
+		u8 w33[32], w32[20], src[3], sec[1];
+		unsigned int i, k;
+
+		for (i = 0; i < 5; i++) {
+			memcpy(src, p[i], 3);
+			t33_lce_gauss_wgt(src[0], src[1], src[2], w33);
+			t32_lce_gauss_wgt(sec, src, w32, 0);
+			CHECK(!memcmp(w33, w32, 8));
+			for (k = 0; k < 12; k++)
+				CHECK(w33[8 + 2 * k] == w32[8 + k]);
+		}
+	}
+	/* LSF low pass: out[k] in order of the squared distance (0 1 2 4 5 8 9 10 13 18), falling */
+	{
+		u32 q[10], k;
+
+		t33_lce_gauss_lpf(9, q);
+		for (k = 0; k < 9; k++)
+			CHECK(q[k] >= q[k + 1]);
+		CHECK(q[0] > q[9]);
+	}
 	/* MSCA curves: every phase of every set sums to 2048 (1:1, 1:3, 2:3 on all channels) */
 	{
 		static const unsigned int r[3] = { 0x4000, 5461, 10922 }, taps[2][4] = { { 4, 4, 2, 2 }, { 4, 6, 2, 3 } };
@@ -389,6 +414,41 @@ int main(void)
 				/* another size: grid 2 * (360 / 12) x 2 * (640 / 24) with remainders */
 				CHECK(t33_lce_init(lsec, 1280, 720, 0, 0, cv, st, lb, T33_SLOT_WORDS) > 0);
 				CHECK(lsec[6] == 60 && lsec[7] == 52 && lsec[8] == 0 && lsec[9] == 16);
+				/*
+				 * LSF list 37 (written by the LCE init, run only from the LCE
+				 * irq): T33_LSF_REF = the vendor module's list memory after its
+				 * init (one hex word a line, QEMU).  Slots 7 / 8 are the LSF
+				 * buffer address, word 0x46 (slot 0x45) is not stored by the
+				 * vendor's init (kmalloc'ed list: stale memory there).
+				 */
+				memcpy(lsec, bin + off, sizeof(lsec));
+				t33_lce_size(lsec, 1080, 1920);
+				{
+					static u32 ref[0x50];
+					const char *lp = getenv("T33_LSF_REF");
+					FILE *lf = lp ? fopen(lp, "r") : NULL;
+					unsigned int nref = 0, i, nb = 0;
+					int ln;
+
+					while (lf && nref < 0x50 && fscanf(lf, "%x", &ref[nref]) == 1)
+						nref++;
+					if (lf)
+						fclose(lf);
+					ln = t33_lsf_init(lsec, 0, 0, nref > 8 ? ref[8] : 0x1000, 0, lb, T33_SLOT_WORDS);
+					CHECK(ln == 0x46 && lb[0] == 0x46 && lb[8] == lb[9]);
+					if (nref) {
+						CHECK(nref == 0x47);
+						for (i = 0; i < 0x46 && i < nref; i++)
+							if (lb[i] != ref[i]) {
+								nb++;
+								printf("FAIL lsf word 0x%02x: %08x vendor %08x\n", i, lb[i], ref[i]);
+							}
+						bad += nb;
+						printf("  lsf: list 37, %d words, %u differ from the vendor's\n", ln, nb);
+					} else {
+						printf("  lsf: list 37, %d words (no reference)\n", ln);
+					}
+				}
 			}
 			{
 				/* AF: the statistics address (0x18108) as the vendor's */
