@@ -9687,15 +9687,17 @@ static uint32_t regtrace_t40_frame_3a_target_eff(void)
 }
 /*
  * #483: ISP digital gain ceiling from the live tuning bank like the vendor: tisp_ae_sensor_inform (tx-isp-t40.ko
- * 0x31e94) takes the AE limit block of stMainAeOuter (bank + 0x80, "Long max isp dg"), sc830ai bin: day 5120
- * (5x), night 4096 (4x) at bank + 0x140 (block: max IT 2241, max again 32768, sensor dgain 1024, max ISP dgain,
- * min IT 3).  The open ceiling was the fixed ae_isp_dgain_max 4096, so the day dark limit was 32x x 4x where the
+ * 0x31e94) takes the AE limit block pstMainAeOri[0] = stMainAeOuter + 0xa8 = bank + 0x128 ("Long max isp dg" = word 3),
+ * sc830ai bin: day 5120 (5x), night 4096 (4x) at bank + 0x134 (block: max IT 2241, max again 32768, sensor dgain
+ * 1024, max ISP dgain, min IT 3; bank = bin + 0x18 header).  The open ceiling was the fixed ae_isp_dgain_max 4096, so the day dark limit was 32x x 4x where the
  * vendor reaches 32x x 5x (Eufy box, lamps off: total gain 32766 vs 40960).  t40_ae_isp_dgain_max_bin=0 or a value
  * outside 1x..32x = the ae_isp_dgain_max parameter (pre-#483).  The user cap (SetAeExprInfo) still applies.
  */
-#define T40_AE_BANK_MAX_ISP_DG	0x140U
+#define T40_AE_BANK_MAX_ISP_DG	0x134U
 static bool t40_ae_isp_dgain_max_bin = true;
 module_param(t40_ae_isp_dgain_max_bin, bool, 0644);
+static uint t40_ae_isp_dgain_max_now;	/* last effective ceiling (read-only) */
+module_param(t40_ae_isp_dgain_max_now, uint, 0444);
 static uint32_t regtrace_t40_ae_isp_dgain_max_eff(void)
 {
     uint32_t m = clamp_t(uint32_t, regtrace_ae_isp_dgain_max, 1024U, 32767U);
@@ -9710,6 +9712,7 @@ static uint32_t regtrace_t40_ae_isp_dgain_max_eff(void)
 
     if (regtrace_ae_user_max_isp_dgain_x1024)
         m = min_t(uint32_t, m, clamp_t(uint32_t, regtrace_ae_user_max_isp_dgain_x1024, 1024U, 32767U));
+    WRITE_ONCE(t40_ae_isp_dgain_max_now, m);
     return m;
 }
 static bool regtrace_frame_3a_slide_window = true;
