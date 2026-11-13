@@ -4,6 +4,12 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD[-rcN]` are set on the `aperto` branch, the same tag in open-tx-isp and OpenIMP: RC1 `v2026.10.11-rc1`, RC2 `v2026.10.25-rc2`, RC3 `v2026.11.07-rc3` (2026-11-07). Gate SoCs of RC3 and Release 1: T10, T20, T21, T23, T30, T31, T40, T41 (T32/T33 planned, QEMU only); release notes: [docs/releases/ in OpenIMP](https://github.com/Lu-Fi/openimp/blob/next/docs/releases/README.md). Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-11-13: T10/T20 stream-off register polls bounded (openimp #470, beyond vendor, user OK 2026-11-13)
+
+- The channel stream-off waits for the UV and Y DMA writer busy bit (`base+0xa4` / `base+0x24`, bit 16) in `tx-isp-core.c`, and the T20 MIPI VIC start waits for `VIC_CONTROL` to clear in `tx-isp-vic.c`; the vendor SDK (T20/T10/T30 source) spins on all three without limit, so a stuck ISP hangs the caller for ever.
+- Now at most 5000 x `udelay(100)` (500 ms), then one rate-limited warning and the unchanged next step (cancel write / VIC start). Normal case exits within one frame: no behaviour change while the ISP runs.
+- Built T10 and T20 (firmware flags), host `make -C tests check`; not device-tested (the bound only acts when the bit never clears).
+
 ## 2026-11-13: T30 compact AE out of the hard IRQ like the OEM (openimp #451; device-tested T30X b78, b80, b81)
 
 - Cause (T30X b76, irq-37 spy on both stacks): the compact AE ran in the hard IRQ, so the AE entry (status bit 3) was long; the AWB event 70 us later latched inside it and the VIC handler (after the core handler on the same line; OEM isp_vic_interrupt_service_routine 0x614-0x644 acks state & ~mask the same way) cleared its line edge: AWB was handled ~8 ms late at frame start (3.0 core entries per frame instead of the vendor's 4.08).

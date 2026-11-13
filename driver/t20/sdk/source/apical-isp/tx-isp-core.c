@@ -1938,6 +1938,19 @@ static int isp_core_frame_channel_streamon(struct tx_isp_core_device *core, int 
 	return ISP_SUCCESS;
 }
 
+/* openimp #470 (beyond vendor, user OK 2026-11-13): the vendor spins on the
+ * DMA writer busy bit without limit. Bound it to 5000 x 100 us (500 ms), then
+ * warn and let the caller continue with its cancel write. */
+static void isp_dma_writer_wait_idle(unsigned int reg)
+{
+	int i;
+
+	for (i = 0; i < 5000 && (APICAL_READ_32(reg) & (1 << 16)); i++)
+		udelay(100);
+	if (i == 5000)
+		printk_ratelimited(KERN_WARNING "tx-isp: DMA writer 0x%x still busy after 500 ms at stream-off, cancelling\n", reg);
+}
+
 static int isp_core_frame_channel_streamoff(struct tx_isp_core_device *core, int value)
 {
 	frame_chan_vdev_t *vdev = (frame_chan_vdev_t *)value;
@@ -1973,7 +1986,7 @@ static int isp_core_frame_channel_streamoff(struct tx_isp_core_device *core, int
 		case V4L2_PIX_FMT_NV12:
 		case V4L2_PIX_FMT_NV21:
 			/* dma channel uv write */
-			while(APICAL_READ_32(base + 0xa4) & (1<<16));
+			isp_dma_writer_wait_idle(base + 0xa4);
 			primary = APICAL_READ_32(base + 0x80);
 			primary &= ~(1 << 9);
 			APICAL_WRITE_32(base + 0x80, primary);
@@ -1986,7 +1999,7 @@ static int isp_core_frame_channel_streamoff(struct tx_isp_core_device *core, int
 		case V4L2_PIX_FMT_BGR32:
 		case V4L2_PIX_FMT_RGB310:
 			/* dma channel y write */
-			while(APICAL_READ_32(base + 0x24) & (1<<16));
+			isp_dma_writer_wait_idle(base + 0x24);
 			primary = APICAL_READ_32(base);
 			primary &= ~(1 << 9);
 			APICAL_WRITE_32(base, primary);

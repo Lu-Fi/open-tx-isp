@@ -142,6 +142,7 @@ static int tx_isp_vic_start(struct tx_isp_vic_driver *vsd)
 	struct tx_isp_video_in *vin = &vsd->vin;
 	int ret = ISP_SUCCESS;
 	unsigned int input_cfg = 0;
+	int i;
 
 	if(vin->attr->dbus_type == TX_SENSOR_DATA_INTERFACE_MIPI){
 #if VIC_SUPPORT_MIPI
@@ -184,7 +185,11 @@ static int tx_isp_vic_start(struct tx_isp_vic_driver *vsd)
 		tx_isp_vic_writel(vsd,VIC_RESOLUTION, ret);
 		tx_isp_vic_writel(vsd,VIC_GLOBAL_CFG, ISP_PRESET_MODE1);//ISP_PRESET_MODE1);
 		tx_isp_vic_writel(vsd,VIC_CONTROL, REG_ENABLE);
-		while(tx_isp_vic_readl(vsd,VIC_CONTROL));
+		/* openimp #470 (beyond vendor, user OK 2026-11-13): bounded, vendor spins forever */
+		for (i = 0; i < 5000 && tx_isp_vic_readl(vsd,VIC_CONTROL); i++)
+			udelay(100);
+		if (i == 5000)
+			printk_ratelimited(KERN_WARNING "tx-isp: VIC_CONTROL still busy after 500 ms, starting anyway\n");
 		tx_isp_vic_writel(vsd, VIC_CONTROL, VIC_SRART);
 		//dump_vic_reg(dump_vsd);
 #endif
