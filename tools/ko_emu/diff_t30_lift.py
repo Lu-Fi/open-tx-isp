@@ -23,6 +23,13 @@ Runs functions of the SDK-built vendor tx-isp-t30.ko (4ea12e1f) and of our drive
   tx_isp_sync_ldc / tx_isp_sync_ncu             frame-end watchdog: reg_set calls, counters, registers (#377)
   ldc_core_ops_init                             spin lock address, param file size check, checksum loop step, memcpy (#418)
   cmos_set_exposure_target                      isp+0x11c hysteresis, +0x2fc gate, ratio clamp (#428)
+  sensor_fsm_clear / sensor_init_output / sensor_sw_init   whole random buffer: byte/half stores at +0xde..+0xf2,
+                                                u16 +0x46/+0x48/+0xe6, callback +0xb4(fsm + 0x28) (#463, lift indexed void **)
+  every *_fsm_clear / *_initialize           random FSM + ISP buffer in, whole buffers out, every callee stubbed (#463)
+  #463 class (fsm callees stubbed)            cmos_antiflicker_update, general_frame_end, image_crop_yoffset, awb_range_high,
+                                                scene_mode, defect_pixel_table_write, mscaler_core_ops_init,
+                                                get_gmv_gauss_method_fast_v2, dis_analyze: buffers, registers, return
+  flash_processing                            phase byte +0x11, counters +0x14/+0x18/+0x1c, stab 12/49/50 (#463)
   AWB gain registers                            vendor cmos_fsm_process_interrupt(0) WB stage vs our
                                                 tx_isp_t30_awb_gain_registers: 0x300..0x30c from AWB +0x760,
                                                 exp2 precision, 0xfff clamp, WDR black-level factor (#459)
@@ -31,7 +38,7 @@ Callees outside the function under test are hooked at their entry in both module
 calibration getters return synthetic tables (no vendor data).  Return values are compared only where the
 OEM function returns one.  Exit 1 on any difference.
 """
-import sys, os, random, struct
+import sys, os, random, struct, zlib
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from ko_emu import KoEmu, HEAP, HEAP_SZ
 from unicorn import UC_HOOK_CODE
@@ -39,6 +46,7 @@ from unicorn.mips_const import UC_MIPS_REG_V0, UC_MIPS_REG_A0, UC_MIPS_REG_A1, U
 
 ALIAS = {"AWB_mesh": ("AWB_mesh.isra.1", "AWB_mesh_isra_1")}
 CB = 0x71000000
+JUNK = 0x72000000
 M32 = 0xffffffff
 
 def s32(v): return v - (1 << 32) if v & 0x80000000 else v
@@ -642,8 +650,60 @@ def c_gctrl(m, r, k):                   # apical_isp_core_ops_g_ctrl: jump-table
     return (rr.stop, s32(rr.v0), m.e.read(ctl, 8), m.e.read(ub, 0x100), cid, list(m.log),
             m.e.read(tun + 0x828, 0xf0) if cid == 0x8000020 else b"")
 
+def c_sensor_clear(m, r, k):             # sensor_fsm_clear (#463): byte/half stores at +0xde..+0xf2, whole buffer
+    t375_world(m, r, {})
+    b = m.e.alloc(0x800, bytes(r.getrandbits(8) for _ in range(0x800)))
+    rr = m.e.call("sensor_fsm_clear", b)
+    return rr.stop, rr.v0 & 0xffff, m.e.read(b, 0x800)
+
+def c_sensor_out(m, r, k):               # sensor_init_output (#463): u16 +0xe6 from u16 +0x48 and arg2, whole buffer + v0
+    t375_world(m, r, {})
+    d = bytearray(r.getrandbits(8) for _ in range(0x800))
+    d[0x48:0x4a] = struct.pack("<H", r.choice([480, 720, 1080, 1296, r.getrandbits(16)]))
+    b = m.e.alloc(0x800, bytes(d))
+    rr = m.e.call("sensor_init_output", b, r.choice([0, 720, 1080, r.getrandbits(32)]))
+    return rr.stop, rr.v0, m.e.read(b, 0x800)
+
+def c_sensor_sw(m, r, k):                # sensor_sw_init (#463): u16 +0x46/+0x48/+0xe6, callback +0xb4(fsm + 0x28)
+    regs = {a: r.getrandbits(32) for a in (0x10, 0x14, 0x110, 0x118, 0x124, 0x130)}
+    wl = t375_world(m, r, regs)
+    m.hook("apical_wdr_fs_isp_setup", m.rec("apical_wdr_fs_isp_setup", 3)); m.hook("sensor_update_black", m.rec("sensor_update_black", 1))
+    m.e.stubname[CB + 0x200] = "sw_cb"; m.e.hle["sw_cb"] = m.rec("sw_cb", 3, 0x5a5a)
+    if JUNK not in m.e.stubname:          # every word of the buffer is a callable trap: a call through a wrong offset is logged
+        m.e.uc.mem_map(JUNK, 0x10000); m.e.hle["junk_cb"] = m.rec("junk_cb", 3)
+        for a in range(JUNK, JUNK + 0x10000, 4): m.e.stubname[a] = "junk_cb"
+    d = bytearray(struct.pack("<%dI" % (0x800 // 4), *(JUNK | (r.getrandbits(16) & 0xfffc) for _ in range(0x800 // 4))))
+    for o in (0x46, 0x48, 0xe6): d[o:o + 2] = struct.pack("<H", r.choice([480, 720, 1080, 1296, r.getrandbits(16)]))
+    d[0xb4:0xb8] = struct.pack("<I", CB + 0x200)
+    b = m.e.alloc(0x800, bytes(d))
+    rr = m.e.call("sensor_sw_init", b)
+    log = [(x[0],) + tuple(v - b if b <= v < b + 0x800 else v for v in x[1:]) for x in m.log]
+    for f in ("apical_wdr_fs_isp_setup", "sensor_update_black"): m.unhook(f)
+    return rr.stop, wl, log, m.e.read(b, 0x800)
+
+def c_flash_proc(m, r, k):               # flash_processing (#463): state +0x10, phase byte +0x11, +0x14/+0x18 exposure, +0x1c count
+    t375_world(m, r, {})
+    for f in ("write_to_flash_output_port", "apical_isp_raise_event"): m.hook(f, m.rec(f, 2 if f[0] == "a" else 1))
+    tb = m.e.alloc(0x10, bytes(r.getrandbits(8) for _ in range(0x10)))
+    m.hook("_GET_UCHAR_PTR", lambda e: tb + (e.get_reg(UC_MIPS_REG_A0) & 7))
+    sb = bytearray(m.e.read(m.stab(), 0x40)); sb[12], sb[49], sb[50] = r.getrandbits(8), r.getrandbits(8), r.getrandbits(8)
+    m.e.write(m.stab(), bytes(sb))
+    isp = m.e.alloc(0x1000, bytes(r.getrandbits(8) for _ in range(0x1000)))
+    if r.random() < 0.5: m.e.write(isp + 0x31c, struct.pack("<i", r.randrange(-3000000, 3000000)))
+    d = bytearray(r.getrandbits(8) for _ in range(0x40)); d[0:4] = struct.pack("<I", isp)
+    d[0x10] = r.choice([0x59, 0x5a, 0x5a, 0x5a, 0x5a, r.getrandbits(8)]); d[0x11] = r.choice([0, 1, 1, 2, 5, 6, r.getrandbits(8)])
+    if r.random() < 0.5: d[0x14:0x1c] = struct.pack("<ii", r.randrange(-3000000, 3000000), r.randrange(-3000000, 3000000))
+    d[0x1c:0x1e] = struct.pack("<H", r.choice([0, 15, 16, r.getrandbits(16)]))
+    b = m.e.alloc(0x40, bytes(d))
+    rr = m.e.call("flash_processing", b)
+    for f in ("write_to_flash_output_port", "apical_isp_raise_event", "_GET_UCHAR_PTR"): m.unhook(f)
+    st = m.e.read(m.stab(), 0x40)
+    return rr.stop, m.e.read(b, 0x40), m.e.read(isp, 0x1000), (st[12], st[49], st[50]), [x if x[0][0] == "w" else x[:2] for x in m.log if x[0] != "copy"]
+
 C375 = (("roi", c_roi), ("vflip", c_vflip), ("gain_log2", c_gain), ("api_buffer", c_apibuf), ("release_all", c_release),
-        ("ae_weight", c_weight), ("dis_stats", c_dis), ("g_ctrl", c_gctrl))
+        ("ae_weight", c_weight), ("dis_stats", c_dis), ("g_ctrl", c_gctrl),
+        ("sensor_fsm_clear", c_sensor_clear), ("sensor_init_output", c_sensor_out), ("sensor_sw_init", c_sensor_sw),
+        ("flash_processing", c_flash_proc))
 def t_ptr_scale(V, O, rnd, n):
     V, O = Mod(V.path, {}), Mod(O.path, {})          # fresh modules: no hooks/state of the other groups
     bad = 0
@@ -653,8 +713,178 @@ def t_ptr_scale(V, O, rnd, n):
             res = [c(m, random.Random(seed), k) for m in (V, O)]
             if res[0] != res[1]:
                 bad += 1
-                if bad < 8: print("DIFF %s k=%d: vendor %s open %s" % (nm, k, str(res[0])[:300], str(res[1])[:300]))
+                if bad < 8: print("DIFF %s k=%d: %s" % (nm, k, diffdesc(res[0], res[1])))
     return bad
+
+# ---------------------------------------------------------------- FSM clear/initialize: random buffers in, whole buffers out (#463)
+SLOT = 0x73000000
+FSM_BUF_SKIP = ("iridix_initialize",          # intended: statistics reset defaults in 0x3c0 (beyond the recovered sequence)
+                "color_matrix_initialize", "sharpening_initialize")   # vendor dereferences a table pointer the lift takes elsewhere; not this bug class
+def fsm_buf_names(V, O):
+    """every *_fsm_clear / *_initialize defined in both modules"""
+    fn = lambda m: {sy.name for sy in m.e.elf.get_section_by_name(".symtab").iter_symbols()
+                    if sy["st_info"]["type"] == "STT_FUNC" and sy["st_shndx"] != "SHN_UNDEF"}
+    return sorted(n for n in fn(V) & fn(O) if n.endswith("_fsm_clear") or n.endswith("_initialize"))
+
+SMALL = ("_GET_LEN", "_GET_ROWS", "_GET_COLS", "_GET_WIDTH")
+def fsm_buf_world(m):
+    """every other function and every import is a logged stub that returns a per-name readable slot
+    (_GET_LEN/_ROWS/_COLS/_WIDTH: a small count); m.ret overrides single stubs for one case"""
+    if getattr(m, "fsm_world", False): return
+    m.fsm_world = True; m.e.uc.mem_map(SLOT, 0x400000); m.slot_seed = 0; m.slot_done = set(); m.ret = {}
+    names = {sy.name for sy in m.e.elf.get_section_by_name(".symtab").iter_symbols()
+             if sy.name and sy["st_info"]["type"] in ("STT_FUNC", "STT_NOTYPE")} | set(m.e.stubs)
+    def mk(n):
+        sl = SLOT + (zlib.crc32(n.encode()) % 0x400) * 0x1000
+        def h(e):
+            if n == "APICAL_READ_32":
+                a = e.get_reg(UC_MIPS_REG_A0); return m.regs.get(a, random.Random(m.slot_seed * 65537 + a).getrandbits(32))
+            if n == "APICAL_WRITE_32":
+                m.regs[e.get_reg(UC_MIPS_REG_A0)] = e.get_reg(UC_MIPS_REG_A1); m.regw[e.get_reg(UC_MIPS_REG_A0)] = e.get_reg(UC_MIPS_REG_A1); return 0
+            m.log.append(n)
+            if n in m.ret: return m.ret[n](e) if callable(m.ret[n]) else m.ret[n]
+            if n in SMALL: return 2 + random.Random(m.slot_seed ^ zlib.crc32(n.encode()) ^ e.get_reg(UC_MIPS_REG_A0)).randrange(15)
+            if sl not in m.slot_done:
+                m.slot_done.add(sl); rr = random.Random(m.slot_seed ^ zlib.crc32(n.encode()))
+                e.write(sl, bytes(rr.getrandbits(8) for _ in range(0x1000)))
+            return sl
+        return h
+    m.fsm_hooks = {n: mk(n) for n in names}
+
+def stub_call(m, fn, seed, build, ret=None):
+    """fn with every other function stubbed; build(m, r) -> (args, stack, [(addr, len) compared])"""
+    fsm_buf_world(m)
+    for n, h in m.fsm_hooks.items():
+        if n != fn: m.hook(n, h)
+    m.unhook(fn); m.e.stubname.pop(m.e.symaddr[fn], None)
+    m.slot_seed = seed; m.slot_done = set(); m.regs = {}; m.regw = {}; m.ret = ret or {}; del m.log[:]
+    r = random.Random(seed); m.e.heap_reset()
+    m.e.gp = m.e.alloc(0x40, struct.pack("<8I", 0x5a5a0000, 0, 0, 0, 0, 0, USER_DS, 0))
+    args, stack, cmp = build(m, r)
+    rr = m.e.call(fn, *args, stack_args=stack)
+    return rr.stop, [m.e.read(a, n) for a, n in cmp], sorted(m.regw.items()), sorted(set(m.log)), rr.v0   # callees as a set: getters may be called once or per use
+
+def c_fsm_buf(m, fn, seed):
+    def build(m, r):
+        isp = m.e.alloc(0x8000, bytes(r.getrandbits(8) for _ in range(0x8000)))
+        d = bytearray(r.getrandbits(8) for _ in range(0x2000)); d[0:4] = struct.pack("<I", isp)
+        b = m.e.alloc(0x2000, bytes(d))
+        return (b,), (), [(b, 0x2000), (isp, 0x8000)]
+    return stub_call(m, fn, seed, build)[:4]          # no return value: most of them are void in the vendor ko
+
+def t_fsm_buffers(V, O, rnd, n):
+    V, O = Mod(V.path, {}), Mod(O.path, {})          # fresh modules: every callee is stubbed here
+    bad = 0
+    for fn in fsm_buf_names(V, O):
+        if fn in FSM_BUF_SKIP: continue
+        for k in range(max(1, n // 20)):
+            seed = rnd.getrandbits(32)
+            res = [c_fsm_buf(m, fn, seed) for m in (V, O)]
+            if res[0] != res[1]:
+                bad += 1
+                print("DIFF %s k=%d: %s" % (fn, k, diffdesc(res[0], res[1]))); break
+    return bad
+
+# ---------------------------------------------------------------- #463 bug class: cast-index / inline deref / pointer counters
+def rbuf(m, r, n): b = m.e.alloc(n, bytes(r.getrandbits(8) for _ in range(n))); return b
+
+def b_antiflicker(m, r):
+    b = rbuf(m, r, 0x800); q = r.choice([0, 1, 0x200, r.getrandbits(16), r.getrandbits(32)])
+    m.ret["get_quantised_integration_time"] = q
+    return (b,), (), [(b, 0x800)]
+
+def b_gfe(m, r):
+    ctx = rbuf(m, r, 0x1000); b = bytearray(r.getrandbits(8) for _ in range(0x80)); b[0:4] = struct.pack("<I", ctx)
+    if r.random() < 0.3: b[0x3c] = b[0x3f]
+    fsm = m.e.alloc(0x80, bytes(b)); m.e.write(ctx + 0xc8, struct.pack("<I", CB + 0x300))
+    m.e.stubname[CB + 0x300] = "wdr_cb"; m.e.hle["wdr_cb"] = lambda e: (m.log.append("wdr_cb %#x %#x" % (e.get_reg(UC_MIPS_REG_A0) - ctx, e.get_reg(UC_MIPS_REG_A1))), 0)[1]
+    m.ret["color_matrix_change_CCMs"] = lambda e: (m.log.append("ccm %#x" % (e.get_reg(UC_MIPS_REG_A0) - ctx)), 0)[1]
+    m.ret["general_set_wdr_mode"] = lambda e: (m.log.append("wdr %#x" % (e.get_reg(UC_MIPS_REG_A0) - fsm)), 0)[1]
+    return (fsm,), (), [(fsm, 0x80), (ctx, 0x1000)]
+
+def b_crop_y(m, r):
+    b = rbuf(m, r, 0x6000); out = m.e.alloc(4, b"\xaa" * 4)
+    return (b, (r.choice([19, 20, 22, 21, 0, 19, 20, 22]) << 16) | r.getrandbits(16), r.choice([0, 0, 1, 1, 2]), out), (), [(b, 0x6000), (out, 4)]
+
+def b_awb_high(m, r):
+    b = rbuf(m, r, 0x1000); out = m.e.alloc(4, b"\xaa" * 4)
+    tabs = {0xeb: sorted(r.sample(range(100, 20000), 8)), 0xe0: [r.randrange(1, 0x10000) for _ in range(8)],
+            0xe4: [r.randrange(0, 0x10000) for _ in range(8)]}
+    ta = {k: m.e.alloc(16, struct.pack("<8H", *v)) for k, v in tabs.items()}
+    m.ret["_GET_USHORT_PTR"] = lambda e: ta.get(e.get_reg(UC_MIPS_REG_A0), ta[0xe0])
+    m.ret["_GET_LEN"] = 8
+    a2 = r.choice([0, r.randrange(1, 100), r.randrange(1, 10000), (1000000 // 100) // r.randrange(100, 20000)])
+    return (b, a2, r.choice([0, 0, 0, 1, 2]), out), (), [(b, 0x1000), (out, 4)]
+
+def b_scene(m, r):
+    b = rbuf(m, r, 0x1800); out = m.e.alloc(4, b"\xaa" * 4)
+    m.ret["apical_command"] = 0
+    return (b, r.randrange(62, 80), r.choice([0, 0, 0, 1]), out), (), [(b, 0x1800), (out, 4), (m.stab(), 0x40)]
+
+def b_dpc(m, r):
+    b = rbuf(m, r, 0x5000)
+    return (b, r.choice([0, 1, 5, 64, 4096, 4097, 5000])), (), [(b, 0x10)]
+
+def b_msc(m, r):
+    s0 = rbuf(m, r, 0x200); a1 = rbuf(m, r, 0x100); m.e.write(a1 + 0xd4, struct.pack("<I", s0))
+    chb, vib = rbuf(m, r, 0x400), rbuf(m, r, 0x400)
+    m.e.write(s0 + 0xe8, struct.pack("<I", r.choice([1, 2, 2, 3, 4, 4])))
+    m.e.write(s0 + 0x138, struct.pack("<II", chb, r.randrange(0, 5))); m.e.write(s0 + 0x144, struct.pack("<II", vib, r.randrange(0, 5)))
+    m.ret["private_reset_tx_isp_module"] = r.choice([0, 0, 0xffffffea])
+    for n in ("mscaler_frame_channel_streamoff.isra.0", "mscaler_frame_channel_streamoff_isra_0"):
+        m.ret[n] = lambda e: (m.log.append("off %#x" % e.get_reg(UC_MIPS_REG_A0)), 0)[1]
+    return (a1, r.choice([0, 1])), (), [(s0 + 0xe8, 4), (chb, 0x400), (vib, 0x400)]
+
+def gmv_world(m, r):
+    pts = rbuf(m, r, 0x200); rows, cols = r.randrange(0, 6), r.randrange(0, 6)
+    lim = r.choice([0, 50, 200, 0x400]); tab = rbuf(m, r, 0x1000)
+    m.e.write(pts + 8, struct.pack("<ii", rows, cols)); m.e.write(pts + 0xfc, struct.pack("<II", tab, lim))
+    mv = m.e.alloc(24 * 40, b"".join(struct.pack("<ii", r.randrange(-12, 13), r.randrange(-12, 13)) + bytes(16) for _ in range(40)))
+    return pts, mv
+
+def b_gmv(m, r):
+    pts, mv = gmv_world(m, r); out = m.e.alloc(8, b"\xaa" * 8); a2 = m.e.alloc(8, b"\x55" * 8)
+    return (pts, mv + 24, a2, 0), (out,), [(out, 8), (a2, 8)]
+
+def b_dis(m, r):
+    pts, mv = gmv_world(m, r); o3, o4 = m.e.alloc(8, b"\xaa" * 8), m.e.alloc(8, b"\xbb" * 8)
+    fn = m.e.symaddr["get_gmv_gauss_method_fast_v2"]; m.e.stubname.pop(fn, None)
+    m.e.write(pts + 0x24, struct.pack("<I", fn))
+    m.ret["validate_motion_vectors"] = r.choice([0, 0, 0, 1])
+    m.ret["iir_filter_v2"] = lambda e: (m.log.append("iir %#x %#x" % (e.get_reg(UC_MIPS_REG_A1), e.get_reg(UC_MIPS_REG_A2))), 7)[1]
+    return (pts, mv + 24, o3, o4), (), [(o3, 8), (o4, 8)]
+
+def b_clip(m, r):                        # dis_clip_gmv_vector: two-word vector clipped to +-ctx+0x10 / +-ctx+0x14 (#463: caller passed a scalar)
+    ctx = rbuf(m, r, 0x40); m.e.write(ctx + 0x10, struct.pack("<ii", r.randrange(-50, 50), r.randrange(-50, 50)))
+    v = m.e.alloc(8, struct.pack("<ii", r.randrange(-80, 80), r.randrange(-80, 80)))
+    return (ctx if r.random() < 0.9 else 0, v), (), [(v, 8)]
+
+CLASS463 = (("cmos_antiflicker_update", b_antiflicker), ("general_frame_end", b_gfe), ("image_crop_yoffset", b_crop_y),
+            ("awb_range_high", b_awb_high), ("scene_mode", b_scene), ("defect_pixel_table_write", b_dpc),
+            ("mscaler_core_ops_init", b_msc), ("get_gmv_gauss_method_fast_v2", b_gmv), ("dis_analyze", b_dis), ("dis_clip_gmv_vector", b_clip))
+def t_class463(V, O, rnd, n):
+    V, O = Mod(V.path, {}), Mod(O.path, {})          # fresh modules: every callee is stubbed here
+    bad = 0
+    for fn, b in CLASS463:
+        for k in range(max(2, n // 4)):
+            seed = rnd.getrandbits(32)
+            res = [stub_call(m, fn, seed, b) for m in (V, O)]
+            if fn == "mscaler_core_ops_init":          # lock helpers differ (inline vs call): buffers, streamoff args, return
+                res = [(x[0], x[1], [l for l in x[3] if l.startswith("off")], x[4]) for x in res]
+            if res[0] != res[1]:
+                bad += 1
+                print("DIFF %s k=%d: %s" % (fn, k, diffdesc(res[0], res[1]))); break
+    return bad
+
+def diffdesc(a, b):
+    """first differing element; for byte buffers the differing offsets (vendor/open bytes)"""
+    if isinstance(a, (tuple, list)) and isinstance(b, (tuple, list)) and len(a) == len(b):
+        for i, (x, y) in enumerate(zip(a, b)):
+            if x != y: return "[%d] %s" % (i, diffdesc(x, y))
+    if isinstance(a, bytes) and isinstance(b, bytes) and len(a) == len(b):
+        d = [i for i in range(len(a)) if a[i] != b[i]]
+        return "bytes differ at " + " ".join("+%#x(%02x/%02x)" % (i, a[i], b[i]) for i in d[:12]) + (" ..%d" % len(d) if len(d) > 12 else "")
+    return "vendor %s open %s" % (str(a)[:300], str(b)[:300])
 
 # frame_channel_unlocked_ioctl(_raw): __vb2_queue_free(queue, count) (#369: the lift passed the queue only, count = stale a1)
 FCI_CMDS = (0xc0145608, 0x40045613, 0x40045612, 0x80045613, 0xc0505609, 0x40445611)
@@ -939,7 +1169,7 @@ TESTS = [("nr_selectors", t_nr), ("general_frame_start", t_general), ("fsm_switc
          ("sbus_write_u8", t_sbus), ("awb_normalise", t_normalise), ("awb_detect_light_source", t_detect_ls), ("event_queue_push", t_queue),
          ("awb_mesh_chain", t_mesh), ("compute_weight", t_weight), ("awb_calc_mesh", t_calc),
          ("gp_lock_paths", t_gp_lock), ("ioctl_uaccess", t_uaccess),
-         ("ptr_scale", t_ptr_scale), ("fci_args", t_fci_args), ("sync_watchdog", t_sync), ("ldc_ncu_counts", t_counts), ("ldc_core_ops_init", t_ldc_init),
+         ("ptr_scale", t_ptr_scale), ("fsm_buffers", t_fsm_buffers), ("ptr_class_463", t_class463), ("fci_args", t_fci_args), ("sync_watchdog", t_sync), ("ldc_ncu_counts", t_counts), ("ldc_core_ops_init", t_ldc_init),
          ("set_exposure_target", t_set_target), ("awb_gain_registers", t_wb_regs),
          ("dqbuf_signal(expected diff)", t_dqbuf_signal)]
 

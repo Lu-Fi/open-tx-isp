@@ -27,6 +27,7 @@
 #include <linux/clk.h>
 
 #include "tx-isp-core.h"
+#include "../tx-isp-t2x-fifo.h"
 #include "../tx-isp-video-in.h"
 
 #include <apical-isp/apical_math.h>
@@ -91,7 +92,7 @@ static struct frame_channel_buffer *pop_buffer_fifo(struct list_head *fifo)
 	if (!list_empty(fifo)) {
 		buf = list_first_entry(fifo, struct frame_channel_buffer, entry);
 		//printk("^-^ %s %d %p %p^-^\n",__func__,__LINE__, fifo, buf);
-		list_del(&(buf->entry));
+		list_del_init(&(buf->entry));
 	} else
 		buf = NULL;
 
@@ -109,7 +110,7 @@ static void inline cleanup_buffer_fifo(struct list_head *fifo)
 	struct frame_channel_buffer *buf;
 	while (!list_empty(fifo)) {
 		buf = list_first_entry(fifo, struct frame_channel_buffer, entry);
-		list_del(&(buf->entry));
+		list_del_init(&(buf->entry));
 	}
 }
 
@@ -1865,6 +1866,11 @@ static int isp_core_frame_channel_streamon(struct tx_isp_core_device *core, int 
 	unsigned int primary;
 	unsigned long flags;
 
+	/*
+	 * #467: the ISP IRQ stays enabled between streamers and walks these
+	 * fields (isp_configure_base_addr); reset them under the channel lock.
+	 */
+	spin_lock_irqsave(&chan->slock, flags);
 	memset(chan->bank_flag, 0 ,sizeof(chan->bank_flag));
 	memset(chan->vflip_flag, 0 ,sizeof(chan->vflip_flag));
 	memset(chan->banks_addr, 0 ,sizeof(chan->banks_addr));
@@ -1873,6 +1879,7 @@ static int isp_core_frame_channel_streamon(struct tx_isp_core_device *core, int 
 	chan->dma_state = 0;
 	chan->vflip_state = 0xff;
 	chan->state = TX_ISP_STATE_STOP;
+	spin_unlock_irqrestore(&chan->slock, flags);
 
 	chan->usingbanks = vdev->reqbufs > ISP_DMA_WRITE_MAXBASE_NUM ? ISP_DMA_WRITE_MAXBASE_NUM : vdev->reqbufs;
 
@@ -1938,6 +1945,19 @@ static int isp_core_frame_channel_streamon(struct tx_isp_core_device *core, int 
 	return ISP_SUCCESS;
 }
 
+/* openimp #470 (beyond vendor, user OK 2026-11-13): the vendor spins on the
+ * DMA writer busy bit without limit. Bound it to 5000 x 100 us (500 ms), then
+ * warn and let the caller continue with its cancel write. */
+static void isp_dma_writer_wait_idle(unsigned int reg)
+{
+	int i;
+
+	for (i = 0; i < 5000 && (APICAL_READ_32(reg) & (1 << 16)); i++)
+		udelay(100);
+	if (i == 5000)
+		printk_ratelimited(KERN_WARNING "tx-isp: DMA writer 0x%x still busy after 500 ms at stream-off, cancelling\n", reg);
+}
+
 static int isp_core_frame_channel_streamoff(struct tx_isp_core_device *core, int value)
 {
 	frame_chan_vdev_t *vdev = (frame_chan_vdev_t *)value;
@@ -1973,7 +1993,7 @@ static int isp_core_frame_channel_streamoff(struct tx_isp_core_device *core, int
 		case V4L2_PIX_FMT_NV12:
 		case V4L2_PIX_FMT_NV21:
 			/* dma channel uv write */
-			while(APICAL_READ_32(base + 0xa4) & (1<<16));
+			isp_dma_writer_wait_idle(base + 0xa4);
 			primary = APICAL_READ_32(base + 0x80);
 			primary &= ~(1 << 9);
 			APICAL_WRITE_32(base + 0x80, primary);
@@ -1986,7 +2006,7 @@ static int isp_core_frame_channel_streamoff(struct tx_isp_core_device *core, int
 		case V4L2_PIX_FMT_BGR32:
 		case V4L2_PIX_FMT_RGB310:
 			/* dma channel y write */
-			while(APICAL_READ_32(base + 0x24) & (1<<16));
+			isp_dma_writer_wait_idle(base + 0x24);
 			primary = APICAL_READ_32(base);
 			primary &= ~(1 << 9);
 			APICAL_WRITE_32(base, primary);
@@ -2023,13 +2043,38 @@ static int isp_core_frame_channel_queue_buffer(struct tx_isp_core_device *core, 
 	struct tx_isp_frame_channel *chan = &(core->chans[vdev->index]);
 	unsigned long flags;
 	spin_lock_irqsave(&chan->slock, flags);
-	push_buffer_fifo(&chan->fifo, &vbuf->buf);
+	/* #467: a buffer already on the FIFO must not be linked a second time */
+	if (!tx_isp_t2x_entry_linked(&vbuf->buf.entry))
+		push_buffer_fifo(&chan->fifo, &vbuf->buf);
+	spin_unlock_irqrestore(&chan->slock, flags);
+	return ISP_SUCCESS;
+}
+
+/* #467: vb2 frees this buffer next (buf_cleanup): take it off the FIFO. */
+static int isp_core_frame_channel_free_buffer(struct tx_isp_core_device *core, int value)
+{
+	struct frame_channel_video_buffer *vbuf = (struct frame_channel_video_buffer *)value;
+	frame_chan_vdev_t *vdev = (frame_chan_vdev_t *)vbuf->buf.priv;
+	struct tx_isp_frame_channel *chan;
+	unsigned long flags;
+
+	if (!vdev || vdev->index < 0 || vdev->index >= ISP_MAX_OUTPUT_VIDEOS)
+		return ISP_SUCCESS;
+	chan = &(core->chans[vdev->index]);
+	spin_lock_irqsave(&chan->slock, flags);
+	if (tx_isp_t2x_entry_linked(&vbuf->buf.entry)) {
+		list_del_init(&vbuf->buf.entry);
+		pr_warn_ratelimited("tx-isp: chan%d: freed buffer %d was still on the core FIFO (#467)\n",
+				    vdev->index, vbuf->vb.v4l2_buf.index);
+	}
 	spin_unlock_irqrestore(&chan->slock, flags);
 	return ISP_SUCCESS;
 }
 static long isp_core_ops_private_ioctl(struct tx_isp_core_device *core, struct isp_private_ioctl *ctl)
 {
 	long ret = ISP_SUCCESS;
+	if ((int)ctl->cmd == TX_ISP_T2X_PRIVATE_IOCTL_FRAME_CHAN_FREE_BUFFER)
+		return isp_core_frame_channel_free_buffer(core, ctl->value);
 	switch (ctl->cmd) {
 		case TX_ISP_PRIVATE_IOCTL_MODULE_CLK:
 			ret = isp_core_set_clk(core, ctl->value);
