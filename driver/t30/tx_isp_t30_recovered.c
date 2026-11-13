@@ -5533,6 +5533,8 @@ static struct tx_isp_t30_subdev *tx_isp_t30_vic_sd;
 static uintptr_t frame_delay_10417;
 static uintptr_t __key_0;
 static unsigned char video_input_cmd_buf[128];
+/* #464: OEM video_input_cmd_buf proper (the symbol above aliases other relocations). */
+static char tx_isp_t30_vin_cmd_buf[128];
 static unsigned char sp_9007[8];
 static int32_t g_switch_lfb_off;
 static int tx_isp_t30_streamoff_trace_count;
@@ -7494,7 +7496,187 @@ static struct file_operations tx_isp_fops = {
 static struct file_operations video_input_cmd_fops = {
     .owner = THIS_MODULE,
     .open = (int (*)(struct inode *, struct file *))video_input_cmd_open,
+    .llseek = (loff_t (*)(struct file *, loff_t, int))seq_lseek,
+    .read = (ssize_t (*)(struct file *, char __user *, size_t, loff_t *))seq_read,
+    .release = (int (*)(struct inode *, struct file *))single_release,
 };
+
+/*
+ * #464: OEM T30 debug proc nodes isp-w01 (CSI), isp-w02 (VIC), isp-m3
+ * (mscaler) and isp-fs (frame source).  OEM fops for all of them are
+ * { seq_lseek, seq_read, dump_isp_<x>_open, single_release } and the open is
+ * single_open_size(file, show, PDE_DATA(inode), size).  The show functions
+ * below follow OEM isp_csi_show (0x2968), isp_vic_frd_show (0xc90),
+ * isp_mscaler_show (0x15e58) and isp_framesource_show (0x17778) line for
+ * line; m->private is the module (= subdev), the device is sd->dev_priv.
+ * OEM returns the summed seq_printf results; we return 0 so that a buffer
+ * overflow is retried by seq_read with a bigger buffer instead of -EPERM.
+ */
+#define TX_ISP_T30_VIC_FRD_OFF 0x15c	/* OEM vic+0x15c, ISR BIT(16) count */
+
+static void *tx_isp_t30_proc_dev(struct seq_file *m)
+{
+	struct tx_isp_t30_subdev *sd = m ? m->private : NULL;
+	void *dev;
+
+	if (!sd || IS_ERR(sd))
+		return NULL;
+	dev = sd->dev_priv;
+	if (!dev || IS_ERR(dev))
+		return NULL;
+	return dev;
+}
+
+static int isp_csi_show(struct seq_file *m, void *v)
+{
+	struct tx_isp_t30_csi_device *csd = tx_isp_t30_proc_dev(m);
+	void __iomem *base;
+	u32 err1, err2;
+
+	if (!csd || !csd->sd.base) {
+		isp_printf(2, "The parameter is invalid!\n", 0);
+		return 0;
+	}
+	base = csd->sd.base;
+	err1 = __raw_readl(base + 0x20);
+	err2 = __raw_readl(base + 0x24);
+	if (err1)
+		seq_printf(m, "0x0020 is  0x%x\n", err1);
+	if (err2)
+		seq_printf(m, "0x0024 is  0x%x\n", err2);
+	if (err1 || err2)
+		seq_printf(m, "0x0014 is  0x%x\n", __raw_readl(base + 0x14));
+	return 0;
+}
+
+static int isp_vic_frd_show(struct seq_file *m, void *v)
+{
+	char *vic = tx_isp_t30_proc_dev(m);
+
+	if (!vic) {
+		isp_printf(2, "The parameter is invalid!\n", 0);
+		return 0;
+	}
+	seq_printf(m, " %d\n", *(int *)(vic + TX_ISP_T30_VIC_FRD_OFF));
+	return 0;
+}
+
+static void tx_isp_t30_proc_show_fmt(struct seq_file *m,
+				     const struct tx_isp_t30_frame_image_format *fmt)
+{
+	u32 pf = fmt->pix.pixelformat;
+
+	seq_printf(m, "output pixformat: %c%c%c%c\n", (char)(pf & 0xff),
+		   (char)((pf >> 8) & 0xff), (char)((pf >> 16) & 0xff),
+		   (char)((pf >> 24) & 0xff));
+	seq_printf(m, "output resolution: %d * %d\n", fmt->pix.width,
+		   fmt->pix.height);
+	seq_printf(m, "scaler : %s\n", fmt->scaler_enable ? "enable" : "disable");
+	if (fmt->scaler_enable) {
+		seq_printf(m, "scaler width: %d\n", fmt->scaler_out_width);
+		seq_printf(m, "scaler height: %d\n", fmt->scaler_out_height);
+	}
+	seq_printf(m, "crop : %s\n", fmt->crop_enable ? "enable" : "disable");
+	if (fmt->crop_enable) {
+		seq_printf(m, "crop top: %d\n", fmt->crop_top);
+		seq_printf(m, "crop left: %d\n", fmt->crop_left);
+		seq_printf(m, "crop width: %d\n", fmt->crop_width);
+		seq_printf(m, "crop height: %d\n", fmt->crop_height);
+	}
+}
+
+static int isp_mscaler_show(struct seq_file *m, void *v)
+{
+	struct tx_isp_t30_mscaler_device *msd = tx_isp_t30_proc_dev(m);
+	u32 i;
+
+	if (!msd) {
+		isp_printf(2, "The parameter is invalid!\n", 0);
+		return 0;
+	}
+	for (i = 0; i < msd->num_outputs && msd->outputs; i++) {
+		struct tx_isp_t30_mscaler_output *out = &msd->outputs[i];
+
+		seq_printf(m, "############## chan %d ###############\n", i);
+		seq_printf(m, "chan status: %s\n",
+			   out->state == 4 ? "running" : "stop");
+		if (out->state != 4)
+			continue;
+		seq_printf(m, "output frames: %d\n", out->frame_count);
+		tx_isp_t30_proc_show_fmt(m, &out->fmt);
+	}
+	return 0;
+}
+
+static int isp_framesource_show(struct seq_file *m, void *v)
+{
+	struct tx_isp_t30_frame_sources *fs = tx_isp_t30_proc_dev(m);
+	u32 i;
+
+	if (!fs) {
+		isp_printf(2, "The parameter is invalid!\n", 0);
+		return 0;
+	}
+	for (i = 0; i < fs->num_channels && fs->channels; i++) {
+		struct tx_isp_t30_frame_channel *chan = &fs->channels[i];
+		struct tx_isp_t30_fs_buffer *buf;
+		unsigned long flags;
+
+		seq_printf(m, "############## framesource %d ###############\n", i);
+		seq_printf(m, "chan status: %s\n",
+			   chan->state == 4 ? "running" : "stop");
+		if (chan->state != 4)
+			continue;
+		tx_isp_t30_proc_show_fmt(m, &chan->fmt);
+		seq_printf(m, "the state of buffers:\n");
+		spin_lock_irqsave(&chan->slock, flags);
+		seq_printf(m, "queue count: %d\n", chan->queue.queued_count);
+		list_for_each_entry(buf, &chan->queue.queued_list, queued_entry)
+			seq_printf(m, "queue addr: 0x%08lx\n",
+				   buf->v4l2_buf.m.userptr);
+		seq_printf(m, "done count: %d\n", chan->queue.done_count);
+		list_for_each_entry(buf, &chan->queue.done_list, done_entry)
+			seq_printf(m, "done addr: 0x%08lx\n",
+				   buf->v4l2_buf.m.userptr);
+		spin_unlock_irqrestore(&chan->slock, flags);
+		seq_printf(m, "the output buffers is: %d\n", chan->out_frames);
+		seq_printf(m, "the losted buffers is: %d\n", chan->lost_frames);
+	}
+	return 0;
+}
+
+static int dump_isp_csi_open(struct inode *inode, struct file *file)
+{
+	return private_single_open_size(file, isp_csi_show, PDE_DATA(inode), 0x400);
+}
+
+static int dump_isp_vic_frd_open(struct inode *inode, struct file *file)
+{
+	return private_single_open_size(file, isp_vic_frd_show, PDE_DATA(inode), 0x400);
+}
+
+static int dump_isp_mscaler_open(struct inode *inode, struct file *file)
+{
+	return private_single_open_size(file, isp_mscaler_show, PDE_DATA(inode), 0x800);
+}
+
+static int dump_isp_framesource_open(struct inode *inode, struct file *file)
+{
+	return private_single_open_size(file, isp_framesource_show, PDE_DATA(inode), 0x800);
+}
+
+#define TX_ISP_T30_SEQ_PROC_FOPS(_name, _open)					\
+static struct file_operations _name = {						\
+	.owner = THIS_MODULE,							\
+	.open = _open,								\
+	.llseek = (loff_t (*)(struct file *, loff_t, int))seq_lseek,		\
+	.read = (ssize_t (*)(struct file *, char __user *, size_t, loff_t *))seq_read, \
+	.release = (int (*)(struct inode *, struct file *))single_release,	\
+}
+TX_ISP_T30_SEQ_PROC_FOPS(isp_csi_fops, dump_isp_csi_open);
+TX_ISP_T30_SEQ_PROC_FOPS(isp_vic_frd_fops, dump_isp_vic_frd_open);
+TX_ISP_T30_SEQ_PROC_FOPS(isp_mscaler_fops, dump_isp_mscaler_open);
+TX_ISP_T30_SEQ_PROC_FOPS(isp_framesource_fops, dump_isp_framesource_open);
 static struct miscdevice misc_dev = {
     .minor = MISC_DYNAMIC_MINOR,
     .name = "dev",
@@ -7835,6 +8017,9 @@ static int tx_isp_t30_vic_interrupt(struct tx_isp_t30_subdev *sd)
 	state = __raw_readl(base + 0x2000c);
 	pending = state & ~mask;
 	__raw_writel(pending, base + 0x20004);
+	/* #464, OEM ISR 0x79c: frame-done count shown by /proc/jz/isp/isp-w02. */
+	if ((pending & BIT(16)) && sd->dev_priv && !IS_ERR(sd->dev_priv))
+		(*(u32 *)((char *)sd->dev_priv + TX_ISP_T30_VIC_FRD_OFF))++;
 	if (pending & (BIT(20) | BIT(21))) {
 		control = __raw_readl(base);
 		__raw_writel(control | BIT(4), base);
@@ -8600,22 +8785,28 @@ int32_t tx_isp_vin_reset(void *arg1)
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000001f70 origin=model_output original=video_input_cmd_show */
 int video_input_cmd_show(struct seq_file *m, void *v)
 {
-    struct video_input *vi = (struct video_input *)v;
-    struct video_input_cmd *cmd = (void *)((struct video_input_cmd *)*(void **)((char *)(uintptr_t)vi + 0x3c));
-    struct video_input_cmd *target = cmd;
+	/*
+	 * #464, OEM 0x1f70: m->private is the vin module; the vin object is
+	 * module+0xd8 and its state module+0xf4.  OEM prints the command buffer
+	 * written through isp-w00 (video_input_cmd_set, not ported); without a
+	 * write it is empty, so a streaming sensor prints an empty line.
+	 */
+	void *mod = m ? m->private : NULL;
+	void *vin;
 
-    if (cmd) {
-        if ((unsigned int)cmd >= 0xfffff001u) {
-            target = NULL;
-        } else {
-            target = (struct video_input_cmd *)*(void **)((char *)cmd + 0xd8);
-        }
-    }
-
-    if (*(int *)((char *)target + 0xf4) < 4)
-        return seq_printf(m, "cmd buffer not ready\n");
-
-    return seq_printf(m, "sensor doesn't work, please enable sensor\n");
+	if (!mod || IS_ERR(mod))
+		goto invalid;
+	vin = *(void **)((char *)mod + 0xd8);
+	if (!vin || IS_ERR(vin))
+		goto invalid;
+	if (*(int *)((char *)vin + 0xf4) < 4)
+		seq_printf(m, "sensor doesn't work, please enable sensor\n");
+	else
+		seq_printf(m, "%s\n", tx_isp_t30_vin_cmd_buf);
+	return 0;
+invalid:
+	isp_printf(2, "The parameter is invalid!\n", 0);
+	return 0;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000001fc4 origin=model_output original=subdev_sensor_ops_release_all_sensor */
