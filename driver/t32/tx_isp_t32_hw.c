@@ -271,6 +271,8 @@ static u64 t33_mod_built;
 u32 t33_rcfg_runs, t33_rcfg_timeouts;
 
 /* a module's list page, uncached (the core reads it by DMA); NULL without memory */
+void t33_osd_list_rebuilt(void);	/* tx_isp_t33_osd.c */
+
 static u32 *t33_mod_buf(unsigned int id)
 {
 	if (id >= T33_MODULES)
@@ -776,6 +778,7 @@ static noinline_for_stack void t33_tisp_init_tone(const u8 *bin, u32 bytes)
 				isp_wr(0xf0128 + 0x100 * i, 0);
 			t33_mod_done(T33_MOD_MSCA, t33_msca_init(width, height, off && len > 0x30 ? bin + off : NULL,
 								 buf, T33_SLOT_WORDS));
+			t33_osd_list_rebuilt();	/* OSD / mask set before a stream-off survive in the new list */
 		}
 	}
 	off = t32_iq_section(bin, bytes, T33_SEC_CLM, &len);
