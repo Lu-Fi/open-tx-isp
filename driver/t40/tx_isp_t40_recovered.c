@@ -11846,10 +11846,17 @@ static void regtrace_t40_ysp_top_bit(int init_ret)
  * test kos: about 50 %).  Night stays monochrome (BCSH saturation 0); the
  * lit night luma was unchanged (122.1 vs 122.2).
  * t40_dn_keep_awb1=0 follows the night bank flag again.
+ *
+ * #332 (user decision 2026-11-13): AWB1 follows the bank like the vendor (night TOP 0x7FD9004D, bit 6 bypassed;
+ * keeping it on at night fed white-balanced statistics into the night defog, dark cells x1.18 the vendor effect).
+ * The day return is handled the vendor way instead (tisp_day_or_night_s_ctrl 0x82238): the new TOP word is written
+ * FIRST, then tisp_awb_dn_params_refresh runs when the NEW word does not bypass both AWB bits (0x44) and rewrites the
+ * AWB statistics block (0x18004..0x18024, 0x1804c) after AWB1 is on.  The open pipeline wrote TOP last and tested the
+ * OLD hardware word: night (0x44 set) -> day skipped the AWB refresh and AWB1 came on with stale statistics setup.
  */
-static bool regtrace_t40_dn_keep_awb1 T40C2 = true;   /* own section: keeps .bss/.data at the base size */
+static bool regtrace_t40_dn_keep_awb1 T40C2 = false;   /* own section: keeps .bss/.data at the base size */
 module_param_named(t40_dn_keep_awb1, regtrace_t40_dn_keep_awb1, bool, 0644);
-MODULE_PARM_DESC(t40_dn_keep_awb1, "1 (default): keep AWB1 (TOP bit 6) at the day-bank state at night, avoids the grey/green-magenta day picture after night->day; 0: follow the night bank");
+MODULE_PARM_DESC(t40_dn_keep_awb1, "0 (default, #332): AWB1 (TOP bit 6) follows the bank like the vendor (TOP written before the AWB refresh at the switch); 1: keep AWB1 at the day-bank state at night (pre-#332)");
 
 static bool regtrace_t40_clm T40C2 = true;
 module_param_named(t40_clm, regtrace_t40_clm, bool, 0644);
@@ -20933,6 +20940,10 @@ static void regtrace_t40_dmsc_day_shadow_switch(bool lit_on)
     }
 }
 
+/* #332: 1 (default) = vendor order at a bank switch (TOP first, AWB refresh on the new word); 0 = pre-#332 order */
+static bool t40_dn_top_first T40C2 = true;
+module_param(t40_dn_top_first, bool, 0644);
+
 static int regtrace_t40_refresh_daynight_pipeline(void)
 {
     uint32_t nbuf = *(uint32_t *)((char *)&tparamsN);
@@ -20977,8 +20988,15 @@ static int regtrace_t40_refresh_daynight_pipeline(void)
      * (0x13318028 = 0x00FF0044 at 1.39x = night row 0/1 70->65 / 250->260 at 0.48 stop; day rows give 0x015E005A),
      * night after a day init would keep the day rows.  The vendor runs it in the s_ctrl (ioctl) context as well.
      */
-    if (((uint32_t)system_reg_read(0x40U) & 0x44U) != 0x44U)
+    /* #332: vendor order - the new TOP word goes out before the AWB refresh, and the refresh test uses the NEW word */
+    if (READ_ONCE(t40_dn_top_first)) {
+        regtrace_tisp_main_init_top40_value = regtrace_t40_quality_top40_final;   /* watchdog shadow first */
+        REGTRACE_T40_DN_STEP(system_reg_write(0x40U, regtrace_t40_quality_top40_final));
+        if ((regtrace_t40_quality_top40_final & 0x44U) != 0x44U)
+            (void)tisp_awb_dn_params_refresh(0);
+    } else if (((uint32_t)system_reg_read(0x40U) & 0x44U) != 0x44U) {
         (void)tisp_awb_dn_params_refresh(0);
+    }
     if (regtrace_enable_lsc_lit &&
         regtrace_t40_lsc_bank_matches(nbuf, width, height))
         REGTRACE_T40_DN_STEP(regtrace_lsc_main_init_lit(
