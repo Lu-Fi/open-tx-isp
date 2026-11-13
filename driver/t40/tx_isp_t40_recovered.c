@@ -57819,6 +57819,12 @@ tx_isp_unlocked_ioctl0x2e98:
     /* fragment 769: MemoryAccess - #324 IMP_ISP_WDR_OPEN LINEAR (0xc0045432): OEM 0x15230..0x15244
      * core_priv[1564 + sensor] = (u8)imode, then b 0x834 with s0 = 0.  The lift ended the function here and
      * returned the address as the result (userspace saw -1); ispcore_core_ops_init reads the byte. */
+    /* #347 F11: the sensor number is one user byte; the byte array at +1564 has one entry per sensor slot (3 slots
+     * of 68 bytes before it, see ispcore_core_ops_init).  OEM stores unchecked; a number outside the slots is refused. */
+    if ((uintptr_t)v1 >= 3) {
+        s0 = -22;
+        goto tx_isp_unlocked_ioctl0x834;
+    }
     v0 = *(uint32_t *)((char *)s2 + 48);
     s0 = 0;
     v0 = *(uint32_t *)((char *)v0 + 268);
