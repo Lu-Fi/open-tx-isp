@@ -41214,7 +41214,25 @@ static void tx_isp_t30_simple_ae_update(void)
 	isp->sensor_digital_gain = 0;
 	isp->isp_digital_gain = state->isp_digital_gain_log2;
 	tx_isp_t30_ae_store_exposure_history(state->integration_time);
-	statistics->exposure_log2 = state->total_exposure_request_log2;
+	/*
+	 * #428: the OEM AE (ae_calculate_exposure) hands its exposure to
+	 * cmos_set_exposure_target (vendor tx-isp-t30.ko 0x36058, SDK ko 0x25ee8):
+	 * isp+0x11c only moves when the request is table 146 word 5 or more away,
+	 * then to request -/+ word5 / 2, and not at all while byte owner+0x2fc is
+	 * set.  isp+0x11c is the exposure input of iridix_control_strength_calculate
+	 * and of the other exposure modulations; the compact AE wrote the raw
+	 * request.  The exposure ratio (+0x1bc, read only in WDR modes) is passed
+	 * through unchanged.
+	 */
+	{
+		int32_t *cmos = (int32_t *)TX_ISP_T30_ISP_PTR(0x100);
+
+		if (cmos[0])
+			cmos_set_exposure_target(cmos,
+				state->total_exposure_request_log2, cmos[0x6f]);
+		else
+			statistics->exposure_log2 = state->total_exposure_request_log2;
+	}
 	APICAL_WRITE_32(0x01a0,
 		(APICAL_READ_32(0x01a0) & 0xfffff000) |
 		(math_exp2(state->isp_digital_gain_log2, 16, 8) & 0xfff));

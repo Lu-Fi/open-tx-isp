@@ -21,6 +21,7 @@ Runs functions of the SDK-built vendor tx-isp-t30.ko (4ea12e1f) and of our drive
   VIDIOC_DQBUF + pending signal                 EXPECTED difference (beyond vendor, #365): vendor spins, ours returns -ERESTARTSYS
   tx_isp_sync_ldc / tx_isp_sync_ncu             frame-end watchdog: reg_set calls, counters, registers (#377)
   ldc_core_ops_init                             spin lock address, param file size check, checksum loop step, memcpy (#418)
+  cmos_set_exposure_target                      isp+0x11c hysteresis, +0x2fc gate, ratio clamp (#428)
 
 Callees outside the function under test are hooked at their entry in both modules and logged; the
 calibration getters return synthetic tables (no vendor data).  Return values are compared only where the
@@ -852,11 +853,41 @@ def t_ldc_init(V, O, rnd, n):
     if "-v" in sys.argv: print("  ldc_init: %d/%d reached the memcpy (checksum ok)" % (okp, n))
     return bad
 
+def t_set_target(V, O, rnd, n):
+    """cmos_set_exposure_target (vendor 0x36058): hysteresis of isp+0x11c (cmos+0x1c) against table 146 word 5,
+    owner byte +0x2fc gate, exposure ratio +0x1bc clamped at 0x400 (#428)"""
+    bad = 0
+    for k in range(n):
+        thr = rnd.choice([0, 1, 0x800, 0x4000, 0x20000, rnd.getrandbits(20), 0xffffffff])
+        cur = rnd.choice([0, 691247, rnd.getrandbits(24), rnd.getrandbits(32)])
+        tgt = rnd.choice([cur, cur + rnd.randrange(-0x5000, 0x5000), rnd.getrandbits(24), rnd.getrandbits(32)]) & M32
+        ratio = rnd.choice([0, 0x100, 0x400, 0x401, rnd.getrandbits(16), rnd.getrandbits(32)])
+        gate = rnd.choice([0, 0, 0, 1]); mode = rnd.choice([0, 0, 1, 2, 3])
+        res = []
+        for m in (V, O):
+            m.e.heap_reset()
+            own = bytearray(0x1600); own[0x2fc] = gate; own[0x1524] = mode
+            o = m.e.alloc(len(own), own); tab = m.e.alloc(32, struct.pack("<8I", 1, 2, 3, 4, 5, thr, 7, 8))
+            cm = bytearray(0x200); struct.pack_into("<I", cm, 0, o); struct.pack_into("<I", cm, 0x1c, cur & M32)
+            struct.pack_into("<I", cm, 0x1bc, 0x55aa); c = m.e.alloc(len(cm), cm)
+            m.hook("_GET_HDR_TABLE_INDEX", lambda e: 0x92 + 1000 * e.get_reg(UC_MIPS_REG_A1))
+            m.hook("_GET_UINT_PTR", lambda e, tab=tab: tab if e.get_reg(UC_MIPS_REG_A0) == 0x92 + 1000 * mode else 0)
+            r = m.call("cmos_set_exposure_target", c, tgt, ratio & M32)
+            m.unhook("_GET_HDR_TABLE_INDEX"); m.unhook("_GET_UINT_PTR")
+            res.append((r.stop, m.e.read(c, len(cm)), m.e.read(o, len(own))))
+        if res[0] != res[1]:
+            bad += 1
+            if bad < 4:
+                d = [hex(i) for i in range(0x200) if res[0][1][i] != res[1][1][i]]
+                print("DIFF set_exposure_target thr=%#x cur=%#x tgt=%#x ratio=%#x gate=%d stop=%s/%s bytes %s" % (thr, cur, tgt, ratio, gate, res[0][0], res[1][0], d[:8]))
+    return bad
+
 TESTS = [("nr_selectors", t_nr), ("general_frame_start", t_general), ("fsm_switch_state", t_fsm), ("crop_event", t_crop),
          ("sbus_write_u8", t_sbus), ("awb_normalise", t_normalise), ("event_queue_push", t_queue),
          ("awb_mesh_chain", t_mesh), ("compute_weight", t_weight), ("awb_calc_mesh", t_calc),
          ("gp_lock_paths", t_gp_lock), ("ioctl_uaccess", t_uaccess),
          ("ptr_scale", t_ptr_scale), ("fci_args", t_fci_args), ("sync_watchdog", t_sync), ("ldc_ncu_counts", t_counts), ("ldc_core_ops_init", t_ldc_init),
+         ("set_exposure_target", t_set_target),
          ("dqbuf_signal(expected diff)", t_dqbuf_signal)]
 
 def main():

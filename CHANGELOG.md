@@ -4,6 +4,13 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD[-rcN]` are set on the `aperto` branch, the same tag in open-tx-isp and OpenIMP: RC1 `v2026.10.11-rc1`, RC2 `v2026.10.25-rc2`, RC3 `v2026.11.07-rc3` (2026-11-07). Gate SoCs of RC3 and Release 1: T10, T20, T21, T23, T30, T31, T40, T41 (T32/T33 planned, QEMU only); release notes: [docs/releases/ in OpenIMP](https://github.com/Lu-Fi/openimp/blob/next/docs/releases/README.md). Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-11-13: T30 Iridix exposure input through the vendor hysteresis (openimp #428; host-tested, device pending)
+
+- Cause: the compact T30 AE wrote its raw exposure request to isp+0x11c, the exposure input of `iridix_control_strength_calculate` and the other exposure modulations. The vendor AE hands it to `cmos_set_exposure_target` (vendor tx-isp-t30.ko 0x36058): isp+0x11c moves only when the request is table 146 word 5 or more away, then to request -/+ word5/2, and not while owner byte +0x2fc is set; exposure ratio +0x1bc clamped at 0x400.
+- Fix: the compact AE calls the lifted `cmos_set_exposure_target` (ratio passed through unchanged; it is read only in WDR modes). Iridix functions and tables were already bit-equal (#428 earlier).
+- b69 device data (T30X, same scene): AE histogram equal (mean bin 91.4 / 91.1); the 0x3c4 median gap (vendor 0x42, open 0x58) is mostly convergence: the vendor was still rising (0x56 at the last sample, 3dc 0xac..0xff while its AE settled), open settled at 0x58 after ~6 s. Settled-state check planned as b70.
+- Host: `t30_lift_oracle` new case `set_exposure_target` (vendor ko vs our object in Unicorn, 200 cases: hysteresis, gate, ratio clamp) ok; full oracle ok.
+
 ## 2026-11-13: t41_awb_algo_host no longer flaky under load (openimp #435)
 
 - Cause (harness race, not a driver bug: the pool is static and zeroed, the lock covers the block): case 7 asserted `g.done` right after the close returned, but the getter thread sets `done` only after its GET returned, which can be after the close got the lock; and "GET is inside the fill hook" was assumed after a fixed 60 ms sleep, so a late thread made the close win (GET answered -EINVAL, `ret != 0`).
