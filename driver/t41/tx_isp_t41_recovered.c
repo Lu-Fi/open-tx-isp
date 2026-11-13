@@ -154307,6 +154307,14 @@ module_param_call(t41_tmo_map_selftest, t41_tmo_map_selftest_set, param_get_int,
 MODULE_PARM_DESC(t41_tmo_map_selftest, "write 1: compare MXU3/fast/reference TMO map on random inputs (dmesg)");
 #endif
 
+/* The T41 is XBurst2-MXU3.1. The mainline kernel does not expose the
+ * vendor's cpu_has_mxuv3 feature flag, and this module only builds for
+ * the T41, so the SIMD path is always available there (k7 patch 0045).
+ * The 4.4 vendor kernel keeps its own runtime flag. */
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 0, 0) && !defined(cpu_has_mxuv3)
+#define cpu_has_mxuv3 1
+#endif
+
 static bool t41_tmo_mxu3_available(void)
 {
 	return cpu_has_mxuv3;
