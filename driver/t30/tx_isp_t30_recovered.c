@@ -7804,7 +7804,12 @@ int vic_sensor_ops_ioctl(void *file, unsigned int cmd)
 
 	switch (cmd) {
 	case 0x200000c:
-		*(int **)((char *)vic + 0xb8)[0] = 0x10;
+		/*
+		 * OEM 0x564: VIC register +0 = 0x10.  The lifted line parsed as
+		 * *(int **)(byte at vic+0xb8) and stored to that byte value as an
+		 * address (#451 C).
+		 */
+		writel(0x10, *(void __iomem **)((char *)vic + 0xb8));
 		return 0;
 	case 0x200000d:
 		return tx_isp_vic_start(vic);

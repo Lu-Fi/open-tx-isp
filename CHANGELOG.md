@@ -4,6 +4,14 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD[-rcN]` are set on the `aperto` branch, the same tag in open-tx-isp and OpenIMP: RC1 `v2026.10.11-rc1`, RC2 `v2026.10.25-rc2`, RC3 `v2026.11.07-rc3` (2026-11-07). Gate SoCs of RC3 and Release 1: T10, T20, T21, T23, T30, T31, T40, T41 (T32/T33 planned, QEMU only); release notes: [docs/releases/ in OpenIMP](https://github.com/Lu-Fi/openimp/blob/next/docs/releases/README.md). Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-11-13: T30 ISR like the OEM for status bit 13 and the IRQ thread wake, register accessors (openimp #451, #274; QEMU-tested, device pending)
+
+- Core ISR: status bit 13 (firmware event 50, set every frame) was never handled. Now like OEM case 13 (0xde94): DMA direction check and writer on/off for core output channel 1 (LFB link: on while running; direct link: on while the next bank holds a buffer; NV12/NV21 UV writer first, as `isp_enable_dma_transfer`). Counter `ch1ev` in the direct-writer report.
+- Core ISR: the IRQ thread (queued sensor gain/integration writes) is woken on frame start only, like the OEM ISR (its only wake, 0xd5ec). The extra wake on AE kept the IRQF_ONESHOT line masked over the I2C writes mid-frame.
+- `vic_sensor_ops_ioctl` 0x200000c: the lifted store wrote 0x10 to the address given by the byte at vic+0xb8 (cast precedence); now VIC register +0 = 0x10 like the OEM (0x564).
+- Plain-pointer register accesses (CSI/PHY init, LDC watchdog/restart/pad/ISR, NCU, mscaler stream-off, ISP size reads in g_ctrl; 90 accesses) through readl/writel/readw. No behaviour change: at -O0 the per-function sequence of register loads/stores and calls is identical before/after. Prerequisite for an optimised recovered unit (#274; `TX_ISP_T30_OS` stays n).
+- Guard: `tests/check_t30_isr_451.sh` in `make -C tests check`.
+
 ## 2026-11-13: T30 common objects at -Os, -Os groundwork for the recovered unit (openimp #274; QEMU-tested, device pending)
 
 - `driver/t30/Kbuild`: only `tx_isp_t30_recovered.o` keeps `-O0` (code byte-identical); the shared common objects build at `-Os` like on the other SoCs. size(1) text 554883 -> 536783 (data/bss unchanged), QEMU lsmod 639536 -> 621440.
