@@ -40794,10 +40794,16 @@ static u32 tx_isp_t30_ae_hist_raw[256];
 
 static void tx_isp_t30_ae_snapshot_histogram(void)
 {
+#ifdef TX_ISP_T30_SHARED_IO
+	/* one tight -Os loop (vendor entry ~70 us), not 256 -O0 calls */
+	system_isp_read_block_32(0x10000, tx_isp_t30_ae_hist_raw,
+				 ARRAY_SIZE(tx_isp_t30_ae_hist_raw));
+#else
 	u32 i;
 
 	for (i = 0; i < 256; i++)
 		tx_isp_t30_ae_hist_raw[i] = APICAL_READ_32(0x10000 + i * sizeof(u32));
+#endif
 }
 
 static u32 tx_isp_t30_decode_histogram_bin(u32 raw)
@@ -41131,6 +41137,8 @@ static void tx_isp_t30_simple_ae_update(void)
 	struct t30_ae_manual manual;
 	s32 fixed_gain;
 	s32 part_exposure;
+	unsigned long irq_flags;
+	u32 dgain_reg;
 
 	if (!simple_3a || !core)
 		return;
@@ -41308,8 +41316,20 @@ static void tx_isp_t30_simple_ae_update(void)
 	}
 	state->analog_gain_log2 = requested_gain;
 	state->analog_gain_code = (u16)sensor_code;
+	/*
+	 * #451: this runs in process context (AE work) since the AE IRQ only
+	 * copies the histogram.  Integration time, analog gain (queued for the
+	 * frame-start IRQ thread) and the ISP digital gain 0x1a0 must land in
+	 * the same frame, as when this ran in the hard IRQ: no interrupt and no
+	 * IRQ thread may run between them (single CPU, irqs off = no preemption).
+	 */
+	dgain_reg = math_exp2(state->isp_digital_gain_log2, 16, 8) & 0xfff;
+	local_irq_save(irq_flags);
 	sensor_set_integration_time(0, state->integration_time);
 	sensor_set_analog_gain(0, state->analog_gain_code);
+	APICAL_WRITE_32(0x01a0,
+		(APICAL_READ_32(0x01a0) & 0xfffff000) | dgain_reg);
+	local_irq_restore(irq_flags);
 	/* the system integration-time item (byte 24) backs GetExpr / GetIntegrationTime; the OEM
 	 * exposure history keeps it current, the compact AE has to publish it itself (#202) */
 	if (!manual.integration)
@@ -41363,9 +41383,7 @@ static void tx_isp_t30_simple_ae_update(void)
 		else
 			statistics->exposure_log2 = state->total_exposure_request_log2;
 	}
-	APICAL_WRITE_32(0x01a0,
-		(APICAL_READ_32(0x01a0) & 0xfffff000) |
-		(math_exp2(state->isp_digital_gain_log2, 16, 8) & 0xfff));
+	/* the ISP digital gain 0x1a0 is written above, with the sensor values */
 	sensor_update_black((int32_t *)TX_ISP_T30_ISP_PTR(0x100));
 	/*
 	 * cmos_fsm_switch_state() raises event 19 after applying an OEM exposure

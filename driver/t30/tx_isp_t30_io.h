@@ -6,6 +6,7 @@
 
 void system_isp_set_base_address(void __iomem *address);
 u32 system_isp_read_32(u32 address);
+void system_isp_read_block_32(u32 address, u32 *dst, unsigned int count);
 u16 system_isp_read_16(u32 address);
 u8 system_isp_read_8(u32 address);
 void __iomem *system_isp_write_32(u32 address, u32 value);

@@ -22,6 +22,20 @@ u32 system_isp_read_32(u32 address)
 	return __raw_readl(tx_isp_t30_io_address(address));
 }
 
+/*
+ * count consecutive 32-bit registers from address on: one tight loop (this
+ * object builds at -Os), for statistics copies in hard-IRQ context such as the
+ * AE histogram (256 bins), where per-register calls from the -O0 unit made the
+ * AE interrupt entry long enough to swallow the next events (openimp #451).
+ */
+void system_isp_read_block_32(u32 address, u32 *dst, unsigned int count)
+{
+	const u32 __iomem *src = tx_isp_t30_io_address(address);
+
+	while (count--)
+		*dst++ = __raw_readl(src++);
+}
+
 u16 system_isp_read_16(u32 address)
 {
 	return __raw_readw(tx_isp_t30_io_address(address));
