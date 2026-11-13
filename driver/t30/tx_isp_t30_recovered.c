@@ -35395,13 +35395,14 @@ int32_t get_quantised_long_integration_time(int32_t *arg1, int32_t arg2, int32_t
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000026604 origin=model_output original=cmos_antiflicker_update */
 int32_t cmos_antiflicker_update(int32_t *arg1)
 {
-	uint16_t val = *(uint16_t *)(arg1 + 0x1c4);
-	int32_t result = get_quantised_integration_time(arg1, val);
+	/* #463: u16 at byte +0x1c4 (vendor 25d28 lhu 452(a0)), re-read after the call, unsigned compare */
+	uint16_t *it = (uint16_t *)((uint8_t *)arg1 + 0x1c4);
+	uint32_t result = (uint32_t)get_quantised_integration_time((uint32_t *)arg1, *it);
 
-	if (result < val)
-		*(uint16_t *)(arg1 + 0x1c4) = result;
+	if (result < *it)
+		*it = (uint16_t)result;
 
-	return result;
+	return (int32_t)result;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000026644 origin=model_output original=cmos_long_exposure_update */
@@ -37239,7 +37240,8 @@ uint32_t general_frame_end(uint32_t *arg1)
 			(uint32_t *)((char *)ctx + 0x34), new_val, (uint32_t *)((char *)ctx + 0x4c));
 		*(uint8_t *)((char *)ctx + 0x5b) = *(uint8_t *)((char *)arg1 + 0x3f);
 		general_set_wdr_mode(arg1);
-		result = color_matrix_change_CCMs(*(uint32_t **)arg1 + 0xee8);
+		/* #463: byte offset (vendor 29c80 addiu a0,a0,3816), the lift added 0xee8 words */
+		result = (uint32_t *)(uintptr_t)color_matrix_change_CCMs((int32_t *)((uint8_t *)*(uint32_t **)arg1 + 0xee8));
 		*(uint8_t *)((char *)arg1 + 0x41) = 0;
 	} else {
 		result = old_val;
