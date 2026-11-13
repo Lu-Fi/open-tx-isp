@@ -74,12 +74,14 @@ static void isp_printf(int lvl, const char *fmt, ...) { (void)lvl; (void)fmt; }
 static int apply_calls, apply_fail, restore_calls, fill_hold_ms, fill_calls;
 static u32 last_r, last_b;
 static int fill_poison_seen;
+static volatile int fill_entered;	/* set by the fill hook: the GET is inside it, holding the lock */
 #include "awb_block.inc"
 
 static void t41_awb_algo_init_attr(u32 attr[5]) { for (int i = 0; i < 5; i++) attr[i] = 0x100 + i; }
 static void t41_awb_algo_fill_info(unsigned char *info)
 {
 	fill_calls++;
+	fill_entered = 1;
 	memcpy(info, "FILLED", 6);
 	if (fill_hold_ms) { usleep(fill_hold_ms * 1000); if (info[0] != 'F') fill_poison_seen = 1; }
 }
@@ -177,10 +179,14 @@ int main(void)
 	memset(&g, 0, sizeof(g)); g.id = 1;
 	pthread_create(&th, NULL, getter, &g);
 	usleep(30000);
+	fill_entered = 0;
 	t41_awb_algo_wake();
-	usleep(60000);				/* the GET is inside the fill hook, holding the lock */
-	assert(do_close() == 0);		/* blocks until the GET is done */
-	assert(g.done && g.ret == 0 && !fill_poison_seen && blocks_in_use() == 0);
+	for (int ms = 0; !fill_entered && ms < 10000; ms++)	/* wait (deadline 10 s) until the GET is inside the fill hook, */
+		usleep(1000);						/* holding the lock - a loaded host may run the thread late */
+	assert(fill_entered);
+	assert(do_close() == 0);		/* blocks until the GET has left the hook (the 200 ms hold is the window) */
+	/* the getter sets g.done only after its GET returned, which can be after the close returned: wait for it */
+	assert(wait_done(&g, 5000) && g.ret == 0 && !fill_poison_seen && blocks_in_use() == 0);
 	pthread_join(th, NULL);
 	fill_hold_ms = 0;
 

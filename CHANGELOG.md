@@ -4,6 +4,11 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD[-rcN]` are set on the `aperto` branch, the same tag in open-tx-isp and OpenIMP: RC1 `v2026.10.11-rc1`, RC2 `v2026.10.25-rc2`, RC3 `v2026.11.07-rc3` (2026-11-07). Gate SoCs of RC3 and Release 1: T10, T20, T21, T23, T30, T31, T40, T41 (T32/T33 planned, QEMU only); release notes: [docs/releases/ in OpenIMP](https://github.com/Lu-Fi/openimp/blob/next/docs/releases/README.md). Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-11-13: t41_awb_algo_host no longer flaky under load (openimp #435)
+
+- Cause (harness race, not a driver bug: the pool is static and zeroed, the lock covers the block): case 7 asserted `g.done` right after the close returned, but the getter thread sets `done` only after its GET returned, which can be after the close got the lock; and "GET is inside the fill hook" was assumed after a fixed 60 ms sleep, so a late thread made the close win (GET answered -EINVAL, `ret != 0`).
+- Fix: the fill hook sets `fill_entered`, the test waits for it (10 s deadline) before closing, and waits for the getter (5 s deadline) before the assertions. The use-after-free check (`fill_poison_seen`, `unlocked-use` mutation) is unchanged. 50/50 runs under 16 busy loops, 11/11 mutations still detected, `make -C tests check` rc=0.
+
 ## 2026-11-13: T40 HLDC (lens distortion correction) set path like the vendor (openimp #432; Eufy .184)
 
 - Cause: `tisp_s_hldc_attr` was a lifted tail jump without its relocation (`t9 = 0; jr.hb t9`, returns 0), so `IMP_ISP_Tuning_SetHLDCAttr` never reached the HLDC block: strength not stored or applied, Get stayed at 128. The rest of the lifted block could not be used either: `tisp_hldc_main_init` stored the buffer at the wrong address and was never called, `tiziano_hldc_params_refresh` looped forever, `con_par_cfg` wrote an uninitialised value, `strength_adjust_k` read its tables through a NULL pointer. The s_ctrl handler (CID 0x8000097) dropped the ISP input width/height.
