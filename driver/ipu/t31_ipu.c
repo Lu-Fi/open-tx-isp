@@ -95,6 +95,11 @@ static int debug_ipu = 1;
  * ran the whole time and directly measures the IPU clock at ~200 MHz.
  * Worst healthy op is therefore ~0.8 ms; 100 ms is >120x headroom, so a
  * timeout is a wedge, not a slow frame.
+ *
+ * openimp #264 L9: these numbers are T20 measurements.  The budget was not
+ * measured on T31 (IPU v13); it is kept because a 1080p NV12 blend is far
+ * below 100 ms there too, and IPU_CLK_NUM_ONE_FRA is printed on every
+ * timeout so a T31 wedge report carries the real clock count.
  */
 #define IPU_DONE_TIMEOUT_MS	100
 
@@ -504,47 +509,60 @@ static int _ipu_set_osd_chx_route(struct jz_ipu *ipu, struct ipu_param *ip, int 
 	unsigned int para = 0;
 	unsigned int fmt = 0;
 	unsigned int bak_argb = 0;
+	unsigned int src_stride = 0;
 
 	if ((ch < 0) || (ch > 3)) {
 		printk("ipu: osd channel num err ch = %d\n", ch);
 		return -1;
 	}
+	/*
+	 * openimp #264 L2: clip the OSD window to the background like the
+	 * vendor T31 SDK 1.1.6 jz_ipu_v13.c (_ipu_set_osd_chx_route,
+	 * lines 457-491): the blend size is cut at bg_w-1/bg_h-1, the input
+	 * stride stays the full source width.  The 3.10 tree this port came
+	 * from had lost the clip, so a region at the right/bottom edge made
+	 * the IPU write past the frame.
+	 */
 	switch(ch) {
 		case 0:
 			fmt	= ip->osd_ch0_fmt;
 			posx  = ip->osd_ch0_pos_x;
 			posy  = ip->osd_ch0_pos_y;
-			srcw  = ip->osd_ch0_src_w;
-			srch  = ip->osd_ch0_src_h;
+			srcw  = ((ip->bg_w-1) > (ip->osd_ch0_pos_x + ip->osd_ch0_src_w)) ? (ip->osd_ch0_src_w) : (ip->bg_w-1-ip->osd_ch0_pos_x);
+			srch  = ((ip->bg_h-1) > (ip->osd_ch0_pos_y + ip->osd_ch0_src_h)) ? (ip->osd_ch0_src_h) : (ip->bg_h-1-ip->osd_ch0_pos_y);
 			para  = ip->osd_ch0_para;
 			bak_argb  = ip->osd_ch0_bak_argb;
+			src_stride = ip->osd_ch0_src_w;
 			break;
 		case 1:
 			fmt	= ip->osd_ch1_fmt;
 			posx  = ip->osd_ch1_pos_x;
 			posy  = ip->osd_ch1_pos_y;
-			srcw  = ip->osd_ch1_src_w;
-			srch  = ip->osd_ch1_src_h;
+			srcw  = ((ip->bg_w-1) > (ip->osd_ch1_pos_x + ip->osd_ch1_src_w)) ? (ip->osd_ch1_src_w) : (ip->bg_w-1-ip->osd_ch1_pos_x);
+			srch  = ((ip->bg_h-1) > (ip->osd_ch1_pos_y + ip->osd_ch1_src_h)) ? (ip->osd_ch1_src_h) : (ip->bg_h-1-ip->osd_ch1_pos_y);
 			para  = ip->osd_ch1_para;
 			bak_argb  = ip->osd_ch1_bak_argb;
+			src_stride = ip->osd_ch1_src_w;
 			break;
 		case 2:
 			fmt	= ip->osd_ch2_fmt;
 			posx  = ip->osd_ch2_pos_x;
 			posy  = ip->osd_ch2_pos_y;
-			srcw  = ip->osd_ch2_src_w;
-			srch  = ip->osd_ch2_src_h;
+			srcw  = ((ip->bg_w-1) > (ip->osd_ch2_pos_x + ip->osd_ch2_src_w)) ? (ip->osd_ch2_src_w) : (ip->bg_w-1-ip->osd_ch2_pos_x);
+			srch  = ((ip->bg_h-1) > (ip->osd_ch2_pos_y + ip->osd_ch2_src_h)) ? (ip->osd_ch2_src_h) : (ip->bg_h-1-ip->osd_ch2_pos_y);
 			para  = ip->osd_ch2_para;
 			bak_argb  = ip->osd_ch2_bak_argb;
+			src_stride = ip->osd_ch2_src_w;
 			break;
 		case 3:
 			fmt	= ip->osd_ch3_fmt;
 			posx  = ip->osd_ch3_pos_x;
 			posy  = ip->osd_ch3_pos_y;
-			srcw  = ip->osd_ch3_src_w;
-			srch  = ip->osd_ch3_src_h;
+			srcw  = ((ip->bg_w-1) > (ip->osd_ch3_pos_x + ip->osd_ch3_src_w)) ? (ip->osd_ch3_src_w) : (ip->bg_w-1-ip->osd_ch3_pos_x);
+			srch  = ((ip->bg_h-1) > (ip->osd_ch3_pos_y + ip->osd_ch3_src_h)) ? (ip->osd_ch3_src_h) : (ip->bg_h-1-ip->osd_ch3_pos_y);
 			para  = ip->osd_ch3_para;
 			bak_argb  = ip->osd_ch3_bak_argb;
+			src_stride = ip->osd_ch3_src_w;
 			break;
 		default :
 			printk("ipu: osd channel num err ch = %d\n", ch);
@@ -560,12 +578,12 @@ static int _ipu_set_osd_chx_route(struct jz_ipu *ipu, struct ipu_param *ip, int 
 	IPU_DEBUG("ipu: ch = %d, isrgb=%d, posx=%d, posy=%d, srcw=%d, srch=%d, para=%d\n",
 			ch, isrgb, posx, posy, srcw, srch, para);
 	if (isrgb == 1) {
-		reg_write(ipu, IPU_OSD_IN_CH0_Y_STRIDE+0x10*ch, srcw*4);
+		reg_write(ipu, IPU_OSD_IN_CH0_Y_STRIDE+0x10*ch, src_stride*4);
 	} else if (isrgb == 2){        //The format is RGBA5551
-		reg_write(ipu, IPU_OSD_IN_CH0_Y_STRIDE+0x10*ch, srcw*2);
+		reg_write(ipu, IPU_OSD_IN_CH0_Y_STRIDE+0x10*ch, src_stride*2);
 	} else {
-		reg_write(ipu, IPU_OSD_IN_CH0_Y_STRIDE+0x10*ch, srcw);
-		reg_write(ipu, IPU_OSD_IN_CH0_UV_STRIDE+0x10*ch, srcw);
+		reg_write(ipu, IPU_OSD_IN_CH0_Y_STRIDE+0x10*ch, src_stride);
+		reg_write(ipu, IPU_OSD_IN_CH0_UV_STRIDE+0x10*ch, src_stride);
 	}
 
     if((srcw > 0) && (srch > 0)) {
@@ -748,6 +766,92 @@ static int ipu_dump_info(struct jz_ipu *ipu)
 	return ret;
 }
 
+/*
+ * openimp #264 M3: everything ipu_start() programs after IPU_STOP/IPU_RESET,
+ * in the vendor order (T31 SDK 1.1.6 jz_ipu_v13.c ipu_start, lines 716-790).
+ * Factored out so that the wedge retry reprograms the engine after its
+ * reset instead of re-triggering with whatever IPU_RESET left behind.
+ */
+static int _ipu_program(struct jz_ipu *ipu, struct ipu_param *ip)
+{
+	int ret;
+
+	ret = _ipu_set_bg_route(ipu, ip);
+	if (ret) {
+		printk("ipu: error _ipu_set_bg_route %d\n", ret);
+		return ret;
+	}
+	ret = _ipu_set_bg_buffer(ipu, ip);
+	if (ret) {
+		printk("ipu: error _ipu_set_bg_buffer %d\n", ret);
+		return ret;
+	}
+
+    if (ip->cmd & IPU_CMD_CSC) {
+		reg_write(ipu, IPU_REG_CTRL, 0xffffffff);
+        reg_write(ipu, IPU_OSD_CH0_PARA, 0x010417fa);
+        reg_write(ipu, IPU_OSD_CH_BK_PARA, 0x141000);
+
+		reg_write(ipu, IPU_CH0_CSC_C0_COEF, (0x4ad << 0) | (0 << 20));
+		reg_write(ipu, IPU_CH0_CSC_C1_COEF, (0x669 << 0) | (0x4ad << 20));
+		reg_write(ipu, IPU_CH0_CSC_C2_COEF, (0x193 << 0) | (0x344 << 20));
+		reg_write(ipu, IPU_CH0_CSC_C3_COEF, (0x4ad << 0) | (0x81a << 20));
+		reg_write(ipu, IPU_CH0_CSC_C4_COEF, 0);
+		reg_write(ipu, IPU_CH0_CSC_OFSET_PARA, (0x10 << 0) | (0x80 << 16));
+    }
+
+	if (ip->cmd & IPU_CMD_OSD0) {
+		ret = _ipu_set_osd_chx_route(ipu, ip, 0);
+		if (ret) {
+			printk("ipu: error _ipu_set_osd_ch0_route %d\n", ret);
+			return ret;
+		}
+		ret = _ipu_set_osdx_buffer(ipu, ip, 0);
+		if (ret) {
+			printk("ipu: error _ipu_set_osdx_buffer %d\n", ret);
+			return ret;
+		}
+	}
+	if (ip->cmd & IPU_CMD_OSD1) {
+		ret = _ipu_set_osd_chx_route(ipu, ip, 1);
+		if (ret) {
+			printk("ipu: error _ipu_set_osd_ch1_route %d\n", ret);
+			return ret;
+		}
+		ret = _ipu_set_osdx_buffer(ipu, ip, 1);
+		if (ret) {
+			printk("ipu: error _ipu_set_osdx_buffer %d\n", ret);
+			return ret;
+		}
+	}
+	if (ip->cmd & IPU_CMD_OSD2) {
+		ret = _ipu_set_osd_chx_route(ipu, ip, 2);
+		if (ret) {
+			printk("ipu: error _ipu_set_osd_ch2_route %d\n", ret);
+			return ret;
+		}
+		ret = _ipu_set_osdx_buffer(ipu, ip, 2);
+		if (ret) {
+			printk("ipu: error _ipu_set_osdx_buffer %d\n", ret);
+			return ret;
+		}
+	}
+	if (ip->cmd & IPU_CMD_OSD3) {
+		ret = _ipu_set_osd_chx_route(ipu, ip, 3);
+		if (ret) {
+			printk("ipu: error _ipu_set_osd_ch3_route %d\n", ret);
+			return ret;
+		}
+		ret = _ipu_set_osdx_buffer(ipu, ip, 3);
+		if (ret) {
+			printk("ipu: error _ipu_set_osdx_buffer %d\n", ret);
+			return ret;
+		}
+	}
+
+	return 0;
+}
+
 static int ipu_start(struct jz_ipu *ipu, struct ipu_param *ipu_param)
 {
 	int ret = 0;
@@ -778,88 +882,33 @@ static int ipu_start(struct jz_ipu *ipu, struct ipu_param *ipu_param)
 	 * brand-new behavior for a datapath that already wedges ~1/500k
 	 * ops, and does not belong in a stability fix.
 	 */
+	/*
+	 * openimp #264 L7: clk_prepare_enable() can fail on mainline; a
+	 * failed enable must not be paired with a disable later (refcount
+	 * underflow).  The vendor clk_enable() calls (T31 SDK jz_ipu_v13.c
+	 * 712, 714) are unchecked; with the clocks on, nothing changes.
+	 */
 	if (!ipu->clk_always_on) {
-		ipu_clk_on(ipu->clk);
+		ret = ipu_clk_on(ipu->clk);
+		if (ret) {
+			dev_err(ipu->dev, "ipu clk enable failed %d\n", ret);
+			goto err_cmd;
+		}
 		ipu->clk_always_on = 1;
 	}
 #ifdef IPU_T31_AHB1
-	ipu_clk_on(ipu->ahb1_gate);
+	ret = ipu_clk_on(ipu->ahb1_gate);
+	if (ret) {
+		dev_err(ipu->dev, "ipu ahb1 clk enable failed %d\n", ret);
+		goto err_cmd;
+	}
 #endif
 	__stop_ipu();
 	__reset_ipu();
 
-	ret = _ipu_set_bg_route(ipu, ip);
-	if (ret) {
-		printk("ipu: error _ipu_set_bg_route %d\n", ret);
-		goto err_ipu_set_bg_route;
-	}
-	ret = _ipu_set_bg_buffer(ipu, ip);
-	if (ret) {
-		printk("ipu: error _ipu_set_bg_buffer %d\n", ret);
-		goto err_ipu_set_bg_buffer;
-	}
-
-    if (ip->cmd & IPU_CMD_CSC) {
-		reg_write(ipu, IPU_REG_CTRL, 0xffffffff);
-        reg_write(ipu, IPU_OSD_CH0_PARA, 0x010417fa);
-        reg_write(ipu, IPU_OSD_CH_BK_PARA, 0x141000);
-
-		reg_write(ipu, IPU_CH0_CSC_C0_COEF, (0x4ad << 0) | (0 << 20));
-		reg_write(ipu, IPU_CH0_CSC_C1_COEF, (0x669 << 0) | (0x4ad << 20));
-		reg_write(ipu, IPU_CH0_CSC_C2_COEF, (0x193 << 0) | (0x344 << 20));
-		reg_write(ipu, IPU_CH0_CSC_C3_COEF, (0x4ad << 0) | (0x81a << 20));
-		reg_write(ipu, IPU_CH0_CSC_C4_COEF, 0);
-		reg_write(ipu, IPU_CH0_CSC_OFSET_PARA, (0x10 << 0) | (0x80 << 16));
-    }
-
-	if (ip->cmd & IPU_CMD_OSD0) {
-		ret = _ipu_set_osd_chx_route(ipu, ip, 0);
-		if (ret) {
-			printk("ipu: error _ipu_set_osd_ch0_route %d\n", ret);
-			goto err_ipu_set_osd_chx_route;
-		}
-		ret = _ipu_set_osdx_buffer(ipu, ip, 0);
-		if (ret) {
-			printk("ipu: error _ipu_set_osdx_buffer %d\n", ret);
-			goto err_ipu_set_osdx_buffer;
-		}
-	}
-	if (ip->cmd & IPU_CMD_OSD1) {
-		ret = _ipu_set_osd_chx_route(ipu, ip, 1);
-		if (ret) {
-			printk("ipu: error _ipu_set_osd_ch1_route %d\n", ret);
-			goto err_ipu_set_osd_chx_route;
-		}
-		ret = _ipu_set_osdx_buffer(ipu, ip, 1);
-		if (ret) {
-			printk("ipu: error _ipu_set_osdx_buffer %d\n", ret);
-			goto err_ipu_set_osdx_buffer;
-		}
-	}
-	if (ip->cmd & IPU_CMD_OSD2) {
-		ret = _ipu_set_osd_chx_route(ipu, ip, 2);
-		if (ret) {
-			printk("ipu: error _ipu_set_osd_ch2_route %d\n", ret);
-			goto err_ipu_set_osd_chx_route;
-		}
-		ret = _ipu_set_osdx_buffer(ipu, ip, 2);
-		if (ret) {
-			printk("ipu: error _ipu_set_osdx_buffer %d\n", ret);
-			goto err_ipu_set_osdx_buffer;
-		}
-	}
-	if (ip->cmd & IPU_CMD_OSD3) {
-		ret = _ipu_set_osd_chx_route(ipu, ip, 3);
-		if (ret) {
-			printk("ipu: error _ipu_set_osd_ch3_route %d\n", ret);
-			goto err_ipu_set_osd_chx_route;
-		}
-		ret = _ipu_set_osdx_buffer(ipu, ip, 3);
-		if (ret) {
-			printk("ipu: error _ipu_set_osdx_buffer %d\n", ret);
-			goto err_ipu_set_osdx_buffer;
-		}
-	}
+	ret = _ipu_program(ipu, ip);
+	if (ret)
+		goto err_ipu_program;
 
 	/*
 	 * Arm, fire, and wait for OUT_END.  On a wedge (see the
@@ -870,6 +919,16 @@ static int ipu_start(struct jz_ipu *ipu, struct ipu_param *ipu_param)
 	max_attempts = (ipu->wedge_streak >= IPU_WEDGE_STREAK_FUSE) ? 1 : 2;
 
 	for (attempt = 1; attempt <= max_attempts; attempt++) {
+		/*
+		 * openimp #264 M3: the timeout path below ran IPU_STOP/IPU_RESET;
+		 * program the op again exactly as for attempt 1 (stop/reset,
+		 * then route/buffers/OSD) before re-triggering.
+		 */
+		if (attempt > 1) {
+			ret = _ipu_program(ipu, ip);
+			if (ret)
+				goto err_ipu_program;
+		}
 		/*
 		 * Re-arm the completion for THIS op.  Without this, a late
 		 * OUT_END interrupt arriving just after a previous op timed
@@ -962,10 +1021,7 @@ static int ipu_start(struct jz_ipu *ipu, struct ipu_param *ipu_param)
     return 0;
 
 err_ipu_wait_for_done:
-err_ipu_set_osdx_buffer:
-err_ipu_set_bg_buffer:
-err_ipu_set_osd_chx_route:
-err_ipu_set_bg_route:
+err_ipu_program:
 #ifdef IPU_T31_AHB1
 	ipu_clk_off(ipu->ahb1_gate);
 #endif
@@ -1251,10 +1307,13 @@ static int ipu_do_remove(struct platform_device *pdev)
 
 	ipu = dev_get_drvdata(&pdev->dev);
 	res = ipu->res;
-	free_irq(ipu->irq, ipu);
-	iounmap(ipu->iomem);
-	release_mem_region(res->start, res->end - res->start + 1);
-
+	/*
+	 * openimp #264 L8: remove /dev/ipu first, then the IRQ and the MMIO
+	 * mapping it uses.  The vendor order (T31 SDK jz_ipu_v13.c 1095-1099:
+	 * free_irq/iounmap before misc_deregister) is only safe for a
+	 * built-in driver that is never removed; as a module an unbind with
+	 * /dev/ipu open would reach unmapped registers.
+	 */
 #if LINUX_VERSION_CODE < KERNEL_VERSION(4, 3, 0)
 	ret = misc_deregister(&ipu->misc_dev);
 	if (ret < 0) {
@@ -1264,6 +1323,9 @@ static int ipu_do_remove(struct platform_device *pdev)
 #else
 	misc_deregister(&ipu->misc_dev);
 #endif
+	free_irq(ipu->irq, ipu);
+	iounmap(ipu->iomem);
+	release_mem_region(res->start, res->end - res->start + 1);
 	if (ipu->clk_always_on)
 		ipu_clk_off(ipu->clk);
 #ifdef IPU_T31_AHB1
@@ -1274,9 +1336,7 @@ static int ipu_do_remove(struct platform_device *pdev)
 		kfree((void *)(ipu->pbuf.vaddr_alloc));
 		ipu->pbuf.vaddr_alloc = 0;
 	}
-	if (ipu) {
-		kfree(ipu);
-	}
+	kfree(ipu);
 
 	return 0;
 }

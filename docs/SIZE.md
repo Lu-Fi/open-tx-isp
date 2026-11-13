@@ -245,3 +245,26 @@ have to come back together (`tisp_event_init` caller + queue path in
   array-bounds (#365) and the 3 KB frame of
   `awb_calc_avg_weighted_gr_gb_mesh` (vendor frame 3080 bytes). Check:
   `make ... TX_ISP_T30_OS=y TX_ISP_T30_WARN=y`.
+  2026-11-13: the shared common objects (sinfo, subdev, exposure, region
+  allocator, math, io, frame, exports, v4l2: the same sources the other
+  SoCs build at `-Os`) now build at `-Os`; only the recovered unit stays at
+  `-O0` (its code is byte-identical, `objdump -d`). Module text
+  554883 -> 536783 (size(1), data/bss unchanged); QEMU lsmod 639536 -> 621440.
+  `TX_ISP_T30_OS=y` (recovered unit at `-Os` too) now keeps every function
+  with all its calls (`-fno-inline*`, no IPA-SRA/CP/ICF/pure-const/
+  reference/modref/RA, no sibling calls), so `tests/t30_lift_oracle.sh`
+  hooks the same callees as in the vendor ko: oracle ok (all groups; the
+  `-Os` warning check reports only the vendor-sized AWB mesh frame).
+  It is not the default because the lift relies on `-O0` memory
+  semantics: the first `-Os` QEMU run hung at stream on, `tx_isp_vic_start`
+  polled the VIC control register through a plain pointer and `-Os` made
+  it `b .` (and merged its START/RUN writes); those accesses are volatile
+  now (-O0 code identical). With that, `-Os` passes the tests/t30_qemu
+  programs like the -O0 module (lsmod 340048, 0 oops, same results). Left
+  before it can be the default: 84 functions where `-Os` emits fewer
+  non-stack stores than `-O0` (366 stores; e.g.
+  `tx_isp_t30_frame_channel_set_format_5c`, `ispcore_pad_event_handle`,
+  `ncu_pad_event_handle`, `init_stab`) must be checked for register or
+  shared-memory writes (most are likely struct copies turned into
+  `memcpy` or dead local stores), plus polls of shared memory, then a
+  device A/B.

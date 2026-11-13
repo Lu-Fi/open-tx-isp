@@ -10,6 +10,7 @@ Runs functions of the SDK-built vendor tx-isp-t30.ko (4ea12e1f) and of our drive
   crop_fsm_process_event                        return, state, callee log
   apical_sbus_write_u8                          bus callback (bus, addr, data, size)
   awb_normalise                                 +0x760..+0x76c, +0x18/+0x1a, stab[49]/[50]
+  awb_detect_light_source                       light source +0x77d from the colour temperature +0x778 (#450)
   apical_event_queue_push                       queue head, _qlock1
   luts_fetch / AWB_mesh / AWB_mesh_LUT / mesh_AWB_getKnownSourceLight_weight_LUT / compute_weight
   awb_calc_avg_weighted_gr_gb_mesh              every FSM byte, fifo state (vendor rg_avg/gb_avg)
@@ -218,6 +219,23 @@ def t_normalise(V, O, rnd, n):
             if bad < 4:
                 d = [i for i in range(0x800) if res[0][1][i] != res[1][1][i]]
                 print("DIFF awb_normalise stab12=%d stop=%s/%s fsm bytes differ at %s" % (sb[12], res[0][0], res[1][0], [hex(x) for x in d[:8]]))
+    return bad
+
+def t_detect_ls(V, O, rnd, n):          # awb_detect_light_source: +0x77d from the CT +0x778 (#450: lift stored 2 for every CT >= 3426)
+    bad = 0
+    edges = [0, 3425, 3426, 4500, 4501, 5714, 0x7fffffff, 0x80000000, 0xffffffff]
+    for k in range(n):
+        fsm = bytearray(rnd.getrandbits(8) for _ in range(0x800))
+        ct = edges[k] if k < len(edges) else rnd.choice([rnd.randrange(0, 12000), rnd.getrandbits(32)])
+        struct.pack_into("<I", fsm, 0x778, ct)
+        res = []
+        for m in (V, O):
+            m.e.heap_reset(); f = m.e.alloc(0x800, fsm)
+            r = m.call("awb_detect_light_source", f)
+            res.append((r.stop, r.v0 & 0xff if hasattr(r, "v0") else None, m.e.read(f, 0x800)))
+        if res[0] != res[1]:
+            bad += 1
+            if bad < 4: print("DIFF awb_detect_light_source ct=%d: vendor src %d ret %s, open src %d ret %s" % (ct, res[0][2][0x77d], res[0][1], res[1][2][0x77d], res[1][1]))
     return bad
 
 def t_queue(V, O, rnd, n):
@@ -883,7 +901,7 @@ def t_set_target(V, O, rnd, n):
     return bad
 
 TESTS = [("nr_selectors", t_nr), ("general_frame_start", t_general), ("fsm_switch_state", t_fsm), ("crop_event", t_crop),
-         ("sbus_write_u8", t_sbus), ("awb_normalise", t_normalise), ("event_queue_push", t_queue),
+         ("sbus_write_u8", t_sbus), ("awb_normalise", t_normalise), ("awb_detect_light_source", t_detect_ls), ("event_queue_push", t_queue),
          ("awb_mesh_chain", t_mesh), ("compute_weight", t_weight), ("awb_calc_mesh", t_calc),
          ("gp_lock_paths", t_gp_lock), ("ioctl_uaccess", t_uaccess),
          ("ptr_scale", t_ptr_scale), ("fci_args", t_fci_args), ("sync_watchdog", t_sync), ("ldc_ncu_counts", t_counts), ("ldc_core_ops_init", t_ldc_init),

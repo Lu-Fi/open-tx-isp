@@ -7605,7 +7605,7 @@ vic_core_ops_ioctl0x6c:
     return ((int64_t)(uint32_t)v1 << 32) | (uint32_t)v0;
 }
 
-/* WHOLE_DRIVER_CANDIDATE fn_00000000000000a8 origin=model_output original=tx_isp_vic_start */
+/* WHOLE_DRIVER_CANDIDATE fn_00000000000000a8 origin=model_output original=tx_isp_vic_start; VIC registers volatile so -Os keeps START/poll/RUN (openimp #274) */
 int tx_isp_vic_start(void *arg1)
 {
 	void *vic = *(void **)((char *)arg1 + 0xb8);
@@ -7618,52 +7618,52 @@ int tx_isp_vic_start(void *arg1)
 	int bits;
 
 	if (mode == 1) {
-		*(int *)((char *)vic + 0xc) = 2;
+		*(volatile int *)((char *)vic + 0xc) = 2;
 		if (sensor_id >= 0x3015) {
 			val = width;
 		} else if (sensor_id >= 0x3001) {
 			int bit = mode << ((sensor_id - 0x3001) & 0x1f);
 			if (bit & 0x38080) {
-				*(int *)((char *)vic + 0x14) = 2;
+				*(volatile int *)((char *)vic + 0x14) = 2;
 				val = width;
 			} else if (bit & 0x6240) {
-				*(int *)((char *)vic + 0x14) = mode;
+				*(volatile int *)((char *)vic + 0x14) = mode;
 				val = width;
 			} else if ((bit & 0xc0003) == 0) {
 				val = width;
 			} else {
-				*(int *)((char *)vic + 0x14) = 0;
+				*(volatile int *)((char *)vic + 0x14) = 0;
 				val = width;
 			}
 		} else if (sensor_id == 0x1008) {
-			*(int *)((char *)vic + 0x14) = 4;
+			*(volatile int *)((char *)vic + 0x14) = 4;
 			val = width;
 		} else if (sensor_id < 0x1009) {
 			if (sensor_id == 0x1004)
-				*(int *)((char *)vic + 0x14) = 3;
+				*(volatile int *)((char *)vic + 0x14) = 3;
 			val = width;
 		} else if (sensor_id < 0x2006) {
 			if (sensor_id >= 0x2002) {
-				*(int *)((char *)vic + 0x14) = 7;
+				*(volatile int *)((char *)vic + 0x14) = 7;
 				val = width;
 			} else {
 				val = width;
 			}
 		} else if (sensor_id == 0x2011) {
-			*(int *)((char *)vic + 0x14) = 7;
+			*(volatile int *)((char *)vic + 0x14) = 7;
 			val = width;
 		} else {
 			val = width;
 		}
-		*(int *)((uintptr_t)vic + 4) = (val << 16) | height;
-		*(int *)((char *)vic + 8) = 1;
-		*(int *)((char *)vic + 0) = 2;
-		while (*(int *)((char *)vic + 0) != 0)
+		*(volatile int *)((uintptr_t)vic + 4) = (val << 16) | height;
+		*(volatile int *)((char *)vic + 8) = 1;
+		*(volatile int *)((char *)vic + 0) = 2;
+		while (*(volatile int *)((char *)vic + 0) != 0)
 			;
-		*(int *)((char *)vic + 0) = 1;
+		*(volatile int *)((char *)vic + 0) = 1;
 		return 0;
 	} else if (mode == 2) {
-		*(int *)((char *)vic + 0xc) = 3;
+		*(volatile int *)((char *)vic + 0xc) = 3;
 		int v0_18;
 		if (sensor_id >= 0x3015) {
 			v0_18 = 0;
@@ -7732,28 +7732,28 @@ int tx_isp_vic_start(void *arg1)
 			v0_18 |= 2;
 		if (*(unsigned char *)((char *)sensor + 0x25) == 2)
 			v0_18 |= 1;
-		*(int *)((char *)vic + 0x10) = v0_18;
+		*(volatile int *)((char *)vic + 0x10) = v0_18;
 		uint16_t h0 = *(uint16_t *)((char *)sensor + 0x22);
 		if (h0 != 0)
-			*(int *)((uintptr_t)vic + 0x20) = (h0 << 16) + width;
+			*(volatile int *)((uintptr_t)vic + 0x20) = (h0 << 16) + width;
 		uint16_t h1 = *(uint16_t *)((char *)sensor + 0x20);
 		if (h1 != 0)
-			*(int *)((char *)vic + 0x3c) = h1;
-		*(int *)((uintptr_t)vic + 0x20) = (h0 << 16) + width;
-		*(int *)((char *)vic + 0x150) = 2;
-		*(int *)((uintptr_t)vic + 4) = (width << 16) | height;
-		*(int *)((char *)vic + 0x50) = 0;
-		*(int *)((char *)vic + 0) = 2;
-		*(int *)((char *)vic + 0) = 1;
+			*(volatile int *)((char *)vic + 0x3c) = h1;
+		*(volatile int *)((uintptr_t)vic + 0x20) = (h0 << 16) + width;
+		*(volatile int *)((char *)vic + 0x150) = 2;
+		*(volatile int *)((uintptr_t)vic + 4) = (width << 16) | height;
+		*(volatile int *)((char *)vic + 0x50) = 0;
+		*(volatile int *)((char *)vic + 0) = 2;
+		*(volatile int *)((char *)vic + 0) = 1;
 		return 0;
 	} else {
 		/* ko 0x428-0x470: lui 0x4 (value), no poll of VIC_CONTROL before START in this branch */
-		*(int *)((char *)vic + 0x10) = 0x40000;
-		*(int *)((char *)vic + 0xc) = 3;
-		*(int *)((uintptr_t)vic + 4) = (width << 16) | height;
-		*(int *)((char *)vic + 0x50) = 0;
-		*(int *)((char *)vic + 0xb0) = 0x80008000;
-		*(int *)((char *)vic + 0) = 1;
+		*(volatile int *)((char *)vic + 0x10) = 0x40000;
+		*(volatile int *)((char *)vic + 0xc) = 3;
+		*(volatile int *)((uintptr_t)vic + 4) = (width << 16) | height;
+		*(volatile int *)((char *)vic + 0x50) = 0;
+		*(volatile int *)((char *)vic + 0xb0) = 0x80008000;
+		*(volatile int *)((char *)vic + 0) = 1;
 		return 0;
 	}
 }
@@ -7804,7 +7804,12 @@ int vic_sensor_ops_ioctl(void *file, unsigned int cmd)
 
 	switch (cmd) {
 	case 0x200000c:
-		*(int **)((char *)vic + 0xb8)[0] = 0x10;
+		/*
+		 * OEM 0x564: VIC register +0 = 0x10.  The lifted line parsed as
+		 * *(int **)(byte at vic+0xb8) and stored to that byte value as an
+		 * address (#451 C).
+		 */
+		writel(0x10, *(void __iomem **)((char *)vic + 0xb8));
 		return 0;
 	case 0x200000d:
 		return tx_isp_vic_start(vic);
@@ -9155,9 +9160,9 @@ int32_t csi_set_on_lanes(void *arg1, int32_t arg2)
 
     ((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))isp_printf)((uintptr_t)(0), (uintptr_t)("%s:----------> lane num: %d\n"), (uintptr_t)("csi_set_on_lanes"), (uintptr_t)(arg2));
     ptr = *(uint32_t **)((char *)arg1 + 0xb8);
-    val = *(uint32_t *)((char *)ptr + 4);
+    val = readl((void __iomem *)((char *)ptr + 4));
     val = (val & 0xfffffffc) | ((arg2 - 1) & 3);
-    *(uint32_t *)((char *)ptr + 4) = val;
+    writel(val, (void __iomem *)((char *)ptr + 4));
     return 0;
 }
 
@@ -9236,10 +9241,10 @@ csi_core_ops_init0x30:
     v1 = *(uint32_t *)((char *)s0 + 184);
     a0 = -2;
     s1 = (uintptr_t *)&__udelay;
-    v0 = *(uint32_t *)((char *)v1 + 8);
+    v0 = readl((void __iomem *)((char *)v1 + 8));
     s2 = 10;
     v0 = (uintptr_t)v0 & a0;
-    *(uint32_t *)((char *)v1 + 8) = v0;
+    writel(v0, (void __iomem *)((char *)v1 + 8));
     s1 = s1;
     a0 = 1000;
 
@@ -9254,45 +9259,45 @@ csi_core_ops_init0xbc:
 
     /* fragment 18: CallSetup */
     s3 = -2;
-    *(uint32_t *)((char *)(*(uint32_t *)((char *)((uintptr_t)s0) + 184)) + 8) = (*(uint32_t *)((char *)(*(uint32_t *)((char *)((uintptr_t)s0) + 184)) + 8) | 1);
-    *(uint32_t *)((char *)(*(uint32_t *)((char *)((uintptr_t)s0) + 184)) + 12) = ((*(uint32_t *)((char *)(*(uint32_t *)((char *)((uintptr_t)s0) + 184)) + 12)) & (uintptr_t)s3);
+    writel((readl((void __iomem *)((char *)(*(uint32_t *)((char *)((uintptr_t)s0) + 184)) + 8)) | 1), (void __iomem *)((char *)(*(uint32_t *)((char *)((uintptr_t)s0) + 184)) + 8));
+    writel(((readl((void __iomem *)((char *)(*(uint32_t *)((char *)((uintptr_t)s0) + 184)) + 12))) & (uintptr_t)s3), (void __iomem *)((char *)(*(uint32_t *)((char *)((uintptr_t)s0) + 184)) + 12));
     msleep(10); /* jalr target resolved by relocation */
 
     /* fragment 19: MemoryAccess */
     v1 = *(uint32_t *)((char *)s0 + 184);
-    v0 = *(uint32_t *)((char *)v1 + 12);
+    v0 = readl((void __iomem *)((char *)v1 + 12));
     v0 = (uintptr_t)v0 | 1;
-    *(uint32_t *)((char *)v1 + 12) = v0;
+    writel(v0, (void __iomem *)((char *)v1 + 12));
     v1 = *(uint32_t *)((char *)s0 + 184);
-    v0 = *(uint32_t *)((char *)v1 + 48);
+    v0 = readl((void __iomem *)((char *)v1 + 48));
     v0 = (uintptr_t)v0 & (uintptr_t)s3;
-    *(uint32_t *)((char *)v1 + 48) = v0;
+    writel(v0, (void __iomem *)((char *)v1 + 48));
     v0 = *(uint32_t *)((char *)s0 + 184);
     v1 = 4294836224;
     v1 = v1 | 65535;
-    *(uint32_t *)((char *)v0 + 52) = 0;
+    writel(0, (void __iomem *)((char *)v0 + 52));
     a0 = *(uint32_t *)((char *)s0 + 184);
-    v0 = *(uint32_t *)((char *)a0 + 52);
+    v0 = readl((void __iomem *)((char *)a0 + 52));
     v0 = (uintptr_t)v0 & v1;
-    *(uint32_t *)((char *)a0 + 52) = v0;
+    writel(v0, (void __iomem *)((char *)a0 + 52));
     v1 = *(uint32_t *)((char *)s0 + 184);
     a0 = -3;
-    v0 = *(uint32_t *)((char *)v1 + 48);
+    v0 = readl((void __iomem *)((char *)v1 + 48));
     v0 = (uintptr_t)v0 & a0;
-    *(uint32_t *)((char *)v1 + 48) = v0;
+    writel(v0, (void __iomem *)((char *)v1 + 48));
     v0 = *(uint32_t *)((char *)s0 + 312);
     v1 = 125;
     a0 = 10;
-    *(uint32_t *)((char *)v0 + 0) = v1;
+    writel(v1, (void __iomem *)((char *)v0 + 0));
     v1 = *(uint32_t *)((char *)s0 + 312);
     v0 = 63;
-    *(uint32_t *)((char *)v1 + 296) = v0;
+    writel(v0, (void __iomem *)((char *)v1 + 296));
     v1 = *(uint32_t *)((char *)s0 + 312);
-    *(uint32_t *)((char *)v1 + 128) = v0;
+    writel(v0, (void __iomem *)((char *)v1 + 128));
 
     /* fragment 20: CallSetup */
-    *(uint32_t *)((char *)(*(uint32_t *)((char *)(s0) + 312)) + 768) = 30;
-    *(uint32_t *)((char *)(*(uint32_t *)((char *)(s0) + 312)) + 128) = 31;
+    writel(30, (void __iomem *)((char *)(*(uint32_t *)((char *)(s0) + 312)) + 768));
+    writel(31, (void __iomem *)((char *)(*(uint32_t *)((char *)(s0) + 312)) + 128));
     msleep(a0); /* jalr target resolved by relocation */
 
     /* fragment 21: MemoryAccess */
@@ -9306,9 +9311,9 @@ csi_core_ops_init0xbc:
     if (_bc_v1_22) { goto csi_core_ops_init0x1d4; }
 
     /* fragment 23: CallSetup */
-    *(uint32_t *)((char *)(*(uint32_t *)((char *)(s0) + 312)) + 256) = v0;
-    *(uint32_t *)((char *)(*(uint32_t *)((char *)(s0) + 312)) + 384) = v0;
-    *(uint32_t *)((char *)(*(uint32_t *)((char *)(s0) + 312)) + 512) = v0;
+    writel(v0, (void __iomem *)((char *)(*(uint32_t *)((char *)(s0) + 312)) + 256));
+    writel(v0, (void __iomem *)((char *)(*(uint32_t *)((char *)(s0) + 312)) + 384));
+    writel(v0, (void __iomem *)((char *)(*(uint32_t *)((char *)(s0) + 312)) + 512));
     msleep(10); /* jalr target resolved by relocation */
 
 csi_core_ops_init0x1d4:
@@ -9316,9 +9321,9 @@ csi_core_ops_init0x1d4:
     v1 = *(uint32_t *)((char *)s0 + 184);
     a0 = -2;
     s2 = 10;
-    v0 = *(uint32_t *)((char *)v1 + 16);
+    v0 = readl((void __iomem *)((char *)v1 + 16));
     v0 = (uintptr_t)v0 & a0;
-    *(uint32_t *)((char *)v1 + 16) = v0;
+    writel(v0, (void __iomem *)((char *)v1 + 16));
     a0 = 1000;
 
 csi_core_ops_init0x1f0:
@@ -9333,9 +9338,9 @@ csi_core_ops_init0x1f0:
     /* fragment 27: CallSetup */
     v1 = *(uint32_t *)((char *)s0 + 184);
     s2 = 10;
-    v0 = *(uint32_t *)((char *)v1 + 16);
+    v0 = readl((void __iomem *)((char *)v1 + 16));
     v0 = (uintptr_t)v0 | 1;
-    *(uint32_t *)((char *)v1 + 16) = v0;
+    writel(v0, (void __iomem *)((char *)v1 + 16));
     a0 = 1000;
 
 csi_core_ops_init0x218:
@@ -9368,19 +9373,19 @@ csi_core_ops_init0x238:
 
     /* fragment 35: MemoryAccess */
     v1 = *(uint32_t *)((char *)s0 + 184);
-    *(uint32_t *)((char *)v1 + 12) = 0;
+    writel(0, (void __iomem *)((char *)v1 + 12));
     v1 = *(uint32_t *)((char *)s0 + 184);
-    *(uint32_t *)((char *)v1 + 12) = v0;
+    writel(v0, (void __iomem *)((char *)v1 + 12));
     v1 = *(uint32_t *)((char *)s0 + 312);
-    *(uint32_t *)((char *)v1 + 0) = a0;
+    writel(a0, (void __iomem *)((char *)v1 + 0));
     v1 = *(uint32_t *)((char *)s0 + 312);
     a0 = 62;
-    *(uint32_t *)((char *)v1 + 128) = a0;
+    writel(a0, (void __iomem *)((char *)v1 + 128));
     v1 = *(uint32_t *)((char *)s0 + 312);
     a0 = 30;
-    *(uint32_t *)((char *)v1 + 768) = a0;
+    writel(a0, (void __iomem *)((char *)v1 + 768));
     v1 = *(uint32_t *)((char *)s0 + 312);
-    *(uint32_t *)((char *)v1 + 716) = v0;
+    writel(v0, (void __iomem *)((char *)v1 + 716));
 
     /* fragment 36: Branch */
     v0 = 3;
@@ -9398,17 +9403,17 @@ csi_core_ops_init0x2a4:
     /* fragment 39: MemoryAccess */
     a1 = *(uint32_t *)((char *)s0 + 184);
     a0 = -2;
-    v1 = *(uint32_t *)((char *)a1 + 8);
+    v1 = readl((void __iomem *)((char *)a1 + 8));
     v1 = v1 & a0;
-    *(uint32_t *)((char *)a1 + 8) = v1;
+    writel(v1, (void __iomem *)((char *)a1 + 8));
     a1 = *(uint32_t *)((char *)s0 + 184);
-    v1 = *(uint32_t *)((char *)a1 + 12);
+    v1 = readl((void __iomem *)((char *)a1 + 12));
     v1 = v1 & a0;
-    *(uint32_t *)((char *)a1 + 12) = v1;
+    writel(v1, (void __iomem *)((char *)a1 + 12));
     a1 = *(uint32_t *)((char *)s0 + 184);
-    v1 = *(uint32_t *)((char *)a1 + 16);
+    v1 = readl((void __iomem *)((char *)a1 + 16));
     v1 = v1 & a0;
-    *(uint32_t *)((char *)a1 + 16) = v1;
+    writel(v1, (void __iomem *)((char *)a1 + 16));
     v1 = 2;
 
     /* fragment 40: Branch */
@@ -11147,11 +11152,11 @@ apical_isp_core_ops_g_ctrl0xb6c:
     /* fragment 226: MemoryAccess */
     v0 = *(uint32_t *)((char *)s2 + 184);
     s3 = 46;
-    s0 = *(uint16_t *)((char *)v0 + 4);
-    s6 = *(uint16_t *)((char *)v0 + 6);
+    s0 = readw((void __iomem *)((char *)v0 + 4));
+    s6 = readw((void __iomem *)((char *)v0 + 6));
 
     /* fragment 227: Branch */
-    s5 = *(uint16_t *)((char *)(v0) + 8);
+    s5 = readw((void __iomem *)((char *)(v0) + 8));
     goto apical_isp_core_ops_g_ctrl0xad0;
 
 apical_isp_core_ops_g_ctrl0xb84:
@@ -12136,6 +12141,18 @@ void *isp_core_tuning_init(void *arg1)
 	((void **)(uintptr_t)p)[0x40cc / 4] = 1;
 	((void **)(uintptr_t)p)[0x40d0 / 4] = (uint32_t)&isp_core_tunning_fops;
 	((void **)(uintptr_t)p)[0x40d4 / 4] = (uint32_t)&isp_core_tuning_event;
+	/*
+	 * openimp #449: brightness/contrast/saturation/sharpness are read-back
+	 * caches only (g_ctrl returns them, s_ctrl stores them; the picture keeps
+	 * the calibration level until a Set).  The stock ko leaves them 0 until
+	 * the first Set, which every vendor streamer does with 128 at start, so
+	 * Get before any Set read 0 on a freshly loaded module while the effective
+	 * level is the neutral 128.  Start them at 128 (no register is touched).
+	 */
+	TCTL_U32(tuning, TCTL_OFF_BRIGHTNESS) = 128;
+	TCTL_U32(tuning, TCTL_OFF_CONTRAST) = 128;
+	TCTL_U32(tuning, TCTL_OFF_SATURATION) = 128;
+	TCTL_U32(tuning, TCTL_OFF_SHARPNESS) = 128;
 	return tuning;
 }
 
@@ -12858,17 +12875,18 @@ static int32_t ispcore_irq_thread_handle_body(void *arg1)
 int64_t ispcore_frame_channel_streamoff_isra_0(uintptr_t a0) __asm__("ispcore_frame_channel_streamoff.isra.0");
 #endif
 /* Direct (bypass) writer counters, see tx_isp_t30_core_direct_irq(). */
-static u32 tx_isp_t30_direct_stat[7];
+static u32 tx_isp_t30_direct_stat[8];
 
 static void tx_isp_t30_core_direct_report(const char *when, int index)
 {
 	u32 base = 0xb00 + index * 0x100;
 
-	pr_err("tx-isp-t30: direct ch=%d %s irq fs=%u fe=%u fr=%u ds=%u filled=%u done=%u nobank=%u wr=%08x ctl=%08x banks=%08x b0=%08x b1=%08x\n",
+	pr_err("tx-isp-t30: direct ch=%d %s irq fs=%u fe=%u fr=%u ds=%u filled=%u done=%u nobank=%u ch1ev=%u wr=%08x ctl=%08x banks=%08x b0=%08x b1=%08x\n",
 	       index, when, tx_isp_t30_direct_stat[0], tx_isp_t30_direct_stat[1],
 	       tx_isp_t30_direct_stat[2], tx_isp_t30_direct_stat[3],
 	       tx_isp_t30_direct_stat[4], tx_isp_t30_direct_stat[5],
-	       tx_isp_t30_direct_stat[6], APICAL_READ_32(base),
+	       tx_isp_t30_direct_stat[6], tx_isp_t30_direct_stat[7],
+	       APICAL_READ_32(base),
 	       APICAL_READ_32(base + 0x24), APICAL_READ_32(base + 0x1c),
 	       APICAL_READ_32(base + 0x08), APICAL_READ_32(base + 0x0c));
 }
@@ -15388,7 +15406,7 @@ static void tx_isp_t30_ispcore_enable_lfb_channel(
  * buffers stayed in chan->fifo, no bank address was written and the writer
  * was never enabled (T30X: 0/10 raw frames, #218).
  */
-/* tx_isp_t30_direct_stat[]: fs fe fr ds filled done nobank */
+/* tx_isp_t30_direct_stat[]: fs fe fr ds filled done nobank ch1ev(bit 13) */
 
 static bool tx_isp_t30_core_chan_direct(struct tx_isp_t30_core_output_channel *chan)
 {
@@ -15511,6 +15529,92 @@ static void tx_isp_t30_core_direct_irq(struct tx_isp_t30_core_video_view *core,
 			if (tx_isp_t30_core_chan_direct(&core->channels[i]))
 				tx_isp_t30_core_direct_fill(&core->channels[i]);
 	}
+}
+
+/*
+ * OEM isp_enable_dma_transfer.isra.0 (0xc274): writer on (2) or off (3) for a
+ * core output channel; NV12/NV21 switch the UV writer (+0xa4) first.
+ */
+static void tx_isp_t30_core_dma_transfer(struct tx_isp_t30_core_output_channel *chan,
+					 int on)
+{
+	u32 base = 0xb00 + chan->index * 0x100;
+	u32 val = on ? 0x02 : 0x03;
+
+	if (chan->fmt.pix.pixelformat == V4L2_PIX_FMT_NV12 ||
+	    chan->fmt.pix.pixelformat == V4L2_PIX_FMT_NV21)
+		APICAL_WRITE_32(base + 0xa4, val);
+	APICAL_WRITE_32(base + 0x24, val);
+}
+
+/*
+ * OEM isp_modify_dma_direction.isra.0 (0xd3c8): running channel linked
+ * without the LFB bit: when the vflip flag of the next bank differs from the
+ * current direction, write the line offset again (UV writer first for NV12).
+ */
+static void tx_isp_t30_core_modify_dma_direction(struct tx_isp_t30_core_output_channel *chan)
+{
+	u32 base = 0xb00 + chan->index * 0x100;
+	u32 next;
+
+	if (chan->state != TX_ISP_T30_MODULE_RUNNING ||
+	    (chan->pad->link.flag & BIT(5)))
+		return;
+	next = (((APICAL_READ_32(base + 0x24) >> 8) & 7) + 1) % chan->usingbanks;
+	if (chan->vflip_state == chan->vflip_flag[next])
+		return;
+	chan->vflip_state = chan->vflip_flag[next];
+	if (chan->fmt.pix.pixelformat == V4L2_PIX_FMT_NV12 ||
+	    chan->fmt.pix.pixelformat == V4L2_PIX_FMT_NV21)
+		APICAL_WRITE_32(base + 0xa0, chan->lineoffset);
+	APICAL_WRITE_32(base + 0x20, chan->lineoffset);
+}
+
+/*
+ * OEM ispcore_interrupt_service_routine case 13 (0xde94..0xdf6c): status
+ * bit 13 (firmware event 50) is the per-frame writer check of core output
+ * channel 1: direction update, then the writer is switched on or off like
+ * channel 0 at frame end (LFB link: on while running; direct link: on while
+ * the next bank holds a buffer).  Unhandled until #451, so channel 1's writer
+ * never followed its banks.
+ */
+static void tx_isp_t30_core_chan1_event(struct tx_isp_t30_core_video_view *core)
+{
+	struct tx_isp_t30_core_output_channel *chan;
+	u32 base;
+	u32 next;
+	u8 want;
+
+	if (!core->channels || core->num_channels < 2)
+		return;
+	chan = &core->channels[1];
+	if (!chan->pad || IS_ERR(chan->pad) || !chan->usingbanks ||
+	    chan->usingbanks > 5)
+		return;
+	tx_isp_t30_direct_stat[7]++;
+	tx_isp_t30_core_modify_dma_direction(chan);
+	if (chan->dma_state == 1)
+		return;
+	base = 0xb00 + chan->index * 0x100;
+	next = APICAL_READ_32(base + 0x24);
+	if (chan->pad->link.flag & BIT(5)) {
+		if (chan->state == TX_ISP_T30_MODULE_RUNNING) {
+			if (!chan->dma_state)
+				tx_isp_t30_core_dma_transfer(chan, 1);
+			chan->dma_state = 1;
+		} else {
+			if (chan->dma_state)
+				tx_isp_t30_core_dma_transfer(chan, 0);
+			chan->dma_state = 0;
+		}
+		return;
+	}
+	next = (((next >> 8) & 7) + 1) % chan->usingbanks;
+	want = chan->bank_flag[next];
+	if (want == chan->dma_state)
+		return;
+	chan->dma_state = want;
+	tx_isp_t30_core_dma_transfer(chan, want);
 }
 
 /*
@@ -15667,9 +15771,15 @@ static int tx_isp_t30_ispcore_interrupt(struct tx_isp_t30_subdev *sd)
 		tx_isp_sync_ldc();
 	}
 	tx_isp_t30_core_direct_irq(core, irq_status);
+	if (irq_status & BIT(13))
+		tx_isp_t30_core_chan1_event(core);
 	tx_isp_t30_dispatch_firmware_irqs(irq_status);
-	if (simple_3a && (irq_status & BIT(3)))
-		ret = IRQ_WAKE_THREAD;
+	/*
+	 * The IRQ thread (sensor gain/integration writes queued by AE) is woken
+	 * on frame start only, like the OEM ISR (0xd5ec, its only
+	 * IRQ_WAKE_THREAD).  It was also woken on AE (bit 3): with IRQF_ONESHOT
+	 * that kept the line masked over the I2C writes mid-frame (#451).
+	 */
 
 	return ret;
 }
@@ -19851,22 +19961,22 @@ ncu_pad_event_handle0x2a4:
     /* fragment 59: MemoryAccess */
     v0 = *(uint32_t *)((char *)s0 + 184);
     v1 = *(uint32_t *)((char *)s0 + 296);
-    *(uint32_t *)((char *)v0 + 52) = v1;
+    writel(v1, (void __iomem *)((char *)v0 + 52));
     v0 = *(uint32_t *)((char *)s0 + 184);
     v1 = *(uint32_t *)((char *)s0 + 296);
-    *(uint32_t *)((char *)v0 + 68) = v1;
+    writel(v1, (void __iomem *)((char *)v0 + 68));
     v0 = *(uint32_t *)((char *)s0 + 184);
     v1 = *(uint32_t *)((char *)s0 + 296);
-    *(uint32_t *)((char *)v0 + 60) = v1;
+    writel(v1, (void __iomem *)((char *)v0 + 60));
     v0 = *(uint32_t *)((char *)s0 + 184);
     v1 = *(uint32_t *)((char *)s0 + 296);
-    *(uint32_t *)((char *)v0 + 76) = v1;
+    writel(v1, (void __iomem *)((char *)v0 + 76));
     v0 = *(uint32_t *)((char *)s0 + 184);
     v1 = *(uint32_t *)((char *)s0 + 296);
-    *(uint32_t *)((char *)v0 + 84) = v1;
+    writel(v1, (void __iomem *)((char *)v0 + 84));
     v0 = *(uint32_t *)((char *)s0 + 184);
     v1 = *(uint32_t *)((char *)s0 + 296);
-    *(uint32_t *)((char *)v0 + 92) = v1;
+    writel(v1, (void __iomem *)((char *)v0 + 92));
     s3 = *(uint32_t *)((char *)s5 + 20);
     s3 = (uintptr_t)s3 & 16;
 
@@ -19939,10 +20049,10 @@ ncu_pad_event_handle0x388:
     local_20 = v0;
     v0 = *(uint32_t *)((char *)s0 + 184);
     *(uint32_t *)((char *)s0 + 396) = s3;
-    *(uint32_t *)((char *)v0 + 52) = v1;
+    writel(v1, (void __iomem *)((char *)v0 + 52));
     v0 = *(uint32_t *)((char *)s0 + 184);
     v1 = *(uint32_t *)((char *)s0 + 296);
-    *(uint32_t *)((char *)v0 + 68) = v1;
+    writel(v1, (void __iomem *)((char *)v0 + 68));
     s2 = (uint32_t *)&tx_isp_reg_set;
 
 ncu_pad_event_handle0x3c4:
@@ -19956,7 +20066,7 @@ ncu_pad_event_handle0x3c4:
 
     /* fragment 78: CallSetup */
     s7 = 1;
-    *(uint32_t *)((char *)(*(uint32_t *)((char *)((uintptr_t)s0) + 184)) + 44) = (((*(uint32_t *)((char *)((uintptr_t)s0) + 300)) << 16) | (*(uint32_t *)((char *)((uintptr_t)s0) + 296)));
+    writel((((*(uint32_t *)((char *)((uintptr_t)s0) + 300)) << 16) | (*(uint32_t *)((char *)((uintptr_t)s0) + 296))), (void __iomem *)((char *)(*(uint32_t *)((char *)((uintptr_t)s0) + 184)) + 44));
     local_10 = 0;
     v0 = (uintptr_t *)(uintptr_t)tx_isp_reg_set((void *)(uintptr_t)s0, 8, 0, 0, (int)(uintptr_t)local_10); /* #365: the 5th argument (the value) is the o32 stack slot local_10 */
 
@@ -20137,7 +20247,7 @@ ncu_pad_event_handle0x698:
 
     /* fragment 122: MemoryAccess */
     v0 = *(uint32_t *)((char *)s0 + 184);
-    v0 = *(uint32_t *)((char *)v0 + 4);
+    v0 = readl((void __iomem *)((char *)v0 + 4));
     v0 = (uintptr_t)v0 & v1;
 
     /* fragment 123: Branch */
@@ -20173,8 +20283,8 @@ ncu_pad_event_handle0x698:
 
     /* fragment 130: CallSetup */
     s2 = 1;
-    *(uint32_t *)((char *)(*(uint32_t *)((char *)(s0) + 184)) + 48) = (*(uint32_t *)((char *)(v0) + 8));
-    *(uint32_t *)((char *)(*(uint32_t *)((char *)(s0) + 184)) + 64) = ((*(uint32_t *)((char *)(v0) + 8)) + (*(uint32_t *)((char *)(s0) + 368)));
+    writel((*(uint32_t *)((char *)(v0) + 8)), (void __iomem *)((char *)(*(uint32_t *)((char *)(s0) + 184)) + 48));
+    writel(((*(uint32_t *)((char *)(v0) + 8)) + (*(uint32_t *)((char *)(s0) + 368))), (void __iomem *)((char *)(*(uint32_t *)((char *)(s0) + 184)) + 64));
     *(uint32_t *)((char *)s0 + 412) = v0;
     local_10 = s2;
     v0 = (uintptr_t *)(uintptr_t)tx_isp_reg_set((void *)(uintptr_t)s0, 4, 0, 0, (int)(uintptr_t)local_10); /* #365: the 5th argument (the value) is the o32 stack slot local_10 */
@@ -20431,31 +20541,31 @@ void tx_isp_sync_ldc(void)
 		return;
 	}
 	reg = *(char **)(ldc + 184);			/* 0x154a4 */
-	r52 = *(uint32_t *)(reg + 52);			/* 0x154b0..0x154bc kept over the reset */
-	r56 = *(uint32_t *)(reg + 56);
-	r44 = *(uint32_t *)(reg + 44);
-	r48 = *(uint32_t *)(reg + 48);
+	r52 = readl((void __iomem *)(reg + 52));			/* 0x154b0..0x154bc kept over the reset */
+	r56 = readl((void __iomem *)(reg + 56));
+	r44 = readl((void __iomem *)(reg + 44));
+	r48 = readl((void __iomem *)(reg + 48));
 	*(uint32_t *)(ldc + 488) = done_lo;		/* 0x154c4 start cnt = done cnt */
 	*(uint32_t *)(ldc + 492) = done_hi;
 	tx_isp_reg_set(ldc, 0, 1, 1, 1);		/* 0x154d8 CTR bit 1: reset */
 	reg = *(char **)(ldc + 184);
-	*(uint32_t *)(reg + 8) = *(uint32_t *)(ldc + 404);	/* 0x154ec..0x15548 job registers back */
-	*(uint32_t *)(reg + 12) = *(uint32_t *)(ldc + 408);
-	*(uint32_t *)(reg + 16) = *(uint32_t *)(ldc + 412);
-	*(uint32_t *)(reg + 20) = *(uint32_t *)(ldc + 416);
-	*(uint32_t *)(reg + 24) = *(uint32_t *)(ldc + 420);
-	*(uint32_t *)(reg + 28) = *(uint32_t *)(ldc + 424);
-	*(uint32_t *)(reg + 32) = *(uint32_t *)(ldc + 428);
-	*(uint32_t *)(reg + 36) = *(uint32_t *)(ldc + 432);
-	*(uint32_t *)(reg + 60) = *(uint32_t *)(ldc + 436);	/* 0x1554c..0x15578 */
-	*(uint32_t *)(reg + 64) = *(uint32_t *)(ldc + 436);
-	*(uint32_t *)(reg + 68) = *(uint32_t *)(ldc + 436);
-	*(uint32_t *)(reg + 72) = *(uint32_t *)(ldc + 436);
-	*(uint32_t *)(reg + 52) = r52;			/* 0x1557c..0x15598 */
-	*(uint32_t *)(reg + 56) = r56;
-	*(uint32_t *)(reg + 44) = r44;
-	*(uint32_t *)(reg + 48) = r48;
-	*(uint32_t *)(reg + 0) = *(uint32_t *)(ldc + 400) | 1;	/* 0x1559c CTR | start */
+	writel(*(uint32_t *)(ldc + 404), (void __iomem *)(reg + 8));	/* 0x154ec..0x15548 job registers back */
+	writel(*(uint32_t *)(ldc + 408), (void __iomem *)(reg + 12));
+	writel(*(uint32_t *)(ldc + 412), (void __iomem *)(reg + 16));
+	writel(*(uint32_t *)(ldc + 416), (void __iomem *)(reg + 20));
+	writel(*(uint32_t *)(ldc + 420), (void __iomem *)(reg + 24));
+	writel(*(uint32_t *)(ldc + 424), (void __iomem *)(reg + 28));
+	writel(*(uint32_t *)(ldc + 428), (void __iomem *)(reg + 32));
+	writel(*(uint32_t *)(ldc + 432), (void __iomem *)(reg + 36));
+	writel(*(uint32_t *)(ldc + 436), (void __iomem *)(reg + 60));	/* 0x1554c..0x15578 */
+	writel(*(uint32_t *)(ldc + 436), (void __iomem *)(reg + 64));
+	writel(*(uint32_t *)(ldc + 436), (void __iomem *)(reg + 68));
+	writel(*(uint32_t *)(ldc + 436), (void __iomem *)(reg + 72));
+	writel(r52, (void __iomem *)(reg + 52));			/* 0x1557c..0x15598 */
+	writel(r56, (void __iomem *)(reg + 56));
+	writel(r44, (void __iomem *)(reg + 44));
+	writel(r48, (void __iomem *)(reg + 48));
+	writel(*(uint32_t *)(ldc + 400) | 1, (void __iomem *)(reg + 0));	/* 0x1559c CTR | start */
 	lo = *(uint32_t *)(ldc + 488);			/* 0x155ac start cnt++ (u64) */
 	*(uint32_t *)(ldc + 492) += (lo + 1 < lo);
 	*(uint32_t *)(ldc + 392) = 1;			/* 0x155c8 busy */
@@ -20610,7 +20720,7 @@ int ldc_frame_channel_streamoff(void *arg1)
 		int32_t timeout = 0xc9;
 		while (1) {
 			timeout -= 1;
-			if ((**((uint32_t **)((uintptr_t)s0 + 0xb8)) & 4) == 0)
+			if ((readl(*(void __iomem **)((uintptr_t)s0 + 0xb8)) & 4) == 0)
 				break;
 			if (timeout == 0)
 				break;
@@ -21182,9 +21292,9 @@ int32_t *ldc_restart_module(void *arg1)
 
 	reg_base = *(uint32_t **)((char *)arg1 + 0xb8);
 	val = *(uint32_t *)((char *)ptr1 + 8);
-	*(uint32_t *)((char *)reg_base + 0x34) = val;
+	writel(val, (void __iomem *)((char *)reg_base + 0x34));
 	offset = *(uint32_t *)((char *)arg1 + 0x170);
-	*(uint32_t *)((char *)reg_base + 0x38) = val + offset;
+	writel(val + offset, (void __iomem *)((char *)reg_base + 0x38));
 	*(uint32_t **)((char *)arg1 + 0x1d8) = (void *)ptr1;
 
 	ptr2 = *(uint32_t **)((char *)arg1 + 0x1c4);
@@ -21202,9 +21312,9 @@ int32_t *ldc_restart_module(void *arg1)
 
 	reg_base = *(uint32_t **)((char *)arg1 + 0xb8);
 	val = *(uint32_t *)((char *)ptr2 + 8);
-	*(uint32_t *)((char *)reg_base + 0x2c) = val;
+	writel(val, (void __iomem *)((char *)reg_base + 0x2c));
 	offset = *(uint32_t *)((char *)arg1 + 0x170);
-	*(uint32_t *)((char *)reg_base + 0x30) = val + offset;
+	writel(val + offset, (void __iomem *)((char *)reg_base + 0x30));
 	*(uint32_t **)((char *)arg1 + 0x1cc) = (void *)ptr2;
 
 	tx_isp_reg_set(arg1, 0, 0, 0, 1);
@@ -21245,7 +21355,7 @@ int32_t ldc_core_interrupt_service_routine(uintptr_t a0)
     /* fragment 1: MemoryAccess */
     s0 = *(uint32_t *)((char *)a0 + 212);
     v0 = *(uint32_t *)((char *)s0 + 184);
-    s2 = *(uint32_t *)((char *)v0 + 4);
+    s2 = readl((void __iomem *)((char *)v0 + 4));
     v0 = (uintptr_t)s2 & 1;
 
     /* fragment 2: Branch */
@@ -21401,17 +21511,17 @@ int32_t ldc_pad_event_handle(int32_t *arg1, int32_t arg2, int32_t *arg3)
             return -1;
         }
         int32_t *reg = *(int32_t **)((char *)dev + 0xb8);
-        *reg = type;
+        writel(type, (void __iomem *)reg);
         if (*(int32_t *)((char *)arg1 + 0x14) & 0x20) {
             isp_printf(2, "The link must be DDR!\n", 0);
             private_mutex_unlock((struct mutex *)((char *)dev + 0x1dc));
             return -22;
         }
         int32_t base = *(int32_t *)((char *)dev + 0x128);
-        *(int32_t *)((char *)reg + 0x3c) = base;
-        *(int32_t *)((char *)reg + 0x40) = base;
-        *(int32_t *)((char *)reg + 0x44) = base;
-        *(int32_t *)((char *)reg + 0x48) = base;
+        writel(base, (void __iomem *)((char *)reg + 0x3c));
+        writel(base, (void __iomem *)((char *)reg + 0x40));
+        writel(base, (void __iomem *)((char *)reg + 0x44));
+        writel(base, (void __iomem *)((char *)reg + 0x48));
         int32_t ddr_flag = *(int32_t *)((uintptr_t)remote + 0x14) & 0x10;
         int32_t buf = 0;
         /*
@@ -21576,7 +21686,7 @@ int32_t ldc_pad_event_handle(int32_t *arg1, int32_t arg2, int32_t *arg3)
             }
         }
         if (dev != 0 && *(int32_t *)(dev + 0x178) == 4 &&
-            ((*(int32_t **)(dev + 0xb8))[1] & 6) != 2 &&
+            (readl((void __iomem *)(*(int32_t **)(dev + 0xb8) + 1)) & 6) != 2 &&
             *(int32_t *)(dev + 0x188) == 0)
             ldc_restart_module(dev);
         arch_local_irq_restore(flags);
@@ -22246,7 +22356,7 @@ mscaler_frame_channel_streamoff_isra_00x11c:
 
 mscaler_frame_channel_streamoff_isra_00x12c:
     /* fragment 21: MemoryAccess */
-    v1 = *(uint32_t *)((char *)v0 + 8);
+    v1 = readl((void __iomem *)((char *)v0 + 8));
     v0 = *(uint32_t *)((char *)s0 + 76);
     v0 = s7 << (uintptr_t)v0;
     v0 = (uintptr_t)v0 & v1;
@@ -22308,8 +22418,8 @@ mscaler_frame_channel_streamoff_isra_00x1a8:
     if (t0 != v1) { goto mscaler_frame_channel_streamoff_isra_00x260; }
 
     /* fragment 35: CallSetup */
-    *(uint32_t *)((char *)((*(uint32_t *)((char *)((uintptr_t)s2) + 184)) + ((*(uint32_t *)((char *)((uintptr_t)s0) + 76)) << 8)) + 412) = 1;
-    *(uint32_t *)((char *)((*(uint32_t *)((char *)((uintptr_t)s2) + 184)) + ((*(uint32_t *)((char *)((uintptr_t)s0) + 76)) << 8)) + 416) = 1;
+    writel(1, (void __iomem *)((char *)((*(uint32_t *)((char *)((uintptr_t)s2) + 184)) + ((*(uint32_t *)((char *)((uintptr_t)s0) + 76)) << 8)) + 412));
+    writel(1, (void __iomem *)((char *)((*(uint32_t *)((char *)((uintptr_t)s2) + 184)) + ((*(uint32_t *)((char *)((uintptr_t)s0) + 76)) << 8)) + 416));
     arch_local_irq_restore(a0); /* jalr target resolved by relocation */
 
     /* fragment 36: MemoryAccess */
@@ -41976,6 +42086,34 @@ static void tx_isp_t30_awb_write_gains(struct tx_isp_t30_simple_3a_state *state,
 			state->gain_11);
 }
 
+/*
+ * OEM AWB FSM states 9/10 after the mesh calculation (ko 0x2e3c8/0x2e3dc):
+ * the colour temperature (+0x778, = isp+0xec0) picks the light source
+ * (awb_detect_light_source) and awb_process_light_source moves the CCM bank
+ * index (isp+0xf44..0xf49) after its frame hysteresis, identity in low light.
+ * The recovery AWB never raised event 4, so the CCM bank stayed D50 (#450).
+ */
+static void tx_isp_t30_awb_light_source(int32_t *awb_fsm, u32 ct)
+{
+	*(u32 *)((char *)awb_fsm + 0x778) = ct;
+	awb_detect_light_source((uintptr_t)awb_fsm);
+	awb_process_light_source(awb_fsm);
+}
+
+/* OEM awb_calc_avg_weighted_gr_gb_mesh, manual branch (ko 0x34460..0x344c4):
+ * 1e6 / AWB_mesh(0xffff / red, 0xffff / blue) on the R/G, B/G and colour
+ * temperature meshes (tables 0xe2, 0xfb, 0xd6); a zero gain reads 0xffff. */
+static u32 tx_isp_t30_awb_manual_ct(u32 red, u32 blue)
+{
+	int32_t m = AWB_mesh_isra_1(red ? 0xffffU / red : 0xffffU,
+				    blue ? 0xffffU / blue : 0xffffU,
+				    (int16_t *)(uintptr_t)_GET_USHORT_PTR(0xe2),
+				    (int16_t *)(uintptr_t)_GET_USHORT_PTR(0xfb),
+				    (void *)(uintptr_t)_GET_USHORT_PTR(0xd6));
+
+	return m ? 1000000U / (u32)m : 0;
+}
+
 static void tx_isp_t30_simple_awb_update(int32_t *awb_fsm)
 {
 	struct tx_isp_t30_simple_3a_state *state = &tx_isp_t30_simple_3a;
@@ -42027,10 +42165,19 @@ static void tx_isp_t30_simple_awb_update(int32_t *awb_fsm)
 	 * blue feedback factors are the system items 49/50 (halved Q8).  The
 	 * automatic filter state is left alone, so AWB resumes from its last
 	 * automatic estimate when the mode returns to auto.
+	 *
+	 * OEM awb_calc_avg_weighted_gr_gb_mesh() (ko 0x344c4) takes the colour
+	 * temperature of a manual white balance from the manual gains on the
+	 * calibrated mesh, and the FSM states 9/10 move the CCM bank with it
+	 * (openimp #450: blue gain doubled = warm light = CCM A on the vendor).
 	 */
 	if (stab[12]) {
-		tx_isp_t30_awb_write_gains(state, static_wb, (u32)stab[49] << 1,
-					   (u32)stab[50] << 1);
+		u32 red = (u32)stab[49] << 1;
+		u32 blue = (u32)stab[50] << 1;
+
+		tx_isp_t30_awb_write_gains(state, static_wb, red, blue);
+		tx_isp_t30_awb_light_source(awb_fsm,
+					    tx_isp_t30_awb_manual_ct(red, blue));
 		return;
 	}
 	coefficient = average_coefficient[0];
@@ -42122,8 +42269,20 @@ static void tx_isp_t30_simple_awb_update(int32_t *awb_fsm)
 		total_weight += zone_weight;
 		active_zones++;
 	}
-	if (!active_zones || !total_weight)
+	if (!active_zones || !total_weight) {
+		/*
+		 * No usable zone (e.g. the first frames after a manual white
+		 * balance): the OEM normalise still writes the gains every frame,
+		 * so leaving manual WB restores the last automatic gains at once
+		 * (openimp #450: the open picture stayed blue after SetWB(auto)).
+		 */
+		tx_isp_t30_awb_write_gains(state, static_wb,
+					   state->awb_red_scale,
+					   state->awb_blue_scale);
+		tx_isp_t30_awb_light_source(awb_fsm,
+					    state->awb_color_temperature);
 		return;
+	}
 	average_rg = div64_u64(weighted_rg + total_weight / 2, total_weight);
 	average_bg = div64_u64(weighted_bg + total_weight / 2, total_weight);
 	{
@@ -42205,6 +42364,7 @@ static void tx_isp_t30_simple_awb_update(int32_t *awb_fsm)
 
 	tx_isp_t30_awb_write_gains(state, static_wb, state->awb_red_scale,
 				   state->awb_blue_scale);
+	tx_isp_t30_awb_light_source(awb_fsm, state->awb_color_temperature);
 	state->awb_updates++;
 	if (state->awb_updates <= 8 || !(state->awb_updates & 0x1f))
 		pr_info("tx-isp-t30: calibrated AWB zones=%u mesh=%u/%u ct=%u scale=%u/%u gain=0x%x/0x%x/0x%x/0x%x\n",
@@ -42698,44 +42858,21 @@ int32_t awb_process_temp_and_shift(void)
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000034e20 origin=fragment_seed original=awb_detect_light_source */
+/*
+ * OEM awb_detect_light_source (SDK ko 0x34540): light source +0x77d from the
+ * colour temperature +0x778: < 3426 K -> 1 (A), < 4501 K -> 2 (D40), else 3
+ * (D50).  The lift lost the branch-likely delay slot (beqzl ... li v0,3) and
+ * stored 2 for every temperature >= 3426 K, so D50 was never chosen (#450).
+ */
 int32_t awb_detect_light_source(uintptr_t a0)
 {
-    uint32_t ra = 0;
-    uintptr_t *v0 = 0;
-    uint32_t v1 = 0;
+	u32 ct = *(u32 *)((char *)a0 + 0x778);
+	u8 src = 1;
 
-    /* fragment 0: Arithmetic */
-    v0 = 1;
-
-    /* fragment 1: MemoryAccess */
-    *(uint8_t *)((char *)a0 + 1917) = v0;
-    v0 = *(uint32_t *)((char *)a0 + 1912);
-    v1 = v0 < 3426;
-
-    /* fragment 2: Branch */
-    v0 = v0 < 4501;
-    if (v1 != 0) { goto awb_detect_light_source0x28; }
-
-    /* fragment 3: Unknown */
-    /* unmatched fragment 3 (Unknown): no deterministic matcher for Unknown */
-    /* asm: 34e38:	50400002 	beqzl	v0,34e44 <awb_detect_light_source+0x24> */
-
-    /* fragment 4: Arithmetic */
-    v0 = 3;
-    v0 = 2;
-
-    /* fragment 5: MemoryAccess */
-    *(uint8_t *)((char *)a0 + 1917) = v0;
-
-awb_detect_light_source0x28:
-    /* fragment 6: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    /* fragment 7: Unknown */
-    /* unmatched fragment 7 (Unknown): no deterministic matcher for Unknown */
-    /* asm: 34e4c:	00000000 	nop */
-
-    return 0;
+	if ((int32_t)ct >= 3426)
+		src = (int32_t)ct < 4501 ? 2 : 3;
+	*(u8 *)((char *)a0 + 0x77d) = src;
+	return src;	/* OEM v0: 1 (slti in the bnez delay slot), 2 or 3 */
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000034e50 origin=model_output original=awb_process_light_source */
