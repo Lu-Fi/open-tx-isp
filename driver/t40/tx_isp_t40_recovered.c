@@ -9553,7 +9553,9 @@ static void t40_ae_rep_get(uint32_t *it, uint32_t *again, uint32_t *dg)
     *again = READ_ONCE(regtrace_ae_soft_cur_again);
     *dg = READ_ONCE(regtrace_ae_isp_dgain_cur);
     k = lag < 0 ? READ_ONCE(t40_ae_rep_depth) + 1U : (uint32_t)lag;
-    if (!k || !READ_ONCE(t40_ae_dg_ring_on) || k >= T40_AE_REP_N || w <= k)
+    /* #492: a frozen (manual) AE pushes no steps: report the live (manual) values, like the OEM ring that ev_alloc
+     * refills every frame with the manual exposure */
+    if (!k || !READ_ONCE(t40_ae_dg_ring_on) || !READ_ONCE(t40_ae_tune_on) || k >= T40_AE_REP_N || w <= k)
         return;
     smp_rmb();
     k = (w - 1U - k) % T40_AE_REP_N;
