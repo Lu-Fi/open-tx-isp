@@ -4,6 +4,16 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD[-rcN]` are set on the `aperto` branch, the same tag in open-tx-isp and OpenIMP: RC1 `v2026.10.11-rc1`, RC2 `v2026.10.25-rc2`, RC3 `v2026.11.07-rc3` (2026-11-07). Gate SoCs of RC3 and Release 1: T10, T20, T21, T23, T30, T31, T40, T41 (T32/T33 planned, QEMU only); release notes: [docs/releases/ in OpenIMP](https://github.com/Lu-Fi/openimp/blob/next/docs/releases/README.md). Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-11-14: T10/T20 firmware de-lift batch 3: FSM clear / switch-state functions on per-FSM structs (openimp #539; host + T10 cam, planned)
+
+- `driver/t20/tx_isp_t20_firmware.c`: 27 of the 28 `*_fsm_clear` / `*_fsm_switch_state` functions use per-FSM structs (`driver/t20/tx_isp_t20_fsm.h`, each starting with `struct t20_fsm_hdr`) and named parameters instead of register-variable fragments and raw offsets; `matrix_yuv_fsm_clear` stays as recovered (both model attempts changed its code). `tests/t20_fw/pre.h` includes the FSM header (the firmware includes it in its kernel-tree block).
+- Proof: T10 and T20 firmware objects identical MIPS code except `apical_isp_init` (register allocation only, inlining of a rewritten clear function); `tests/t20_fw` delift oracle identical (all scenarios), vdiff against the vendor `tx-isp-t10.ko` for the 28 + `apical_isp_init` 0 differing; T10 cam runtime ko swap: 496 frames, 0 decode errors, 0 oops. API port loop: claude-sonnet-5-5 (23), claude-opus-5-5 (4).
+
+## 2026-11-14: T20 streamer restart no longer panics in the Apical event queue (openimp #540; T20X Wyze v2 on kernel 7 + QEMU)
+
+- `driver/t20/tx_isp_t20_firmware.c`: `apical_fw_init()` memsets the firmware context, and only `apical_isp_init()` builds the event loop buffer. A frame-end IRQ in that window (ISP re-open while the sensor still streams, e.g. a streamer restart) pushed through the NULL buffer: kernel panic in `apical_loop_buffer_write_u8`. `apical_interrupt_frame_end` and both raise_event paths now drop the event while the queue does not exist yet (beyond vendor: a guard, the vendor leaves the same window open).
+- Proof: QEMU T20 (k7) panicked on the first `S95timps restart`, now 3 restarts are clean. Wyze Cam v2 .107 on kernel 7: 3 restarts, ISP up and framesource 0 each time, 0 oops. `make -C tests check` and `make -C tests/t20_fw delift` rc=0. Not run on 3.10 hardware (the guard is a no-op once the queue exists).
+
 ## 2026-11-14: T33 AE exposure info as the vendor (openimp #527)
 
 - `tx-isp-t33.ko`: the T33 `tisp_ae_par_update_trig` (vendor 2.0.2.1 0x2ea64) also copies the 32-byte exposure block (B + 8608, vendor stAeInfo + 2888) to R + 576, at every trigger and once in `tisp_normal_ae_init` before the start values (`t33_aec_expr_trig`). `IMP_ISP_Tuning_GetAeExprInfo` now reads AeDGain (+32) 0 like the vendor (was the template 0x400); integration time, again, ISP dgain, min / max words already matched (QEMU -M ingenic-t33, same scene: IT 961/1048/1103/1163/1175 vendor vs 979/1056/1114/1168/1175 ours, then equal).
