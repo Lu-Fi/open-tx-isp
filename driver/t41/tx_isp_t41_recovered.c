@@ -3968,7 +3968,7 @@ static unsigned char __attribute__((aligned(4))) fs_core_ops[44] = {
     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
 };
-static unsigned char __attribute__((aligned(4))) fs_channel_ops[120] = {
+static unsigned char __attribute__((aligned(4))) fs_channel_ops[240] = {
     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
@@ -6323,12 +6323,18 @@ static void regtrace_patch_relocated_data(void)
     *(const void **)((char *)csi_subdev_internal_ops + 0x4) = (const void *)&tx_isp_csi_slake_subdev;
     *(const void **)((char *)csi_subdev_internal_ops + 0x8) = (const void *)&tx_isp_csi_suspend_module;
     *(const void **)((char *)csi_subdev_internal_ops + 0xc) = (const void *)&tx_isp_csi_resume_module;
-    *(const void **)((char *)frame_done_wq_mdns + 0x4) = (const void *)((char *)((char *)&frame_done_wq_mdns + 0x4));
-    *(const void **)((char *)frame_done_wq_mdns + 0x8) = (const void *)((char *)((char *)&frame_done_wq_mdns + 0x4));
-    *(const void **)((char *)frame_done_wq_sec + 0x4) = (const void *)((char *)((char *)&frame_done_wq_sec + 0x4));
-    *(const void **)((char *)frame_done_wq_sec + 0x8) = (const void *)((char *)((char *)&frame_done_wq_sec + 0x4));
-    *(const void **)((char *)frame_done_wq + 0x4) = (const void *)((char *)((char *)&frame_done_wq + 0x4));
-    *(const void **)((char *)frame_done_wq + 0x8) = (const void *)((char *)((char *)&frame_done_wq + 0x4));
+    /* #548: not the 4.4 SMP layout (lock at 0, list at 4): on a 7.x UP
+     * kernel spinlock_t is empty and the list head sits at offset 0. */
+    BUILD_BUG_ON(sizeof(frame_done_wq_mdns) < sizeof(wait_queue_head_t));
+    init_waitqueue_head((wait_queue_head_t *)(void *)frame_done_wq_mdns);
+    /* #548: not the 4.4 SMP layout (lock at 0, list at 4): on a 7.x UP
+     * kernel spinlock_t is empty and the list head sits at offset 0. */
+    BUILD_BUG_ON(sizeof(frame_done_wq_sec) < sizeof(wait_queue_head_t));
+    init_waitqueue_head((wait_queue_head_t *)(void *)frame_done_wq_sec);
+    /* #548: not the 4.4 SMP layout (lock at 0, list at 4): on a 7.x UP
+     * kernel spinlock_t is empty and the list head sits at offset 0. */
+    BUILD_BUG_ON(sizeof(frame_done_wq) < sizeof(wait_queue_head_t));
+    init_waitqueue_head((wait_queue_head_t *)(void *)frame_done_wq);
     *(const void **)((char *)ivdc_subdev_ops + 0x0) = (const void *)&ivdc_core_ops;
     *(const void **)((char *)ivdc_subdev_ops + 0x4) = (const void *)&ivdc_video_ops;
     *(const void **)((char *)ivdc_subdev_ops + 0x10) = (const void *)&ivdc_internal_ops;
@@ -6353,10 +6359,23 @@ static void regtrace_patch_relocated_data(void)
      * array and f_op into the freed module image (the next load usually sits
      * at the same address, so release then runs and writes channel states
      * 3/2 into memory that is no longer the driver's). */
-    *(const void **)((char *)fs_channel_ops + 0x0) = (const void *)THIS_MODULE;
-    *(const void **)((char *)fs_channel_ops + 0x20) = (const void *)&frame_channel_unlocked_ioctl;
-    *(const void **)((char *)fs_channel_ops + 0x2c) = (const void *)&frame_channel_open;
-    *(const void **)((char *)fs_channel_ops + 0x34) = (const void *)&frame_channel_release;
+    /* #548: the raw table used the 4.4 struct file_operations offsets
+     * (unlocked_ioctl 0x20, open 0x2c, release 0x34).  On 7.x open is at
+     * 0x34, so misc_open() called frame_channel_release() as ->open and
+     * the ioctl/release slots were empty.  Use the real struct members. */
+    BUILD_BUG_ON(sizeof(fs_channel_ops) < sizeof(struct file_operations));
+    ((struct file_operations *)fs_channel_ops)->owner = THIS_MODULE;
+    ((struct file_operations *)fs_channel_ops)->unlocked_ioctl =
+        (long (*)(struct file *, unsigned int, unsigned long))frame_channel_unlocked_ioctl;
+    ((struct file_operations *)fs_channel_ops)->open = frame_channel_open;
+    ((struct file_operations *)fs_channel_ops)->release =
+        (int (*)(struct inode *, struct file *))frame_channel_release;
+    pr_info("t41: fops layout open=%zu release=%zu ioctl=%zu size=%zu; file private_data=%zu size=%zu\n",
+            offsetof(struct file_operations, open),
+            offsetof(struct file_operations, release),
+            offsetof(struct file_operations, unlocked_ioctl),
+            sizeof(struct file_operations),
+            offsetof(struct file, private_data), sizeof(struct file));
     *(const void **)((char *)tx_isp_pm_ops + 0x8) = (const void *)&tx_isp_suspend;
     *(const void **)((char *)tx_isp_pm_ops + 0xc) = (const void *)&tx_isp_resume;
     *(const void **)((char *)link_ldc + 0x0) = (const void *)"isp-m0";
@@ -16527,7 +16546,7 @@ static char *t41_tuning_core_state(uintptr_t file)
 
 	if (!t41_kernel_data_ptr((void *)file))
 		return NULL;
-	priv = (char *)(uintptr_t)*(uint32_t *)(void *)(file + 136);
+	priv = (char *)((struct file *)file)->private_data;	/* #548 */
 	if (!t41_kernel_data_ptr(priv))
 		return NULL;
 	core = (char *)(uintptr_t)*(uint32_t *)(void *)(priv + 256);
@@ -16571,7 +16590,7 @@ int32_t isp_core_tunning_open(uint32_t a0, uintptr_t a1)
 	if (!tun)
 		return -ENODEV;
 	core = (char *)(uintptr_t)*(uint32_t *)(void *)
-		((char *)(uintptr_t)*(uint32_t *)(void *)(a1 + 136) + 256);
+		((char *)((struct file *)a1)->private_data + 256);
 	mutex_lock(&t41_tuning_open_mutex);
 	state = *(uint32_t *)(void *)(tun + 148);
 	ret = t41_tuning_open_decide(state, t41_tuning_open_count);
@@ -30253,12 +30272,14 @@ int32_t frame_channel_release(uint32_t a0, uintptr_t a1, uint32_t a2)
     /* fragment 0: Prologue */
     /* function prologue: stack frame and callee-saved register setup */
 
-    if (t41_kernel_data_ptr(*(void **)((char *)a1 + 136)))
+    /* #548: struct file member, not the 4.4 offset 136 (past the end of
+     * the 7.x struct file: the next filp slab object). */
+    if (t41_kernel_data_ptr(((struct file *)a1)->private_data))
 		return tx_isp_t41_frame_channel_release(
-			*(void **)((char *)a1 + 136));
+			((struct file *)a1)->private_data);
 
     /* fragment 1: MemoryAccess */
-    s0 = *(uint32_t *)((char *)a1 + 136);
+    s0 = (uintptr_t *)((struct file *)a1)->private_data;
 
     /* fragment 2: Branch */
     s1 = -22;
@@ -30864,7 +30885,7 @@ int64_t frame_channel_unlocked_ioctl(uintptr_t a0, uint32_t a1, uint32_t a2)
     /* function prologue: stack frame and callee-saved register setup */
 
     /* fragment 1: MemoryAccess */
-    s0 = *(uint32_t *)((char *)a0 + 136);
+    s0 = (uintptr_t *)((struct file *)a0)->private_data;	/* #548 */
     if (a1 == TX_ISP_FRAME_IOCTL_T41_SET_FORMAT) {
         int ret = frame_channel_vidioc_set_fmt(
             s0, (struct v4l2_format __user *)(uintptr_t)a2);
@@ -38047,7 +38068,7 @@ int64_t tx_isp_unlocked_ioctl(uintptr_t a0, uint32_t a1, uint32_t a2)
     s1 = a2;
 
     /* fragment 3: Branch */
-    s2 = *(uint32_t *)((char *)(a0) + 136);
+    s2 = (uint32_t *)((struct file *)a0)->private_data;	/* #548 */
     if (a1 == v1) { goto tx_isp_unlocked_ioctl0x15e8; }
 
     /* fragment 4: Arithmetic */
