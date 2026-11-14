@@ -4,6 +4,11 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD[-rcN]` are set on the `aperto` branch, the same tag in open-tx-isp and OpenIMP: RC1 `v2026.10.11-rc1`, RC2 `v2026.10.25-rc2`, RC3 `v2026.11.07-rc3` (2026-11-07). Gate SoCs of RC3 and Release 1: T10, T20, T21, T23, T30, T31, T40, T41 (T32/T33 planned, QEMU only); release notes: [docs/releases/ in OpenIMP](https://github.com/Lu-Fi/openimp/blob/next/docs/releases/README.md). Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-11-14: T33 CSC list writes, CSCCR range check, SDNS plain parameters, 96-byte DRIVER_VERSION (openimp #99; host + QEMU, planned)
+
+- `tx-isp-t33.ko`: ported `tisp_t33_csc_write_reg` (CSC working block into list 13 slots 3..9 + trigger slot, tispCscRefresh 1/2; called at init after `tisp_csc_update_para` like `tisp_csc_init`, and from `tisp_csc_fra_down_interrupt` on system irq 48), `tisp_csccr_bin_par_update` (T33: range check only, message on min > max, at CSCCR init and bin switch), `tisp_sdns_other_params_transform` (used by the SDNS par refresh), `tx_isp_driver_version` (96-byte block SoC / version / zeros as the vendor).
+- New binary oracle blocks `cscmisc` (6000 cases, 22/22 mutants) and `drvver` (6/6 mutants) (nested byte patches `@O2=N2/B=v,..` of the harness).
+- tx-isp-t32.ko code unchanged.
 ## 2026-11-14: docs: T32/T33 GetAeExprInfo short-frame words row (user OK 2026-11-14; openimp #527)
 
 - `docs/BEYOND_VENDOR.md`: the zeroed words 26..50 of the exposure block (`tx_isp_t32_tunblk.c:250`; the vendor returns stale kernel data there). Docs only.
