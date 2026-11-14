@@ -94,6 +94,22 @@ next irq 8 starts the lists. Oracle `tests/t33_binoracle/lceev.conf`
 `tisp_lce_switch_para` (day / night) is ported and proven by the same oracle
 but not called: the module has no bin switch path yet (openimp #504).
 
+BCSH list 18 writers (openimp #507): the vendor writes the list only from
+`tisp_bcsh_init`, the API setters, `tisp_bcsh_ev_update` and
+`tisp_bcsh_ct_update` (each time the whole list from the whole block state;
+with the list DMA busy `tispBcshRefresh = 2` and `tisp_bcsh_irq_frame_down`
+writes the same words at the next frame done). `tisp_bcsh_switch_para`
+(day / night bin switch) changes the block state only. The EV / CT updates
+run only while the top bypass word has bit 0x4000 clear (PRJ008 day
+0x00e00008: they run; night 0x00e4c098: they do not). So after a switch to
+night list 18 keeps the last day words (the day section at the EV / CT of
+the last update before the switch), and after a switch back the day words
+return with the first EV update that passes the hysteresis `sec + 0x64` or
+the first CT update that gives a new matrix. Ours does the same
+(`t33_bcsh_switch_para` returns 0 = nothing to commit); oracle
+`tests/t33_binoracle/bcshlist.conf` (switch / EV / CT update sequences vs
+the vendor instructions, EV and BV mode, calc modes 1 and 2).
+
 Build (3.10.14 kernel tree):
 
     make -C $KDIR M=$PWD/driver/t33 ARCH=mips CROSS_COMPILE=mipsel-linux- modules

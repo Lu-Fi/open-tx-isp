@@ -270,7 +270,7 @@ void t33_aec_show(struct seq_file *m);
 bool t33_evq_queue(struct work_struct *w);	/* the vendor's tisp event thread: one ordered queue */
 void t33_evq_get(void);
 void t33_tgain_refresh(u32 gain);	/* tx_isp_t32_hw.c: event 4 block refreshes */
-void t33_ev_refresh(u32 lo, u32 hi, u32 bv);
+void t33_ev_refresh(u32 lo, u32 hi, u32 bv, u32 bvh);
 void t33_ct_refresh(u32 ct);
 void t33_set_csccr(u32 ch, u32 night);
 void t33_refresh_para(u32 mode);	/* tx_isp_t32_hw.c: IQ bin switch (lib_tisp_refresh_para, #504) */

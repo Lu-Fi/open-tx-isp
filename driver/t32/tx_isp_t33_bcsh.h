@@ -389,8 +389,13 @@ static inline void t33_bcsh_hue(u8 *st, const u8 *sec)
 		t32_bcsh_p32(cp, 0xdc + 4 * i, (u32)hm[i]);
 }
 
-/* tisp_bcsh_calc_para_refresh(0) */
-static inline void t33_bcsh_calc(u8 *st, const u8 *sec)
+/*
+ * tisp_bcsh_calc_para_refresh(mode) runs three parts: the brightness / contrast / saturation part (mode 0, 1),
+ * the hue part (mode 0, 2: t33_bcsh_hue) and the tail (mode 0, 3: the sec + 0xde slope and the RGB offsets).
+ * init, switch_para and the API setters use mode 0, tisp_bcsh_ev_update mode 1, tisp_bcsh_ct_update mode 2.
+ */
+/* the brightness / contrast / saturation part (modes 0 and 1) */
+static inline void t33_bcsh_calc_bcs(u8 *st, const u8 *sec)
 {
 	u8 *cp = st + 0x30, *ap = st + 0x1cc;
 	int m[9], in[3], o[3], d, v, p, i;
@@ -464,7 +469,14 @@ static inline void t33_bcsh_calc(u8 *st, const u8 *sec)
 		}
 		t32_bcsh_p16(cp, 2 * (p + 9), t32_bcsh_clip(v, 0, 0x7fff));
 	}
-	t33_bcsh_hue(st, sec);
+}
+
+/* the tail (modes 0 and 3) */
+static inline void t33_bcsh_calc_tail(u8 *st, const u8 *sec)
+{
+	u8 *cp = st + 0x30, *ap = st + 0x1cc;
+	int d, v;
+
 	d = (int)t32_tp_le16(sec + 0xe0) - (int)t32_tp_le16(sec + 0xde);
 	t32_bcsh_p16(cp, 6, t32_bcsh_clip(d > 0 ? ((d >> 1) + 0x1000) / d : 0, 0, 0x3ff));
 	/* RGB offsets */
@@ -485,6 +497,14 @@ static inline void t33_bcsh_calc(u8 *st, const u8 *sec)
 	t32_bcsh_p16(cp, 2 * 0x84, 0);
 	t32_bcsh_p16(cp, 2 * 0x85, 0);
 	t32_bcsh_p16(cp, 2 * 0x86, 0);
+}
+
+/* tisp_bcsh_calc_para_refresh(0) */
+static inline void t33_bcsh_calc(u8 *st, const u8 *sec)
+{
+	t33_bcsh_calc_bcs(st, sec);
+	t33_bcsh_hue(st, sec);
+	t33_bcsh_calc_tail(st, sec);
 }
 
 /* tisp_params_transform + the slot stores of tisp_bcsh_init */
@@ -610,8 +630,19 @@ T33_BCSH_FN t33_bcsh_init(u8 *sec, const u8 *lut, u32 lutbytes, const u8 *csc, i
  * the flags tisp_bcsh_init clears stay as the bin has them), then
  * tisp_bcsh_get_new_para into st + 0x25c, interp_by_ev (forced) at the EV
  * kept in st + 8 / + 0xc, interp_by_ct (forced) at the CT kept in st + 0x20
- * and calc_para_refresh(0); the block state is kept.  The list words come
- * from t33_bcsh_store (t33_bcsh_switch_para).
+ * and calc_para_refresh(0); the block state is kept.
+ *
+ * The vendor switch writes NO list word and leaves tispBcshRefresh alone
+ * (no tisp_params_transform, no tisp_reg_write_t33): list 18 keeps the
+ * words of the last writer.  The writers are tisp_bcsh_init, the API
+ * setters, tisp_bcsh_ev_update and tisp_bcsh_ct_update (each: the whole
+ * list from the whole state when the list DMA is idle, else
+ * tispBcshRefresh = 2 and tisp_bcsh_irq_frame_down writes the same words
+ * at the next frame done).  So the new section reaches the list with the
+ * next EV update that passes the hysteresis or the next CT update that
+ * gives a new matrix; while the new bin's top bypass word has the BCSH bit
+ * 0x4000 set (PRJ008 night: 0x00e4c098) neither runs and the list stays at
+ * the old bin's words (block bcshlist; QEMU night list 18 = the day list).
  */
 static inline void t33_bcsh_switch_state(u8 *sec, const u8 *lut, u8 *st)
 {
@@ -626,22 +657,14 @@ static inline void t33_bcsh_switch_state(u8 *sec, const u8 *lut, u8 *st)
 	t33_bcsh_calc(st, sec);
 }
 
-static inline void t33_bcsh_switch_para(u8 *sec, const u8 *lut, u8 *st, u32 *l)
+/* the switch as the list sees it: the state only, l untouched; returns 0 (no word rebuilt, nothing to commit) */
+static inline int t33_bcsh_switch_para(u8 *sec, const u8 *lut, u8 *st, u32 *l)
 {
+	(void)l;
 	t33_bcsh_switch_state(sec, lut, st);
-	t33_bcsh_store(st, sec, l);
+	return 0;
 }
 
-/*
- * tisp_bcsh_ev_update (AE event 6, EV low / high word), EV mode
- * (sec[0x4c0] = 0; the BV mode is not ported): the EV clipped to
- * 0x100_00000000, tisp_bcsh_interp_by_ev unless the EV moved by at most
- * the hysteresis sec+0x64 since the last one (st+8 / +0xc), the frame
- * counter st+0x28, then tisp_bcsh_calc_para_refresh, params_transform and
- * the slot stores into l.  calc_para_refresh runs in mode 0 here (the
- * vendor's mode 1 skips the hue / saturation parts, which the EV does not
- * change).  Returns 1 when the words were rebuilt.
- */
 /*
  * tisp_bcsh_ct_update (AWB event 11 through tisp_ct_update, when the top
  * bypass bit 0x4000 is clear): tisp_bcsh_interp_by_ct (not forced) at ct,
@@ -661,26 +684,49 @@ static inline int t33_bcsh_ct_update(u8 *st, const u8 *sec, const u8 *lut, int c
 	return 1;
 }
 
-static inline int t33_bcsh_ev_update(u8 *st, const u8 *sec, u32 lo, u32 hi, u32 *l)
+/*
+ * tisp_bcsh_ev_update (AE event 6 through tisp_long_ev_update, when the
+ * top bypass bit 0x4000 is clear): lo / hi the EV (clipped to
+ * 0x100_00000000), bvl / bvh the event's brightness words, used instead of
+ * the EV in BV mode (sec[0x4c0]).  tisp_bcsh_interp_by_ev (not forced)
+ * skips while the value moved by at most the hysteresis sec + 0x64 since
+ * the one kept (EV: st + 8 / + 0xc, a signed 64-bit compare; BV: st + 0x10
+ * / + 0x14 against the low word); the frame counter st + 0x28 counts every
+ * call.  On a new value: tisp_bcsh_calc_para_refresh(1) (not the hue part,
+ * not the tail), params_transform and the slot stores into l.  Returns 1
+ * when the words were rebuilt.
+ */
+static inline int t33_bcsh_ev_update(u8 *st, const u8 *sec, u32 lo, u32 hi, u32 bvl, u32 bvh, u32 *l)
 {
-	unsigned long long n, o, d;
+	long long n, o;
+	unsigned long long d;
+	u32 x;
 
 	if (hi > 0x100 || (hi == 0x100 && lo)) {
 		lo = 0;
 		hi = 0x100;
 	}
+	if (sec[0x4c0]) {
+		lo = bvl;
+		hi = bvh;
+		n = (long long)(unsigned long long)lo;
+		o = (long long)((unsigned long long)t33_le32(st + 0x14) << 32 | t33_le32(st + 0x10));
+	} else {
+		n = (long long)((unsigned long long)hi << 32 | lo);
+		o = (long long)((unsigned long long)t33_le32(st + 0xc) << 32 | t33_le32(st + 8));
+	}
+	d = n < o ? (unsigned long long)o - (unsigned long long)n : (unsigned long long)n - (unsigned long long)o;
 	if (sec[0x4c0])
-		return 0;
-	n = (unsigned long long)hi << 32 | lo;
-	o = (unsigned long long)t33_le32(st + 0xc) << 32 | t33_le32(st + 8);
-	d = n > o ? n - o : o - n;
+		x = (u32)(d >> 32) ? 0xffffffffU : (u32)d;
+	else
+		x = (int)(u32)(d >> 32) < 1 ? (u32)d : 0xffffffffU;
 	st[0x28] = st[0x28] == 0xff ? 0 : st[0x28] + 1;
-	if (!(d >> 32) && (u32)d <= t33_le32(sec + 0x64))
+	if (x <= t33_le32(sec + 0x64))
 		return 0;
-	t33_bcsh_ev(st, sec, n);
-	t32_bcsh_p32(st, 8, lo);
-	t32_bcsh_p32(st, 0xc, hi);
-	t33_bcsh_calc(st, sec);
+	t33_bcsh_ev(st, sec, sec[0x4c0] ? (unsigned long long)lo : (unsigned long long)hi << 32 | lo);
+	t32_bcsh_p32(st, sec[0x4c0] ? 0x10 : 8, lo);
+	t32_bcsh_p32(st, sec[0x4c0] ? 0x14 : 0xc, hi);
+	t33_bcsh_calc_bcs(st, sec);	/* mode 1 */
 	t33_bcsh_store(st, sec, l);
 	return 1;
 }

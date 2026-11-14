@@ -1546,9 +1546,9 @@ out:
  * their words unchanged on PRJ008 (flat EV tables, QEMU trace); RDNS, defog
  * and TMO set their refresh flag every time (tisp_rdns_ev_update,
  * tisp_defog_ev_update, tisp_tmo_ev_update): lists 3, 12 and 8 rerun.
- * bv: the AE event's brightness word (the vendor's x argument).
+ * bv / bvh: the AE event's brightness words (the vendor's x / y arguments).
  */
-void t33_ev_refresh(u32 lo, u32 hi, u32 bv)
+void t33_ev_refresh(u32 lo, u32 hi, u32 bv, u32 bvh)
 {
 	const u8 *bin;
 	u32 *buf, bytes, byp;
@@ -1570,7 +1570,7 @@ void t33_ev_refresh(u32 lo, u32 hi, u32 bv)
 	if (t33_gr_tmp && !(byp & 0x4000) && (t33_mod_built & (1ULL << T33_MOD_BCSH)) &&
 	    (buf = t33_mod_buf(T33_MOD_BCSH))) {
 		memcpy(t33_gr_tmp, buf, T33_SLOT_WORDS * 4);
-		if (t33_bcsh_ev_update(t33_bcsh_st, t33_bcsh_sec, lo, hi, t33_gr_tmp))
+		if (t33_bcsh_ev_update(t33_bcsh_st, t33_bcsh_sec, lo, hi, bv, bvh, t33_gr_tmp))
 			t33_gr_commit(T33_MOD_BCSH, 1);
 	}
 	/* tisp_ccm_ev_update: the matrix words follow the CT here, list 10 reruns either way */
@@ -2202,12 +2202,16 @@ static noinline_for_stack void t33_sw_color(const u8 *bin, u32 bytes)
 							t32_iq_payload(bin + off, bytes - off, T33_SEC_CLM), bin + coff,
 							t33_clm_ct_last, t33_gr_tmp, T33_SLOT_WORDS));
 	}
-	/* tisp_bcsh_switch_para: get_new_para, interp_by_ev / _by_ct at the block's EV / CT, calc_para_refresh (block bcshsw) */
+	/*
+	 * tisp_bcsh_switch_para: get_new_para, interp_by_ev / _by_ct at the block's EV / CT, calc_para_refresh
+	 * (block bcshsw).  The block state only: the vendor writes no list word here, list 18 keeps the last
+	 * EV / CT update's words until the next one (block bcshlist; PRJ008 night gates both, openimp #507).
+	 */
 	if (T33_SW_SEC(BCSH) && (t33_mod_built & (1ULL << T33_MOD_BCSH)) && (buf = t33_mod_buf(T33_MOD_BCSH))) {
 		memcpy(t33_gr_tmp, buf, T33_SLOT_WORDS * 4);
 		memcpy(t33_bcsh_sec, bin + off, sizeof(t33_bcsh_sec));
-		t33_bcsh_switch_para(t33_bcsh_sec, bin + off + len, t33_bcsh_st, t33_gr_tmp);
-		t33_gr_commit(T33_MOD_BCSH, 1);
+		if (t33_bcsh_switch_para(t33_bcsh_sec, bin + off + len, t33_bcsh_st, t33_gr_tmp))
+			t33_gr_commit(T33_MOD_BCSH, 1);
 	}
 }
 
