@@ -16,6 +16,7 @@
 
 #include "tx_isp_t33_blk.h"
 
+#ifndef T33_SW_GLUE	/* the driver maps these names in tx_isp_t33_swglue.h */
 extern u32 *rdnsInfo[4];
 extern u8 rdnsCfgMode;
 extern u8 tispRdnsRefresh;
@@ -25,8 +26,9 @@ extern u32 tisp_ev_intp_uint8_t(u32 ev, const u8 *e, const u8 *t);
 extern u32 tisp_simple_intp_uint8_t(int i, u32 f, const u8 *t);
 extern u32 tisp_rcfg_get_dma_state(u32 id);
 extern void tisp_reg_write_t33(u32 ch, u32 mod, u32 reg, u32 val);
+#endif
 
-static inline void t33_rdns_wr(u32 ch, u32 slot, u32 addr, u32 val)
+static inline void t33_swrdns_wr(u32 ch, u32 slot, u32 addr, u32 val)
 {
 	tisp_reg_write_t33(ch, 3, rdnsCfgMode ? slot : 0x20000 + addr, val);
 }
@@ -75,25 +77,25 @@ static inline void t33_rdns_switch_para(u32 ch)
 	}
 
 	v = rdnsInfo[c];
-	t33_rdns_wr(c, 8, 0x60b4, ((v[197] & 0xff) << 16) | (v[196] & 0xff));
-	t33_rdns_wr(c, 9, 0x60b8, ((v[199] & 0xf) << 16) | (v[198] & 0xf));
-	t33_rdns_wr(c, 10, 0x60bc, ((v[202] & 0xff) << 16) | (v[201] & 0xff));
-	t33_rdns_wr(c, 11, 0x60c0, ((v[204] & 0x1f) << 16) | (v[203] & 0x1f));
-	t33_rdns_wr(c, 12, 0x60c4, ((v[205] & 0x3f) << 16) | (v[200] & 0x1f));
-	t33_rdns_wr(c, 13, 0x60c8, ((v[207] & 0xf) << 16) | (v[206] & 0xf));
-	t33_rdns_wr(c, 4, 0x6044, ((v[101] & 7) << 8) | ((v[102] & 3) << 16) | (v[100] & 7) | ((v[103] & 3) << 24));
+	t33_swrdns_wr(c, 8, 0x60b4, ((v[197] & 0xff) << 16) | (v[196] & 0xff));
+	t33_swrdns_wr(c, 9, 0x60b8, ((v[199] & 0xf) << 16) | (v[198] & 0xf));
+	t33_swrdns_wr(c, 10, 0x60bc, ((v[202] & 0xff) << 16) | (v[201] & 0xff));
+	t33_swrdns_wr(c, 11, 0x60c0, ((v[204] & 0x1f) << 16) | (v[203] & 0x1f));
+	t33_swrdns_wr(c, 12, 0x60c4, ((v[205] & 0x3f) << 16) | (v[200] & 0x1f));
+	t33_swrdns_wr(c, 13, 0x60c8, ((v[207] & 0xf) << 16) | (v[206] & 0xf));
+	t33_swrdns_wr(c, 4, 0x6044, ((v[101] & 7) << 8) | ((v[102] & 3) << 16) | (v[100] & 7) | ((v[103] & 3) << 24));
 	for (k = 0; k < 8; k++)
-		t33_rdns_wr(c, 15 + k, 0x6048, t33_rdns_pack6(v + 104 + 4 * k));
+		t33_swrdns_wr(c, 15 + k, 0x6048, t33_rdns_pack6(v + 104 + 4 * k));
 	for (k = 0; k < 8; k++)
-		t33_rdns_wr(c, 24 + k, 0x6068, t33_rdns_pack6(v + 136 + 4 * k));
+		t33_swrdns_wr(c, 24 + k, 0x6068, t33_rdns_pack6(v + 136 + 4 * k));
 	for (k = 0; k < 6; k++)
-		t33_rdns_wr(c, 33 + k, 0x6088, ((v[169 + 2 * k] & 0xfff) << 16) | (v[168 + 2 * k] & 0xfff));
-	t33_rdns_wr(c, 3, 0x6040, ((v[99] & 3) << 16) | ((v[180] & 1) << 24) | (v[98] & 7));
-	t33_rdns_wr(c, 6, 0x60a0, ((v[182] & 0x1fff) << 16) | (v[181] & 0x1ff));
+		t33_swrdns_wr(c, 33 + k, 0x6088, ((v[169 + 2 * k] & 0xfff) << 16) | (v[168 + 2 * k] & 0xfff));
+	t33_swrdns_wr(c, 3, 0x6040, ((v[99] & 3) << 16) | ((v[180] & 1) << 24) | (v[98] & 7));
+	t33_swrdns_wr(c, 6, 0x60a0, ((v[182] & 0x1fff) << 16) | (v[181] & 0x1ff));
 	for (k = 0; k < 3; k++)
-		t33_rdns_wr(c, 40 + k, 0x60a4, t33_rdns_pack8(v + 183 + 4 * k));
-	t33_rdns_wr(c, 43, 0x60a4, v[195] & 0xff);
-	t33_rdns_wr(c, 1, 0x6020, 1);
+		t33_swrdns_wr(c, 40 + k, 0x60a4, t33_rdns_pack8(v + 183 + 4 * k));
+	t33_swrdns_wr(c, 43, 0x60a4, v[195] & 0xff);
+	t33_swrdns_wr(c, 1, 0x6020, 1);
 	tispRdnsRefresh = 1;
 }
 

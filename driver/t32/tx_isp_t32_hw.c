@@ -2018,14 +2018,16 @@ static void t33_gr_refresh(u32 gain, u64 skip)
 		t33_swg_sdns_gain(bin + off, gain);
 		t33_bst_par_tail(T33_BST_SDNS);
 	}
-	if (T33_GR_SEC(RDNS) && t33_gr_gate(T33_MOD_RDNS, gain)) {
+	if (!(skip & (1ULL << T33_MOD_RDNS)) && T33_GR_SEC(RDNS) && t33_gr_gate(T33_MOD_RDNS, gain)) {
 		if ((t33_mod_built & (1ULL << T33_MOD_BLC)) && (b = t33_mod_buf(T33_MOD_BLC)))
 			blc = b[4];
 		if ((t33_mod_built & (1ULL << T33_MOD_DG)) && (b = t33_mod_buf(T33_MOD_DG)))
 			dg = b[4];
 		t33_bst_hold(T33_BST_RDNS);
-		if (t33_rdns_init(bin + off, gain, t33_gr_ev, blc, dg, t33_rdns_v, t33_gr_tmp, T33_SLOT_WORDS) > 0)
+		if (t33_rdns_init(bin + off, gain, t33_gr_ev, blc, dg, t33_rdns_v, t33_gr_tmp, T33_SLOT_WORDS) > 0) {
+			t33_swg_rdns_gain(bin + off, gain, t33_gr_ev);
 			t33_bst_par_tail(T33_BST_RDNS);
+		}
 	}
 	if (T33_GR_SEC(MDNS) && !t32_core_sensor_size(&width, &height) && !t32_core_isp_mem(&pa)) {
 		if (t33_gr_gate(T33_MOD_MDNS, gain)) {
@@ -2047,9 +2049,10 @@ static void t33_gr_refresh(u32 gain, u64 skip)
 		}
 	}
 	off = t32_iq_section(bin, bytes, T32_SEC_CDNS, &len);
-	if (off && len == T33_CDNS_SEC_BYTES && t33_gr_gate(T33_MOD_CDNS, gain)) {
+	if (!(skip & (1ULL << T33_MOD_CDNS)) && off && len == T33_CDNS_SEC_BYTES && t33_gr_gate(T33_MOD_CDNS, gain)) {
 		t33_bst_hold(T33_BST_CDNS);
 		t33_cdns_info(bin + off, gain, t33_cdns_inf);
+		t33_swg_cdns_gain(bin + off, gain);
 		t33_bst_par_tail(T33_BST_CDNS);
 	}
 #undef T33_GR_SEC
@@ -2069,10 +2072,11 @@ void t33_tgain_refresh(u32 gain)
  * LCE (tisp_lce_ev_update, top bypass bit 11 clear: lists 16 / 37 words
  * from the EV / BV interpolations, picked up by the next irq 8 start;
  * openimp #500), gamma (tisp_gamma_ev_update, bit 8: list 11 on a new
- * strength; openimp #507).  The vendor's RDNS / defog / TMO EV updates leave
- * their words unchanged on PRJ008 (flat EV tables, QEMU trace); RDNS, defog
- * and TMO set their refresh flag every time (tisp_rdns_ev_update,
- * tisp_defog_ev_update, tisp_tmo_ev_update): lists 3, 12 and 8 rerun.
+ * strength; openimp #507).  RDNS runs the proven tisp_rdns_ev_update port
+ * (tx_isp_t33_swglue.h: slots + refresh 1, or refresh 2 with the list busy).
+ * The vendor's defog / TMO EV updates leave their words unchanged on PRJ008
+ * (flat EV tables, QEMU trace) and set their refresh flag every time
+ * (tisp_defog_ev_update, tisp_tmo_ev_update): lists 12 and 8 rerun.
  * bv / bvh: the AE event's brightness words (the vendor's x / y arguments).
  */
 void t33_ev_refresh(u32 lo, u32 hi, u32 bv, u32 bvh)
@@ -2132,7 +2136,7 @@ void t33_ev_refresh(u32 lo, u32 hi, u32 bv, u32 bvh)
 	if (!(byp & 0x800))
 		t33_lcepf_ev(lo, hi, bv);
 	if (!(byp & 0x100000))
-		t33_gr_rerun(T33_MOD_RDNS);
+		t33_swg_rdns_ev(t33_gr_ev);	/* tisp_rdns_ev_update (tx_isp_t33_swglue.h) */
 	if (!(byp & 0x200))
 		t33_gr_rerun(T33_MOD_DEFOG);
 	if (!(byp & 0x20))
@@ -2500,8 +2504,11 @@ static void t33_tisp_init(const u8 *bin, u32 bytes)
 			dg = buf[4];
 		off = t32_iq_section(bin, bytes, T33_SEC_RDNS, &len);
 		if (off && len == T33_RDNS_SEC_BYTES && (buf = t33_mod_buf(T33_MOD_RDNS)))
+		{
 			t33_mod_done(T33_MOD_RDNS, t33_rdns_init(bin + off, T33_INIT_GAIN, T33_INIT_EV, blc,
 								 dg, t33_rdns_v, buf, T33_SLOT_WORDS));
+			t33_swg_rdns_gain(bin + off, T33_INIT_GAIN, T33_INIT_EV);
+		}
 	}
 	{
 		u32 *buf;
@@ -2611,9 +2618,10 @@ static void t33_tisp_init(const u8 *bin, u32 bytes)
  * next frame end (TOP: list 33 from the frame end, LCE / LSF: lists 16 /
  * 37 from the next irq 8).  Vendor order: top, dpc, blc, ae, awb, lsc,
  * tmo, dmsc, gamma, ccm, clm, bcsh, ysp, mdns, ydns, sdns, cdns, defog,
- * lce, rdns, af, csccr; dpc, ydns and sdns run the vendor switch_para
- * ports (tx_isp_t33_swglue.h) at their own last gain, the other gain
- * blocks (dmsc, ysp, mdns, cdns, rdns) come from one forced gain refresh.
+ * lce, rdns, af, csccr; dpc, ydns, sdns, cdns and rdns run the vendor
+ * switch_para ports (tx_isp_t33_swglue.h) at their own last gain / EV,
+ * the other gain blocks (dmsc, ysp, mdns) come from one forced gain
+ * refresh.
  * Not rebuilt (open, #507): the AWB list 29 / AWB and AE algorithm
  * parameters (tisp_awb_dn_params_refresh, the AE context), the AE list 30
  * (the five AE registers of the AE switch), the night byte 0x1f of
@@ -2825,7 +2833,7 @@ void t33_refresh_para(u32 mode)
 	hi = t33_sw_ev_hi;
 	t33_bin_append(bin, bytes);	/* tisp_bin_data_parse */
 	t33_sw_top(bin, bytes, width, height, bayer);
-	/* tisp_dpc_switch_para, tisp_ydns_switch_para, tisp_sdns_switch_para (tx_isp_t33_swglue.h) */
+	/* tisp_dpc / ydns / sdns / cdns_switch_para (tx_isp_t33_swglue.h) */
 	sw = t33_swg_small(bin, bytes);
 	/* tisp_blc_switch_para: interp_by_tgain at the current gain, write_reg */
 	if (T33_SW_SEC(BLC) && bayer >= 0)
@@ -2835,8 +2843,9 @@ void t33_refresh_para(u32 mode)
 	t33_sw_color(bin, bytes);
 	t33_sw_space(bin, bytes, width, height);
 	t33_sw_lce(bin, bytes);
+	sw |= t33_swg_rdns(bin, bytes);		/* tisp_rdns_switch_para */
 	/*
-	 * the other gain blocks at the current gain, their gates open (dmsc, ysp, mdns, cdns, rdns); the
+	 * the other gain blocks at the current gain, their gates open (dmsc, ysp, mdns); the
 	 * switched ones keep their own gain and gate as in the vendor
 	 */
 	for (id = 0; id < T33_MODULES; id++)
@@ -2881,6 +2890,7 @@ static void t32_tisp_init(void)
 	if (off && len == T33_CDNS_SEC_BYTES) {
 		t33_mod_set(T33_MOD_CDNS, tisp_w, t33_cdns_init(bin + off, tisp_w));
 		t33_cdns_info(bin + off, T33_INIT_GAIN, t33_cdns_inf);	/* tisp_cdns_init's cdnsInfo */
+		t33_swg_cdns_gain(bin + off, T33_INIT_GAIN);
 	}
 	t33_tisp_init(bin, bytes);
 #else
