@@ -4,6 +4,17 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD[-rcN]` are set on the `aperto` branch, the same tag in open-tx-isp and OpenIMP: RC1 `v2026.10.11-rc1`, RC2 `v2026.10.25-rc2`, RC3 `v2026.11.07-rc3` (2026-11-07). Gate SoCs of RC3 and Release 1: T10, T20, T21, T23, T30, T31, T40, T41 (T32/T33 planned, QEMU only); release notes: [docs/releases/ in OpenIMP](https://github.com/Lu-Fi/openimp/blob/next/docs/releases/README.md). Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-11-14: T33 AE exposure info as the vendor (openimp #527)
+
+- `tx-isp-t33.ko`: the T33 `tisp_ae_par_update_trig` (vendor 2.0.2.1 0x2ea64) also copies the 32-byte exposure block (B + 8608, vendor stAeInfo + 2888) to R + 576, at every trigger and once in `tisp_normal_ae_init` before the start values (`t33_aec_expr_trig`). `IMP_ISP_Tuning_GetAeExprInfo` now reads AeDGain (+32) 0 like the vendor (was the template 0x400); integration time, again, ISP dgain, min / max words already matched (QEMU -M ingenic-t33, same scene: IT 961/1048/1103/1163/1175 vendor vs 979/1056/1114/1168/1175 ours, then equal).
+- GetAeExprInfo on the T33: the short-frame words 26..50 (not written by the vendor getter 0x30d4c, no WDR on the T33) are zero instead of leftover kernel data (beyond vendor: the vendor returns stale stack words there).
+- `tx-isp-t32.ko` code unchanged (objdump md5 f0df4a93 = origin/next 96ebe7b6c, T32 thingino kernel tree).
+
+## 2026-11-14: T10/T20 firmware de-lift batch 2: FSM entry points on a named FSM header (openimp #539; host + T10 cam, planned)
+
+- `driver/t20/tx_isp_t20_firmware.c`: the 43 `*_request_interrupt`, `*_fsm_process_event` and `*_fsm_process_state` functions of the Apical FSMs use `struct t20_fsm_hdr` (new `driver/t20/tx_isp_t20_fsm.h`: owning ISP context, state, pending interrupt mask) and named parameters instead of `arg1[1]` / `arg1[2]` word indices and register names.
+- Proof: the whole T10 and T20 firmware objects compile to identical MIPS code (439/439 functions, switch-table numbering normalised), `tests/t20_fw` delift oracle identical, `make -C tests check` 616/0; T10 cam runtime ko swap: 499 frames, 0 decode errors, 0 oops. Written by the API port loop (claude-sonnet-5-5, 3 rounds), reviewed here.
+
 ## 2026-11-14: T33 video link destroy and channel frame done ported, no idle-request clear after the init reset (openimp #99; host + QEMU, planned)
 
 - `tx_isp_t33_txlink.h`: port of `tx_isp_video_link_destroy.isra.18` with the vendor's 12 link sets (isp-m0 / isp-m1 / isp-ivdc / isp-fs pads, T33 device offsets +304 / +320, mode = `direct_mode`). `tx_isp_t33_ispfd.h`: port of `ispcore_channel_framedone_process.isra.13` (T33 channel layout 296 B, IVDC list +224, `frame_chan_done_cnt` / `frame_chan_dq_cnt` / `irq_count`). Both not wired: our driver has no subdevice link graph and keeps its own frame-channel queues.

@@ -322,6 +322,7 @@ int t33_aec_attach(const u8 *sec, u32 len, u32 width, u32 height, const u8 *zb, 
 	aec.dcw = 1;
 	aec.ops = &drv_ops;
 	t32_aec_bind(&aec);
+	t33_aec_expr_trig(&aec);	/* tisp_normal_ae_init: tisp_ae_par_update_trig before the start values */
 	t33_ae_set_start_param(&aec, T33_AE_FST_IT, T33_AE_FST_AG, T33_AE_FST_DG, T33_AE_FST_EV);
 	t33_ae_zone_sizes(&aec);
 	zbufs = zb;
