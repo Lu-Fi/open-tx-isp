@@ -330,8 +330,38 @@ struct t20_fsm_dis {
 	uint32_t field_20;
 	uint32_t field_24;
 	uint32_t field_28;
-	uint8_t pad_2c[0x1814];
+	uint8_t pad_2c[0x1800];
+	uint32_t out_x;			/* 0x182c */
+	uint32_t out_y;			/* 0x1830 */
+	uint32_t out_w;			/* 0x1834 */
+	uint32_t out_h;			/* 0x1838 */
+	uint32_t field_183c;		/* copy of field_1c */
 	uint32_t field_1840;
+};
+
+/* Default settings block filled by dis_get_default_settings. */
+struct t20_dis_settings {
+	int32_t enable;		/* 0x00 */
+	int32_t word_04;
+	int32_t word_08;
+	int32_t word_0c;
+	int32_t word_10;
+	int32_t word_14;
+	int32_t word_18;
+	int32_t word_1c;
+};
+
+/* DIS IIR filter state cleared by iir_filter_reset. */
+struct t20_iir_filter {
+	uint8_t pad_00[0x28];
+	union {
+		uint8_t clear[0xcc];	/* 0x28 */
+		struct {
+			uint8_t pad_28[0xb8];
+			uint32_t limit_lo;	/* 0xe0 */
+			uint32_t limit_hi;	/* 0xe4 */
+		};
+	};
 };
 
 struct t20_fsm_crop {

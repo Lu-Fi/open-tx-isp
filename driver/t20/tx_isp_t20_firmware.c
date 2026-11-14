@@ -2540,117 +2540,130 @@ static int32_t apical_change_resolution(uint32_t arg1)
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000015cc0 origin=model_output original=apical_interrupt_frame_start */
 int32_t apical_interrupt_frame_start(int32_t *arg1)
 {
-	int32_t saved;
+	struct t20_fsm_hdr *fsm = (struct t20_fsm_hdr *)arg1;
+	void *saved;
 
-	arg1[1] += 1;
-	saved = *arg1;
-	*arg1 = 0;
-	apical_isp_process_interrupt(&arg1[6], 7);
-	arg1[2] += 1;
-	*arg1 = saved;
-	arg1[1] -= 1;
-	return arg1[1];
+	fsm->state += 1;
+	saved = fsm->isp;
+	fsm->isp = 0;
+	apical_isp_process_interrupt((int32_t *)((uint8_t *)fsm + 0x18), 7);
+	fsm->pending_irq += 1;
+	fsm->isp = saved;
+	fsm->state -= 1;
+	return fsm->state;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000015d2c origin=model_output original=apical_interrupt_ae_stats */
 int32_t apical_interrupt_ae_stats(int32_t *arg1)
 {
-	arg1[1] += 1;
+	struct t20_fsm_hdr *fsm = (struct t20_fsm_hdr *)arg1;
+
+	fsm->state += 1;
 
 	if (stab.global_freeze_firmware == 0) {
-		int32_t saved = *arg1;
-		*arg1 = 0;
-		apical_isp_process_interrupt(&arg1[6], 3);
-		*arg1 = saved;
+		void *saved = fsm->isp;
+		fsm->isp = 0;
+		apical_isp_process_interrupt((int32_t *)((uint8_t *)fsm + 0x18), 3);
+		fsm->isp = saved;
 	}
 
-	arg1[1] -= 1;
-	return arg1[1];
+	fsm->state -= 1;
+	return fsm->state;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000015d98 origin=model_output original=apical_interrupt_awb_stats */
 int32_t apical_interrupt_awb_stats(int32_t *arg1)
 {
-	arg1[1] += 1;
+	struct t20_fsm_hdr *fsm = (struct t20_fsm_hdr *)arg1;
+	int32_t result;
+
+	fsm->state += 1;
 
 	if (stab.global_freeze_firmware == 0) {
-		int32_t saved = *arg1;
-		*arg1 = 0;
-		apical_isp_process_interrupt(&arg1[6], 4);
-		*arg1 = saved;
+		void *saved = fsm->isp;
+		fsm->isp = 0;
+		apical_isp_process_interrupt((int32_t *)((uint8_t *)fsm + 0x18), 4);
+		fsm->isp = saved;
 	}
 
-	int32_t result = arg1[1] - 1;
-	((void **)arg1)[1] = result;
+	result = fsm->state - 1;
+	fsm->state = result;
 	return result;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000015e04 origin=model_output original=apical_interrupt_frame_buffer_fr */
 int32_t apical_interrupt_frame_buffer_fr(int32_t *arg1)
 {
-	arg1[1] += 1;
+	struct t20_fsm_hdr *fsm = (struct t20_fsm_hdr *)arg1;
+
+	fsm->state += 1;
 
 	if (stab.global_freeze_firmware == 0) {
-		int32_t saved = *arg1;
-		*arg1 = 0;
-		apical_isp_process_interrupt(&arg1[6], 5);
-		*arg1 = saved;
+		void *saved = fsm->isp;
+		fsm->isp = 0;
+		apical_isp_process_interrupt((int32_t *)((uint8_t *)fsm + 0x18), 5);
+		fsm->isp = saved;
 	}
 
-	arg1[1] -= 1;
-	return arg1[1];
+	fsm->state -= 1;
+	return fsm->state;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000015e70 origin=model_output original=apical_interrupt_frame_buffer_ds */
 int32_t apical_interrupt_frame_buffer_ds(int32_t *arg1)
 {
-    int32_t saved;
-    int32_t result;
+	struct t20_fsm_hdr *fsm = (struct t20_fsm_hdr *)arg1;
+	int32_t result;
 
-    arg1[1] += 1;
+	fsm->state += 1;
 
 	if (stab.global_freeze_firmware == 0) {
-        saved = arg1[0];
-        ((void **)arg1)[0] = 0;
-        apical_isp_process_interrupt(&arg1[6], 6);
-        ((void **)arg1)[0] = saved;
-    }
+		void *saved = fsm->isp;
+		fsm->isp = 0;
+		apical_isp_process_interrupt((int32_t *)((uint8_t *)fsm + 0x18), 6);
+		fsm->isp = saved;
+	}
 
-    result = arg1[1] - 1;
-    ((void **)arg1)[1] = result;
-    return result;
+	result = fsm->state - 1;
+	fsm->state = result;
+	return result;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000015edc origin=model_output original=apical_interrupt_frame_buffer_ds2 */
 int32_t apical_interrupt_frame_buffer_ds2(int32_t *arg1)
 {
-	arg1[1] += 1;
+	struct t20_fsm_hdr *fsm = (struct t20_fsm_hdr *)arg1;
+
+	fsm->state += 1;
 
 	if (stab.global_freeze_firmware == 0) {
-		int32_t saved = *arg1;
-		*arg1 = 0;
-		apical_isp_process_interrupt(&arg1[6], 12);
-		*arg1 = saved;
+		void *saved = fsm->isp;
+		fsm->isp = 0;
+		apical_isp_process_interrupt((int32_t *)((uint8_t *)fsm + 0x18), 12);
+		fsm->isp = saved;
 	}
 
-	arg1[1] -= 1;
-	return arg1[1];
+	fsm->state -= 1;
+	return fsm->state;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000015f48 origin=model_output original=apical_interrupt_fpga_frame_wdr */
 int32_t apical_interrupt_fpga_frame_wdr(int32_t *arg1)
 {
-	arg1[1] += 1;
+	struct t20_fsm_hdr *fsm = (struct t20_fsm_hdr *)arg1;
+	int32_t result;
+
+	fsm->state += 1;
 
 	if (stab.global_freeze_firmware == 0) {
-		int32_t saved = *arg1;
-		*arg1 = 0;
-		apical_isp_process_interrupt(&arg1[6], 10);
-		*arg1 = saved;
+		void *saved = fsm->isp;
+		fsm->isp = 0;
+		apical_isp_process_interrupt((int32_t *)((uint8_t *)fsm + 0x18), 10);
+		fsm->isp = saved;
 	}
 
-	int32_t result = arg1[1] - 1;
-	((void **)arg1)[1] = result;
+	result = fsm->state - 1;
+	fsm->state = result;
 	return result;
 }
 
@@ -3523,17 +3536,17 @@ uint32_t math_exp2(int32_t arg1, char arg2, char arg3)
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000017198 origin=model_output original=sqrt32 */
-int32_t sqrt32(int32_t arg1)
+int32_t sqrt32(int32_t value)
 {
-	int32_t *i = 0;
+	int32_t bit = 0;
 	int32_t result = 0;
 
 	do {
-		int32_t a1 = (0x8000 >> ((uintptr_t)i & 0x1f)) + result;
-		i = (void *)(uintptr_t)((uintptr_t)i + (1));
-		if ((uint32_t)arg1 >= (uint32_t)(a1 * a1))
-			result = a1 & 0xffff;
-	} while (i != 0x10);
+		int32_t candidate = (0x8000 >> (bit & 0x1f)) + result;
+		bit++;
+		if ((uint32_t)value >= (uint32_t)(candidate * candidate))
+			result = candidate & 0xffff;
+	} while (bit != 0x10);
 
 	return result;
 }
@@ -3641,17 +3654,17 @@ static int32_t solving_lin_equation_a(int32_t arg1, int32_t arg2, int32_t arg3, 
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000017394 origin=model_output original=div_fixed */
-static int32_t div_fixed(int32_t arg1, int32_t arg2, int32_t arg3)
+static int32_t div_fixed(int32_t value, int32_t divisor, int32_t shift_arg)
 {
-    int32_t shift = (arg3 << 16) >> 16;
+	int32_t shift = (shift_arg << 16) >> 16;
 
-    if (arg2 == 0)
-        return arg1 << (shift & 0x1f);
+	if (divisor == 0)
+		return value << (shift & 0x1f);
 
-    /* OEM 0x16a34: __ashldi3(arg1, 0, shift), div64_u64 by the
-     * zero-extended divisor */
-    uint64_t val = (uint64_t)(uint32_t)arg1 << shift;
-    return div64_u64(val, (uint32_t)arg2);
+	/* OEM 0x16a34: __ashldi3(value, 0, shift), div64_u64 by the
+	 * zero-extended divisor */
+	uint64_t val = (uint64_t)(uint32_t)value << shift;
+	return div64_u64(val, (uint32_t)divisor);
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000017434 origin=model_output original=apical_cosine */
@@ -3696,62 +3709,49 @@ static int32_t apical_sine(int32_t arg1)
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000017660 origin=model_output original=apical_event_queue_push */
-uint32_t apical_event_queue_push(int32_t *arg1, char arg2)
+uint32_t apical_event_queue_push(int32_t *arg1, char event)
 {
-    static uint32_t qlock;
-    uint32_t lock_val;
-    int32_t *head;
-    int32_t size;
-    int32_t tail;
-    int32_t ret;
+	static uint32_t qlock;
+	struct t20_loop_buffer *queue = (struct t20_loop_buffer *)arg1;
+	uint32_t lock_val;
+	int32_t ret;
 
-    lock_val = qlock + 1;
-    qlock = lock_val;
-    head = arg1[0];
-    if (head < 0)
-        goto call_write;
-    size = arg1[3];
-    if (head >= size)
-        goto call_write;
-    tail = arg1[1];
-    if (tail < 0)
-        goto call_write;
-call_write:
-    ret = apical_loop_buffer_write_u8(arg1, 0, arg2);
-    if (ret != arg1[1])
-        ((void **)arg1)[0] = ret;
-    lock_val = qlock - 1;
-    qlock = lock_val;
-    return lock_val;
+	lock_val = qlock + 1;
+	qlock = lock_val;
+	ret = apical_loop_buffer_write_u8(arg1, 0, event);
+	if (ret != queue->tail)
+		queue->head = ret;
+	lock_val = qlock - 1;
+	qlock = lock_val;
+	return lock_val;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000176f8 origin=model_output original=apical_event_queue_pop */
 uint32_t apical_event_queue_pop(int32_t *arg1)
 {
-	int32_t head = arg1[0];
-	int32_t tail = arg1[1];
+	struct t20_loop_buffer *queue = (struct t20_loop_buffer *)arg1;
+	int32_t head = queue->head;
+	int32_t tail = queue->tail;
 
-    if (head == tail)
-        return 0xffffffff;
+	if (head == tail)
+		return 0xffffffff;
 
-    flock++;
+	flock++;
 
-    if (head < 0 || head >= arg1[3] || tail < 0)
-        goto out;
+	if (head < 0 || head >= queue->size || tail < 0) {
+		flock--;
+		return 0;
+	}
 
-    {
-        uint32_t result = apical_loop_buffer_read_u8(arg1, 0);
-        int32_t next = tail + 1;
-        if (next >= arg1[3])
-            next -= arg1[3];
-        ((uint32_t *)arg1)[1] = next;
-        flock--;
-        return result;
-    }
-
-out:
-    flock--;
-    return 0;
+	{
+		uint32_t result = apical_loop_buffer_read_u8(arg1, 0);
+		int32_t next = tail + 1;
+		if (next >= queue->size)
+			next -= queue->size;
+		queue->tail = next;
+		flock--;
+		return result;
+	}
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000177c0 origin=model_output original=apical_loop_buffer_init */
@@ -3767,36 +3767,38 @@ int32_t apical_loop_buffer_init(int32_t *buf, int32_t data, int32_t size)
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000177d4 origin=model_output original=apical_loop_buffer_read_u8 */
-uint32_t apical_loop_buffer_read_u8(void *arg1, int32_t arg2)
+uint32_t apical_loop_buffer_read_u8(void *arg1, int32_t offset)
 {
-    uint32_t *buf = (uint32_t *)arg1;
-    int32_t idx = arg2 + buf[1];
-    int32_t size = buf[3];
+	struct t20_loop_buffer *buf = arg1;
+	int32_t idx = offset + buf->tail;
+	int32_t size = buf->size;
 
-    if (idx >= size)
-        idx -= size;
+	if (idx >= size)
+		idx -= size;
 
-    return (uint32_t)(*(uint8_t *)(buf[2] + idx));
+	return (uint32_t)(*(uint8_t *)(buf->data + idx));
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000177fc origin=model_output original=apical_loop_buffer_write_u8 */
-int32_t apical_loop_buffer_write_u8(int32_t *arg1, int32_t arg2, char arg3)
+int32_t apical_loop_buffer_write_u8(int32_t *arg1, int32_t offset, char value)
 {
-    int32_t offset = arg2 + *arg1;
-    int32_t size = arg1[3];
-    int32_t idx;
+	struct t20_loop_buffer *buf = (struct t20_loop_buffer *)arg1;
+	int32_t pos = offset + buf->head;
+	int32_t size = buf->size;
+	int32_t idx;
+	int32_t next;
 
-    if (offset >= size)
-        idx = offset - size;
-    else
-        idx = offset;
+	if (pos >= size)
+		idx = pos - size;
+	else
+		idx = pos;
 
-    *(char *)(arg1[2] + idx) = arg3;
+	*(char *)(buf->data + idx) = value;
 
-    int32_t next = idx + 1;
-    if (next >= size)
-        return next - size;
-    return next;
+	next = idx + 1;
+	if (next >= size)
+		return next - size;
+	return next;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000017840 origin=model_output original=isp_io_write_sample */
@@ -3881,10 +3883,10 @@ uint32_t isp_io_read_sample(int32_t arg1, int32_t arg2, char arg3)
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000179e8 origin=model_output original=apical_sbus_isp_init */
 int32_t apical_sbus_isp_init(void *arg1)
 {
-	*(uintptr_t *)((char *)arg1 + 0x10) =
-		(uintptr_t)&isp_io_read_sample;
-	*(uintptr_t *)((char *)arg1 + 0x14) =
-		(uintptr_t)&isp_io_write_sample;
+	struct t20_sbus *bus = arg1;
+
+	*(uintptr_t *)&bus->read_sample = (uintptr_t)&isp_io_read_sample;
+	*(uintptr_t *)&bus->write_sample = (uintptr_t)&isp_io_write_sample;
 	return (int32_t)(uintptr_t)&isp_io_write_sample;
 }
 
@@ -4090,10 +4092,10 @@ i2c_io_write_sample0xfc:
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000017c6c origin=model_output original=apical_sbus_i2c_init */
 int32_t apical_sbus_i2c_init(void *arg1)
 {
-	*(uintptr_t *)((char *)arg1 + 0x10) =
-		(uintptr_t)&i2c_io_read_sample;
-	*(uintptr_t *)((char *)arg1 + 0x14) =
-		(uintptr_t)&i2c_io_write_sample;
+	struct t20_sbus *bus = arg1;
+
+	*(uintptr_t *)&bus->read_sample = (uintptr_t)&i2c_io_read_sample;
+	*(uintptr_t *)&bus->write_sample = (uintptr_t)&i2c_io_write_sample;
 	return (int32_t)(uintptr_t)&i2c_io_write_sample;
 }
 
@@ -4405,8 +4407,10 @@ final_return:
 /* WHOLE_DRIVER_CANDIDATE fn_000000000001816c origin=model_output original=apical_sbus_spi_init */
 int32_t apical_sbus_spi_init(void *arg1)
 {
-	*(void **)((char *)arg1 + 0x10) = (void *)spi_io_read_sample;
-	*(void **)((char *)arg1 + 0x14) = (void *)spi_io_write_sample;
+	struct t20_sbus *bus = arg1;
+
+	*(void **)&bus->read_sample = (void *)spi_io_read_sample;
+	*(void **)&bus->write_sample = (void *)spi_io_write_sample;
 	return spi_init_access();
 }
 
@@ -6894,15 +6898,15 @@ int32_t ae_freeze(int32_t arg1, int32_t arg2, char arg3, uint32_t *arg4)
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000001b908 origin=model_output original=ae_integrator_set */
-int32_t ae_integrator_set(void *arg1, int32_t arg2, char arg3, int32_t *arg4)
+int32_t ae_integrator_set(void *arg1, int32_t value, char mode, int32_t *out)
 {
 	uint32_t *base = (uint32_t *)arg1;
 
-	if ((uint32_t)arg3 == 0) {
-		((void **)(uintptr_t)base)[0x328 / 4] = arg2;
-		((void **)(uintptr_t)base)[0x32c / 4] = 0;
-	} else if ((uint32_t)arg3 == 1) {
-		*arg4 = base[0x320 / 4];
+	if ((uint32_t)mode == 0) {
+		base[0x328 / 4] = value;
+		base[0x32c / 4] = 0;
+	} else if ((uint32_t)mode == 1) {
+		*out = base[0x320 / 4];
 	}
 
 	return 0;
@@ -10301,19 +10305,19 @@ int32_t get_quantised_integration_time(uint32_t *arg1, uint32_t arg2)
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000001fc24 origin=model_output original=get_quantised_long_integration_time */
-int32_t get_quantised_long_integration_time(int32_t *arg1, int32_t arg2, int32_t arg3)
+int32_t get_quantised_long_integration_time(int32_t *arg1, int32_t time, int32_t limit)
 {
-    int32_t *p = *(int32_t **)arg1;
-    int32_t max_value = p[27]; /* offset 0x6c */
-    int32_t value = arg2;
+	int32_t *params = *(int32_t **)arg1;
+	int32_t min_time = params[27]; /* offset 0x6c */
+	int32_t value = time;
 
-    if (value >= max_value) {
-        if (value >= arg3)
-            value = arg3;
-        max_value = value;
-    }
+	if (value >= min_time) {
+		if (value >= limit)
+			value = limit;
+		min_time = value;
+	}
 
-    return get_quantised_integration_time(arg1, max_value);
+	return get_quantised_integration_time(arg1, min_time);
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000001fc54 origin=model_output original=cmos_antiflicker_update */
@@ -15836,47 +15840,47 @@ uint32_t mem_read_u16(uintptr_t addr)
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000029728 origin=model_output original=mem_read_u32 */
-uint32_t mem_read_u32(uint32_t *arg1)
+uint32_t mem_read_u32(uint32_t *addr)
 {
-    uint32_t align = (uint32_t)(uintptr_t)arg1 & 3;
-    uint32_t lo;
-    uint32_t hi;
+	uint32_t align = (uint32_t)(uintptr_t)addr & 3;
+	uint32_t lo;
+	uint32_t hi;
 
-    if (align == 2) {
-        lo = *(uint16_t *)((char *)arg1 + 2) << 16;
-        hi = *(uint16_t *)arg1;
-        return lo | hi;
-    }
+	if (align == 2) {
+		lo = *(uint16_t *)((char *)addr + 2) << 16;
+		hi = *(uint16_t *)addr;
+		return lo | hi;
+	}
 
-    if (align == 3) {
-        lo = *(uint8_t *)((char *)arg1 + 3) << 24;
-        hi = *(uint8_t *)arg1;
-    } else {
-        if (align != 1)
-            return *(uint32_t *)arg1;
-        lo = *(uint8_t *)((char *)arg1 + 3) << 24;
-        hi = *(uint8_t *)arg1;
-    }
+	if (align == 3) {
+		lo = *(uint8_t *)((char *)addr + 3) << 24;
+		hi = *(uint8_t *)addr;
+	} else {
+		if (align != 1)
+			return *(uint32_t *)addr;
+		lo = *(uint8_t *)((char *)addr + 3) << 24;
+		hi = *(uint8_t *)addr;
+	}
 
-    lo |= hi;
-    hi = *(uint16_t *)((char *)arg1 + 1) << 8;
-    return lo | hi;
+	lo |= hi;
+	hi = *(uint16_t *)((char *)addr + 1) << 8;
+	return lo | hi;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000029788 origin=model_output original=mem_write_u16 */
-void *mem_write_u16(uint8_t *arg1, int16_t arg2)
+void *mem_write_u16(uint8_t *addr, int16_t value)
 {
-    uint32_t val = (uint32_t)arg2 & 0xffff;
-    uint32_t result = (uint32_t)arg1 & 1;
+	uint32_t val = (uint32_t)value & 0xffff;
+	uint32_t result = (uint32_t)addr & 1;
 
-    if (result == 0) {
-        *(uint16_t *)arg1 = (uint16_t)val;
-    } else {
-        ((void **)arg1)[0] = (uint8_t)val;
-        ((void **)arg1)[1] = (uint8_t)(val >> 8);
-    }
+	if (result == 0) {
+		*(uint16_t *)addr = (uint16_t)val;
+	} else {
+		((void **)addr)[0] = (uint8_t)val;
+		((void **)addr)[1] = (uint8_t)(val >> 8);
+	}
 
-    return (void *)result;
+	return (void *)result;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000297ac origin=fragment_seed original=mem_write_u32 */
@@ -16070,32 +16074,22 @@ uint32_t apical_sbus_read_u32(int32_t *base, uint32_t offset)
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000029bcc origin=model_output original=apical_sbus_read_data_u8 */
-static int32_t apical_sbus_read_data_u8(int32_t *arg1, int32_t arg2, void *arg3, int32_t arg4)
+static int32_t apical_sbus_read_data_u8(int32_t *dev, int32_t addr, void *buf, int32_t count)
 {
-	int32_t *i = 0;
-	int32_t result;
+	int32_t i;
 
-	while (1) {
-		result = i < arg4 ? 1 : 0;
-		if (result == 0)
-			break;
-		*(char *)(arg3 + (uintptr_t)i) = apical_sbus_read_u8(arg1, (uintptr_t)i + arg2);
-		i = (void *)(uintptr_t)((uintptr_t)i + (1));
-	}
+	for (i = 0; i < count; i++)
+		*(char *)(buf + i) = apical_sbus_read_u8(dev, i + addr);
 
-	return result;
+	return 0;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000029c50 origin=model_output original=apical_sbus_read_data_u16 */
-static int32_t apical_sbus_read_data_u16(uint32_t *arg1, uint32_t arg2, void *arg3, int32_t arg4)
+static int32_t apical_sbus_read_data_u16(uint32_t *dev, uint32_t reg, void *buf, int32_t count)
 {
-	uint32_t *dev = arg1;
-	uint32_t reg = arg2;
-	uint32_t dst = (uint32_t)arg3;
-	int32_t count = arg4;
+	uint32_t dst = (uint32_t)buf;
 	int32_t stride;
-	int32_t *i;
-	int32_t result;
+	int32_t i;
 
 	if ((*dev & 0x40) == 0)
 		stride = 2;
@@ -16103,44 +16097,25 @@ static int32_t apical_sbus_read_data_u16(uint32_t *arg1, uint32_t arg2, void *ar
 		stride = 1;
 
 	if ((dst & 1) != 0) {
-		i = 0;
-		goto loop_check_call;
+		for (i = 0; i < count; i++) {
+			uint16_t v = apical_sbus_read_u16(dev, reg);
+			mem_write_u16(dst + ((uintptr_t)i << 1), v);
+			reg += stride;
+		}
+	} else {
+		for (i = 0; i < count; i++) {
+			uint16_t v = apical_sbus_read_u16(dev, reg);
+			*(uint16_t *)(dst + ((uintptr_t)i << 1)) = v;
+			reg += stride;
+		}
 	}
 
-loop_check_store:
-	if (i >= count)
-		goto done;
-	{
-		uint16_t v = apical_sbus_read_u16(dev, reg);
-		*(uint16_t *)(dst + ((uintptr_t)i << 1)) = v;
-		reg += stride;
-		i = (void *)(uintptr_t)((uintptr_t)i + (1));
-	}
-	goto loop_check_store;
-
-loop_check_call:
-	if (i >= count)
-		goto done;
-	{
-		uint16_t v = apical_sbus_read_u16(dev, reg);
-		mem_write_u16(dst + ((uintptr_t)i << 1), v);
-		reg += stride;
-		i = (void *)(uintptr_t)((uintptr_t)i + (1));
-	}
-	goto loop_check_call;
-
-done:
-	result = 0;
-	return result;
+	return 0;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000029d5c origin=fragment_seed original=apical_sbus_read_data_u32 */
-static int32_t apical_sbus_read_data_u32(uintptr_t a0, uint32_t a1, uintptr_t a2, uint32_t a3)
+static int32_t apical_sbus_read_data_u32(uintptr_t sbus, uint32_t addr, uintptr_t buf, uint32_t count)
 {
-	uintptr_t sbus = a0;
-	uint32_t addr = a1;
-	uintptr_t buf = a2;
-	uint32_t count = a3;
 	uint32_t mask = *(uint32_t *)((char *)sbus + 0);
 	uint32_t step;
 	uint32_t i = 0;
@@ -16352,17 +16327,18 @@ int32_t apical_sbus_write_u32(struct apical_sbus_dev *dev, uint32_t reg, uint32_
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000002a28c origin=model_output original=apical_sbus_write_data_u8 */
-int32_t apical_sbus_write_data_u8(int32_t *arg1, int32_t arg2, void *arg3, int32_t arg4)
+int32_t apical_sbus_write_data_u8(int32_t *dev, int32_t addr, void *buf, int32_t count)
 {
-    int32_t *i = 0;
-    int32_t result;
+	/* The OEM index is a pointer-typed counter (int32_t *). */
+	int32_t *i = 0;
+	int32_t result;
 
-    while (i < arg4) {
-        apical_sbus_write_u8(arg1, (uintptr_t)i + arg2, *(uint8_t *)((char *)arg3 + (uintptr_t)i));
-        i++;
-    }
-    result = (i < arg4) ? 1 : 0;
-    return result;
+	while (i < count) {
+		apical_sbus_write_u8(dev, (uintptr_t)i + addr, *(uint8_t *)((char *)buf + (uintptr_t)i));
+		i++;
+	}
+	result = (i < count) ? 1 : 0;
+	return result;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000002a310 origin=model_output original=apical_sbus_write_data_u16 */
@@ -16397,12 +16373,11 @@ int32_t apical_sbus_write_data_u16(int32_t *dev, uint32_t addr, void *data, int3
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000002a410 origin=model_output original=apical_sbus_write_data_u32 */
-int32_t apical_sbus_write_data_u32(uint32_t *arg1, uint32_t arg2, void *arg3, int32_t arg4)
+int32_t apical_sbus_write_data_u32(uint32_t *dev, uint32_t reg, void *buf, int32_t count)
 {
-	uint32_t flags = *arg1;
-	uint32_t reg = arg2;
+	uint32_t flags = *dev;
 	uint32_t step;
-	int32_t *i;
+	int32_t *i;	/* pointer-typed counter as in the OEM code */
 	uint32_t result;
 
 	if ((flags & 0x80) == 0) {
@@ -16415,18 +16390,18 @@ int32_t apical_sbus_write_data_u32(uint32_t *arg1, uint32_t arg2, void *arg3, in
 
 	i = 0;
 
-	if (((uintptr_t)arg3 & 3) != 0) {
-		while (i < arg4) {
-			uint32_t val = mem_read_u32((uint32_t *)((char *)arg3 + ((uintptr_t)i << 2)));
-			apical_sbus_write_u32(arg1, reg, val);
+	if (((uintptr_t)buf & 3) != 0) {
+		while (i < count) {
+			uint32_t val = mem_read_u32((uint32_t *)((char *)buf + ((uintptr_t)i << 2)));
+			apical_sbus_write_u32(dev, reg, val);
 			reg += step;
 			i++;
 		}
-		result = (i < arg4) ? 1 : 0;
+		result = (i < count) ? 1 : 0;
 	} else {
-		while (i < arg4) {
-			uint32_t val = *(uint32_t *)((char *)arg3 + ((uintptr_t)i << 2));
-			apical_sbus_write_u32(arg1, reg, val);
+		while (i < count) {
+			uint32_t val = *(uint32_t *)((char *)buf + ((uintptr_t)i << 2));
+			apical_sbus_write_u32(dev, reg, val);
 			reg += step;
 			i++;
 		}
@@ -16847,15 +16822,15 @@ static int32_t sensor_fps_change(void)
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000002b3cc origin=model_output original=sensor_get_lines_second */
-static int32_t sensor_get_lines_second(void *arg1)
+static int32_t sensor_get_lines_second(void *sensor)
 {
 	struct sensor_ops {
 		int32_t pad[51];
-		int32_t (*fn)(void *a, int32_t b);
+		int32_t (*get_lines)(void *sensor, int32_t arg);
 	};
-	struct sensor_ops *ops = (struct sensor_ops *)arg1;
-	int32_t (*fn)(void *a, int32_t b) = ops->fn;
-	return fn(arg1, 64);
+	struct sensor_ops *ops = (struct sensor_ops *)sensor;
+	int32_t (*fn)(void *sensor, int32_t arg) = ops->get_lines;
+	return fn(sensor, 64);
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000002b3e0 origin=model_output original=ae_initialize */
@@ -17616,22 +17591,22 @@ struct t20_awb_point {
 };
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000002bed0 origin=model_output original=luts_fetch */
-uint32_t luts_fetch(uint32_t arg1, uint32_t arg2, uint32_t arg3, uint32_t arg4, uint16_t *arg5, uint16_t arg6)
+uint32_t luts_fetch(uint32_t pos, uint32_t start, uint32_t end, uint32_t step, uint16_t *lut, uint16_t count)
 {
-	if (arg4 == 0)
-		return arg1;
-	if (arg1 < arg2)
-		return arg5[0];
-	if (arg3 < arg1)
-		return arg5[arg6 - 1];
-	return arg5[(int32_t)(arg1 - arg2) / (int32_t)arg4];
+	if (step == 0)
+		return pos;
+	if (pos < start)
+		return lut[0];
+	if (end < pos)
+		return lut[count - 1];
+	return lut[(int32_t)(pos - start) / (int32_t)step];
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000002bf2c origin=model_output original=fifo_push */
-uint32_t fifo_push(uint32_t arg1, uint32_t arg2)
+uint32_t fifo_push(uint32_t rg_in, uint32_t bg_in)
 {
-	uint32_t rg = arg1 & 0xffff;
-	uint32_t bg = arg2 & 0xffff;
+	uint32_t rg = rg_in & 0xffff;
+	uint32_t bg = bg_in & 0xffff;
 	uint32_t depth = *(uint8_t *)(uintptr_t)_GET_UCHAR_PTR(262);
 
 	if (depth == 0) {
@@ -17648,9 +17623,9 @@ uint32_t fifo_push(uint32_t arg1, uint32_t arg2)
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000002bfdc origin=model_output original=get_point */
-uint16_t *get_point(uint16_t *arg1)
+uint16_t *get_point(uint16_t *out)
 {
-	struct t20_awb_point *point = (struct t20_awb_point *)arg1;
+	struct t20_awb_point *point = (struct t20_awb_point *)out;
 	uint32_t depth = *(uint8_t *)(uintptr_t)_GET_UCHAR_PTR(262);
 
 	if (depth) {
@@ -17661,7 +17636,7 @@ uint16_t *get_point(uint16_t *arg1)
 		point->y = (uint16_t)fifo_gb_avg;
 	}
 	point->value = 0;
-	return arg1;
+	return out;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000002c060 origin=model_output original=interpl */
@@ -17708,14 +17683,14 @@ struct t20_awb_point *init_interp_2d_point(struct t20_awb_point *arg1, int32_t a
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000002c1fc origin=model_output original=get_index */
-int32_t get_index(int32_t arg1, void *arg2)
+int32_t get_index(int32_t value, void *axis_ptr)
 {
 	uint32_t len = _GET_LEN(226);
-	int16_t *axis = arg2;
+	int16_t *axis = axis_ptr;
 	uint32_t i;
 
 	for (i = 1; i < len; i++)
-		if (arg1 < axis[i])
+		if (value < axis[i])
 			return i - 1;
 	return len - 2;
 }
@@ -20664,17 +20639,18 @@ int32_t dis_update_settings(uintptr_t arg1)
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000030668 origin=model_output original=dis_update_output */
-static int32_t dis_update_output(void *arg1, int32_t arg2, int32_t arg3, int32_t arg4, int32_t arg5)
+static int32_t dis_update_output(void *dis_ptr, int32_t x, int32_t y, int32_t w, int32_t h)
 {
-    uint32_t *p = (uint32_t *)arg1;
-    ((void **)(uintptr_t)p)[0x182c / 4] = (uint32_t)arg2;
-    ((void **)(uintptr_t)p)[0x1830 / 4] = (uint32_t)arg3;
-    ((void **)(uintptr_t)p)[0x1834 / 4] = (uint32_t)arg4;
-    ((void **)(uintptr_t)p)[0x1838 / 4] = (uint32_t)arg5;
-    ((void **)(uintptr_t)p)[0x183c / 4] = p[0x1c / 4];
-    stab.global_dis_x = (uint16_t)arg2;
-    stab.global_dis_y = (uint16_t)arg3;
-    return 0;
+	struct t20_fsm_dis *dis = dis_ptr;
+
+	dis->out_x = (uint32_t)x;
+	dis->out_y = (uint32_t)y;
+	dis->out_w = (uint32_t)w;
+	dis->out_h = (uint32_t)h;
+	dis->field_183c = dis->field_1c;
+	stab.global_dis_x = (uint16_t)x;
+	stab.global_dis_y = (uint16_t)y;
+	return 0;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000306a8 origin=model_output original=dis_analyze_stats */
@@ -20728,11 +20704,11 @@ void dis_analyze_stats(void *arg1)
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000307a4 origin=model_output original=dis_fsm_process_interrupt */
-int32_t dis_fsm_process_interrupt(int32_t *arg1, char arg2)
+int32_t dis_fsm_process_interrupt(int32_t *arg1, char irq)
 {
 	struct t20_fsm_dis *fsm = (struct t20_fsm_dis *)arg1;
 
-	if ((arg2 & 0xff) != 6)
+	if ((irq & 0xff) != 6)
 		return 6;
 
 	fsm->field_1c = APICAL_READ_32(0xc28);
@@ -20742,27 +20718,31 @@ int32_t dis_fsm_process_interrupt(int32_t *arg1, char arg2)
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000030800 origin=model_output original=dis_get_default_settings */
 int32_t dis_get_default_settings(int32_t *arg1)
 {
-	if (arg1 == 0)
+	struct t20_dis_settings *settings = (struct t20_dis_settings *)arg1;
+
+	if (settings == 0)
 		return -1;
 
-	((void **)arg1)[1] = 0x10;
-	((void **)arg1)[2] = 0x10;
-	((void **)arg1)[3] = 0xc8;
-	((void **)arg1)[4] = 0x8c;
-	((void **)arg1)[5] = 5;
-	((void **)arg1)[7] = 5;
-	*arg1 = 0;
-	((void **)arg1)[6] = 2;
+	settings->word_04 = 0x10;
+	settings->word_08 = 0x10;
+	settings->word_0c = 0xc8;
+	settings->word_10 = 0x8c;
+	settings->word_14 = 5;
+	settings->word_1c = 5;
+	settings->enable = 0;
+	settings->word_18 = 2;
 	return 0;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000030848 origin=model_output original=dis_reset */
-int32_t dis_reset(void *arg1)
+int32_t dis_reset(void *filter)
 {
-	if (arg1 == 0)
+	int32_t result;
+
+	if (filter == 0)
 		return -1;
 
-	int32_t result = iir_filter_reset(arg1);
+	result = iir_filter_reset(filter);
 
 	if (result != 0)
 		return -1;
@@ -21366,14 +21346,16 @@ static int32_t get_gmv_gauss_method_fast_v3(void *arg1, int32_t arg2, int32_t *a
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000031520 origin=model_output original=iir_filter_reset */
-int32_t iir_filter_reset(void *arg1)
+int32_t iir_filter_reset(void *filter_ptr)
 {
-	if (arg1 == 0)
+	struct t20_iir_filter *filter = filter_ptr;
+
+	if (filter == 0)
 		return -1;
 
-	memset((uintptr_t)arg1 + 0x28, 0, 0xcc);
-	*(uint32_t *)((uintptr_t)arg1 + 0xe0) = 0x14;
-	*(uint32_t *)((uintptr_t)arg1 + 0xe4) = 0x28;
+	memset(filter->clear, 0, 0xcc);
+	filter->limit_lo = 0x14;
+	filter->limit_hi = 0x28;
 	return 0;
 }
 
