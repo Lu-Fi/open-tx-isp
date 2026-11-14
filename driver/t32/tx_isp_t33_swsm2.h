@@ -18,12 +18,14 @@
 #include "tx_isp_t33_blk.h"
 
 /* refreshed block functions ported elsewhere: recorded, not run */
+#ifndef T33_SW_GLUE	/* the driver maps these names (tx_isp_t32_hw.c, before t33_sw_top) */
 extern void tisp_af_par_init(u32 ch);
 extern void tisp_af_t33_all_reg_write(u32 ch, u32 *p);
 extern void tisp_clm_ct_interp(u32 ch, u32 p, u32 forced);
 extern void tisp_clm_calc_para_refresh(u32 ch);
 extern void tisp_clm_t33_write_reg(u32 ch);
 extern int tisp_top_reg_write(u32 ch);
+#endif
 
 /*
  * tisp_af_switch_para(ch): af_info[ch] word 0x13a (byte 1256) =

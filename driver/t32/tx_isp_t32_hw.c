@@ -2645,6 +2645,73 @@ static void t33_sw_commit_w(unsigned int id, unsigned int n)
 #define T33_SW_SEC(BLK)	((off = t32_iq_section(bin, bytes, T33_SEC_##BLK, &len)) && len == T33_##BLK##_SEC_BYTES)
 #define T33_SW_TMP()	memset(t33_gr_tmp, 0, T33_SLOT_WORDS * 4)
 
+/*
+ * tisp_af / clm / top_switch_para (oracle block swsm2, tx_isp_t33_swsm2.h) on the driver's state: af_info[0] /
+ * clm_info[0] point at blocks that carry the vendor words the entry points touch (af byte 0x4e8: section; clm word 0:
+ * section, word 0x18: last CT), tparamsP is set per call such that tparamsP + vendor offset = our section.  The
+ * vendor-named callees are the driver's builders: tisp_af_par_init = the section copy, all_reg_write = t33_af_init
+ * into list 31; tisp_clm_ct_interp = t33_clm_seg at the CT, calc_para_refresh + t33_write_reg = t33_clm_init
+ * into list 20; tisp_top_reg_write = the refresh state above (list 33 built by t33_sw_top).
+ */
+#define T33_TP_OFF_AF	0x9fecU
+#define T33_TP_OFF_CLM	0x903cU
+static u32 t33_swg_tp32[4], t33_swg_toppar[4], t33_swg_af_blk[0x4ec / 4], t33_swg_clm_blk[25];
+static u32 t33_swg_af_info[4] __maybe_unused, t33_swg_clm_info[4] __maybe_unused;
+static struct {
+	const u8 *bin;
+	u32 bytes, len, w, h;
+} t33_swg_sm2;
+
+static void tisp_af_par_init(u32 ch);
+static void tisp_af_t33_all_reg_write(u32 ch, u32 *p);
+static void tisp_clm_ct_interp(u32 ch, u32 ct, u32 forced);
+static void tisp_clm_calc_para_refresh(u32 ch);
+static void tisp_clm_t33_write_reg(u32 ch);
+#include "tx_isp_t33_swsm2.h"
+
+static void tisp_af_par_init(u32 ch)
+{
+	(void)ch;
+	memcpy(t33_af_sec, (const u8 *)(unsigned long)t33_swg_af_blk[0x4e8 / 4], sizeof(t33_af_sec));
+}
+
+static void tisp_af_t33_all_reg_write(u32 ch, u32 *p)
+{
+	(void)ch;
+	(void)p;
+	T33_SW_TMP();
+	t33_gr_commit(T33_MOD_AF, t33_af_init(t33_af_sec, t33_swg_sm2.w, t33_swg_sm2.h,
+					      (u32)virt_to_phys((void *)t33_af_pages), t33_gr_tmp, T33_SLOT_WORDS));
+}
+
+static void tisp_clm_ct_interp(u32 ch, u32 ct, u32 forced)
+{
+	const u8 *sec = (const u8 *)(unsigned long)t33_swg_clm_blk[0];
+
+	(void)ch;
+	(void)forced;
+	t33_clm_seg_last = t33_clm_seg(sec, sec + t33_swg_sm2.len, ct);
+}
+
+static void tisp_clm_calc_para_refresh(u32 ch)
+{
+	(void)ch;	/* part of t33_clm_init (tisp_clm_t33_write_reg) */
+}
+
+static void tisp_clm_t33_write_reg(u32 ch)
+{
+	const u8 *sec = (const u8 *)(unsigned long)t33_swg_clm_blk[0], *bin = t33_swg_sm2.bin;
+	u32 clen, coff = t32_iq_section(bin, t33_swg_sm2.bytes, T32_IQ_SEC_CSC, &clen);
+
+	(void)ch;
+	if (!coff || clen != T32_CSC_BYTES)
+		return;
+	T33_SW_TMP();
+	t33_gr_commit(T33_MOD_CLM, t33_clm_init(sec, sec + t33_swg_sm2.len,
+						t32_iq_payload(sec, t33_swg_sm2.bytes - (u32)(sec - bin), T33_SEC_CLM),
+						bin + coff, t33_swg_clm_blk[24], t33_gr_tmp, T33_SLOT_WORDS));
+}
+
 /* tisp_top_switch_para: tisp_top_reg_cfg into list 33, tispTopRefresh */
 static void t33_sw_top(const u8 *bin, u32 bytes, u32 width, u32 height, int bayer)
 {
@@ -2668,7 +2735,8 @@ static void t33_sw_top(const u8 *bin, u32 bytes, u32 width, u32 height, int baye
 	t32_wait_clear(T33_RCFG_TRIG_HI, 1U << (T33_MOD_TOP - 32), 2000);
 	local_irq_save(flags);
 	memcpy(buf, t33_gr_tmp, T33_SLOT_WORDS * 4);
-	t33_top_refresh = 1;
+	t33_swg_tp32[0] = (u32)(unsigned long)(bin + off);	/* TOP is section 0: stTopPar = tparamsP */
+	t33_top_switch_para(0, t33_swg_toppar, t33_swg_tp32);	/* tispTopRefresh */
 	local_irq_restore(flags);
 	t33_gr_runs[T33_MOD_TOP]++;
 }
@@ -2756,11 +2824,13 @@ static noinline_for_stack void t33_sw_color(const u8 *bin, u32 bytes)
 	coff = t32_iq_section(bin, bytes, T32_IQ_SEC_CSC, &clen);
 	/* tisp_clm_switch_para: ct_interp (forced) at the block's last CT (clm_info word 0x18), calc_para_refresh, write_reg */
 	if (T33_SW_SEC(CLM) && coff && clen == T32_CSC_BYTES) {
-		T33_SW_TMP();
-		t33_clm_seg_last = t33_clm_seg(bin + off, bin + off + len, t33_clm_ct_last);
-		t33_gr_commit(T33_MOD_CLM, t33_clm_init(bin + off, bin + off + len,
-							t32_iq_payload(bin + off, bytes - off, T33_SEC_CLM), bin + coff,
-							t33_clm_ct_last, t33_gr_tmp, T33_SLOT_WORDS));
+		t33_swg_sm2.bin = bin;
+		t33_swg_sm2.bytes = bytes;
+		t33_swg_sm2.len = len;
+		t33_swg_clm_blk[24] = t33_clm_ct_last;
+		t33_swg_clm_info[0] = (u32)(unsigned long)t33_swg_clm_blk;
+		t33_swg_tp32[0] = (u32)(unsigned long)(bin + off) - T33_TP_OFF_CLM;
+		t33_clm_switch_para(0, t33_swg_clm_info, t33_swg_tp32);
 	}
 	/*
 	 * tisp_bcsh_switch_para: get_new_para, interp_by_ev / _by_ct at the block's EV / CT, calc_para_refresh
@@ -2798,10 +2868,11 @@ static noinline_for_stack void t33_sw_space(const u8 *bin, u32 bytes, u32 width,
 	}
 	/* tisp_af_switch_para: af_par_init from the new section, all_reg_write */
 	if (T33_SW_SEC(AF) && t33_af_pages) {
-		memcpy(t33_af_sec, bin + off, sizeof(t33_af_sec));
-		T33_SW_TMP();
-		t33_gr_commit(T33_MOD_AF, t33_af_init(t33_af_sec, width, height, (u32)virt_to_phys((void *)t33_af_pages),
-						      t33_gr_tmp, T33_SLOT_WORDS));
+		t33_swg_sm2.w = width;
+		t33_swg_sm2.h = height;
+		t33_swg_af_info[0] = (u32)(unsigned long)t33_swg_af_blk;
+		t33_swg_tp32[0] = (u32)(unsigned long)(bin + off) - T33_TP_OFF_AF;
+		t33_af_switch_para(0, t33_swg_af_info, t33_swg_tp32);
 	}
 	/* tisp_csccr_switch_para: para_refresh_by_mode, bin_par_update, write_reg */
 	off = t32_iq_section(bin, bytes, T32_IQ_SEC_CSCCR, &len);
