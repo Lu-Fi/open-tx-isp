@@ -349,7 +349,7 @@ static unsigned long rcfg_pages;	/* table (256 B) + list */
  * tables in DDR with zeros (T33 silicon: lists did not run or ran zeros,
  * no frames; QEMU has no cache, openimp #393).
  */
-static unsigned long t32_dma_zpages(unsigned int order)
+unsigned long t32_dma_zpages(unsigned int order)
 {
 	unsigned long p = __get_free_pages(GFP_KERNEL | __GFP_ZERO, order);
 

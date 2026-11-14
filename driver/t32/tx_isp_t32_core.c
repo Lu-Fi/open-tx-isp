@@ -368,7 +368,7 @@ static int t32_malloc(struct t32_buf_info *bi)
 	if (!a)
 		return -ENOMEM;
 	a->order = get_order(bi->size);
-	p = __get_free_pages(GFP_KERNEL | __GFP_ZERO, a->order);
+	p = t32_dma_zpages(a->order);	/* ISP DMA memory: zero lines written back (openimp #530) */
 	if (!p) {
 		kfree(a);
 		return -ENOMEM;

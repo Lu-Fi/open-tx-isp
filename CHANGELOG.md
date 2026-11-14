@@ -4,6 +4,12 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD[-rcN]` are set on the `aperto` branch, the same tag in open-tx-isp and OpenIMP: RC1 `v2026.10.11-rc1`, RC2 `v2026.10.25-rc2`, RC3 `v2026.11.07-rc3` (2026-11-07). Gate SoCs of RC3 and Release 1: T10, T20, T21, T23, T30, T31, T40, T41 (T32/T33 planned, QEMU only); release notes: [docs/releases/ in OpenIMP](https://github.com/Lu-Fi/openimp/blob/next/docs/releases/README.md). Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-11-14: T32 / T33 remaining zeroed DMA pages written back from the cache (cross-SoC review of the T33 silicon findings, openimp #530; host only, planned)
+
+- `tx-isp-t32.ko` / `tx-isp-t33.ko`: two zeroing allocations that #508 missed now use `t32_dma_zpages` (zero, then `dma_cache_wback_inv`): the LSC colour temperature list (`tx_isp_t32_lscct.c`, written through KSEG1 and read by the ISP by DMA) and the pages of the ISP alloc ioctl (`t32_malloc`). Left as they were, the dirty zero lines of the cached mapping could be evicted later over the list in DDR, the #508 failure of the register lists.
+- New source guard `tests/check_t32_dma_zero.sh` (make target `t32_dma_zero_check`, in `make check`): a zeroing page allocation outside `t32_dma_zpages` fails the check.
+- Other SoCs checked (T21, T23, T30, T31, T40, T41): no zeroing allocation followed by a KSEG1 writer; their statistics rings are read through KSEG0 after `dma_cache_sync`, as their vendor modules do. Not tested on a camera (T33L check with the next image).
+
 ## 2026-11-14: T33 MSCA / TOP list refresh at the vendor's interrupts (openimp #99; host + QEMU, planned)
 
 - `tx-isp-t33.ko`: ported `tisp_msca_t33_frame_done_interrupt` (system irq 33: tispMscaRefresh 1 starts list 23, test counter), `tisp_top_t33_pipe_null_down_interrupt` (system irq 0: tispTopRefresh 1 starts list 33, 2 rewrites TOP), `tisp_mdns_t33_reg_trig` and `tisp_get_rcfg_module` (new `tx_isp_t33_fd_misc.h`). Wired like the vendor: the MSCA list writers (channel stream on/off, the OSD slot setter) set the MSCA refresh flag instead of the generic frame-end list run, and the MSCA frame done starts list 23; the bin switch and the LDC first frame set the TOP refresh flag, the frame end (pipe null-down) starts list 33.

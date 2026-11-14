@@ -54,6 +54,7 @@ struct t32_hw_stats {
 };
 extern struct t32_hw_stats t32_hw_stats;
 int t32_hw_init(void);
+unsigned long t32_dma_zpages(unsigned int order);	/* zeroed pages for KSEG1 / DMA use: written back and dropped from the cache */
 void t32_hw_exit(void);
 int t32_hw_input_setup(const void *attr, u32 w, u32 h);
 void t32_hw_rcfg_run_stream_on(void);
