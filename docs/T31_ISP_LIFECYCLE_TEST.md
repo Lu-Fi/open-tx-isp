@@ -1,57 +1,56 @@
-# T31 ISP: Lebenszyklus-Tests auf dem Gerät
+# T31 ISP: life-cycle tests on the device
 
-Diese Anleitung ist für eine lokale Claude-Sitzung gedacht, die per SSH eine
-T31-Kamera mit thingino erreicht. Sie prüft den Branch
-`claude/t31-isp-lifecycle2` auf echter Hardware:
+This guide is meant for a local Claude session that reaches a
+T31 camera with thingino over SSH. It checks the branch
+`claude/t31-isp-lifecycle2` on real hardware:
 
-| Commit (Titel) | Was auf dem Gerät sichtbar wird |
+| Commit (title) | What becomes visible on the device |
 |---|---|
-| clear the MSCA address FIFO and keep buffers on dropped frames | Stream läuft nach Tag/Nacht-Wechsel weiter; `kill -9` stoppt den MSCA-Kanal |
-| write the MSCA Y/UV address pair under a per-channel spinlock | keine vertauschte Chroma zwischen Frames (nur indirekt prüfbar) |
-| serialise frame-channel ioctls with the per-channel mutex | kein Hänger, kein `blocked for more than 120 seconds` |
-| reject QBUF of a buffer the driver still owns | `qbuf: chN buffer N already in use` darf mit OpenIMP nie kommen |
-| do not reset a frame channel that another fd is using | zweites `open()` während des Streams stört nicht |
-| report a tisp_channel_stop timeout to STREAMOFF and release | Marker `MSCA channel still busy after 3 s` (soll fehlen) |
-| stop a running MSCA channel on STREAMOFF in ISP bypass mode | nur mit ISP-Bypass relevant, hier nicht getestet |
-| do not start the stream from the 0x400456bf frame wait | mit OpenIMP ohne sichtbare Wirkung |
-| drop the raw +0x74 store into struct isp_channel | kein sichtbarer Effekt; darf nichts verschlechtern |
-| keep DelSensor from freeing MDNS/WDR buffers under a running ISP | Marker `Sensor release: ISP core quiet after N ms` beim sauberen Stopp |
-| free the statistics DMA pages in tisp_deinit | auf dem Gerät nicht erreichbar (siehe Grenzen) |
+| clear the MSCA address FIFO and keep buffers on dropped frames | Stream keeps running after a day/night switch; `kill -9` stops the MSCA channel |
+| write the MSCA Y/UV address pair under a per-channel spinlock | no swapped chroma between frames (checkable only indirectly) |
+| serialise frame-channel ioctls with the per-channel mutex | no hang, no `blocked for more than 120 seconds` |
+| reject QBUF of a buffer the driver still owns | `qbuf: chN buffer N already in use` must never appear with OpenIMP |
+| do not reset a frame channel that another fd is using | a second `open()` during the stream does not disturb it |
+| report a tisp_channel_stop timeout to STREAMOFF and release | marker `MSCA channel still busy after 3 s` (should be absent) |
+| stop a running MSCA channel on STREAMOFF in ISP bypass mode | relevant only with ISP bypass, not tested here |
+| do not start the stream from the 0x400456bf frame wait | no visible effect with OpenIMP |
+| drop the raw +0x74 store into struct isp_channel | no visible effect; must not make anything worse |
+| keep DelSensor from freeing MDNS/WDR buffers under a running ISP | marker `Sensor release: ISP core quiet after N ms` on a clean stop |
+| free the statistics DMA pages in tisp_deinit | not reachable on the device (see limits) |
 
-## Regeln
+## Rules
 
-- **Nichts flashen.** Kein `sysupgrade`, kein Schreiben auf mtd.
-- **Nichts unter `/etc` schreiben**, auch nicht indirekt. `POST /control`
-  schreibt geänderte Werte nach `<app-config>` zurück. Deshalb läuft the application in
-  diesen Tests mit einer Kopie der Konfiguration in `/tmp` (Abschnitt 3).
-  `/etc/modules.d/*` wird nur gelesen.
-- Auf der Kamera nur nach `/tmp` schreiben.
-- **Bilder nur mit Zustimmung des Menschen.** Keine Snapshots und keine
-  Streamdaten speichern, ansehen oder auf den PC holen, solange der Mensch das
-  nicht ausdrücklich erlaubt hat. Geprüft wird über Bytezähler, JPEG-Header-Bytes
-  und dmesg. Ein Snapshot wird sofort nach der Header-Prüfung gelöscht.
-- **Nie `0x13309974`, `0x13309a74` oder `0x13309b74` lesen.** Diese Register
-  entnehmen beim Lesen einen Eintrag aus dem Done-FIFO. `devmem` nur auf die
-  unten genannten Register anwenden.
-- Bei Oops, Hänger oder unklarem Zustand: dmesg sichern
-  (`dmesg > /tmp/fail.dmesg`, dann per `ssh … cat` auf den PC holen) und die
-  Kamera neu starten. Ein Neustart lädt wieder die geflashten Module.
-- `rmmod`/`insmod` von `tx_isp_t31` verliert pro Zyklus etwa 160 KiB Kernel-
-  Speicher (Statistik-Seiten und WDR-LUT werden beim Entladen nicht
-  freigegeben, schon vor diesem Branch). Höchstens zwei, drei Ladezyklen, dann
-  neu starten.
+- **Do not flash anything.** No `sysupgrade`, no writing to mtd.
+- **Write nothing under `/etc`**, not even indirectly. `POST /control`
+  writes changed values back to `<app-config>`. Therefore the application runs in
+  these tests with a copy of the configuration in `/tmp` (section 3).
+  `/etc/modules.d/*` is only read.
+- On the camera, write only to `/tmp`.
+- **Pictures only with the human's consent.** Do not save, look at or fetch to the PC any snapshots or
+  stream data as long as the human has not explicitly allowed it. Checking is done via byte counters, JPEG header bytes
+  and dmesg. A snapshot is deleted right after the header check.
+- **Never read `0x13309974`, `0x13309a74` or `0x13309b74`.** When read, these registers
+  take an entry from the done FIFO. Use `devmem` only on the
+  registers named below.
+- On an oops, hang or unclear state: save dmesg
+  (`dmesg > /tmp/fail.dmesg`, then fetch it to the PC via `ssh … cat`) and reboot the
+  camera. A reboot loads the flashed modules again.
+- `rmmod`/`insmod` of `tx_isp_t31` loses about 160 KiB of kernel
+  memory per cycle (statistics pages and WDR LUT are not
+  freed on unloading, already before this branch). At most two or three load cycles, then
+  reboot.
 
-## 0. Modul bauen (PC)
+## 0. Build the module (PC)
 
 ```sh
-cd open-tx-isp            # Checkout mit Branch claude/t31-isp-lifecycle2
-git log --oneline -12     # die Commits oben müssen enthalten sein
-TH=~/thingino-firmware ROOT=~/thingino-firmware/output/<t31-kamera> ./build_local.sh
+cd open-tx-isp            # checkout with branch claude/t31-isp-lifecycle2
+git log --oneline -12     # the commits above must be included
+TH=~/thingino-firmware ROOT=~/thingino-firmware/output/<t31-camera> ./build_local.sh
 ls -l driver/t31/tx-isp-t31.ko
 ```
 
-`ROOT` muss die thingino-Ausgabe genau dieser Kamera sein (gleicher Kernel,
-gleiche Modulversion), sonst lädt das Modul nicht. Übertragen ohne sftp:
+`ROOT` must be the thingino output of exactly this camera (same kernel,
+same module version), otherwise the module does not load. Transfer without sftp:
 
 ```sh
 CAM=192.0.2.x
@@ -59,27 +58,27 @@ ssh root@$CAM 'cat > /tmp/tx-isp-t31.ko' < driver/t31/tx-isp-t31.ko
 ssh root@$CAM 'md5sum /tmp/tx-isp-t31.ko'; md5sum driver/t31/tx-isp-t31.ko
 ```
 
-## 1. Bestandsaufnahme (Kamera)
+## 1. Inventory (camera)
 
 ```sh
 uname -r; lsmod
 cat /etc/modules.d/20-isp /etc/modules.d/30-sensor* 2>/dev/null
 M=$(find /lib/modules -name 'tx-isp-t31.ko' | head -1); echo $M
-grep -c "new subdevice management system" $M   # >0: geflasht ist open-tx-isp
+grep -c "new subdevice management system" $M   # >0: open-tx-isp is flashed
 md5sum <app-config> /etc/modules.d/* > /tmp/etc.md5
 grep -E "MemFree|Slab" /proc/meminfo > /tmp/mem.before
 which curl wget devmem
 ```
 
-Voraussetzung: Die Kamera läuft schon mit open-tx-isp und dem OpenIMP-based application
-(`/usr/bin/appd`). Ist `grep -c` 0, läuft der Hersteller-Treiber. Dann
-abbrechen und dem Menschen melden.
+Prerequisite: The camera already runs open-tx-isp and the OpenIMP-based application
+(`/usr/bin/appd`). If `grep -c` is 0, the vendor driver is running. Then
+abort and report to the human.
 
-## 2. Streamer stoppen, Testmodul laden (Kamera)
+## 2. Stop the streamer, load the test module (camera)
 
 ```sh
-/etc/init.d/<app-init> stop; sleep 2; pidof appd && echo "appd läuft noch"
-lsmod                                 # "Used by" von tx_isp_t31 prüfen
+/etc/init.d/<app-init> stop; sleep 2; pidof appd && echo "appd still running"
+lsmod                                 # check "Used by" of tx_isp_t31
 set -- $(cat /etc/modules.d/30-sensor*); SENSOR_MOD=$1
 rmmod $SENSOR_MOD
 rmmod tx_isp_t31
@@ -90,30 +89,30 @@ cat /sys/module/tx_isp_t31/parameters/isp_day_night_switch_drop_frame_num   # 6
 dmesg | tail -30
 ```
 
-`isp_day_night_switch_drop_frame_num=6` wird nur beim `insmod` gesetzt, nicht in
-`/etc`. Der Wert erzwingt den Pfad, der vor dem Fix den Stream nach einem
-Tag/Nacht-Wechsel eingefroren hat. Lässt sich ein Modul nicht entladen
-(`in use`, Hänger), neu starten und das Ergebnis melden.
+`isp_day_night_switch_drop_frame_num=6` is set only at `insmod`, not in
+`/etc`. The value forces the path that, before the fix, froze the stream after a
+day/night switch. If a module cannot be unloaded
+(`in use`, hang), reboot and report the result.
 
-## 3. The application mit Konfigurationskopie starten (Kamera)
+## 3. Start the application with a configuration copy (camera)
 
 ```sh
 cp <app-config> /tmp/app-test.conf
 start_app() { appd -c /tmp/app-test.conf >/tmp/app.log 2>&1 & sleep 8; }
 stop_app()  { kill -TERM $(pidof appd) 2>/dev/null
                 for i in 1 2 3 4 5 6 7 8 9 10; do pidof appd >/dev/null || return 0; sleep 1; done
-                echo "appd beendet sich nicht"; return 1; }
+                echo "appd does not end"; return 1; }
 bytes() { curl -s -m ${1:-5} -o /dev/null -w '%{size_download}\n' http://127.0.0.1:8880/stream.mp4; }
 post()  { curl -s -X POST http://127.0.0.1:8880/control -d "$1"; echo; }
-start_app; bytes 5          # deutlich > 100000 erwartet
+start_app; bytes 5          # clearly > 100000 expected
 ```
 
-Anfragen von `127.0.0.1` brauchen kein Token. Fehlt `curl`, geht
-`timeout 5 wget -q -O - http://127.0.0.1:8880/stream.mp4 | wc -c`. Startet
-`appd` so nicht, `/etc/init.d/<app-init>` lesen (nicht ändern) und die fehlenden
-Vorbereitungen von Hand in `/tmp` nachbauen.
+Requests from `127.0.0.1` need no token. If `curl` is missing,
+`timeout 5 wget -q -O - http://127.0.0.1:8880/stream.mp4 | wc -c` works. If
+`appd` does not start this way, read `/etc/init.d/<app-init>` (do not change it) and rebuild the missing
+preparations by hand in `/tmp`.
 
-dmesg-Prüfung nach jedem Test:
+dmesg check after every test:
 
 ```sh
 FAIL='BUG:|Oops|Unable to handle|scheduling while atomic|sleeping function called|blocked for more than|still busy after 3 s|TIMEOUT waiting for channel|already in use|streaming active|streamoff sensor firstly|the sensor is active|still raising interrupts'
@@ -122,75 +121,75 @@ check() { dmesg > /tmp/$1.dmesg; echo "== $1"; grep -E "$FAIL" /tmp/$1.dmesg | h
 dmesg -c >/dev/null
 ```
 
-`dmesg -c` leert nur den Kernel-Puffer. Vor jedem Leeren ist der Inhalt in
-`/tmp/<test>.dmesg` gesichert.
+`dmesg -c` only empties the kernel buffer. Before every emptying, the content is saved in
+`/tmp/<test>.dmesg`.
 
 ## 4. Tests
 
-Register (32 Bit, nur lesen): `devmem 0x13309804 32` zeigt in Bit n, ob
-MSCA-Kanal n läuft (die Bits 16..19 sind meist gesetzt und hier ohne Belang). `devmem 0x13309808 32`
-zeigt in Bit n, ob Kanal n noch arbeitet.
+Registers (32 bit, read only): `devmem 0x13309804 32` shows in bit n whether
+MSCA channel n is running (bits 16..19 are usually set and irrelevant here). `devmem 0x13309808 32`
+shows in bit n whether channel n is still working.
 
-### T1: Start/Stopp-Schleife (20 Runden)
+### T1: Start/stop loop (20 rounds)
 
 ```sh
 stop_app
 for r in $(seq 20); do
   start_app; b=$(bytes 5); stop_app
-  echo "runde $r bytes=$b 9804=$(devmem 0x13309804 32) 9808=$(devmem 0x13309808 32)"
+  echo "round $r bytes=$b 9804=$(devmem 0x13309804 32) 9808=$(devmem 0x13309808 32)"
 done
 check T1
 ```
 
-Erwartung: jede Runde deutlich mehr als 100000 Bytes. Nach dem Stopp sind in
-`0x13309804` die Bits 0..2 null. In `T1.dmesg` stehen keine FAIL-Treffer. Beendet
-The application die Sitzung sauber (DisableSensor, DelSensor), steht pro Runde einmal
-`Sensor release: ISP core quiet after N ms` (N ist typisch zwei
-Frame-Perioden, etwa 80 bei 25 fps). Fehlt der Marker,
-ruft the application DelSensor nicht auf. Das ist kein Fehler, aber im Bericht notieren.
-Einzelne `has no ACTIVE QBUF slot` direkt nach einem Start sind Altlasten aus
-dem Done-FIFO. Viele davon oder welche mitten im Lauf sind ein Befund.
+Expectation: every round clearly more than 100000 bytes. After the stop, bits 0..2 in
+`0x13309804` are zero. In `T1.dmesg` there are no FAIL hits. If
+the application ends the session cleanly (DisableSensor, DelSensor), there is once per round
+`Sensor release: ISP core quiet after N ms` (N is typically two
+frame periods, about 80 at 25 fps). If the marker is missing,
+the application does not call DelSensor. That is not an error, but note it in the report.
+Isolated `has no ACTIVE QBUF slot` directly after a start are legacy from
+the done FIFO. Many of them or some in the middle of a run are a finding.
 
-### T2: Tag/Nacht-Schleife (20 Wechsel, Stream läuft)
+### T2: Day/night loop (20 switches, stream running)
 
 ```sh
 start_app
-curl -s -m 260 -o /dev/null -w 'dauer-client %{size_download}\n' http://127.0.0.1:8880/stream.mp4 > /tmp/t2.client &
+curl -s -m 260 -o /dev/null -w 'permanent-client %{size_download}\n' http://127.0.0.1:8880/stream.mp4 > /tmp/t2.client &
 for r in $(seq 10); do
-  post '{"image":{"running_mode":1}}'; sleep 5; echo "nacht $r $(bytes 3)"
-  post '{"image":{"running_mode":0}}'; sleep 5; echo "tag   $r $(bytes 3)"
+  post '{"image":{"running_mode":1}}'; sleep 5; echo "night $r $(bytes 3)"
+  post '{"image":{"running_mode":0}}'; sleep 5; echo "day   $r $(bytes 3)"
 done
 wait; cat /tmp/t2.client
 check T2
 ```
 
-Erwartung: Jeder kurze Abruf liefert Daten (grob die Bitrate mal 3 s). Der
-Dauer-Client bricht nicht ab und liefert über die ganze Laufzeit Daten. Vor dem
-Fix fror der Stream mit `drop_frame_num=6` beim ersten Wechsel ohne
-dmesg-Meldung ein. Zum Schluss `running_mode` auf den Wert aus
-`/tmp/app-test.conf` zurücksetzen. Das Bild bei Nacht nicht beurteilen, ohne
-Zustimmung werden keine Bilder angesehen.
+Expectation: Every short fetch delivers data (roughly the bitrate times 3 s). The
+permanent client does not break off and delivers data over the whole run time. Before the
+fix, the stream with `drop_frame_num=6` froze at the first switch without any
+dmesg message. At the end, reset `running_mode` to the value from
+`/tmp/app-test.conf`. Do not judge the picture at night; without
+consent, no pictures are looked at.
 
-### T3: `kill -9` des Streamers (10 Runden)
+### T3: `kill -9` of the streamer (10 rounds)
 
 ```sh
 for r in $(seq 10); do
   pidof appd >/dev/null || start_app
   curl -s -m 20 -o /dev/null http://127.0.0.1:8880/stream.mp4 & sleep 5
   kill -9 $(pidof appd); sleep 1
-  echo "runde $r 9804=$(devmem 0x13309804 32)"
-  wait; start_app; echo "neu $r $(bytes 5)"
+  echo "round $r 9804=$(devmem 0x13309804 32)"
+  wait; start_app; echo "new $r $(bytes 5)"
 done
 stop_app; check T3
 ```
 
-Erwartung: Nach `kill -9` sind die Bits 0..2 von `0x13309804` null, in dmesg
-stehen `Stopping streaming on release` und `stopped channel`. Der neu gestartete
-The application liefert jedes Mal Daten. Bekannte Grenze: Nach `kill -9` laufen Sensor,
-VIC und MDNS weiter, weil kein DisableSensor kommt. Das ist nicht Gegenstand
-dieses Tests.
+Expectation: After `kill -9`, bits 0..2 of `0x13309804` are zero, dmesg
+shows `Stopping streaming on release` and `stopped channel`. The newly started
+application delivers data every time. Known limit: After `kill -9`, sensor,
+VIC and MDNS keep running, because no DisableSensor comes. This is not the subject of
+this test.
 
-### T4: Snapshot parallel zum Stream (30 Abrufe)
+### T4: Snapshot in parallel to the stream (30 fetches)
 
 ```sh
 start_app
@@ -204,10 +203,10 @@ wait; cat /tmp/t4.client
 check T4
 ```
 
-Erwartung: Jede Antwort beginnt mit `ff d8` und ist einige KiB groß. Der
-Stream-Client läuft durch. Die JPEGs werden nicht geöffnet und nicht kopiert.
+Expectation: Every answer starts with `ff d8` and is a few KiB in size. The
+stream client runs through. The JPEGs are not opened and not copied.
 
-### T5: Zweites `open()` eines laufenden Frame-Kanals
+### T5: Second `open()` of a running frame channel
 
 ```sh
 curl -s -m 30 -o /dev/null -w 'client %{size_download}\n' http://127.0.0.1:8880/stream.mp4 > /tmp/t5.client &
@@ -217,119 +216,119 @@ wait; cat /tmp/t5.client
 check T5
 ```
 
-Erwartung: dmesg zeigt je Runde `Frame channel 0 already open (1), keeping its
-state (streaming=1)`. Beim Schließen darf **kein** `Stopping streaming on
-release` erscheinen. Der Client läuft ohne Pause durch. Vor dem Fix hat das
-zweite `open()` die Slot-Tabelle des laufenden Streams gelöscht.
+Expectation: dmesg shows per round `Frame channel 0 already open (1), keeping its
+state (streaming=1)`. On closing, **no** `Stopping streaming on
+release` may appear. The client runs without a pause. Before the fix, the
+second `open()` cleared the slot table of the running stream.
 
-### T6: Leerlauf-Kick (Tag/Nacht ohne Client)
+### T6: Idle kick (day/night without client)
 
-The application schaltet chn0 bei einem `running_mode`-POST ohne Client für ~500 ms ein
-und wieder aus (EnableChn/DisableChn). Das ist ein häufiger Zyklus:
+The application switches chn0 on for ~500 ms on a `running_mode` POST without a client
+and off again (EnableChn/DisableChn). This is a frequent cycle:
 
 ```sh
-sleep 20      # chn0 muss im Leerlauf aus sein: "disabled (idle)" in /tmp/app.log oder logread
+sleep 20      # chn0 must be off when idle: "disabled (idle)" in /tmp/app.log or logread
 for r in $(seq 20); do post '{"image":{"running_mode":1}}'; sleep 3; post '{"image":{"running_mode":0}}'; sleep 3; done
-echo "danach $(bytes 5)"
+echo "afterwards $(bytes 5)"
 check T6
 ```
 
-Erwartung: keine FAIL-Treffer, danach liefert der Stream sofort Daten.
+Expectation: no FAIL hits, afterwards the stream delivers data immediately.
 
-### T7: Speicher
+### T7: Memory
 
 ```sh
 stop_app
 grep -E "MemFree|Slab" /proc/meminfo; cat /tmp/mem.before
 ```
 
-Erwartung: Kein stetiges Wachstum von `Slab` über die Tests hinweg. Der
-einmalige Unterschied durch das Laden des Testmoduls ist normal.
+Expectation: No steady growth of `Slab` over the tests. The
+one-time difference from loading the test module is normal.
 
-## 5. Aufräumen
+## 5. Clean-up
 
 ```sh
 stop_app
-md5sum -c /tmp/etc.md5          # alles "OK", /etc ist unverändert
-reboot                          # lädt die geflashten Module, startet <app-init>
+md5sum -c /tmp/etc.md5          # all "OK", /etc is unchanged
+reboot                          # loads the flashed modules, starts <app-init>
 ```
 
-Nach dem Neustart `pidof appd` und `bytes 5` prüfen.
+After the reboot, check `pidof appd` and `bytes 5`.
 
-## 6. Bericht an den Menschen
+## 6. Report to the human
 
-- Kamera, Sensor, `uname -r`, Commit-Stand des Moduls.
-- Für T1 bis T7 jeweils bestanden oder nicht bestanden, mit Bytezahlen und
-  `devmem`-Werten.
-- Alle FAIL-Treffer im Wortlaut, dazu die INFO-Zählung je Test.
-- Ob `Sensor release: ISP core quiet after N ms` erschien und welche N-Werte.
-- Auffälligkeiten beim Laden oder Entladen des Moduls.
-- Keine Bilder anhängen, es sei denn, der Mensch hat zugestimmt.
+- Camera, sensor, `uname -r`, commit state of the module.
+- For T1 to T7 each passed or not passed, with byte counts and
+  `devmem` values.
+- All FAIL hits verbatim, plus the INFO count per test.
+- Whether `Sensor release: ISP core quiet after N ms` appeared and which N values.
+- Anything unusual when loading or unloading the module.
+- Do not attach pictures unless the human has agreed.
 
-## Anhang: dmesg-Marker
+## Appendix: dmesg markers
 
-| Marker | Bedeutung | Erwartet |
+| Marker | Meaning | Expected |
 |---|---|---|
-| `qbuf: chN buffer N already in use (state S)` | QBUF eines Puffers, den der Treiber noch hält | nie (OpenIMP) |
-| `reqbufs: channel N streaming active` | REQBUFS während eines laufenden Streams, jetzt `-EBUSY` | nie |
-| `Frame channel N already open (K), keeping its state` | weiteres `open()`, der Zustand bleibt erhalten | nur in T5 |
-| `Channel N: STREAMOFF: MSCA channel still busy after 3 s` | `tisp_channel_stop` lief in den Timeout | nie |
-| `Channel N: release: MSCA channel still busy after 3 s` | dasselbe beim Schließen (Absturz, `kill -9`) | nie |
-| `tisp_channel_stop: TIMEOUT waiting for channel N` | Detailzeile zum Timeout | nie |
-| `ispcore_frame_channel_streamoff: stopped channel N (0)` | MSCA-Kanal gestoppt, Ergebnis 0 | bei jedem Stopp |
-| `Stopping streaming on release` | Kanal ohne STREAMOFF geschlossen | nur T3 |
-| `Please, streamoff sensor firstly!` | DelSensor bei laufendem Sensor abgewiesen | nie |
-| `the sensor is active, please stop it firstly.` | Sensor-Freigabe bei laufendem Sensor abgewiesen | nie |
-| `Sensor release: ISP core quiet after N ms` | DelSensor: ISP ohne Interrupt, Puffer frei gegeben | bei sauberem Stopp |
-| `Sensor release: ISP core still raising interrupts after 1 s` | ISP meldet trotz gestopptem Sensor weiter Interrupts | nie; sonst Befund |
-| `MSCA chN completion 0x… has no ACTIVE QBUF slot` | Done-Eintrag ohne passenden Slot | höchstens vereinzelt nach Start |
-| `blocked for more than 120 seconds` | Hänger, z. B. Deadlock am Frame-Kanal-Mutex | nie |
-| `scheduling while atomic` / `sleeping function called from invalid context` | Schlafen unter Spinlock | nie |
+| `qbuf: chN buffer N already in use (state S)` | QBUF of a buffer that the driver still holds | never (OpenIMP) |
+| `reqbufs: channel N streaming active` | REQBUFS during a running stream, now `-EBUSY` | never |
+| `Frame channel N already open (K), keeping its state` | further `open()`, the state is kept | only in T5 |
+| `Channel N: STREAMOFF: MSCA channel still busy after 3 s` | `tisp_channel_stop` ran into the timeout | never |
+| `Channel N: release: MSCA channel still busy after 3 s` | the same on closing (crash, `kill -9`) | never |
+| `tisp_channel_stop: TIMEOUT waiting for channel N` | detail line for the timeout | never |
+| `ispcore_frame_channel_streamoff: stopped channel N (0)` | MSCA channel stopped, result 0 | at every stop |
+| `Stopping streaming on release` | channel closed without STREAMOFF | only T3 |
+| `Please, streamoff sensor firstly!` | DelSensor rejected while the sensor is running | never |
+| `the sensor is active, please stop it firstly.` | sensor release rejected while the sensor is running | never |
+| `Sensor release: ISP core quiet after N ms` | DelSensor: ISP without interrupt, buffers released | on a clean stop |
+| `Sensor release: ISP core still raising interrupts after 1 s` | ISP keeps reporting interrupts although the sensor is stopped | never; otherwise a finding |
+| `MSCA chN completion 0x… has no ACTIVE QBUF slot` | done entry without a matching slot | at most isolated after a start |
+| `blocked for more than 120 seconds` | hang, e.g. deadlock on the frame channel mutex | never |
+| `scheduling while atomic` / `sleeping function called from invalid context` | sleeping under a spinlock | never |
 
-## Grenzen dieser Tests
+## Limits of these tests
 
-- `tisp_deinit` (Freigabe der Statistik-Seiten) läuft nur über
-  `ispcore_slake_module`, das heute keinen Aufrufer hat. Das ist auf dem Gerät
-  nicht prüfbar.
-- Ob das MDNS/WDR-DMA nach DelSensor wirklich ruht, zeigt nur ein Poison-Test in
-  OpenIMP: `DMA_FreePhys` füllt den Block mit `0xA5`, hält ihn einen Zyklus
-  zurück und prüft das Muster vor der Wiedervergabe. Dafür braucht es einen
-  eigenen OpenIMP-Build, er gehört nicht zu diesen Tests.
-- Die Y/UV-Atomarität zeigt sich nur als seltene Farbvertauschung zwischen zwei
-  Frames. Ohne Bildprüfung ist sie hier nicht nachweisbar.
-- Der Bypass-Pfad (`ISP_CTRL_BYPASS`) wird von the application nicht benutzt.
+- `tisp_deinit` (release of the statistics pages) runs only via
+  `ispcore_slake_module`, which currently has no caller. This cannot be
+  checked on the device.
+- Whether the MDNS/WDR DMA really rests after DelSensor is shown only by a poison test in
+  OpenIMP: `DMA_FreePhys` fills the block with `0xA5`, holds it back for one cycle
+  and checks the pattern before it is handed out again. This needs a
+  separate OpenIMP build; it is not part of these tests.
+- The Y/UV atomicity shows itself only as a rare colour swap between two
+  frames. Without a picture check it cannot be proven here.
+- The bypass path (`ISP_CTRL_BYPASS`) is not used by the application.
 
-## Latenz-Messung (Branch `claude/t31-isp-latency`)
+## Latency measurement (branch `claude/t31-isp-latency`)
 
-Dieser Abschnitt misst, ob der Latenz-Branch die langen Phasen mit
-abgeschalteten Interrupts beseitigt. Er baut auf den Abschnitten 0 bis 3 auf
-(Regeln, Modul laden, `start_app`, `stop_app`, `bytes`, `post`, `check`).
-Verglichen werden zwei Module mit gleicher Kamera, Szene und Konfiguration:
+This section measures whether the latency branch removes the long phases with
+interrupts disabled. It builds on sections 0 to 3
+(rules, load module, `start_app`, `stop_app`, `bytes`, `post`, `check`).
+Two modules are compared with the same camera, scene and configuration:
 
-- **alt**: Stand `claude/t31-isp-all` (Commit `999a62b`)
-- **neu**: Stand `claude/t31-isp-latency`
+- **old**: state `claude/t31-isp-all` (commit `999a62b`)
+- **new**: state `claude/t31-isp-latency`
 
-| Commit (Titel) | Was sich messen lässt |
+| Commit (title) | What can be measured |
 |---|---|
-| do not zero the active parameter block before overwriting it | kürzerer Tag/Nacht-Wechsel |
-| refresh each day/night module with local IRQs off | kein eigener Messwert |
-| run the day/night parameter switch from a work item | keine ms-Spitze pro Tag/Nacht-Wechsel (L2, L3) |
-| serialize the day/night and custom bank switches | kein Hänger (`blocked for more than`) |
-| cancel the day/night work on module exit before tisp_deinit_free | kein Oops beim `rmmod` (L1) |
-| stop logging every poll of the VIC error-recovery loop | nur bei VIC-Fehlern: keine `addr ctl is`-Flut |
-| bound the release-ack poll of the WDR exception reset | nur im WDR-Modus bei Fehlern, sonst nicht erreichbar |
-| rate-limit the VIC interrupt error lines | nur bei VIC-Fehlern: höchstens 20 `Err [VIC_INT]` pro 5 s |
-| let the AE0 solver read the unpacked statistics planes directly | wenige µs pro Frame, nicht einzeln messbar |
-| clear only the unused tail of the AE0 statistics planes | wenige µs pro Frame, nicht einzeln messbar |
-| skip the AE1 statistics work in linear mode | `ctxt`/s in `/proc/stat` sinkt um etwa die Bildrate (L4) |
+| do not zero the active parameter block before overwriting it | shorter day/night switch |
+| refresh each day/night module with local IRQs off | no measurement of its own |
+| run the day/night parameter switch from a work item | no ms peak per day/night switch (L2, L3) |
+| serialize the day/night and custom bank switches | no hang (`blocked for more than`) |
+| cancel the day/night work on module exit before tisp_deinit_free | no oops on `rmmod` (L1) |
+| stop logging every poll of the VIC error-recovery loop | only on VIC errors: no `addr ctl is` flood |
+| bound the release-ack poll of the WDR exception reset | only in WDR mode on errors, otherwise not reachable |
+| rate-limit the VIC interrupt error lines | only on VIC errors: at most 20 `Err [VIC_INT]` per 5 s |
+| let the AE0 solver read the unpacked statistics planes directly | a few µs per frame, not measurable individually |
+| clear only the unused tail of the AE0 statistics planes | a few µs per frame, not measurable individually |
+| skip the AE1 statistics work in linear mode | `ctxt`/s in `/proc/stat` drops by about the frame rate (L4) |
 
-### L0: Module und Messprogramm bauen (PC)
+### L0: Build modules and measurement program (PC)
 
-Beide Module wie in Abschnitt 0 bauen und als `/tmp/tx-isp-alt.ko` und
-`/tmp/tx-isp-neu.ko` auf die Kamera kopieren. Dazu ein kleines Messprogramm im
-Stil von `cyclictest`: Es schläft in einer Schleife 1 ms mit SCHED_FIFO und
-misst, wie spät es aufwacht. Jede Phase mit abgeschalteten Interrupts verzögert
-den Timer-Interrupt und damit das Aufwachen um genau diese Zeit.
+Build both modules as in section 0 and copy them as `/tmp/tx-isp-alt.ko` and
+`/tmp/tx-isp-neu.ko` to the camera (alt = old, neu = new). In addition a small measurement program in the
+style of `cyclictest`: It sleeps 1 ms in a loop with SCHED_FIFO and
+measures how late it wakes up. Every phase with interrupts disabled delays
+the timer interrupt and thus the wakeup by exactly this time.
 
 ```sh
 cat > /tmp/latprobe.c <<'EOF'
@@ -365,14 +364,14 @@ int main(int argc, char **argv)
 		if (lat > smax)
 			smax = lat;
 		b[lat >= 2000 ? 3 : lat >= 1000 ? 2 : lat >= 500 ? 1 : 0]++;
-		next = now; /* eine Spitze nur einmal zählen */
+		next = now; /* count a peak only once */
 		if (++n % 1000 == 0) {
 			printf("t=%d max_us=%ld\n", ++s, smax);
 			fflush(stdout);
 			smax = 0;
 		}
 	}
-	printf("gesamt n=%ld max_us=%ld <500:%ld 500-999:%ld 1000-1999:%ld >=2000:%ld\n",
+	printf("total n=%ld max_us=%ld <500:%ld 500-999:%ld 1000-1999:%ld >=2000:%ld\n",
 	       n, max, b[0], b[1], b[2], b[3]);
 	return 0;
 }
@@ -381,18 +380,18 @@ $ROOT/host/bin/mipsel-linux-gcc -static -O2 -Wall -o /tmp/latprobe /tmp/latprobe
 ssh root@$CAM 'cat > /tmp/latprobe && chmod +x /tmp/latprobe' < /tmp/latprobe
 ```
 
-Der Kernel der Kamera hat `CONFIG_HIGH_RES_TIMERS=y`, 1 ms Periode geht also.
-Die Zeile `t=N max_us=M` ist etwa eine pro Sekunde. Sie zeigt die größte
-Verspätung dieser Sekunde.
+The camera's kernel has `CONFIG_HIGH_RES_TIMERS=y`, so a 1 ms period works.
+The line `t=N max_us=M` appears about once per second. It shows the largest
+delay of that second.
 
-### L1: Modul wechseln (Kamera)
+### L1: Switch module (camera)
 
-Wie Abschnitt 2, aber mit dem jeweiligen Modul und **ohne**
-`isp_day_night_switch_drop_frame_num` (Standard 0), damit nur die Latenz
-gemessen wird:
+As section 2, but with the respective module and **without**
+`isp_day_night_switch_drop_frame_num` (default 0), so that only the latency is
+measured:
 
 ```sh
-KO=/tmp/tx-isp-alt.ko      # zweiter Durchlauf: /tmp/tx-isp-neu.ko
+KO=/tmp/tx-isp-alt.ko      # second pass: /tmp/tx-isp-neu.ko
 /etc/init.d/<app-init> stop; sleep 2
 set -- $(cat /etc/modules.d/30-sensor*); rmmod $1; rmmod tx_isp_t31
 set -- $(cat /etc/modules.d/20-isp); shift; insmod $KO "$@"
@@ -400,18 +399,18 @@ set -- $(cat /etc/modules.d/30-sensor*); modprobe "$@"
 dmesg -c >/dev/null; start_app; bytes 5
 ```
 
-Höchstens zwei, drei Modulwechsel pro Neustart (Speicherverlust beim Entladen,
-siehe Regeln). Sicherer ist: alt messen, neu starten, neu messen.
+At most two or three module switches per reboot (memory loss on unloading,
+see rules). Safer is: measure old, reboot, measure new.
 
-### L2: Grundlast und Tag/Nacht-Schleife mit Latenz-Sonde
+### L2: Base load and day/night loop with latency probe
 
 ```sh
-# 60 s Grundlast: Stream läuft, keine Wechsel
+# 60 s base load: stream runs, no switches
 curl -s -m 70 -o /dev/null http://127.0.0.1:8880/stream.mp4 &
 /tmp/latprobe 60 > /tmp/lat-ruhe.txt; wait
 tail -1 /tmp/lat-ruhe.txt
 
-# 120 s mit Tag/Nacht-Wechsel alle 5 s
+# 120 s with day/night switch every 5 s
 curl -s -m 130 -o /dev/null http://127.0.0.1:8880/stream.mp4 &
 /tmp/latprobe 120 > /tmp/lat-dn.txt &
 for r in $(seq 12); do
@@ -420,48 +419,48 @@ for r in $(seq 12); do
 done
 wait
 tail -1 /tmp/lat-dn.txt
-sort -t= -k3 -n /tmp/lat-dn.txt | tail -5      # die fünf größten Sekunden
+sort -t= -k3 -n /tmp/lat-dn.txt | tail -5      # the five largest seconds
 check L2
 ```
 
-Auswertung: Die Zahl der Sekunden mit `max_us` über 1000 in `lat-dn.txt` mit der
-Zahl der Wechsel (24) vergleichen, jeweils für alt und neu. Erwartung: Mit
-**alt** hat fast jede Sekunde mit einem Wechsel eine Spitze in der
-Größenordnung 1 bis 5 ms. Mit **neu** liegen die Spitzen während der Wechsel
-nahe an der Grundlast aus `lat-ruhe.txt`, höchstens einige 100 µs darüber
-(längstes einzelnes Modul). Die Grundlast selbst ändert sich kaum, denn die
-AE/AWB-Algorithmen laufen weiterhin mit abgeschalteten Interrupts.
+Evaluation: Compare the number of seconds with `max_us` above 1000 in `lat-dn.txt` with the
+number of switches (24), each for old and new. Expectation: With
+**old**, almost every second with a switch has a peak in the
+order of 1 to 5 ms. With **new**, the peaks during the switches are
+close to the base load from `lat-ruhe.txt`, at most a few 100 µs above
+(longest single module). The base load itself hardly changes, because the
+AE/AWB algorithms still run with interrupts disabled.
 
-In `L2.dmesg` pro Wechsel eine Zeile `Day/night mode updated: 0` bzw. `: 1`
-(etwa 24). FAIL-Treffer sind zusätzlich zu Abschnitt 3:
+In `L2.dmesg`, one line per switch `Day/night mode updated: 0` or `: 1`
+(about 24). FAIL hits in addition to section 3:
 `T31 day/night switch failed`, `T31 day/night apply failed`.
 
-Danach `running_mode` auf den Wert aus `/tmp/app-test.conf` zurücksetzen.
+Afterwards reset `running_mode` to the value from `/tmp/app-test.conf`.
 
-### L3: Frame-Abstände (nur mit Zustimmung)
+### L3: Frame intervals (only with consent)
 
-Die Frame-Zeitstempel entstehen im ISP-Interrupt. Beim alten Modul lief der
-Tag/Nacht-Wechsel im selben Interrupt **vor** der Frame-Abholung, der
-Zeitstempel des Frames wurde also um die Dauer des Wechsels verschoben. Das
-zeigt sich als Ausreißer im Frame-Abstand. Die Messung holt Stream-Daten auf den
-PC. Deshalb nur, wenn der Mensch zugestimmt hat. Es werden nur Zeitstempel
-ausgegeben, keine Bilder gespeichert.
+The frame timestamps are created in the ISP interrupt. With the old module, the
+day/night switch ran in the same interrupt **before** the frame pick-up, so the
+timestamp of the frame was shifted by the duration of the switch. This
+shows up as an outlier in the frame interval. The measurement fetches stream data to the
+PC. Therefore only if the human has agreed. Only timestamps are
+output, no pictures are saved.
 
 ```sh
-# PC, während auf der Kamera die Schleife aus L2 läuft (ohne latprobe)
+# PC, while the loop from L2 runs on the camera (without latprobe)
 ffprobe -v error -rtsp_transport tcp -select_streams v:0 \
   -show_entries packet=pts_time -of csv=p=0 -read_intervals '%+120' \
   "rtsp://<user>:<pass>@$CAM:554/ch0" > /tmp/pts.txt
 awk 'NR>1 { d = ($1 - p) * 1000; if (d > m) m = d; s += d; n++;
             if (d > 1.5 * 1000 / 25) big++ } { p = $1 }
-     END { printf "n=%d mittel=%.2f ms max=%.2f ms lange=%d\n", n, s/n, m, big }' /tmp/pts.txt
+     END { printf "n=%d mean=%.2f ms max=%.2f ms long=%d\n", n, s/n, m, big }' /tmp/pts.txt
 ```
 
-Pfad (`video0.rtsp_path`) und Zugangsdaten aus der Anwendungskonfiguration nehmen. `25` durch die
-Bildrate von `video0.fps` ersetzen. Erwartung: Bei alt ist die Streuung um die
-Wechsel sichtbar größer als bei neu. Mittelwert und Frame-Zahl bleiben gleich.
+Take the path (`video0.rtsp_path`) and credentials from the application configuration. Replace `25` by the
+frame rate of `video0.fps`. Expectation: With old, the scatter around the
+switches is visibly larger than with new. Mean and frame count stay the same.
 
-### L4: Interrupts und Kontextwechsel (linearer Modus)
+### L4: Interrupts and context switches (linear mode)
 
 ```sh
 snap() { grep -E 'isp-m0|isp-w02' /proc/interrupts; grep -E '^ctxt' /proc/stat; }
@@ -470,32 +469,32 @@ sleep 5; snap > /tmp/s0; sleep 60; snap > /tmp/s1; wait
 paste /tmp/s0 /tmp/s1
 ```
 
-Differenzen durch 60 teilen. Erwartung: Die Interrupt-Raten von `isp-m0` (37)
-und `isp-w02` (38) sind bei alt und neu gleich. `ctxt`/s ist bei neu etwa um die
-Bildrate kleiner (AE1-Ereignis entfällt ohne WDR). Läuft die Kamera im
-WDR-Modus, bleibt `ctxt`/s gleich.
+Divide the differences by 60. Expectation: The interrupt rates of `isp-m0` (37)
+and `isp-w02` (38) are the same for old and new. `ctxt`/s is smaller with new by about
+the frame rate (the AE1 event is omitted without WDR). If the camera runs in
+WDR mode, `ctxt`/s stays the same.
 
-### L5: Drop-Frames nach dem Wechsel
+### L5: Drop frames after the switch
 
-T2 aus Abschnitt 4 mit dem neuen Modul und
-`isp_day_night_switch_drop_frame_num=6` wiederholen. Erwartung wie dort: Der
-Stream läuft nach jedem Wechsel weiter. Neu gilt der Zählwert ab dem Moment, in
-dem die neuen Parameter aktiv sind. Pro Wechsel fehlen also mindestens 6 Frames,
-gelegentlich einer mehr.
+Repeat T2 from section 4 with the new module and
+`isp_day_night_switch_drop_frame_num=6`. Expectation as there: The
+stream keeps running after every switch. Now the count value applies from the moment
+the new parameters are active. So per switch at least 6 frames are missing,
+occasionally one more.
 
-### L6: Fehlerpfade (nur beobachten)
+### L6: Error paths (observe only)
 
-VIC-Fehler und die WDR-Ausnahme lassen sich nicht gezielt auslösen. Treten sie
-auf, gilt:
+VIC errors and the WDR exception cannot be triggered deliberately. If they
+occur, the following applies:
 
-| Marker | Bedeutung | Erwartet |
+| Marker | Meaning | Expected |
 |---|---|---|
-| `Err [VIC_INT] : …` | VIC-Fehlerbit | höchstens 20 Zeilen pro 5 s, danach `… callbacks suppressed` |
-| `VIC error handler: status 0x…, restarting VIC` | VIC-Neustart nach Fehler | vereinzelt; `addr ctl is` gibt es nicht mehr pro Schleifendurchlauf |
-| `VIC error handler: VIC did not stop, addr ctl is 0x…` | VIC blieb 1 ms lang aktiv, Neustart trotzdem | nie; sonst Befund |
-| `ispcore: WDR exception reset: no release ack` | ISP bestätigte die Freigabe 1 ms lang nicht | nie; sonst Befund (vorher: Hänger) |
-| `scheduling while atomic` / `sleeping function called from invalid context` | u. a. WDR-Refresh im Interrupt (alt) | nie mit neu |
+| `Err [VIC_INT] : …` | VIC error bit | at most 20 lines per 5 s, afterwards `… callbacks suppressed` |
+| `VIC error handler: status 0x…, restarting VIC` | VIC restart after an error | isolated; `addr ctl is` is no longer logged per loop pass |
+| `VIC error handler: VIC did not stop, addr ctl is 0x…` | VIC stayed active for 1 ms, restart anyway | never; otherwise a finding |
+| `ispcore: WDR exception reset: no release ack` | ISP did not acknowledge the release for 1 ms | never; otherwise a finding (before: hang) |
+| `scheduling while atomic` / `sleeping function called from invalid context` | among others WDR refresh in the interrupt (old) | never with new |
 
-Im Bericht zu L2 bis L5 die Zahlen für alt und neu nebeneinander angeben
-(`gesamt`-Zeile von `latprobe`, Anzahl der Sekunden über 1 ms, `ctxt`/s,
-Interrupt-Raten, bei Zustimmung die `ffprobe`-Zeile).
+In the report on L2 to L5, give the numbers for old and new side by side
+(`total` line of `latprobe`, number of seconds above 1 ms, `ctxt`/s,
+interrupt rates, with consent the `ffprobe` line).
