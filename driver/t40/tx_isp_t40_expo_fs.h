@@ -5,8 +5,10 @@
  *
  *  - t40_vic_irq_account: the VIC part of the vendor isp_vic_interrupt_service_routine that this driver's VIC ack filter
  *    runs: per-device counters vic+0x2c0+idx*0x10 (bits 0..3 of the pending status, /proc/jz/isp/isp-w02 row 2) and the
- *    frame-start decision (bit 4, VIC0/VIC1 only): vic+0x24c+idx*4 == 0 -> main_fs_work, == 1 -> sec_fs_work, else none
- *    (the vendor prints "no work!!!").
+ *    frame-start decision (bit 4, VIC0/VIC1 only): sel == 0 -> main_fs_work, == 1 -> sec_fs_work, else none (the vendor
+ *    prints "no work!!!").  sel = the vendor's VIC -> ISP channel index, vendor vic+0x24c+idx*4 (written by
+ *    tx_isp_vic_index_cal, 4 = unused from tx_isp_vic_probe).  The caller passes it because this driver keeps a different
+ *    field at vic+0x24c (the VIC stream state 1..4, vendor vic+0x264; #505 box run: 4 there = "no work", fs works 0/s).
  *  - t40_efs_set_it / t40_efs_set_again: vendor sensor_set_integration_time / sensor_set_analog_gain (the sensor_ctrl
  *    0x164 / 0x174 callbacks of the AE): keep the packed EXPO word attr+0x120 (again << 16 | it), and on a change of the
  *    value (attr+0xb0 IT, attr+0xa0 again) arm the pending slot of the value (INT_TIME slot 3 / AGAIN slot 0) and the EXPO
@@ -39,9 +41,9 @@
 
 enum { T40_EFS_WORK_NONE = -1, T40_EFS_WORK_MAIN = 0, T40_EFS_WORK_SEC = 1, T40_EFS_WORK_NOWORK = -2 };
 
-static inline int t40_vic_irq_account(uint8_t *vic, uint32_t idx, uint32_t pending0)
+static inline int t40_vic_irq_account(uint8_t *vic, uint32_t idx, uint32_t pending0, uint32_t sel)
 {
-	uint32_t b, sel;
+	uint32_t b;
 
 	if (idx > 2U)
 		return T40_EFS_WORK_NONE;
@@ -50,7 +52,6 @@ static inline int t40_vic_irq_account(uint8_t *vic, uint32_t idx, uint32_t pendi
 			T40_EFS_U32(vic, 0x2c0U + idx * 0x10U + b * 4U) += 1U;
 	if (idx == 2U || !(pending0 & 0x10U))
 		return T40_EFS_WORK_NONE;
-	sel = T40_EFS_U32(vic, 0x24cU + idx * 4U);
 	if (sel == 0U)
 		return T40_EFS_WORK_MAIN;
 	if (sel == 1U)

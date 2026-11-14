@@ -48480,7 +48480,12 @@ static int32_t regtrace_vic_irq_ack_filter(int32_t irq, void *dev_id)
     regtrace_vic_irq_last_pending1 = pending1;
     /* #505: vendor isp_vic_interrupt_service_routine: device counters of bits 0..3 (isp-w02 row 2) and the frame-start
      * works on bit 4 (vendor: queue_work_on(2 = WORK_CPU_UNBOUND with NR_CPUS 2, system_wq, ...)) */
-    switch (t40_vic_irq_account((uint8_t *)vic_dev, idx, pending0)) {
+    /* vendor selector vic+0x24c+idx*4 (VIC -> ISP channel, tx_isp_vic_index_cal) has no field of its own here: this
+     * driver keeps the VIC stream state at +0x24c (vendor +0x264).  One sensor per VIC: a streaming VIC (state 4) feeds
+     * ISP channel idx (VIC0 -> main, as the vendor's "vic index: 0, 4, 4" on the T40 box), an idle VIC = 4 (no work). */
+    switch (t40_vic_irq_account((uint8_t *)vic_dev, idx, pending0,
+                                (idx < 2U && regtrace_get_u32(vic_dev, REGTRACE_VIC_STATE_OFFSET + idx * 4U) == 4U) ?
+                                idx : 4U)) {
     case T40_EFS_WORK_MAIN:
         t40_vic_fs_count++;
         WRITE_ONCE(t40_vic_fs_last, jiffies);

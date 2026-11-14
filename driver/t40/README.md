@@ -1011,3 +1011,6 @@ arms the slots like the vendor `sensor_set_integration_time` / `sensor_set_analo
 frame-start worker writes it. Fallback to the direct write: sensor without `expo_fs`, no core sensor attribute, or no
 frame-start interrupt within 0.5 s (`t40_expo_fs_direct` counts these). Counters: `t40_vic_fs_count`, `t40_expo_fs_armed`.
 Helpers and oracle: `tx_isp_t40_expo_fs.h`, `tests/t40_expo_fs_host.sh`.
+The vendor's work selector (vic+0x24c+idx*4, VIC -> ISP channel) is not a field here: this driver keeps the VIC stream
+state at vic+0x24c (vendor +0x264), so the ack filter passes the selector (streaming VIC0 -> main, VIC1 -> sec). Note:
+the `vic index` line of `/proc/jz/isp/isp-w02` therefore shows the stream state ("4, 1, 1"), not the vendor's index ("0, 4, 4").

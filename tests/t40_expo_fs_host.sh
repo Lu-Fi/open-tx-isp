@@ -44,7 +44,7 @@ T40_EFS_ATTR_EXPO_FS) != fs))@T40_EFS_ATTR_EXPO_FS) == fs))
 0x2c0U + idx * 0x10U@0x2c0U + idx * 0x14U
 b < 4U;@b < 3U;
 if (idx == 2U ||@if (idx == 3U ||
-0x24cU + idx * 4U@0x24cU + idx * 8U
+if (sel == 0U)@if (sel != 0U)
 if (sel == 1U)@if (sel == 2U)
 !(pending0 & 0x10U)@!(pending0 & 0x20U)
 MUT

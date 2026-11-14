@@ -51,7 +51,7 @@ int main(void)
 				return 2;
 			memcpy(vic + 0x24c, &p3, 4);
 			memcpy(vic + 0x250, &p4, 4);
-			printf("%d ", t40_vic_irq_account(vic, p1, p2));
+			printf("%d ", t40_vic_irq_account(vic, p1, p2, p1 < 2U ? (p1 ? p4 : p3) : 4U));
 			hex(vic + 0x2c0, 0x30);
 			printf("\n");
 			continue;
