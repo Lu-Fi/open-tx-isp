@@ -18,10 +18,13 @@
 #define T33_RCFG_BLC_BASE	0x80000000U
 #define T33_RCFG_CCM_BASE	0x80000000U
 
+#ifndef T33_RCFG_WORD_T
+#define T33_RCFG_WORD_T
 struct t33_rcfg_word {
 	u16 idx;	/* word index in the attribute table */
 	u32 val;
 };
+#endif
 
 /* tisp_rcfg_awbg_reg_init: module 5, next 6 */
 static inline u32 t33_rcfg_awbg_init(u32 *e)

@@ -11,11 +11,16 @@
 #include "tx_isp_t33_blk.h"
 
 /* one { word index, value } of a module attribute table entry */
+#ifndef T33_RCFG_WORD_T
+#define T33_RCFG_WORD_T
 struct t33_rcfg_word {
 	u16 idx;
 	u32 val;
 };
+#endif
 
+#ifndef T33_RCFG_FILL_FN
+#define T33_RCFG_FILL_FN
 static inline void t33_rcfg_fill(u32 *e, const struct t33_rcfg_word *w, unsigned int n)
 {
 	unsigned int k;
@@ -23,6 +28,7 @@ static inline void t33_rcfg_fill(u32 *e, const struct t33_rcfg_word *w, unsigned
 	for (k = 0; k < n; k++)
 		e[w[k].idx] = w[k].val;
 }
+#endif
 
 /* tisp_rcfg_bcsh_reg_init: module 53, next 54 */
 static inline u32 t33_rcfg_bcsh_init(u32 *e)

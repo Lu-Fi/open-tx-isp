@@ -315,14 +315,33 @@ static const struct t33_tcmd t33_ydns_tmpl[] = {
 };
 
 /* tisp_ydns_par_refresh (+ func_ydns_bin_para_update / func_ydns_para_update) */
-static inline int t33_ydns_init(const u8 *sec, u32 gain, struct t32_front_write *w)
+static inline void t33_ydns_par(const u8 *sec, u32 gain, u32 *p)
 {
-	u32 p[12], i = gain >> 16, f = gain & 0xffff;
-	unsigned int n = 0, k;
+	u32 i = gain >> 16, f = gain & 0xffff;
+	unsigned int k;
 
 	p[0] = sec[4];
 	for (k = 0; k < 11; k++)
 		p[1 + k] = t32_tp_intp_u8(i, f, sec + 5 + 11 * k);
+}
+
+/* ydnsInfo (0x6c bytes): word 0 the bin byte, 1..11 the interpolations, 12..23 func_ydns_para_update's copies */
+#define T33_YDNS_INFO_WORDS	27
+static inline void t33_ydns_info(const u8 *sec, u32 gain, u32 *inf)
+{
+	unsigned int k;
+
+	t33_ydns_par(sec, gain, inf + 12);
+	for (k = 0; k < 12; k++)
+		inf[k] = inf[12 + k];
+}
+
+static inline int t33_ydns_init(const u8 *sec, u32 gain, struct t32_front_write *w)
+{
+	u32 p[12];
+	unsigned int n = 0;
+
+	t33_ydns_par(sec, gain, p);
 	T33_FWR(w, n, 0xe054, (p[2] & 3) << 8 | (p[3] & 3) << 12 | (p[1] & 0xff));
 	T33_FWR(w, n, 0xe058, (p[4] & 0xff) | p[7] << 24 | (p[5] & 0xff) << 8 | (p[6] & 0xff) << 16);
 	T33_FWR(w, n, 0xe05c, (p[8] & 0xff) | p[11] << 24 | (p[9] & 0xff) << 8 | (p[10] & 0xff) << 16);
@@ -376,14 +395,14 @@ static inline int t33_isqrt_round(int v)
 }
 
 /* tisp_sdns_par_refresh (+ other_params_transform, func_sdns_para_update) */
-static inline int t33_sdns_init(const u8 *sec, u32 gain, struct t32_front_write *w)
+static inline void t33_sdns_par(const u8 *sec, u32 gain, u32 *p, u32 *s)
 {
 	static const u8 tab[13][2] = {
 		{ 1, 0x05 }, { 2, 0x10 }, { 4, 0x1c }, { 5, 0x27 }, { 6, 0x32 }, { 7, 0x3d }, { 8, 0x48 },
 		{ 9, 0x53 }, { 10, 0x5e }, { 11, 0x69 }, { 13, 0x75 }, { 14, 0x80 }, { 16, 0x8c },
 	};
-	u32 p[17], s[4], q, i = gain >> 16, f = gain & 0xffff;
-	unsigned int n = 0, k;
+	u32 q, i = gain >> 16, f = gain & 0xffff;
+	unsigned int k;
 	int v;
 
 	p[0] = sec[4];
@@ -399,6 +418,29 @@ static inline int t33_sdns_init(const u8 *sec, u32 gain, struct t32_front_write 
 		v = (int)(p[1] * p[1] + (u32)(((unsigned long long)t33_sdns_w[k] * q + 0x7fffffULL) >> 23));
 		s[k] = v < 0xfe01 ? (u32)t33_isqrt_round(v) : 0xff;
 	}
+}
+
+/* sdnsInfo (160 bytes): func_sdns_para_update copies p[0], p[3..16] to words 0x11, 0x12..0x1f, s to 0x20..0x23 */
+#define T33_SDNS_INFO_WORDS	40
+static inline void t33_sdns_info(const u8 *sec, u32 gain, u32 *inf)
+{
+	u32 p[17], s[4];
+	unsigned int k;
+
+	t33_sdns_par(sec, gain, p, s);
+	inf[0x11] = p[0];
+	for (k = 3; k <= 16; k++)
+		inf[0x12 + k - 3] = p[k];
+	for (k = 0; k < 4; k++)
+		inf[0x20 + k] = s[k];
+}
+
+static inline int t33_sdns_init(const u8 *sec, u32 gain, struct t32_front_write *w)
+{
+	u32 p[17], s[4];
+	unsigned int n = 0;
+
+	t33_sdns_par(sec, gain, p, s);
 	/* func_sdns_para_update copies p[0], p[3..16] to 0x11, 0x12..0x1f */
 	T33_FWR(w, n, 0x13028, (p[4] & 0xff) | p[7] << 24 | (p[5] & 0xff) << 8 | (p[6] & 0xff) << 16);
 	T33_FWR(w, n, 0x1302c, (p[8] & 0xff) | p[11] << 24 | (p[9] & 0xff) << 8 | (p[10] & 0xff) << 16);

@@ -212,17 +212,36 @@ static inline int t32_cdns_deinit(void (*kfree)(void *p), struct t32_cdns_ctx **
 #define T33_CDNS_WRITES		21
 
 /* at the gain (log2 Q16) of tisp_cdns_par_refresh; init: 0x10000 */
-static inline int t33_cdns_gain(const u8 *sec, u32 gain, struct t32_front_write *w)
+static inline void t33_cdns_par(const u8 *sec, u32 gain, u8 *o)
 {
 	u32 gi = gain >> 16, gf = gain & 0xffff;
-	u8 o[0x36];
-	unsigned int n = 0, k;
+	unsigned int k;
 
 	for (k = 0; k < 0x26; k++)
 		o[k] = t32_tp_intp_u8(gi, gf, sec + 4 + 11 * k);
 	o[0x26] = sec[0x1a6];
 	for (k = 0x27; k < 0x36; k++)
 		o[k] = t32_tp_intp_u8(gi, gf, sec + 0x1a7 + 11 * (k - 0x27));
+}
+
+/* cdnsInfo (440 bytes): func_cdns_para_update's copies of the 0x36 values in words 54..107 */
+#define T33_CDNS_INFO_WORDS	110
+static inline void t33_cdns_info(const u8 *sec, u32 gain, u32 *inf)
+{
+	u8 o[0x36];
+	unsigned int k;
+
+	t33_cdns_par(sec, gain, o);
+	for (k = 0; k < 0x36; k++)
+		inf[54 + k] = o[k];
+}
+
+static inline int t33_cdns_gain(const u8 *sec, u32 gain, struct t32_front_write *w)
+{
+	u8 o[0x36];
+	unsigned int n = 0, k;
+
+	t33_cdns_par(sec, gain, o);
 	T32_FWR(w, n, 0x12040, o[0] & 7U);
 	for (k = 0; k < 8; k++)
 		T32_FWR(w, n, 0x12050 + 4 * k, (u32)o[2 + 3 * k] << 8 | (u32)o[3 + 3 * k] << 16 | o[1 + 3 * k]);

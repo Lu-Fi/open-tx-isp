@@ -86,6 +86,16 @@ static u32 t33_top_byp;		/* the top list's bypass word 0x40 (tisp_top_get_bypass
 #include "tx_isp_t32_rdnstab.h"
 #ifdef TX_ISP_T33
 #include "tx_isp_t33_ldc.h"
+#include "tx_isp_t33_rcfg1.h"
+#include "tx_isp_t33_rcfg2.h"
+#include "tx_isp_t33_rcfg3.h"
+#include "tx_isp_t33_rcfg4.h"
+#include "tx_isp_t33_rcfg5.h"
+#include "tx_isp_t33_rcfg6.h"
+#include "tx_isp_t33_rcfg7.h"
+#include "tx_isp_t33_rcfg8.h"
+#include "tx_isp_t33_rcfg9.h"
+#include "tx_isp_t33_rcfg10.h"
 #endif
 
 static void t32_bringup_ae_kick(void);
@@ -148,6 +158,7 @@ static bool t33_awb_refresh;
 static bool t33_first_fe;	/* the TMO / MDNS start words are still 1 */
 static void t33_first_frame_words(void);
 static u32 t33_list_word(const u32 *l, u32 reg);
+static void t33_bst_irq(u32 msca);	/* tx_isp_t33_bst.h: the blocks' frame-done handlers */
 /* lists 2..4, 6..9, 12..15, 17..22 */
 #define T33_INIT_REFRESH	0x007ef3dcU
 #define T33_TMO_START_REG	0x70f0U
@@ -258,6 +269,10 @@ static irqreturn_t t32_isp_irq(int irq, void *dev)
 	if ((msca & 1) || (s3 & 0x10))	/* bits 32 / 68: RAW snapshot WDMA (openimp #491) */
 		t32_snap_isp_irq(msca, s3);
 #endif
+#ifdef TX_ISP_T33
+	if (msca)			/* system irqs 38..56: tisp_*_t33_frame_done_interrupt */
+		t33_bst_irq(msca);
+#endif
 	if (msca & 2)			/* MSCA frame done: tisp_msca_irq_frame_done (ISP OSD, #336) */
 		t32_isposd_frame_done();
 	if (msca & T32_MSCADONE_LSC)	/* interrupt bit 36: tisp_lsc_irq_frame_done (tx_isp_t32_lscct.c) */
@@ -328,6 +343,75 @@ static u32 *t33_mod_buf(unsigned int id)
 	return (u32 *)CKSEG1ADDR(virt_to_phys((void *)t33_mod_page[id]));
 }
 
+#ifdef TX_ISP_T33
+/*
+ * tisp_rcfg_module_register's tisp_rcfg_*_reg_init (tx_isp_t33_rcfg*.h, oracle-proven): the vendor's
+ * list layout (length word + command words) of each module.  A built list must carry exactly these
+ * words; they are written by the vendor function (no change when equal), a list whose layout differs
+ * is counted and left as built (dmesg once per module).
+ */
+/* the vendor's stIspInitPar of channel 0 as far as the T33 ports read it: word 226 (byte 904) = 1, list mode */
+u32 t33_st_isp_init_par_mode[1008] = { [226] = 1 };
+
+static u32 t33_msca_rinit(u32 *e)
+{
+	return t33_rcfg_msca_init(e, t33_st_isp_init_par_mode);
+}
+
+struct t33_rinit {
+	u8 mod;
+	u32 (*fn)(u32 *e);
+};
+static const struct t33_rinit t33_rinit_tab[] = {
+	{ T33_MOD_DPC, t33_rcfg_dpc_init }, { T33_MOD_RDNS, t33_rcfg_rdns_init }, { T33_MOD_BLC, t33_rcfg_blc_init },
+	{ T33_MOD_DG, t33_rcfg_dg_init }, { T33_MOD_LSC, t33_rcfg_lsc_init }, { T33_MOD_AWBG, t33_rcfg_awbg_init },
+	{ T33_MOD_TMO, t33_rcfg_tmo_init }, { T33_MOD_DMSC, t33_rcfg_dmsc_init }, { T33_MOD_CCM, t33_rcfg_ccm_init },
+	{ T33_MOD_GAMMA, t33_rcfg_gamma_init }, { T33_MOD_DEFOG, t33_rcfg_defog_init },
+	{ T33_MOD_CSC, t33_rcfg_csc_init }, { T33_MOD_YSP, t33_rcfg_ysp_init }, { T33_MOD_MDNS, t33_rcfg_mdns_init },
+	{ T33_MOD_LCE, t33_rcfg_lce_init }, { T33_MOD_YDNS, t33_rcfg_ydns_init }, { T33_MOD_BCSH, t33_rcfg_bcsh_init },
+	{ T33_MOD_CLM, t33_rcfg_clm_init }, { T33_MOD_SDNS, t33_rcfg_sdns_init }, { T33_MOD_CDNS, t33_rcfg_cdns_init },
+	{ T33_MOD_CSCCR, t33_rcfg_csccr_init }, { T33_MOD_LDC, t33_rcfg_ldc_init }, { T33_MOD_AWB, t33_rcfg_awb_init },
+	{ T33_MOD_AE, t33_rcfg_ae_init }, { T33_MOD_AF, t33_rcfg_af_init }, { T33_MOD_TOP, t33_rcfg_ipc_init },
+	{ T33_MOD_LSF, t33_rcfg_lsf_init }, { T33_MOD_MSCA, t33_msca_rinit },
+};
+static u32 t33_rinit_e[T33_SLOT_WORDS];
+u32 t33_rinit_ok, t33_rinit_bad;
+static u64 t33_rinit_logged;
+
+static void t33_rinit_apply(unsigned int id)
+{
+	u32 *l, n, k, bad = 0;
+	unsigned int i;
+
+	for (i = 0; i < ARRAY_SIZE(t33_rinit_tab) && t33_rinit_tab[i].mod != id; i++)
+		;
+	if (i == ARRAY_SIZE(t33_rinit_tab) || !t33_mod_page[id])
+		return;
+	l = (u32 *)CKSEG1ADDR(virt_to_phys((void *)t33_mod_page[id]));
+	memset(t33_rinit_e, 0, sizeof(t33_rinit_e));
+	n = t33_rinit_tab[i].fn(t33_rinit_e);
+	if (n > T33_SLOT_WORDS)
+		n = 0, bad = 1;
+	/* word 0: the list may be longer than the reg_init's (TMO: tisp_t33_tmo_rcfg_reg_num, 0xc4 > 0xc1) */
+	if (n && l[0] > t33_rinit_e[0])
+		t33_rinit_e[0] = 0;
+	for (k = 0; k < n; k++)
+		if (t33_rinit_e[k] && t33_rinit_e[k] != l[k])
+			bad++;
+	if (bad) {
+		t33_rinit_bad++;
+		if (!(t33_rinit_logged & (1ULL << id)))
+			isp_printf(1, "tx-isp-t33: list %u layout differs from tisp_rcfg reg_init (%u words)\n", id, bad);
+		t33_rinit_logged |= 1ULL << id;
+		return;
+	}
+	for (k = 0; k < n; k++)
+		if (t33_rinit_e[k])
+			l[k] = t33_rinit_e[k];
+	t33_rinit_ok++;
+}
+#endif
+
 static void t33_mod_done(unsigned int id, int len)
 {
 	if (len < 0) {
@@ -336,6 +420,9 @@ static void t33_mod_done(unsigned int id, int len)
 		return;
 	}
 	t33_mod_built |= 1ULL << id;
+#ifdef TX_ISP_T33
+	t33_rinit_apply(id);
+#endif
 }
 
 /* list from the block's writes in ascending register order (top, CSC, CSCCR, CDNS) */
@@ -798,6 +885,7 @@ static u32 t33_rdns_v[T33_RDNS_WORDS], t33_ccm_v[T33_CCM_WORDS], t33_lsc_v[T33_L
 static struct t33_lsc t33_lsc_m;
 static u8 t33_bcsh_sec[T33_BCSH_SEC_BYTES], t33_bcsh_st[T33_BCSH_ST_BYTES];
 static u32 t33_tmo_v[T33_TMO_WORDS], t33_mdns_v[T33_MDNS_WORDS];
+#include "tx_isp_t33_bst.h"
 #define T33_INIT_EV	0xffffffffU	/* the vendor's EV before the first AE run */
 
 #define T33_MOD_VB(blk, BLK, v)								\
@@ -1229,6 +1317,7 @@ static void t33_gref_reset(void)
 	t33_gr_ev = T33_INIT_EV;
 	t33_clm_ct_last = T33_CCM_INIT_CT;
 	t33_clm_seg_last = -1;
+	t33_bst_reset();
 }
 
 /* the vendor's gate: true (and the gain kept) when the block refreshes */
@@ -1311,35 +1400,44 @@ void t33_tgain_refresh(u32 gain)
 	/* tisp_blc_tgain_update: write_reg sets tispBlcRefresh at every update (PRJ008: same words) */
 	t33_gr_rerun(T33_MOD_BLC);
 	/* tisp_dpc_l_gain_update: every change */
+	/*
+	 * The info-struct blocks (tx_isp_t33_bst.h): the info struct at the new gain (the init builders fill
+	 * the dpc / dmsc / ysp / rdns word arrays, the scratch list is not used), then the par_refresh tail.
+	 */
 	if (T33_GR_SEC(DPC)) {
 		t33_gr_gate(T33_MOD_DPC, gain);
-		memset(t33_gr_tmp, 0, T33_SLOT_WORDS * 4);
-		t33_gr_commit(T33_MOD_DPC, t33_dpc_init(bin + off, gain, t33_dpc_v, t33_gr_tmp, T33_SLOT_WORDS));
+		t33_bst_hold(T33_BST_DPC);
+		if (t33_dpc_init(bin + off, gain, t33_dpc_v, t33_gr_tmp, T33_SLOT_WORDS) > 0)
+			t33_bst_par_tail(T33_BST_DPC);
 	}
 	if (T33_GR_SEC(DMSC) && t33_gr_gate(T33_MOD_DMSC, gain)) {
-		memset(t33_gr_tmp, 0, T33_SLOT_WORDS * 4);
-		t33_gr_commit(T33_MOD_DMSC, t33_dmsc_init(bin + off, gain, t33_dmsc_v, t33_gr_tmp, T33_SLOT_WORDS));
+		t33_bst_hold(T33_BST_DMSC);
+		if (t33_dmsc_init(bin + off, gain, t33_dmsc_v, t33_gr_tmp, T33_SLOT_WORDS) > 0)
+			t33_bst_par_tail(T33_BST_DMSC);
 	}
 	if (T33_GR_SEC(YSP) && t33_gr_gate(T33_MOD_YSP, gain)) {
-		memset(t33_gr_tmp, 0, T33_SLOT_WORDS * 4);
-		t33_gr_commit(T33_MOD_YSP, t33_ysp_init(bin + off, gain, t33_ysp_v, t33_gr_tmp, T33_SLOT_WORDS));
+		t33_bst_hold(T33_BST_YSP);
+		if (t33_ysp_init(bin + off, gain, t33_ysp_v, t33_gr_tmp, T33_SLOT_WORDS) > 0)
+			t33_bst_par_tail(T33_BST_YSP);
 	}
 	if (T33_GR_SEC(YDNS) && t33_gr_gate(T33_MOD_YDNS, gain)) {
-		memset(t33_gr_tmp, 0, T33_SLOT_WORDS * 4);
-		t33_gr_commit(T33_MOD_YDNS, t33_gr_tmpl(T33_TMPL(t33_ydns_tmpl), t33_ydns_init(bin + off, gain, tisp_w)));
+		t33_bst_hold(T33_BST_YDNS);
+		t33_ydns_info(bin + off, gain, t33_ydns_inf);
+		t33_bst_par_tail(T33_BST_YDNS);
 	}
 	if (T33_GR_SEC(SDNS) && t33_gr_gate(T33_MOD_SDNS, gain)) {
-		memset(t33_gr_tmp, 0, T33_SLOT_WORDS * 4);
-		t33_gr_commit(T33_MOD_SDNS, t33_gr_tmpl(T33_TMPL(t33_sdns_tmpl), t33_sdns_init(bin + off, gain, tisp_w)));
+		t33_bst_hold(T33_BST_SDNS);
+		t33_sdns_info(bin + off, gain, t33_sdns_inf);
+		t33_bst_par_tail(T33_BST_SDNS);
 	}
 	if (T33_GR_SEC(RDNS) && t33_gr_gate(T33_MOD_RDNS, gain)) {
 		if ((t33_mod_built & (1ULL << T33_MOD_BLC)) && (b = t33_mod_buf(T33_MOD_BLC)))
 			blc = b[4];
 		if ((t33_mod_built & (1ULL << T33_MOD_DG)) && (b = t33_mod_buf(T33_MOD_DG)))
 			dg = b[4];
-		memset(t33_gr_tmp, 0, T33_SLOT_WORDS * 4);
-		t33_gr_commit(T33_MOD_RDNS, t33_rdns_init(bin + off, gain, t33_gr_ev, blc, dg, t33_rdns_v, t33_gr_tmp,
-							  T33_SLOT_WORDS));
+		t33_bst_hold(T33_BST_RDNS);
+		if (t33_rdns_init(bin + off, gain, t33_gr_ev, blc, dg, t33_rdns_v, t33_gr_tmp, T33_SLOT_WORDS) > 0)
+			t33_bst_par_tail(T33_BST_RDNS);
 	}
 	if (T33_GR_SEC(MDNS) && !t32_core_sensor_size(&width, &height) && !t32_core_isp_mem(&pa)) {
 		if (t33_gr_gate(T33_MOD_MDNS, gain)) {
@@ -1362,11 +1460,9 @@ void t33_tgain_refresh(u32 gain)
 	}
 	off = t32_iq_section(bin, bytes, T32_SEC_CDNS, &len);
 	if (off && len == T33_CDNS_SEC_BYTES && t33_gr_gate(T33_MOD_CDNS, gain)) {
-		struct t32_rcfg_list l;
-		int n = t33_cdns_gain(bin + off, gain, tisp_w);
-
-		memset(t33_gr_tmp, 0, T33_SLOT_WORDS * 4);
-		t33_gr_commit(T33_MOD_CDNS, n > 0 ? t33_rcfg_build(&l, t33_gr_tmp, T33_SLOT_WORDS, tisp_w, (unsigned int)n) : n);
+		t33_bst_hold(T33_BST_CDNS);
+		t33_cdns_info(bin + off, gain, t33_cdns_inf);
+		t33_bst_par_tail(T33_BST_CDNS);
 	}
 #undef T33_GR_SEC
 out:
@@ -1397,14 +1493,20 @@ void t33_ev_refresh(u32 lo, u32 hi, u32 bv)
 	t33_gr_ev = hi << 22 | lo >> 10;
 	if (!t33_gr_tmp)
 		t33_gr_tmp = kmalloc(T33_SLOT_WORDS * 4, GFP_KERNEL);
-	if (t33_gr_tmp && (t33_mod_built & (1ULL << T33_MOD_BCSH)) && (buf = t33_mod_buf(T33_MOD_BCSH))) {
+	/*
+	 * tisp_long_ev_update runs each block's EV update only when its top bypass bit (tisp_top_get_bypass,
+	 * the top list's 0x40 word) is clear: BCSH 0x4000, CCM 0x80, RDNS bit 20, defog 0x200, LCE 0x800,
+	 * TMO 0x20 (PRJ008 0x00e4c098: BCSH and CCM skipped; openimp #507).
+	 */
+	if (t33_gr_tmp && !(t33_top_byp & 0x4000) && (t33_mod_built & (1ULL << T33_MOD_BCSH)) &&
+	    (buf = t33_mod_buf(T33_MOD_BCSH))) {
 		memcpy(t33_gr_tmp, buf, T33_SLOT_WORDS * 4);
 		if (t33_bcsh_ev_update(t33_bcsh_st, t33_bcsh_sec, lo, hi, t33_gr_tmp))
 			t33_gr_commit(T33_MOD_BCSH, 1);
 	}
 	/* tisp_ccm_ev_update: the matrix words follow the CT here, list 10 reruns either way */
-	if (t33_gr_tmp && (t33_mod_built & (1ULL << T33_MOD_CCM)) && (buf = t33_mod_buf(T33_MOD_CCM)) &&
-	    !t32_core_iq_bin(&bin, &bytes)) {
+	if (t33_gr_tmp && !(t33_top_byp & 0x80) && (t33_mod_built & (1ULL << T33_MOD_CCM)) &&
+	    (buf = t33_mod_buf(T33_MOD_CCM)) && !t32_core_iq_bin(&bin, &bytes)) {
 		u32 len, off = t32_iq_section(bin, bytes, T33_SEC_CCM, &len);
 
 		if (off && len == T33_CCM_SEC_BYTES) {
@@ -1417,9 +1519,12 @@ void t33_ev_refresh(u32 lo, u32 hi, u32 bv)
 	}
 	if (!(t33_top_byp & 0x800))
 		t33_lcepf_ev(lo, hi, bv);
-	t33_gr_rerun(T33_MOD_RDNS);
-	t33_gr_rerun(T33_MOD_DEFOG);
-	t33_gr_rerun(T33_MOD_TMO);
+	if (!(t33_top_byp & 0x100000))
+		t33_gr_rerun(T33_MOD_RDNS);
+	if (!(t33_top_byp & 0x200))
+		t33_gr_rerun(T33_MOD_DEFOG);
+	if (!(t33_top_byp & 0x20))
+		t33_gr_rerun(T33_MOD_TMO);
 	mutex_unlock(&t33_gr_lock);
 }
 
@@ -1725,12 +1830,18 @@ static void t33_tisp_init(const u8 *bin, u32 bytes)
 				 t33_blc_init(bin + off, (u32)t32_mbus_to_bayer(code), T33_INIT_GAIN, tisp_w));
 	off = t32_iq_section(bin, bytes, T33_SEC_YDNS, &len);
 	if (off && len == T33_YDNS_SEC_BYTES)
+	{
 		t33_mod_set_tmpl(T33_MOD_YDNS, T33_TMPL(t33_ydns_tmpl), tisp_w,
 				 t33_ydns_init(bin + off, T33_INIT_GAIN, tisp_w));
+		t33_ydns_info(bin + off, T33_INIT_GAIN, t33_ydns_inf);	/* tisp_ydns_init's ydnsInfo */
+	}
 	off = t32_iq_section(bin, bytes, T33_SEC_SDNS, &len);
 	if (off && len == T33_SDNS_SEC_BYTES)
+	{
 		t33_mod_set_tmpl(T33_MOD_SDNS, T33_TMPL(t33_sdns_tmpl), tisp_w,
 				 t33_sdns_init(bin + off, T33_INIT_GAIN, tisp_w));
+		t33_sdns_info(bin + off, T33_INIT_GAIN, t33_sdns_inf);	/* tisp_sdns_init's sdnsInfo */
+	}
 	T33_MOD_VB(dpc, DPC, t33_dpc_v);
 	T33_MOD_VB(dmsc, DMSC, t33_dmsc_v);
 	T33_MOD_VB(ysp, YSP, t33_ysp_v);
@@ -2088,8 +2199,10 @@ static void t32_tisp_init(void)
 		t32_tisp_flush("gamma", t32_gamma_init(bin + off, bin + off + len, bytes - off - len, tisp_w));
 	off = t32_iq_section(bin, bytes, T32_SEC_CDNS, &len);
 #ifdef TX_ISP_T33
-	if (off && len == T33_CDNS_SEC_BYTES)
+	if (off && len == T33_CDNS_SEC_BYTES) {
 		t33_mod_set(T33_MOD_CDNS, tisp_w, t33_cdns_init(bin + off, tisp_w));
+		t33_cdns_info(bin + off, T33_INIT_GAIN, t33_cdns_inf);	/* tisp_cdns_init's cdnsInfo */
+	}
 	t33_tisp_init(bin, bytes);
 #else
 	if (off && T32_IQ_SEC_OK(len, T32_CDNS_SEC_BYTES)) {

@@ -19,11 +19,16 @@
 extern u32 t33_st_isp_init_par_mode[];
 
 /* { word index, value } of a register-list init */
+#ifndef T33_RCFG_WORD_T
+#define T33_RCFG_WORD_T
 struct t33_rcfg_word {
 	u16 idx;
 	u32 val;
 };
+#endif
 
+#ifndef T33_RCFG_FILL_FN
+#define T33_RCFG_FILL_FN
 static inline void t33_rcfg_fill(u32 *e, const struct t33_rcfg_word *t, unsigned int n)
 {
 	unsigned int k;
@@ -31,6 +36,7 @@ static inline void t33_rcfg_fill(u32 *e, const struct t33_rcfg_word *t, unsigned
 	for (k = 0; k < n; k++)
 		e[t[k].idx] = t[k].val;
 }
+#endif
 
 /* tisp_rcfg_mdns_reg_init: 490 words, mode word selects word 18 */
 static inline u32 t33_rcfg_mdns_init(u32 *e)
