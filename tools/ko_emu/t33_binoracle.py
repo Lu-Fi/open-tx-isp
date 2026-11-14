@@ -32,7 +32,7 @@ SPEC: one function per line (from the block's .conf, FUNCS=):
                                 compared after the call): the section / parameter pointers a block state holds
   CALLS NAME[:NARGS][@ARG:LEN]..[=RET] ...        (line) functions the code under test calls (vendor: a function of the module or a kernel
                                 import; ours: an `extern` declaration in the wrapper with the SAME name): neither side runs
-                                them, every call is recorded as (name, first NARGS of $a0..$a3; default 4) and returns RET (default 0; R1,R2,.. cycles through the values, by case number and call index, identical on both sides; =~R1,R2,.. holds one value per case, =^R1,R2,.. one per case and first argument (a register): polls that time out); @ARG:LEN (repeatable) records the LEN bytes argument ARG points to instead of the pointer value; the call
+                                them, every call is recorded as (name, first NARGS of $a0..$a3; default 4) and returns RET (default 0; R1,R2,.. cycles through the values, by case number and call index, identical on both sides; =~R1,R2,.. holds one value per case, =^R1,R2,.. one per case and first argument (a register): polls that time out); @ARG:LEN (repeatable) records the LEN bytes argument ARG points to instead of the pointer value (@ARG:LEN:sOFF,..: the LE u32 at each byte OFF is a string pointer, recorded as the string: descriptors that name a subdevice; @ARG:LEN:wOFF,..: only the LE u32 at these byte offsets: blocks partly uninitialised in the vendor code); the call
                                 sequences are compared like the buffers.  Use it for callees that are ported elsewhere
                                 or need hardware (register access, rcfg trigger, printk).
         nest:N:OFF=[SPEC]:OFF=V1,V2..   pointer chains (OFF=V..: word values as in st): N random bytes whose LE u32 at each OFF points at the block SPEC
@@ -96,6 +96,33 @@ caseno = [0]
 calllog = []
 
 
+def _deref(d):
+    """CALLS @ARG:LEN[:sOFF,..]: (arg, len, string-pointer offsets)"""
+    q = d.split(':')
+    if len(q) > 2 and q[2][:1] == 'w':
+        return (int(q[0], 0), int(q[1], 0), [], [int(o, 0) for o in q[2][1:].split(',')])
+    return (int(q[0], 0), int(q[1], 0), [int(o, 0) for o in q[2][1:].split(',')] if len(q) > 2 and q[2][:1] == 's' else [])
+
+
+def _derefrec(e, p, x):
+    """the LEN bytes at p; with sOFF the LE u32 at each OFF is a string pointer, recorded as its string"""
+    _, ln, so = x[:3]
+    b = bytes(e.read(p, ln))
+    if len(x) > 3:                  # wOFF,..: only these LE u32 (the rest is uninitialised in the vendor code)
+        return ' '.join(b[o:o + 4].hex() for o in x[3])
+    if not so:
+        return b.hex()
+    out = []
+    for o in range(0, ln, 4):
+        w = b[o:o + 4]
+        if o in so:
+            sp = struct.unpack('<I', w)[0]; s = bytes(e.read(sp, 64)) if sp else b''
+            out.append(repr(s.split(b'\0', 1)[0]))
+        else:
+            out.append(w.hex())
+    return ' '.join(out)
+
+
 def parse(path):
     fns, gl, vec = [], [], {}
     calls.clear()
@@ -117,7 +144,7 @@ def parse(path):
                 for f in fills:
                     q = f.split(':')
                     fl.append((int(q[0], 0), int(q[1], 0), [(int(o.split('=')[0], 0), [int(v, 0) for v in o.split('=')[1].split(',')]) for o in q[2:]]))
-                calls[n] = ([int(v, 0) for v in rv.split(',')] if rv else [0], int(na) if na else 4, [tuple(int(v, 0) for v in d.split(':')) for d in deref], fl, hold)
+                calls[n] = ([int(v, 0) for v in rv.split(',')] if rv else [0], int(na) if na else 4, [_deref(d) for d in deref], fl, hold)
         elif t[0] == 'VEC':
             vec.setdefault(t[1], []).append([int(x, 0) for x in t[2:]])
         else:
@@ -311,7 +338,7 @@ def main():
                 ad = emu.symaddr[n]; emu.stubname[ad] = n
             def mk(nm, r, k, d, fl, hd):
                 def h(e):
-                    calllog.append((nm,) + tuple('*' if i in [x for x, _ in d] else _r(e, i) for i in range(k)) + tuple(bytes(e.read(_r(e, i), ln)).hex() for i, ln in d))
+                    calllog.append((nm,) + tuple('*' if i in [x[0] for x in d] else _r(e, i) for i in range(k)) + tuple(_derefrec(e, _r(e, x[0]), x) for x in d))
                     for fa, fln, fo in fl:
                         e.write(_r(e, fa), fill_bytes(caseno[0], len(calllog), fln, fo))
                     return r[(caseno[0] + (_r(e, 0) if hd == '^' else 0 if hd else len(calllog))) % len(r)]

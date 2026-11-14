@@ -3139,7 +3139,14 @@ int t32_hw_input_setup(const void *attr, u32 w, u32 h)
 		isp_wr(T32_MSCA_CH_EN, 0);
 		isp_wr(T32_MSCA_UPDATE, 1);
 	}
+#ifndef TX_ISP_T33
 	isp_wr(T32_CORE_IDLE_REQ, 0);
+#endif
+	/*
+	 * T33: no write to 0x200 after the reset.  The vendor module writes the idle request only in
+	 * tisp_all_reset (1), lib_tisp_func_reset (0x80020001) and tisp_reset (1), never 0 (all three
+	 * "li a0,0x200" register writes of tx-isp-t33.ko); the vendor QEMU trace shows no other write.
+	 */
 	isp_printf(0, "tx-isp-t32: VIC %ux%u fmt %u line %u words, CSI %u lanes settle %#x\n",
 		   w, h, t32_attr_u32(attr, T32_ATTR_SC_CSI_FMT), seq.w[1].val,
 		   csi_cfg.lanes_m1 + 1, csi_cfg.settle);
