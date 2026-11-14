@@ -151,13 +151,29 @@ static int t32_wait_clear(u32 off, u32 mask, int us)
 /* interrupts                                                         */
 
 #ifdef TX_ISP_T33
-static bool t33_top_sw;		/* list 33 rebuilt by a bin switch (tispTopRefresh, #504) */
+static u8 t33_top_refresh;		/* tispTopRefresh: 1 = list 33 at the next frame end (bin switch #504, LDC) */
+static u8 t33_msca_refresh;		/* tispMscaRefresh: 1 = list 23 at the next MSCA frame done */
+static u32 t33_msca_test_num;		/* testNum of tisp_msca_t33_frame_done_interrupt */
 static u32 t33_mod_dirty;	/* lists 0..31 to run again at the next frame end (tisp*Refresh) */
 static bool t33_awb_refresh;
 static bool t33_first_fe;	/* the TMO / MDNS start words are still 1 */
 static void t33_first_frame_words(void);
 static u32 t33_list_word(const u32 *l, u32 reg);
 static void t33_bst_irq(u32 msca);	/* tx_isp_t33_bst.h: the blocks' frame-done handlers */
+extern u32 t33_st_isp_init_par_mode[1008];	/* stIspInitPar (word 226 = byte 904: 1) */
+int tisp_rcfg_module_cfg_trig(u32 ch, u32 mod);
+int tisp_rcfg_get_dma_state(u32 mod);
+int tisp_reg_write_t33(u32 ch, u32 mod, u32 reg, u32 val);
+/*
+ * tisp_top_reg_write for the TOP null-down handler: our list 33 already holds the new words (t33_sw_top), so
+ * only the refresh state of the vendor's tail (1 = idle: start at the next frame end, 2 = the list runs).
+ */
+static u32 tisp_top_reg_write(u32 ch)
+{
+	t33_top_refresh = tisp_rcfg_get_dma_state(T33_MOD_TOP) ? 2 : 1;
+	return t33_top_refresh;
+}
+#include "tx_isp_t33_fd_misc.h"
 /* lists 2..4, 6..9, 12..15, 17..22 */
 #define T33_INIT_REFRESH	0x007ef3dcU
 #define T33_TMO_START_REG	0x70f0U
@@ -211,14 +227,11 @@ static irqreturn_t t32_isp_irq(int irq, void *dev)
 		if (t33_first_fe && !isp_rd(T33_RCFG_TRIG)) {
 			t33_first_fe = false;
 			t33_first_frame_words();
-			if (t32_ldc_top_refresh() && !isp_rd(T33_RCFG_TRIG_HI))
-				isp_wr(T33_RCFG_TRIG_HI, 1U << (T33_MOD_TOP - 32));	/* tispTopRefresh */
+			if (t32_ldc_top_refresh())
+				t33_top_refresh = 1;	/* tispTopRefresh */
 		}
-		if (t33_top_sw && !isp_rd(T33_RCFG_TRIG_HI)) {	/* tispTopRefresh after a bin switch (#504) */
-			t33_top_sw = false;
-			isp_wr(T33_RCFG_TRIG_HI, 1U << (T33_MOD_TOP - 32));
-			t33_rcfg_runs++;
-		}
+		/* system irq 0: tisp_top_t33_pipe_null_down_interrupt (tx_isp_t33_fd_misc.h) */
+		t33_top_pipe_null_down(0, (const u8 *)t33_st_isp_init_par_mode, &t33_top_refresh);
 		/* the vendor's frame-done list refresh: modules marked since, when no list runs */
 		if (t33_mod_dirty && !isp_rd(T33_RCFG_TRIG)) {
 			isp_wr(T33_RCFG_TRIG, t33_mod_dirty);
@@ -280,6 +293,10 @@ static irqreturn_t t32_isp_irq(int irq, void *dev)
 #ifdef TX_ISP_T33
 	if (msca)			/* system irqs 38..56: tisp_*_t33_frame_done_interrupt */
 		t33_bst_irq(msca);
+#endif
+#ifdef TX_ISP_T33
+	if (msca & 2)			/* system irq 33: tisp_msca_t33_frame_done_interrupt */
+		t33_msca_frame_done(0, (const u8 *)t33_st_isp_init_par_mode, &t33_msca_refresh, &t33_msca_test_num);
 #endif
 	if (msca & 2)			/* MSCA frame done: tisp_msca_irq_frame_done (ISP OSD, #336) */
 		t32_isposd_frame_done();
@@ -1275,7 +1292,7 @@ void t33_msca_list_slot(int slot, u32 v)
 void t33_msca_list_refresh(void)
 {
 	if (t33_mod_built & (1ULL << T33_MOD_MSCA))
-		t33_mod_dirty |= 1U << T33_MOD_MSCA;
+		t33_msca_refresh = 1;
 }
 
 /*
@@ -2167,7 +2184,7 @@ static void t33_sw_top(const u8 *bin, u32 bytes, u32 width, u32 height, int baye
 	t32_wait_clear(T33_RCFG_TRIG_HI, 1U << (T33_MOD_TOP - 32), 2000);
 	local_irq_save(flags);
 	memcpy(buf, t33_gr_tmp, T33_SLOT_WORDS * 4);
-	t33_top_sw = true;
+	t33_top_refresh = 1;
 	local_irq_restore(flags);
 	t33_gr_runs[T33_MOD_TOP]++;
 }
@@ -3014,7 +3031,7 @@ static bool t33_msca_list_start(int ch, u32 w, u32 h, u32 stride, u32 in_w, u32 
 	T33_SW(l, 3, l[3 + 1] | 1U << ch);
 	t33_msca_listed |= 1U << ch;
 	t33_rcfg_run(T33_MOD_MSCA);
-	t33_mod_dirty |= 1U << T33_MOD_MSCA;	/* tisp_msca_t33_api_chx_stream_on: tispMscaRefresh */
+	t33_msca_refresh = 1;	/* tisp_msca_t33_api_chx_stream_on: tispMscaRefresh */
 	return true;
 }
 
@@ -3035,7 +3052,7 @@ static bool t33_msca_list_stop(int ch)
 	T33_SW(l, b + 0x2a, 0);
 	T33_SW(l, b + 0x32, 0);
 	T33_SW(l, 3, l[3 + 1] & ~(1U << ch));
-	t33_mod_dirty |= 1U << T33_MOD_MSCA;	/* tispMscaRefresh: at the next frame end (none after stream-off) */
+	t33_msca_refresh = 1;	/* tispMscaRefresh: at the next frame end (none after stream-off) */
 	return true;
 }
 #endif
