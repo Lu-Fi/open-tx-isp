@@ -4,6 +4,11 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD[-rcN]` are set on the `aperto` branch, the same tag in open-tx-isp and OpenIMP: RC1 `v2026.10.11-rc1`, RC2 `v2026.10.25-rc2`, RC3 `v2026.11.07-rc3` (2026-11-07). Gate SoCs of RC3 and Release 1: T10, T20, T21, T23, T30, T31, T40, T41 (T32/T33 planned, QEMU only); release notes: [docs/releases/ in OpenIMP](https://github.com/Lu-Fi/openimp/blob/next/docs/releases/README.md). Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-11-14: T33 port loop round 5: the last small T33-only getters proven (openimp #99; host only)
+
+- Blocks getA (`tisp_g_ispinitp_func`, `lib_tisp_g_ispinitp_func`, `tisp_get_sensor_attr`, `tisp_wdma_save_file_process`) and getB (`tisp_lsc_malloc_info`, `tisp_normal_ae_par_sensor_trig`) in `tests/t33_binoracle/` with ports `driver/t32/tx_isp_t33_getA.h` / `getB.h`; full N, all mutants detected. Ports only (no driver code changed, both kos identical): our driver has no `stIspInitPar` / `stSensorAttr` / `lsc_para` / `ae_cache` pointer arrays to call them on.
+- Every T33-only function that is not dead / debug is now proven, except the AOV / RISC-V / VIC glue and `tisp_tmo_s0s1_overflow_process` (#524), `tisp_top_restart_cfg` (#509) and the module unload glue `tx_isp_module_exit`.
+
 ## 2026-11-14: T33 port loop round 4: 75 more T33-only functions proven by the binary oracle (openimp #99; host only)
 
 - 26 new blocks in `tests/t33_binoracle/` (intp2, ccmsm, blcsw, swsm2, swmid, lscmisc, msca-strm/osd/line, aemisc, awbm, aeint, ldcA/B, tmoA, tmoSW, mdnsA, mdnsMem, rdnsEv, awbL, mscaInit, attrAE1-3, attrAWB, defbin) with ports in `driver/t32/tx_isp_t33_<block>.h`; each runs the vendor `tx-isp-t33.ko` function and our C side by side in Unicorn (full N = 2000, all mutants detected). Includes the day/night `switch_para` of AF/CLM/TOP/CCM/CSCCR/DEFOG/LSC/BLC/TMO, `tisp_mdns_t33_set_mem_cfg`, `tisp_rdns_ev_update`, `tisp_t33_awb_long_alogrithm`, `tisp_msca_t33_init`, the MSCA OSD/mask/line API and the AE/AWB ioctl attr wrappers.
