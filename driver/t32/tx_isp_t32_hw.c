@@ -3131,6 +3131,10 @@ int t32_hw_msca_pop_done(int ch, u32 *y, u32 *uv)
 	 */
 	*uv &= ~0xfU;
 	*y &= ~0xfU;
+#else
+	/* vendor T32 tisp_msca_addr_fifo_read: both words & ~7 (oracle block t32-mscafifo) */
+	*uv = T32_MSCA_DONE_ADDR(*uv);
+	*y = T32_MSCA_DONE_ADDR(*y);
 #endif
 	return 0;
 }
