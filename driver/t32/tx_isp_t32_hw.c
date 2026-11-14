@@ -21,6 +21,7 @@
 #include <linux/slab.h>
 #include <linux/vmalloc.h>
 #include <linux/workqueue.h>
+#include <linux/dma-mapping.h>
 
 #include "tx_isp_t32.h"
 #include "tx_isp_t32_regs.h"
@@ -41,6 +42,16 @@
 #include "tx_isp_t33_defog.h"
 #include "tx_isp_t33_lce.h"
 #include "tx_isp_t33_lsf.h"
+#ifdef TX_ISP_T33
+static void t33_lcepf_lock_irq(void);
+static void t33_lcepf_unlock_irq(void);
+static void t33_lcepf_wbinv(unsigned long pages, u32 len);
+static void t33_lcepf_free(void);
+extern u32 t33_lcepf_irq8s, t33_lcepf_irq30s, t33_lcepf_curves, t33_lcepf_lce_runs, t33_lcepf_lsf_runs;
+#define T33_LCEPF_LOCK(c)	t33_lcepf_lock_irq()
+#define T33_LCEPF_UNLOCK(c)	t33_lcepf_unlock_irq()
+#include "tx_isp_t33_lcepf.h"
+#endif
 #include "tx_isp_t33_af.h"
 #include "tx_isp_t33_bcsh.h"
 #include "tx_isp_t33_tmo.h"
@@ -139,6 +150,10 @@ static u32 t33_list_word(const u32 *l, u32 reg);
 #define T33_TMO_START_REG	0x70f0U
 #define T33_MDNS_START_REG	0xd018U	/* tispAwbRefresh == 1: run list 29 at the next AWB interrupt */
 extern u32 t33_rcfg_runs;
+#define T33_INT_LCE	(1U << 8)
+#define T33_INT_LSF	(1U << 30)
+static void t33_lcepf_isr8(void);
+static void t33_lcepf_isr30(void);
 #endif
 
 static irqreturn_t t32_isp_irq(int irq, void *dev)
@@ -221,6 +236,10 @@ static irqreturn_t t32_isp_irq(int irq, void *dev)
 #ifdef TX_ISP_T33
 	if (sta & (T32_INT_AWB | T32_INT_AE | T32_INT_AE_HIST))
 		schedule_work(&t33_stats_w);
+	if (sta & T33_INT_LCE)		/* system irq 8: tisp_lce_interrupt_static */
+		t33_lcepf_isr8();
+	if (sta & T33_INT_LSF)		/* system irq 30: tisp_lsf_interrupt_static */
+		t33_lcepf_isr30();
 #else
 	t32_blk_irq(sta);		/* block bits 8 / 30 (LCE): lib_tisp_intp_process, tx_isp_t32_blkirq.c */
 	t32_afgsm_irq(sta, msca);	/* AF bit 6, GSM bits 7 / 63 (tx_isp_t32_afgsm.c) */
@@ -379,6 +398,7 @@ static void t33_mod_free(void)
 #ifdef TX_ISP_T33
 	t33_awbc_detach();
 	t33_aec_detach();
+	t33_lcepf_free();	/* before its buffers */
 #endif
 
 	if (t33_lsc_pages)
@@ -968,6 +988,8 @@ void t33_stats_show(struct seq_file *m)
 		   t33_st.ae.hi, t33_st.ae.tag, t33_st.hist_frames, t33_st.hist_bad, t33_st.mean16);
 	t33_awbc_show(m);
 	t33_aec_show(m);
+	seq_printf(m, "t33 lce/lsf: irq8 %u irq30 %u curves %u list16 %u list37 %u\n", t33_lcepf_irq8s,
+		   t33_lcepf_irq30s, t33_lcepf_curves, t33_lcepf_lce_runs, t33_lcepf_lsf_runs);
 }
 
 /* for ../t33/tx_isp_t33_awbc.c: register read, and the per-frame AWB results into lists 7 / 29 */
@@ -1468,15 +1490,176 @@ static noinline void t33_tisp_init_lsf(const u8 *sec, u32 width, u32 height)
 	if (!t33_lsf_pages)
 		t33_lsf_pages = __get_free_pages(GFP_KERNEL | __GFP_ZERO, T33_LSF_ORDER);
 	memcpy(t33_lsf_sec, sec, sizeof(t33_lsf_sec));
-	if (t33_lsf_sec[0x2fb] == 1 && t33_lsf_sec[0xc8] == 1 && !t33_lsf_hist_pages)
+	/* tisp_lce_malloc_cfg: the histogram buffer always (irq 8 stores it into slot 5) */
+	if (!t33_lsf_hist_pages) {
 		t33_lsf_hist_pages = __get_free_pages(GFP_KERNEL | __GFP_ZERO, T33_LSF_HIST_ORDER);
-	if (!buf || !t33_lsf_pages)
+		t33_lcepf_wbinv(t33_lsf_hist_pages, T33_LSF_HIST_BYTES);	/* read cached by irq 30 */
+	}
+	if (!buf || !t33_lsf_pages || !t33_lsf_hist_pages)
 		return;
+	t33_lsf_write_curve((u32 *)CKSEG1ADDR(virt_to_phys((void *)t33_lsf_pages)));	/* tisp_lsf_write_curve */
 	t33_lce_size(t33_lsf_sec, height, width);
 	t33_mod_done(T33_MOD_LSF,
 		     t33_lsf_init(t33_lsf_sec, 0, 0, (u32)virt_to_phys((void *)t33_lsf_pages),
-				  t33_lsf_hist_pages ? (u32)virt_to_phys((void *)t33_lsf_hist_pages) : 0,
-				  buf, T33_SLOT_WORDS));
+				  (u32)virt_to_phys((void *)t33_lsf_hist_pages), buf, T33_SLOT_WORDS));
+}
+
+/*
+ * LCE / LSF per frame (openimp #444, tx_isp_t33_lcepf.h): the vendor's
+ * system irq 8 (tisp_lce_interrupt_static) and 30 (tisp_lsf_interrupt_static)
+ * from our ISR, its event 0xe (tisp_lce_soft_process) on the T33 event queue.
+ * The statistics part and the histogram buffer are read cached after an
+ * invalidate (the vendor syncs the histogram buffer only); the curve
+ * buffer and the lists are written uncached.
+ * An irq 30 while the soft process is still queued merges into that run
+ * (the vendor's event list drops events when it is full).
+ */
+static struct t33_lce_pf *t33_lcepf;
+static DEFINE_SPINLOCK(t33_lcepf_lock);
+static bool t33_lcepf_ready;
+static struct work_struct t33_lcepf_w;
+u32 t33_lcepf_irq8s, t33_lcepf_irq30s, t33_lcepf_curves, t33_lcepf_lce_runs, t33_lcepf_lsf_runs;
+
+static void t33_lcepf_lock_irq(void)
+{
+	spin_lock_irq(&t33_lcepf_lock);
+}
+
+static void t33_lcepf_unlock_irq(void)
+{
+	spin_unlock_irq(&t33_lcepf_lock);
+}
+
+/* after a zeroing allocation: no dirty line may later overwrite what the engines write */
+static void t33_lcepf_wbinv(unsigned long pages, u32 len)
+{
+#ifdef CONFIG_MIPS
+	if (pages)
+		dma_cache_sync(NULL, (void *)pages, len, DMA_BIDIRECTIONAL);
+#endif
+}
+
+static void t33_lcepf_inv(const void *p, u32 len)
+{
+#ifdef CONFIG_MIPS
+	dma_cache_sync(NULL, (void *)p, len, DMA_FROM_DEVICE);	/* private_dma_cache_sync(0, p, len, 2) */
+#endif
+}
+
+static u32 *t33_lcepf_list(unsigned int id)
+{
+	if (!(t33_mod_built & (1ULL << id)) || !t33_mod_page[id])
+		return NULL;
+	return (u32 *)CKSEG1ADDR(virt_to_phys((void *)t33_mod_page[id]));
+}
+
+/* tisp_rcfg_module_cfg_trig: the list into its table word, then its start bit (no busy check, as the vendor) */
+static void t33_rcfg_trig_list(unsigned int id)
+{
+	u32 *table = (u32 *)CKSEG1ADDR(rcfg_pa);
+
+	if (!rcfg_pages || !t33_lcepf_list(id))
+		return;
+	table[id] = virt_to_phys((void *)t33_mod_page[id]);
+	wmb();
+	isp_wr(id < 32 ? T33_RCFG_TRIG : T33_RCFG_TRIG_HI, 1U << (id & 31));
+	(void)isp_rd(T33_RCFG_TRIG);
+	t33_rcfg_runs++;
+}
+
+/* system irq 8, ISR context */
+static void t33_lcepf_isr8(void)
+{
+	u32 idx, *l16, *l37, dummy[T33_LCE_SLOT_CURVE + 2];
+	u8 *stat;
+
+	if (!ACCESS_ONCE(t33_lcepf_ready))
+		return;
+	idx = isp_rd(T33_LCE_IDX_REG);
+	l37 = t33_lcepf_list(T33_MOD_LSF);
+	l16 = t33_lcepf_list(T33_MOD_LCE);
+	if (!l37)
+		return;
+	stat = (u8 *)t33_lce_stat_pages;
+	t33_lcepf_inv(stat + (idx & 3) * T33_LCE_STAT_PART, T33_LCE_STAT_PART);
+	spin_lock(&t33_lcepf_lock);
+	t33_lcepf_irq8(t33_lcepf, t33_lce_sec, idx, stat, (u32)virt_to_phys((void *)t33_lce_stat_pages),
+		       (u32)virt_to_phys((void *)t33_lsf_hist_pages),
+		       (u8 *)CKSEG1ADDR(virt_to_phys((void *)t33_lce_curve_pages)),
+		       (u32)virt_to_phys((void *)t33_lce_curve_pages), l16 ? l16 : dummy, l37);
+	spin_unlock(&t33_lcepf_lock);
+	t33_lcepf_irq8s++;
+	/* stIspInitPar sensors == 1 */
+	if (l16) {
+		t33_rcfg_trig_list(T33_MOD_LCE);
+		t33_lcepf_lce_runs++;
+	}
+	t33_lcepf_irq8_lsf(l37);
+	if (!isp_rd(T33_LSF_BUSY_REG)) {
+		t33_rcfg_trig_list(T33_MOD_LSF);
+		t33_lcepf_lsf_runs++;
+	}
+}
+
+/* system irq 30, ISR context: the histograms (or curves), then event 0xe */
+static void t33_lcepf_isr30(void)
+{
+	u32 d_irq, d_hist;
+	u8 *hist;
+
+	if (!ACCESS_ONCE(t33_lcepf_ready))
+		return;
+	d_irq = isp_rd(T33_LSF_DATAOUT_REG);
+	hist = (u8 *)t33_lsf_hist_pages;
+	t33_lcepf_inv(hist, T33_LSF_HIST_BYTES);
+	d_hist = isp_rd(T33_LSF_DATAOUT_REG);
+	spin_lock(&t33_lcepf_lock);
+	t33_lcepf_irq30(t33_lcepf, t33_lce_sec, hist, d_irq, d_hist);
+	spin_unlock(&t33_lcepf_lock);
+	t33_lcepf_irq30s++;
+	t33_evq_queue(&t33_lcepf_w);
+}
+
+/* event 0xe: tisp_lce_soft_process */
+static void t33_lcepf_work(struct work_struct *w)
+{
+	if (!ACCESS_ONCE(t33_lcepf_ready))
+		return;
+	if (t33_lcepf_process(t33_lcepf, t33_lce_sec, isp_rd(T33_LSF_DATAOUT_REG),
+			      (u32 *)CKSEG1ADDR(virt_to_phys((void *)t33_lce_curve_pages) + T33_LCE_CURVE_HALF)))
+		t33_lcepf_curves++;
+}
+static DECLARE_WORK(t33_lcepf_w, t33_lcepf_work);
+
+static void t33_lcepf_stop(void)
+{
+	ACCESS_ONCE(t33_lcepf_ready) = false;
+	if (irqs_requested)
+		synchronize_irq(isp_irq);
+	cancel_work_sync(&t33_lcepf_w);
+}
+
+/* the lceInfo state of tisp_lce_init, after lists 16 / 37 (stream-on, process context) */
+static void t33_lcepf_attach(u32 width, u32 height)
+{
+	t33_lcepf_stop();
+	if (!t33_lcepf)
+		t33_lcepf = vzalloc(sizeof(*t33_lcepf));
+	if (!t33_lcepf || !t33_lce_curve_pages || !t33_lce_stat_pages || !t33_lsf_hist_pages ||
+	    !(t33_mod_built & (1ULL << T33_MOD_LSF))) {
+		isp_printf(1, "tx-isp-t33: per-frame LCE not started\n");
+		return;
+	}
+	t33_lcepf_init(t33_lcepf, t33_lce_sec, width, height);
+	t33_lcepf_irq8s = t33_lcepf_irq30s = t33_lcepf_curves = t33_lcepf_lce_runs = t33_lcepf_lsf_runs = 0;
+	ACCESS_ONCE(t33_lcepf_ready) = true;
+}
+
+static void t33_lcepf_free(void)
+{
+	t33_lcepf_stop();
+	vfree(t33_lcepf);
+	t33_lcepf = NULL;
 }
 
 static void t33_tisp_init(const u8 *bin, u32 bytes)
@@ -1578,6 +1761,7 @@ static void t33_tisp_init(const u8 *bin, u32 bytes)
 			t33_lce_stat_pages = __get_free_pages(GFP_KERNEL | __GFP_ZERO, T33_LCE_STAT_ORDER);
 		/* EV / BV 0 as the vendor's init; the curve written uncached */
 		memcpy(t33_lce_sec, bin + off, sizeof(t33_lce_sec));
+		t33_lcepf_wbinv(t33_lce_stat_pages, T33_LCE_STAT_BYTES);	/* read cached by irq 8 */
 		if (buf && t33_lce_curve_pages && t33_lce_stat_pages) {
 			t33_lce_curve_default((u8 *)CKSEG1ADDR(virt_to_phys((void *)t33_lce_curve_pages)));
 			t33_mod_done(T33_MOD_LCE,
@@ -1586,6 +1770,7 @@ static void t33_tisp_init(const u8 *bin, u32 bytes)
 						  (u32)virt_to_phys((void *)t33_lce_stat_pages), buf, T33_SLOT_WORDS));
 		}
 		t33_tisp_init_lsf(bin + off, width, height);
+		t33_lcepf_attach(width, height);
 	}
 	t33_tisp_init_tone(bin, bytes);
 	t33_tisp_init_mdns(bin, bytes);

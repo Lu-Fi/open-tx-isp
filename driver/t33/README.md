@@ -68,6 +68,22 @@ FAIL of this module that the vendor module passes. With the vendor libimp
 2.0.2.1 four /dev/tx-isp commands are still missing (G_REGISTER, frame drop
 set / get, internal channel attribute; openimp #429).
 
+LCE / LSF per frame (openimp #444, `../t32/tx_isp_t33_lcepf.h`, glue in
+`../t32/tx_isp_t32_hw.c`): the vendor's system irq 8
+(`tisp_lce_interrupt_static`: statistics part from 0xc088, list 37 slots 4 /
+5, curve half copy, list 16 slots 0x19 / 1 and start, list 37 start word and
+start when 0x25040 reads 0), irq 30 (`tisp_lsf_interrupt_static`: histograms
+or curves, then event 0xe) and event 0xe (`tisp_lce_soft_process` with
+`Tisp_lce_soft`: per zone threshold search, histogram clip / ramps, cdf,
+adjust, converge; the new curve into curve buffer half 2), with the lceInfo
+state of `tisp_lce_init` in the vendor's layout and `tisp_lsf_write_curve`.
+Host oracle `tests/t33_lcepf_host.sh` (Unicorn, vendor instructions vs ours):
+the whole lceInfo block, section, curve buffer, lists, register reads, list
+starts and events equal. QEMU (`-global ingenic-isp.x-int-extra=0x40000100`
+raises irq 8 / 30 with each frame end): list 16 runs once per frame and list
+37 once, as with the vendor module. Not ported: `tisp_lce_ev_update` (EV
+changes), the tuning API set / day-night switch of the LCE section.
+
 Build (3.10.14 kernel tree):
 
     make -C $KDIR M=$PWD/driver/t33 ARCH=mips CROSS_COMPILE=mipsel-linux- modules
