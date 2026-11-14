@@ -24,6 +24,7 @@
  * encoder/snapshot output.
  */
 #include <linux/module.h>
+#include <linux/version.h>
 #include <linux/proc_fs.h>
 #include <linux/seq_file.h>
 #include <linux/uaccess.h>
@@ -37,6 +38,8 @@ extern int isp_free_buffer(int32_t addr);
 extern uint32_t t41_rawinject_par(unsigned int idx);	/* tisp_par_info[idx] */
 extern uint32_t t41_rawinject_rpars(void);		/* OEM raw-DMA state, 0 = not initialised */
 extern int32_t tisp_raw_init(uint32_t channel);
+extern struct device *t41_rawinject_dma_dev(void);
+extern const void *t41_proc_ops(const struct file_operations *f);	/* the IVDC platform device */
 #include <linux/dma-mapping.h>
 
 static dma_addr_t rj_dma;	/* set when the buffer came from dma_alloc_coherent */
@@ -57,7 +60,18 @@ static int rj_alloc(uint32_t bytes)
 	if (rj_paddr)
 		return -EBUSY;
 	bytes = (bytes + 0xfff) & ~0xfffU;
+	/*
+	 * A device, not NULL: mainline dma_alloc_attrs() dereferences it
+	 * (NULL + 0x9c, a panic at module load from the 10 MiB preallocation).
+	 * The IVDC platform device has its DMA masks set, like 0048 uses it.
+	 */
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 0, 0)
+	rj_dma_virt = dma_alloc_coherent(t41_rawinject_dma_dev(), bytes, &rj_dma,
+					 GFP_KERNEL);
+#else
+	/* 4.4: NULL works and gets the 10 MiB; the IVDC device does not */
 	rj_dma_virt = dma_alloc_coherent(NULL, bytes, &rj_dma, GFP_KERNEL);
+#endif
 	if (rj_dma_virt) {
 		rj_paddr = (uint32_t)rj_dma;
 		rj_virt = (void __iomem *)rj_dma_virt;
@@ -316,8 +330,9 @@ int t41_rawinject_init(void)
 {
 	if (rj_prealloc)
 		rj_alloc(rj_prealloc);
-	rj_ctl_pde = proc_create("t41_rawinject", 0644, NULL, &rj_ctl_fops);
-	rj_buf_pde = proc_create("t41_rawbuf", 0644, NULL, &rj_buf_fops);
+	/* 5.6+ wants proc_ops (tx_isp_t41_procops.c) */
+	rj_ctl_pde = proc_create("t41_rawinject", 0644, NULL, t41_proc_ops(&rj_ctl_fops));
+	rj_buf_pde = proc_create("t41_rawbuf", 0644, NULL, t41_proc_ops(&rj_buf_fops));
 	return 0;
 }
 

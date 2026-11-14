@@ -312,7 +312,7 @@ static int t41_native_awb_init(unsigned int channel, const uint32_t *config)
 #ifdef __KERNEL__
     if (!t41_awb_dump_buf) {
         t41_awb_dump_buf=vzalloc(T41_AWB_DUMP_BYTES);
-        if (t41_awb_dump_buf) proc_create("t41_awb_dump",0444,NULL,&t41_awb_dump_fops);
+        if (t41_awb_dump_buf) proc_create("t41_awb_dump",0444,NULL,(const struct file_operations *)t41_proc_ops(&t41_awb_dump_fops));
     }
 #endif
     ret=0; goto done;
