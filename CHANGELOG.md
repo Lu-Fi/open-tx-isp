@@ -4,6 +4,10 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD[-rcN]` are set on the `aperto` branch, the same tag in open-tx-isp and OpenIMP: RC1 `v2026.10.11-rc1`, RC2 `v2026.10.25-rc2`, RC3 `v2026.11.07-rc3` (2026-11-07). Gate SoCs of RC3 and Release 1: T10, T20, T21, T23, T30, T31, T40, T41 (T32/T33 planned, QEMU only); release notes: [docs/releases/ in OpenIMP](https://github.com/Lu-Fi/openimp/blob/next/docs/releases/README.md). Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-11-14: docs: three T31 beyond-vendor rows (user OK 2026-11-14; openimp #532, #533)
+
+- `docs/BEYOND_VENDOR.md`: span 1 for a zero-width CCM / BCSH interpolation segment (vendor divides by zero), the BCSH EV / CT fallback from the tuning state before the first event, and the `wdr_ready` check before `tisp_wdr_ev_update`. Docs only.
+
 ## 2026-11-14: T31 interpolation helpers and tiziano_bcsh_update vendor-equal, oracle-proven (openimp #533; host only, device check planned)
 
 - `driver/t31/tx_isp_t31_intp.h` (new): `tisp_simple_intp` (vendor 0x11350) now compares signed and shifts the Q16 product arithmetically, and a negative index returns entry 8 (ours used the shared unsigned `tx_isp_lerp_u32` and clamped a negative index to 0; differs once table words or the product reach 2^31); this helper feeds 164 call sites. `tisp_dmsc_intp` (0x252ac) splits the gain with an arithmetic shift, 44 curves in vendor order. `tiziano_ct_ccm_interpolation` (0x26ff0): strict zone bounds, ct == 5000 - thr is the D/T blend (ours took the D zone, which changed the next call's hysteresis). `tiziano_ct_bcsh_interpolation` (0x287e0) moved unchanged.
