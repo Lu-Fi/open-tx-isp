@@ -242,6 +242,13 @@ static int tb_ae_get_exprinfo(u32 ch, void *buf)
 
 	TB_AE(c, return tb_zero((u8 *)buf + 4, 216))
 	n = t32_aea_get_exprinfo_attr(&c, buf, tb_msleep, tb_log2, NULL);
+#ifdef TX_ISP_T33
+	/* the T33 2.0.2.1 getter (0x30d4c) fills words 0 .. 25 and 51 .. 54 only:
+	 * the short-frame words 26 .. 50 (no WDR on the T33) are zero here instead
+	 * of the vendor's stale kernel buffer (#527) */
+	if (n < 50)
+		memset((u8 *)buf + 104, 0, 100);
+#endif
 	t32_aec_api_put();
 	return n;
 }

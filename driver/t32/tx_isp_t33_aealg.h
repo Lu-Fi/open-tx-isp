@@ -360,8 +360,32 @@ static void t33_aec_cp_alg(u32 ch)
 	t33_ae_tune(a->b.T, a->b.B, a->b.R, &a->mode, a->dcw, ch, mean, rp, t33_ae_tagerr, &t32_aec_uops);
 }
 
+/*
+ * tisp_ae_par_update_trig of the T33 (vendor 2.0.2.1 0x2ea64): besides the
+ * T32 flow (9 bytes B + 12833 -> R + 1276, sensor limits, par_calc, ...) it
+ * copies the 32 bytes of the exposure-info block (B + 8608 here, vendor
+ * stAeInfo + 2888: integration time, again, dgain, ISP dgain, short frame)
+ * to R + 576.  Nothing writes the dgain word B + 8616, so R + 584 (the
+ * sensor DG that GetAeExprInfo reports at +32) is 0 as on the vendor
+ * (QEMU, #527), not the template's 0x400.
+ */
+#define T33_AEC_B_EXPR		8608U
+#define T33_AEC_R_EXPR		576U
+#define T33_AEC_EXPR_BYTES	32U
+
+static inline void t33_aec_expr_trig(struct t32_aec *a)
+{
+	memcpy(a->b.R + T33_AEC_R_EXPR, a->b.B + T33_AEC_B_EXPR, T33_AEC_EXPR_BYTES);
+}
+
+static void t33_aec_cp_trig(u32 ch)
+{
+	t33_aec_expr_trig(t32_aec_cur);
+	t32_aec_par_update_trig(t32_aec_cur, ch);
+}
+
 static const struct t32_ae_cp_ops t33_aec_cpops = {
-	t32_aec_cp_rd, t33_aec_cp_alg, t32_aec_cp_trig, t32_aec_cp_long, t32_aec_cp_done,
+	t32_aec_cp_rd, t33_aec_cp_alg, t33_aec_cp_trig, t32_aec_cp_long, t32_aec_cp_done,
 };
 
 /* event 1: tisp_normal_ae_calc_process with the T33 algorithm */
