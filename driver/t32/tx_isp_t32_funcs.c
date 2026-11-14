@@ -148,14 +148,24 @@ EXPORT_SYMBOL(private_jzgpio_set_func);
 /* i2c */
 int private_i2c_add_driver(struct i2c_driver *drv)
 {
+	int ret;
+
 	/* keep the sensor module as the driver owner (not this module) */
-	return i2c_register_driver(drv->driver.owner ? drv->driver.owner : THIS_MODULE, drv);
+	ret = i2c_register_driver(drv->driver.owner ? drv->driver.owner : THIS_MODULE, drv);
+	/* /proc/jz/sensor (openimp #513): the SDK sensor modules do not publish
+	 * themselves; the address follows at the streamer's registration */
+	if (!ret)
+		tx_isp_sinfo_driver_add(drv, drv->address_list && drv->address_list[0] != I2C_CLIENT_END ?
+					drv->address_list[0] : 0,
+					drv->driver.owner);
+	return ret;
 }
 EXPORT_SYMBOL(private_i2c_add_driver);
 
 void private_i2c_del_driver(struct i2c_driver *drv)
 {
 	t32_core_sensor_driver_gone(drv);
+	tx_isp_sinfo_driver_del(drv);
 	i2c_del_driver(drv);
 }
 EXPORT_SYMBOL(private_i2c_del_driver);

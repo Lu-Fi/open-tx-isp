@@ -286,6 +286,9 @@ int tx_isp_sinfo_init(void);
 void tx_isp_sinfo_exit(void);
 int tx_isp_sinfo_sensor_bind(void *subdev, struct module *owner);
 void tx_isp_sinfo_sensor_unbind(void *subdev, struct module *owner);
+struct i2c_driver;
+int tx_isp_sinfo_driver_add(struct i2c_driver *drv, int default_i2c_addr, struct module *owner);
+void tx_isp_sinfo_driver_del(struct i2c_driver *drv);
 
 /* raw access to objects owned by the sensor modules */
 #define T32_AT(base, off, type)		(*(type *)((char *)(base) + (off)))

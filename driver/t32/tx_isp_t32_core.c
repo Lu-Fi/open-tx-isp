@@ -293,6 +293,8 @@ static int t32_register_sensor(struct t32_vi *vi, const struct t32_sensor_reginf
 	vi->width = T32_AT(sd, T32_SENSOR_VIDEO + T32_VIDEO_MBUS_WIDTH, u32);
 	vi->height = T32_AT(sd, T32_SENSOR_VIDEO + T32_VIDEO_MBUS_HEIGHT, u32);
 	tx_isp_sinfo_sensor_bind(sd, vi->owner);
+	/* keep the address in the driver's slot after the unbind (openimp #513) */
+	tx_isp_sinfo_driver_add(to_i2c_driver(client->dev.driver), info->i2c.addr, vi->owner);
 	isp_printf(1, "tx-isp-t32: sensor %.32s registered (%s @ i2c%d 0x%02x, %ux%u)\n",
 		   info->name, chip, info->i2c.i2c_adapter_id, info->i2c.addr,
 		   vi->width, vi->height);

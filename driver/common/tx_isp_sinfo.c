@@ -409,8 +409,10 @@ static void tx_isp_sinfo_show_key(struct seq_file *m,
 			seq_printf(m, "%u\n",
 				   tx_isp_sinfo_u32_at(
 					   wiring, wiring_mclk_offset));
+#ifndef TX_ISP_SINFO_NO_MCLK_DEFAULT
 		else if (!vendor)
 			seq_printf(m, "1\n");
+#endif
 		break;
 	case TX_ISP_SINFO_VIDEO_INTERFACE:
 		if (!(config_flags &

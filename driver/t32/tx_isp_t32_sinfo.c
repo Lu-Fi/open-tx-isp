@@ -37,6 +37,16 @@ static const struct tx_isp_sinfo_config tx_isp_sinfo_config = {
 	.info_pwdn_gpio_offset = 0x4c,
 };
 
+/*
+ * openimp #513: the T32/T33 SDK sensor modules never call
+ * tx_isp_sinfo_driver_add(); private_i2c_add_driver() publishes the driver
+ * instead (tx_isp_t32_funcs.c), so name and i2c_addr stay filled while the
+ * sensor module is loaded and no streamer holds the sensor.  The wiring
+ * (mclk) is only known from the streamer's registration: no "1" default for
+ * an unknown wiring (the cv2005 of the T33L is on MCLK0, a guessed 1 made the
+ * streamer's auto-detect pick the wrong clock).
+ */
+#define TX_ISP_SINFO_NO_MCLK_DEFAULT
 #include "../common/tx_isp_sinfo.c"
 
 #include "tx_isp_t32.h"
