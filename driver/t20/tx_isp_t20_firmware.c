@@ -12879,9 +12879,9 @@ int32_t matrix_yuv_recompute(void *fsm)
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000024828 origin=model_output original=matrix_yuv_coefft_write_to_hardware */
-int32_t matrix_yuv_coefft_write_to_hardware(void *arg1)
+int32_t matrix_yuv_coefft_write_to_hardware(void *matrix_yuv)
 {
-    uint8_t *p = (uint8_t *)arg1;
+    uint8_t *p = (uint8_t *)matrix_yuv;
     uint16_t v;
     int16_t sv;
     uint32_t r;
@@ -18630,9 +18630,9 @@ static inline uint16_t *t20_awb_lut16(int32_t id)
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000002cf34 origin=model_output original=awb_calc_avg_weighted_gr_gb_mesh */
-int32_t awb_calc_avg_weighted_gr_gb_mesh(uintptr_t a0)
+int32_t awb_calc_avg_weighted_gr_gb_mesh(uintptr_t awb_fsm)
 {
-	uint8_t *fsm = (uint8_t *)a0;
+	uint8_t *fsm = (uint8_t *)awb_fsm;
 	uint8_t *isp = *(uint8_t **)fsm;
 	uint32_t *weight = t20_awb_weight;
 	uint8_t *valid = t20_awb_valid;
@@ -18740,7 +18740,7 @@ int32_t awb_calc_avg_weighted_gr_gb_mesh(uintptr_t a0)
 				t20_awb_lut16(238));
 		for (k = 0; k < _GET_ROWS(239); k = (uint16_t)(k + 1)) {
 			int32_t known = mesh_AWB_getKnownSourceLight_weight_LUT(
-				(int32_t)a0, rg, bg, sources[k * cols],
+				(int32_t)awb_fsm, rg, bg, sources[k * cols],
 				sources[k * cols + 1]);
 
 			if (known >= 20 && best + 15 < known) {
@@ -20147,7 +20147,7 @@ uint32_t sharpening_initialize(int32_t *sharp)
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000002f87c origin=model_output original=sharpening_update */
-int32_t sharpening_update(int32_t *arg1)
+int32_t sharpening_update(int32_t *fsm)
 {
 	int32_t *base;
 	uint32_t mode;
@@ -20190,26 +20190,26 @@ int32_t sharpening_update(int32_t *arg1)
 	uint32_t scale;
 	uint32_t hdr_byte;
 
-	mode = *(uint8_t *)((char *)arg1 + 0x4c);
-	base = (int32_t *)*arg1;
+	mode = *(uint8_t *)((char *)fsm + 0x4c);
+	base = (int32_t *)*fsm;
 
 	if (mode == 0x2d) {
-		setup_parameters_to_default(arg1);
-		base = (int32_t *)*arg1;
+		setup_parameters_to_default(fsm);
+		base = (int32_t *)*fsm;
 	} else if (mode != 0x2e) {
-		base = (int32_t *)*arg1;
+		base = (int32_t *)*fsm;
 	} else {
-		au_read_histogram(arg1);
-		base = (int32_t *)*arg1;
+		au_read_histogram(fsm);
+		base = (int32_t *)*fsm;
 		hdr_idx = _GET_HDR_TABLE_INDEX(0xb, *(uint8_t *)((char *)base + 0x1524));
 		lut = (uint16_t *)_GET_USHORT_PTR(hdr_idx);
-		hist_val = arg1[0x119];
-		width = arg1[0x16];
-		height = arg1[0x17];
-		thresh1 = *(uint16_t *)((char *)arg1 + 0x50);
-		thresh2 = *(uint16_t *)((char *)arg1 + 0x52);
-		thresh3 = *(uint16_t *)((char *)arg1 + 0x54);
-		thresh4 = *(uint16_t *)((char *)arg1 + 0x56);
+		hist_val = fsm[0x119];
+		width = fsm[0x16];
+		height = fsm[0x17];
+		thresh1 = *(uint16_t *)((char *)fsm + 0x50);
+		thresh2 = *(uint16_t *)((char *)fsm + 0x52);
+		thresh3 = *(uint16_t *)((char *)fsm + 0x54);
+		thresh4 = *(uint16_t *)((char *)fsm + 0x56);
 
 		if (width == 0)
 			return -1;
@@ -20218,7 +20218,7 @@ int32_t sharpening_update(int32_t *arg1)
 
 		idx1 = 0;
 		while (idx1 < 0x100) {
-			if ((uint32_t)arg1[idx1 * 4 + 0x1a] >= (uint32_t)thresh1 * (uint32_t)hist_val / (uint32_t)(width * 0x64))
+			if ((uint32_t)fsm[idx1 * 4 + 0x1a] >= (uint32_t)thresh1 * (uint32_t)hist_val / (uint32_t)(width * 0x64))
 				break;
 			idx1++;
 		}
@@ -20227,7 +20227,7 @@ int32_t sharpening_update(int32_t *arg1)
 
 		idx2 = 0;
 		while (idx2 < 0x100) {
-			if ((uint32_t)arg1[idx2 * 4 + 0x1a] >= (uint32_t)thresh2 * (uint32_t)hist_val / (uint32_t)(width * 0x64))
+			if ((uint32_t)fsm[idx2 * 4 + 0x1a] >= (uint32_t)thresh2 * (uint32_t)hist_val / (uint32_t)(width * 0x64))
 				break;
 			idx2++;
 		}
@@ -20236,7 +20236,7 @@ int32_t sharpening_update(int32_t *arg1)
 
 		idx3 = 0;
 		while (idx3 < 0x100) {
-			if ((uint32_t)arg1[idx3 * 4 + 0x1a] >= (uint32_t)hist_val - (uint32_t)thresh4 * (uint32_t)hist_val / (uint32_t)(height * 0x64))
+			if ((uint32_t)fsm[idx3 * 4 + 0x1a] >= (uint32_t)hist_val - (uint32_t)thresh4 * (uint32_t)hist_val / (uint32_t)(height * 0x64))
 				break;
 			idx3++;
 		}
@@ -20246,21 +20246,21 @@ int32_t sharpening_update(int32_t *arg1)
 		idx4 = 0;
 		flag = 0;
 		while (idx4 < 0x100) {
-			if ((uint32_t)arg1[idx4 * 4 + 0x1a] >= (uint32_t)hist_val - (uint32_t)thresh3 * (uint32_t)hist_val / (uint32_t)(height * 0x64)) {
-				flag = (*(uint8_t *)((char *)arg1 + 0x4d) < idx1) ? 1 : 0;
+			if ((uint32_t)fsm[idx4 * 4 + 0x1a] >= (uint32_t)hist_val - (uint32_t)thresh3 * (uint32_t)hist_val / (uint32_t)(height * 0x64)) {
+				flag = (*(uint8_t *)((char *)fsm + 0x4d) < idx1) ? 1 : 0;
 				break;
 			}
 			idx4++;
 		}
 		if (idx4 >= 0x100) {
 			idx4 = 0;
-			flag = (*(uint8_t *)((char *)arg1 + 0x4d) < idx1) ? 1 : 0;
+			flag = (*(uint8_t *)((char *)fsm + 0x4d) < idx1) ? 1 : 0;
 		}
 
 		if (flag == 0) {
 			idx2 = 0;
 		} else {
-			uint32_t diff_idx = (uint32_t)idx1 - (uint32_t)(*(uint8_t *)((char *)arg1 + 0x4d));
+			uint32_t diff_idx = (uint32_t)idx1 - (uint32_t)(*(uint8_t *)((char *)fsm + 0x4d));
 			if (idx2 < diff_idx) {
 				/* keep idx2 */
 			} else {
@@ -20269,10 +20269,10 @@ int32_t sharpening_update(int32_t *arg1)
 		}
 
 		val = 0xff;
-		if ((idx4 < *(uint8_t *)((char *)arg1 + 0x4e)) != 0) {
-			if (*(uint8_t *)((char *)arg1 + 0x4e) == 0)
+		if ((idx4 < *(uint8_t *)((char *)fsm + 0x4e)) != 0) {
+			if (*(uint8_t *)((char *)fsm + 0x4e) == 0)
 				return -1;
-			val = ((idx4 << 8) / *(uint8_t *)((char *)arg1 + 0x4e)) & 0xffff;
+			val = ((idx4 << 8) / *(uint8_t *)((char *)fsm + 0x4e)) & 0xffff;
 		}
 
 		if (val < idx3)
@@ -20286,7 +20286,7 @@ int32_t sharpening_update(int32_t *arg1)
 			avg_lo = ((uint32_t)lut[gamma_lo] + (uint32_t)lut[gamma_lo - 1]) >> 1;
 		}
 
-		shift = *(uint8_t *)((char *)arg1 + 0x66) - 0xa;
+		shift = *(uint8_t *)((char *)fsm + 0x66) - 0xa;
 		scaled_lo = (uint32_t)((int16_t)((int32_t)avg_lo >> (shift & 0x1f)));
 
 		if (val != 0xff) {
@@ -20314,9 +20314,9 @@ int32_t sharpening_update(int32_t *arg1)
 		}
 
 		neg_result = -(int32_t)result;
-		*(int16_t *)((char *)arg1 + 0x62) = (int16_t)neg_result;
-		*(uint16_t *)((char *)arg1 + 0x64) = (uint16_t)inv;
-		base = (int32_t *)*arg1;
+		*(int16_t *)((char *)fsm + 0x62) = (int16_t)neg_result;
+		*(uint16_t *)((char *)fsm + 0x64) = (uint16_t)inv;
+		base = (int32_t *)*fsm;
 	}
 
 	hdr_byte = *(uint8_t *)((char *)base + 0x1524);
@@ -20341,7 +20341,7 @@ int32_t sharpening_update(int32_t *arg1)
 			(int16_t)stab.global_maximum_directional_sharpening,
 			(int16_t)stab.global_minimum_directional_sharpening,
 			(uintptr_t)mod_ptr, (int32_t)rows);
-		scale = *(uint16_t *)((char *)arg1 + 0x20);
+		scale = *(uint16_t *)((char *)fsm + 0x20);
 		s1_val = (uint32_t)((uint16_t)((calc_val * scale) >> 7));
 		if (s1_val >= 0x100)
 			s1_val = 0xff;
@@ -20356,7 +20356,7 @@ int32_t sharpening_update(int32_t *arg1)
 			(int16_t)stab.global_maximum_un_directional_sharpening,
 			(int16_t)stab.global_minimum_un_directional_sharpening,
 			(uintptr_t)mod_ptr2, (int32_t)rows);
-		scale = *(uint16_t *)((char *)arg1 + 0x20);
+		scale = *(uint16_t *)((char *)fsm + 0x20);
 		fp_val = (uint32_t)((uint16_t)((calc_val * scale) >> 7));
 		if (fp_val >= 0x100)
 			fp_val = 0xff;
