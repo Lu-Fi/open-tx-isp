@@ -406,21 +406,13 @@ static inline void t33_sdns_other_params(const u8 *sec, u32 *p)
 	p[15] = sec[0x8b];
 }
 
-/* tisp_sdns_par_refresh (+ other_params_transform, func_sdns_para_update) */
-static inline void t33_sdns_par(const u8 *sec, u32 gain, u32 *p, u32 *s)
+/* func_sdns_para_update's four strengths from sdnsInfo words 1 and 2 (quantised) */
+static inline void t33_sdns_strength(const u32 *p, u32 *s)
 {
-	static const u8 tab[13][2] = {
-		{ 1, 0x05 }, { 2, 0x10 }, { 4, 0x1c }, { 5, 0x27 }, { 6, 0x32 }, { 7, 0x3d }, { 8, 0x48 },
-		{ 9, 0x53 }, { 10, 0x5e }, { 11, 0x69 }, { 13, 0x75 }, { 14, 0x80 }, { 16, 0x8c },
-	};
-	u32 q, i = gain >> 16, f = gain & 0xffff;
+	u32 q = t33_sdns_quant(p[2]);
 	unsigned int k;
 	int v;
 
-	t33_sdns_other_params(sec, p);
-	for (k = 0; k < 13; k++)
-		p[tab[k][0]] = t32_tp_intp_u8(i, f, sec + tab[k][1]);
-	q = t33_sdns_quant(p[2]);
 	q *= q;
 	for (k = 0; k < 4; k++) {
 		/* p1^2 - floor(-w * q / 2^23), as the vendor's 64-bit product */
@@ -429,19 +421,42 @@ static inline void t33_sdns_par(const u8 *sec, u32 gain, u32 *p, u32 *s)
 	}
 }
 
-/* sdnsInfo (160 bytes): func_sdns_para_update copies p[0], p[3..16] to words 0x11, 0x12..0x1f, s to 0x20..0x23 */
-#define T33_SDNS_INFO_WORDS	40
-static inline void t33_sdns_info(const u8 *sec, u32 gain, u32 *inf)
+/* func_sdns_para_update's copies: p[0], p[3..16] to words 0x11, 0x12..0x1f, s to 0x20..0x23 */
+static inline void t33_sdns_copy(u32 *inf, const u32 *p, const u32 *s)
 {
-	u32 p[17], s[4];
 	unsigned int k;
 
-	t33_sdns_par(sec, gain, p, s);
 	inf[0x11] = p[0];
 	for (k = 3; k <= 16; k++)
 		inf[0x12 + k - 3] = p[k];
 	for (k = 0; k < 4; k++)
 		inf[0x20 + k] = s[k];
+}
+
+/* tisp_sdns_par_refresh (+ other_params_transform, func_sdns_para_update) */
+static inline void t33_sdns_par(const u8 *sec, u32 gain, u32 *p, u32 *s)
+{
+	static const u8 tab[13][2] = {
+		{ 1, 0x05 }, { 2, 0x10 }, { 4, 0x1c }, { 5, 0x27 }, { 6, 0x32 }, { 7, 0x3d }, { 8, 0x48 },
+		{ 9, 0x53 }, { 10, 0x5e }, { 11, 0x69 }, { 13, 0x75 }, { 14, 0x80 }, { 16, 0x8c },
+	};
+	u32 i = gain >> 16, f = gain & 0xffff;
+	unsigned int k;
+
+	t33_sdns_other_params(sec, p);
+	for (k = 0; k < 13; k++)
+		p[tab[k][0]] = t32_tp_intp_u8(i, f, sec + tab[k][1]);
+	t33_sdns_strength(p, s);
+}
+
+/* sdnsInfo (160 bytes): words 0..16 the bin bytes and interpolations, 0x11..0x23 func_sdns_para_update's copies */
+#define T33_SDNS_INFO_WORDS	40
+static inline void t33_sdns_info(const u8 *sec, u32 gain, u32 *inf)
+{
+	u32 s[4];
+
+	t33_sdns_par(sec, gain, inf, s);	/* words 0..16: other_params + the interpolations */
+	t33_sdns_copy(inf, inf, s);
 }
 
 static inline int t33_sdns_init(const u8 *sec, u32 gain, struct t32_front_write *w)

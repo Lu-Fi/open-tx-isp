@@ -1324,6 +1324,7 @@ static void t33_gamma_state(const u8 *sec, const u8 *tab, u32 tabbytes, int clea
 static u32 t33_tmo_v[T33_TMO_WORDS], t33_mdns_v[T33_MDNS_WORDS];
 #define tispTopRefresh t33_top_refresh	/* the vendor name of the TOP refresh state (tx_isp_t33_top.h) */
 #include "tx_isp_t33_bst.h"
+#include "tx_isp_t33_swglue.h"
 #include "tx_isp_t33_tmo1s.h"
 
 /*
@@ -1965,7 +1966,8 @@ static int t33_gr_tmpl(const struct t33_tcmd *t, unsigned int nt, int n)
 	return n > 0 ? t33_rcfg_build_tmpl(t33_gr_tmp, T33_SLOT_WORDS, t, nt, tisp_w, (unsigned int)n) : n;
 }
 
-void t33_tgain_refresh(u32 gain)
+/* skip: modules whose switch_para already ran (t33_refresh_para) */
+static void t33_gr_refresh(u32 gain, u64 skip)
 {
 	const u8 *bin;
 	u32 bytes, off, len, width, height, pa, d[2], blc = 0, dg = 0, *b;
@@ -1986,11 +1988,13 @@ void t33_tgain_refresh(u32 gain)
 	 * The info-struct blocks (tx_isp_t33_bst.h): the info struct at the new gain (the init builders fill
 	 * the dpc / dmsc / ysp / rdns word arrays, the scratch list is not used), then the par_refresh tail.
 	 */
-	if (T33_GR_SEC(DPC)) {
+	if (!(skip & (1ULL << T33_MOD_DPC)) && T33_GR_SEC(DPC)) {
 		t33_gr_gate(T33_MOD_DPC, gain);
 		t33_bst_hold(T33_BST_DPC);
-		if (t33_dpc_init(bin + off, gain, t33_dpc_v, t33_gr_tmp, T33_SLOT_WORDS) > 0)
+		if (t33_dpc_init(bin + off, gain, t33_dpc_v, t33_gr_tmp, T33_SLOT_WORDS) > 0) {
+			t33_swg_dpc_gain(bin + off, gain);
 			t33_bst_par_tail(T33_BST_DPC);
+		}
 	}
 	if (T33_GR_SEC(DMSC) && t33_gr_gate(T33_MOD_DMSC, gain)) {
 		t33_bst_hold(T33_BST_DMSC);
@@ -2002,14 +2006,16 @@ void t33_tgain_refresh(u32 gain)
 		if (t33_ysp_init(bin + off, gain, t33_ysp_v, t33_gr_tmp, T33_SLOT_WORDS) > 0)
 			t33_bst_par_tail(T33_BST_YSP);
 	}
-	if (T33_GR_SEC(YDNS) && t33_gr_gate(T33_MOD_YDNS, gain)) {
+	if (!(skip & (1ULL << T33_MOD_YDNS)) && T33_GR_SEC(YDNS) && t33_gr_gate(T33_MOD_YDNS, gain)) {
 		t33_bst_hold(T33_BST_YDNS);
 		t33_ydns_info(bin + off, gain, t33_ydns_inf);
+		t33_swg_ydns_gain(bin + off, gain);
 		t33_bst_par_tail(T33_BST_YDNS);
 	}
-	if (T33_GR_SEC(SDNS) && t33_gr_gate(T33_MOD_SDNS, gain)) {
+	if (!(skip & (1ULL << T33_MOD_SDNS)) && T33_GR_SEC(SDNS) && t33_gr_gate(T33_MOD_SDNS, gain)) {
 		t33_bst_hold(T33_BST_SDNS);
 		t33_sdns_info(bin + off, gain, t33_sdns_inf);
+		t33_swg_sdns_gain(bin + off, gain);
 		t33_bst_par_tail(T33_BST_SDNS);
 	}
 	if (T33_GR_SEC(RDNS) && t33_gr_gate(T33_MOD_RDNS, gain)) {
@@ -2049,6 +2055,11 @@ void t33_tgain_refresh(u32 gain)
 #undef T33_GR_SEC
 out:
 	mutex_unlock(&t33_gr_lock);
+}
+
+void t33_tgain_refresh(u32 gain)
+{
+	t33_gr_refresh(gain, 0);
 }
 
 /*
@@ -2463,6 +2474,7 @@ static void t33_tisp_init(const u8 *bin, u32 bytes)
 		t33_mod_set_tmpl(T33_MOD_YDNS, T33_TMPL(t33_ydns_tmpl), tisp_w,
 				 t33_ydns_init(bin + off, T33_INIT_GAIN, tisp_w));
 		t33_ydns_info(bin + off, T33_INIT_GAIN, t33_ydns_inf);	/* tisp_ydns_init's ydnsInfo */
+		t33_swg_ydns_gain(bin + off, T33_INIT_GAIN);
 	}
 	off = t32_iq_section(bin, bytes, T33_SEC_SDNS, &len);
 	if (off && len == T33_SDNS_SEC_BYTES)
@@ -2470,8 +2482,11 @@ static void t33_tisp_init(const u8 *bin, u32 bytes)
 		t33_mod_set_tmpl(T33_MOD_SDNS, T33_TMPL(t33_sdns_tmpl), tisp_w,
 				 t33_sdns_init(bin + off, T33_INIT_GAIN, tisp_w));
 		t33_sdns_info(bin + off, T33_INIT_GAIN, t33_sdns_inf);	/* tisp_sdns_init's sdnsInfo */
+		t33_swg_sdns_gain(bin + off, T33_INIT_GAIN);
 	}
 	T33_MOD_VB(dpc, DPC, t33_dpc_v);
+	if (off && len == T33_DPC_SEC_BYTES)
+		t33_swg_dpc_gain(bin + off, T33_INIT_GAIN);
 	T33_MOD_VB(dmsc, DMSC, t33_dmsc_v);
 	T33_MOD_VB(ysp, YSP, t33_ysp_v);
 	{
@@ -2596,8 +2611,9 @@ static void t33_tisp_init(const u8 *bin, u32 bytes)
  * next frame end (TOP: list 33 from the frame end, LCE / LSF: lists 16 /
  * 37 from the next irq 8).  Vendor order: top, dpc, blc, ae, awb, lsc,
  * tmo, dmsc, gamma, ccm, clm, bcsh, ysp, mdns, ydns, sdns, cdns, defog,
- * lce, rdns, af, csccr; the gain blocks (dpc, dmsc, ysp, mdns, ydns,
- * sdns, cdns, rdns) come from one forced t33_tgain_refresh after blc.
+ * lce, rdns, af, csccr; dpc, ydns and sdns run the vendor switch_para
+ * ports (tx_isp_t33_swglue.h) at their own last gain, the other gain
+ * blocks (dmsc, ysp, mdns, cdns, rdns) come from one forced gain refresh.
  * Not rebuilt (open, #507): the AWB list 29 / AWB and AE algorithm
  * parameters (tisp_awb_dn_params_refresh, the AE context), the AE list 30
  * (the five AE registers of the AE switch), the night byte 0x1f of
@@ -2790,6 +2806,7 @@ void t33_refresh_para(u32 mode)
 	u32 bytes, off, len, width, height, code, gain, ct, lo, hi;
 	unsigned int id;
 	int bayer = -1;
+	u64 sw;
 
 	if (t32_core_iq_bin(&bin, &bytes) || !tisp_w || !t33_mod_built || t32_core_sensor_size(&width, &height))
 		return;
@@ -2808,6 +2825,8 @@ void t33_refresh_para(u32 mode)
 	hi = t33_sw_ev_hi;
 	t33_bin_append(bin, bytes);	/* tisp_bin_data_parse */
 	t33_sw_top(bin, bytes, width, height, bayer);
+	/* tisp_dpc_switch_para, tisp_ydns_switch_para, tisp_sdns_switch_para (tx_isp_t33_swglue.h) */
+	sw = t33_swg_small(bin, bytes);
 	/* tisp_blc_switch_para: interp_by_tgain at the current gain, write_reg */
 	if (T33_SW_SEC(BLC) && bayer >= 0)
 		t33_gr_commit(T33_MOD_BLC, t33_gr_tmpl(T33_TMPL(t33_blc_tmpl),
@@ -2816,12 +2835,16 @@ void t33_refresh_para(u32 mode)
 	t33_sw_color(bin, bytes);
 	t33_sw_space(bin, bytes, width, height);
 	t33_sw_lce(bin, bytes);
-	/* the gain blocks at the current gain, every gate open (dpc, dmsc, ysp, mdns, ydns, sdns, cdns, rdns) */
+	/*
+	 * the other gain blocks at the current gain, their gates open (dmsc, ysp, mdns, cdns, rdns); the
+	 * switched ones keep their own gain and gate as in the vendor
+	 */
 	for (id = 0; id < T33_MODULES; id++)
-		t33_gr_last[id] = 0xffffffffU;
+		if (!(sw & (1ULL << id)))
+			t33_gr_last[id] = 0xffffffffU;
 	t33_sw_runs++;
 	mutex_unlock(&t33_gr_lock);
-	t33_tgain_refresh(gain);
+	t33_gr_refresh(gain, sw);
 	isp_printf(0, "tx-isp-t33: IQ bin switch (mode %u): lists rebuilt at gain %#x ct %u ev %#x:%#x\n",
 		   mode, gain, ct, hi, lo);
 }

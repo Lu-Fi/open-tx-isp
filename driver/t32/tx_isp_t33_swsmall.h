@@ -13,6 +13,12 @@
 
 #include "tx_isp_t33_blk.h"
 
+/*
+ * The vendor names the port uses.  The driver (tx_isp_t33_swglue.h) maps them
+ * onto its block state and defines T33_SW_GLUE; the binary oracle
+ * (tests/t33_binoracle/sw-small.c) defines them itself.
+ */
+#ifndef T33_SW_GLUE
 extern void tisp_reg_write_t33(u32 id, u32 list, u32 slot, u32 val);
 extern int tisp_rcfg_get_dma_state(u32 id);
 extern u32 tisp_simple_intp_uint8_t(int idx, u32 frac, const u8 *tab);
@@ -31,6 +37,7 @@ extern void tisp_dpc_bin_para_update(u32 ch);
 extern void func_dpc_para_update(u32 ch);
 extern void func_ctr_para_update(u32 ch);
 extern void func_cac_para_update(u32 ch);
+#endif
 
 #define T33_I8(o)	tisp_simple_intp_uint8_t(i, f, p + (o))
 #define T33_I16(o)	tisp_simple_intp_uint16_t(i, f, p + (o))
