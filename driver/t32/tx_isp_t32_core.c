@@ -854,6 +854,7 @@ static long t32_isp_ioctl(struct file *file, unsigned int cmd, unsigned long arg
 			core.ldc_mode = v;
 		break;
 	case T32_IOC_LDC_ONLINE_PROBE:
+		t32_ldc_probe_count();
 		ret = t32_ldc_online_probe(arg);
 		break;
 	case T32_IOC_LDC_ONLINE_INIT:

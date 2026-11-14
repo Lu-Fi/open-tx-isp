@@ -261,6 +261,12 @@ static struct t32_ldc_on {
 	u32 valid;
 	u32 w0, size, out_size, block, stride, type, angle, lut;
 } ldc_on[T32_LDC_VIS];
+static u32 ldc_probes, ldc_inits;
+
+void t32_ldc_probe_count(void)
+{
+	ldc_probes++;
+}
 
 #ifdef TX_ISP_T33
 /* tx_ldc_online_init: the API block to the online attribute (vendor fields; not applied, see above) */
@@ -303,6 +309,7 @@ long t32_ldc_online_ioctl(unsigned int cmd, unsigned long arg, u32 ldc_mode)
 			return -EFAULT;
 		}
 		t32_ldc_online_init(b);
+		ldc_inits++;
 		return 0;
 	}
 	/* T32_IOC_LDC_ONLINE_PAR: lib_tisp_ldc_get_par, no IQ-bin LDC parameters here */
@@ -634,8 +641,16 @@ static int ldc_misc_ok;
 
 void t32_snapldc_show(struct seq_file *m)
 {
+	int i;
+
 	seq_printf(m, "snapraw: %u requests, %u done, %u timeouts; offline_ldc: %u jobs, %u timeouts, %u irqs (%u errors)\n",
 		   snap.snaps, snap.done, snap.timeouts, ldc_jobs, ldc_job_timeouts, ldc_irqs, ldc_errors);
+	seq_printf(m, "ldc online: %u probes, %u attributes\n", ldc_probes, ldc_inits);
+	for (i = 0; i < T32_LDC_VIS; i++)
+		if (ldc_on[i].valid)
+			seq_printf(m, "ldc online VI%d: type %u size %#x out %#x block %u stride %u lut %#x angle %u\n", i,
+				   ldc_on[i].type, ldc_on[i].size, ldc_on[i].out_size, ldc_on[i].block, ldc_on[i].stride,
+				   ldc_on[i].lut, ldc_on[i].angle);
 }
 
 int t32_snapldc_init(void)

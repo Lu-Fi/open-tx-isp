@@ -4,6 +4,10 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD[-rcN]` are set on the `aperto` branch, the same tag in open-tx-isp and OpenIMP: RC1 `v2026.10.11-rc1`, RC2 `v2026.10.25-rc2`, RC3 `v2026.11.07-rc3` (2026-11-07). Gate SoCs of RC3 and Release 1: T10, T20, T21, T23, T30, T31, T40, T41 (T32/T33 planned, QEMU only); release notes: [docs/releases/ in OpenIMP](https://github.com/Lu-Fi/openimp/blob/next/docs/releases/README.md). Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-11-14: T33 online LDC record in /proc (openimp #491; QEMU only)
+
+- `/proc/jz/isp/isp-m0` prints the online LDC requests (probes, attributes) and the attribute kept per VI (type, size, block, LUT stride and address). QEMU: OpenIMP's AddSensor now sends them (LDC 16x16 at 1920x1080: LUT 0x8408 B, stride 488). The ISP's online LDC is still not switched on at init (vendor: LDC mode online -> register list 25, LDC working memory in the IPC memory, top bypass).
+
 ## 2026-11-14: T32/T33 RAW snapshot, online LDC requests and /dev/offline_ldc (openimp #491; QEMU only, no T32/T33 camera)
 
 - New `driver/t32/tx_isp_t32_snapldc.c` (T33 build: `driver/t33/tx_isp_t33_snapldc.c`), behaviour of the vendor modules (T32 2.2.0, T33 2.0.2.1 decompilations, no code copied).
