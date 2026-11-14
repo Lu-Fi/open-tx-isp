@@ -255,6 +255,7 @@ int t32_ivdc_fs_stream(int on);
 void t32_ivdc_show(struct seq_file *m);
 #ifdef TX_ISP_T33
 void t33_stats_show(struct seq_file *m);	/* tx_isp_t32_hw.c */
+void t33_tmo_oneshot(u32 op);	/* tx_isp_t32_hw.c: 0 disable, 1 enable, 2 tick (tisp_tmo_oneshot_*) */
 /* ../t33/tx_isp_t33_awbc.c: per-frame AWB */
 int t33_awbc_attach(const u8 *sec, u32 len, u32 width, u32 height, const u8 *bufs);
 void t33_awbc_detach(void);

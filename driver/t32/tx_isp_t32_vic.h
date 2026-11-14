@@ -42,6 +42,10 @@
 #ifndef TX_ISP_T32_VIC_H
 #define TX_ISP_T32_VIC_H
 
+#ifdef TX_ISP_T33
+#include "tx_isp_t33_mipi.h"
+#endif
+
 #ifdef __KERNEL__
 #include <linux/types.h>
 #include <linux/errno.h>
@@ -227,7 +231,12 @@ static inline int t32_csi_cfg_from_attr(const void *attr, struct t32_csi_cfg *c)
 	c->phy_80 = 0x1f;
 	c->phy_lane = 0x3f;
 #endif
+#ifdef TX_ISP_T33
+	/* mipi_phy_stream_on: get_settle_time's table (tx_isp_t33_mipi.h, oracle block mipi) */
+	c->settle = t33_settle_time((int)t32_attr_u32(attr, T32_ATTR_MIPI_CLK));
+#else
 	c->settle = t32_csi_settle(t32_attr_u32(attr, T32_ATTR_MIPI_CLK));
+#endif
 	return 0;
 }
 

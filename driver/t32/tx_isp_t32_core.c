@@ -895,12 +895,20 @@ static long t32_isp_ioctl(struct file *file, unsigned int cmd, unsigned long arg
 		 * frame in one-shot mode (refused otherwise, as the vendor); the
 		 * frame trigger of the low-power path is not modelled: frames keep
 		 * flowing (QEMU proof only; AOV effect: T32/T33 camera) */
-		if (arg == 0 || arg == 1)
+		if (arg == 0 || arg == 1) {
+#ifdef TX_ISP_T33
+			t33_tmo_oneshot(arg);	/* core ioctl 0x100000e / 0x100000f */
+#endif
 			core.run_mode = arg;
-		else if (arg == 2 || arg == 3)
+		} else if (arg == 2 || arg == 3) {
 			ret = core.run_mode == 1 ? 0 : -EINVAL;
-		else
+#ifdef TX_ISP_T33
+			if (!ret)
+				t33_tmo_oneshot(2);	/* core ioctl 0x1000010 */
+#endif
+		} else {
 			ret = -EINVAL;
+		}
 		break;
 	case T32_IOC_LDC_MODE:
 		/* broadcast to the subdevices, sum of the results (0): the mode is kept */

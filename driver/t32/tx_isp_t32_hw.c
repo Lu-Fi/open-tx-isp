@@ -945,6 +945,56 @@ static void t33_gamma_state(const u8 *sec, const u8 *tab, u32 tabbytes, int clea
 }
 static u32 t33_tmo_v[T33_TMO_WORDS], t33_mdns_v[T33_MDNS_WORDS];
 #include "tx_isp_t33_bst.h"
+#include "tx_isp_t33_tmo1s.h"
+
+/*
+ * TMO one-shot (tx_isp_t33_tmo1s.h, oracle block tmo1s): the running mode
+ * switch (IMP_ISP_OneShotDisable / Enable / Tick = core ioctls 0x100000e /
+ * 0x100000f / 0x1000010) runs tisp_tmo_oneshot_disable / _enable / _tick
+ * under the core lock, as the vendor.  Single sensor (stIspInitPar 904 = 1):
+ * TMO slot 0x58 (0x70dc) off / on and list 8 restarted.  No list yet (before
+ * the first stream-on): nothing to write, the trigger is skipped too (the
+ * vendor builds its lists at AddSensor).  The AOV wake-up and multi-sensor
+ * V-ram paths of the header are not reached in this driver (info = NULL).
+ */
+static u8 t33_tmo_aov_tik, t33_tmo_mulsensor;
+static u16 t33_tmo_reg_num = T33_TMO1S_LIST_SHORT;
+static u32 t33_tmo1s_runs[3];
+
+static u32 *t33_tmo1s_list(u32 ch)
+{
+	static u32 dummy[2];
+	u32 *l = (t33_mod_built & (1ULL << T33_MOD_TMO)) ? t33_mod_buf(T33_MOD_TMO) : NULL;
+
+	return l ? l : dummy;	/* no list: the vendor's word 0 store has no target */
+}
+
+static void t33_tmo1s_trig(u32 ch, u32 mod)
+{
+	if (t33_mod_built & (1ULL << (mod & 0xff)))
+		tisp_rcfg_module_cfg_trig(ch, mod);
+}
+
+static const struct t33_tmo1s t33_tmo1s_ctx = {
+	.cfg_mode = &t33_bst_cfg_mode, .aov_tik = &t33_tmo_aov_tik, .mulsensor = &t33_tmo_mulsensor,
+	.reg_num = &t33_tmo_reg_num, .initpar = (const u8 *)t33_st_isp_init_par_mode, .info = NULL,
+	.list = t33_tmo1s_list, .wr = t33_bst_wr_v, .trig = t33_tmo1s_trig, .vi0_refresh = NULL,
+};
+
+void t33_tmo_oneshot(u32 op)
+{
+	unsigned long flags;
+
+	local_irq_save(flags);
+	if (op == 0)
+		t33_tmo1s_disable(&t33_tmo1s_ctx);	/* lib_tisp_tmo_oneshot_disable */
+	else if (op == 1)
+		t33_tmo1s_enable(&t33_tmo1s_ctx);	/* lib_tisp_tmo_oneshot_enable */
+	else
+		t33_tmo1s_tick(&t33_tmo1s_ctx);		/* lib_tisp_tmo_oneshot_tick */
+	local_irq_restore(flags);
+	t33_tmo1s_runs[op > 2 ? 2 : op]++;
+}
 #define T33_INIT_EV	0xffffffffU	/* the vendor's EV before the first AE run */
 
 #define T33_MOD_VB(blk, BLK, v)								\
@@ -1149,6 +1199,8 @@ void t33_stats_show(struct seq_file *m)
 	t33_aec_show(m);
 	seq_printf(m, "t33 lce/lsf: irq8 %u irq30 %u curves %u list16 %u list37 %u ev %u\n", t33_lcepf_irq8s,
 		   t33_lcepf_irq30s, t33_lcepf_curves, t33_lcepf_lce_runs, t33_lcepf_lsf_runs, t33_lcepf_evs);
+	seq_printf(m, "t33 tmo oneshot: disable %u enable %u tick %u\n", t33_tmo1s_runs[0], t33_tmo1s_runs[1],
+		   t33_tmo1s_runs[2]);
 }
 
 /* for ../t33/tx_isp_t33_awbc.c: register read, and the per-frame AWB results into lists 7 / 29 */

@@ -44,6 +44,9 @@ SPEC: one function per line (from the block's .conf, FUNCS=):
                                 byte OFF is a pointer to N random bytes (allocated per case, same address on both
                                 sides, compared after the call like the pointer arguments): for info structs that
                                 point at parameter blocks
+                                q:OFF:N[:z][:bB=V1,V2..][:@O2=N2]..  (several allowed): like p:, z = zero bytes instead
+                                of random (large list pages); bB=..: byte B of the block one of the values (flags);
+                                @O2=N2: the LE u32 at byte O2 of the block points to N2 random bytes (nested, compared)
 Exit 0 = all cases equal, 1 = mismatch (first 5 printed), 2 = setup error.
 Nothing of the vendor module is stored here; point it at your own copy.
 """
@@ -92,7 +95,8 @@ def parse(path):
         if not t:
             continue
         if t[0] == 'GLOBAL':
-            gl.append((t[1], t[2], int(t[3], 0), [(w.split(':')[0], int(w.split(':')[1], 0), [int(x, 0) for x in w.split(':')[2].split(',')]) for w in t[4:]]))
+            gl.append((t[1], t[2], int(t[3], 0), [(w.split(':')[0], int(w.split(':')[1], 0), w.split(':', 2)[2]) if w.startswith('q:') else
+                                                  (w.split(':')[0], int(w.split(':')[1], 0), [int(x, 0) for x in w.split(':')[2].split(',')]) for w in t[4:]]))
         elif t[0] == 'CALLS':
             for x in t[1:]:
                 n, _, rv = x.partition('=')
@@ -201,7 +205,12 @@ def run_one(e, fn, args, gl_init, gl_syms, gl_ptrs=(), vendor=False):
             words.append(v & M32)
     for (sym, size), data in zip(gl_syms, gl_init):
         e.write(e.addr(sym), data)
-    for sym, off, data in gl_ptrs:
+    for sym, off, data, *sub in gl_ptrs:
+        data = bytearray(data)
+        for o2, d2 in (sub[0] if sub else ()):      # q: nested blocks first, their address into the outer block
+            a2 = e.alloc(len(d2) + 16, d2 + bytes(16)); ptrs.append((a2, len(d2)))
+            data[o2:o2 + 4] = struct.pack('<I', a2)
+        data = bytes(data)
         ad = e.alloc(len(data) + 16, data + bytes(16)); ptrs.append((ad, len(data)))
         e.write(e.addr(sym) + off, struct.pack('<I', ad))
     r = e.call(fn, *words[:4], stack_args=words[4:])
@@ -262,6 +271,16 @@ def main():
             for (vs, os_, sz, ws) in gl:
                 gb = bytearray(rnd.getrandbits(8) for _ in range(sz))
                 for kind, off, vals in ws:
+                    if kind == 'q':
+                        f = vals.split(':'); n = int(f[0], 0); z = 'z' in f[1:]
+                        pd = bytearray(n) if z else bytearray(rnd.getrandbits(8) for _ in range(n)); sub = []
+                        for x in f[1:]:
+                            if x.startswith('b'):
+                                b, vv = x[1:].split('='); pd[int(b, 0)] = rnd.choice([int(v, 0) for v in vv.split(',')]) & 0xff
+                            elif x.startswith('@'):
+                                o2, n2 = x[1:].split('='); sub.append((int(o2, 0), bytes(rnd.getrandbits(8) for _ in range(int(n2, 0)))))
+                        gpv.append((vs, off, bytes(pd), sub)); gpo.append((os_, off, bytes(pd), sub))
+                        continue
                     if kind == 'p':
                         pd = bytes(rnd.getrandbits(8) for _ in range(vals[0])); gpv.append((vs, off, pd)); gpo.append((os_, off, pd))
                         continue
