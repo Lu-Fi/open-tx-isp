@@ -27,6 +27,7 @@
 #define TX_ISP_T33_TMO_H
 
 #include "tx_isp_t33_blk.h"
+#include "tx_isp_t33_intp.h"
 
 #define T33_MOD_TMO		8
 #define T33_SEC_TMO		4
@@ -50,6 +51,9 @@ static inline int t33_tmo_intp(u32 x, const u8 *e, const u8 *t, int bits, int sg
 	unsigned long long f;
 	int r;
 
+	/* tisp_ev_intp_int8_t / tisp_bv_intp_int8_t: the oracle-proven ports (tx_isp_t33_intp.h, block intp) */
+	if (bits == 8 && sgn)
+		return bv ? t33_bv_intp_s8(x, e, t) : t33_ev_intp_s8(x, e, t);
 	for (k = 0; k < 11; k++) {
 		u32 kv = t33_le32(e + 4 * k);
 
