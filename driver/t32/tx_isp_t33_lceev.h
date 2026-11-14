@@ -13,7 +13,10 @@
  *    sec[0x2fb] = sec[0xc8] = 1, else the curve buffer), bin_para_update,
  *    the EV (sec[0x3d9] = 0, knots 0x2fc) or BV (knots 0x328)
  *    interpolations, gausswgt_calc, func_lce_para_update and the list words
- *    of lists 16 and 37 from the mirror, then list 16 enable = 1.
+ *    of lists 16 and 37 from the mirror, then list 16 enable = 1;
+ *  - tisp_lce_switch_para (day / night bin switch): the size fields, the
+ *    default curves when the LSF mode byte changed, sec[5] = 3, then the
+ *    same as the EV update at the last EV / BV.
  *
  * Both with the vendor's lceCfgMode = lsfCfgMode = 1 (slot indices; the
  * module's data, the only mode the T33 module uses).  The words are in the
@@ -150,18 +153,15 @@ static inline void t33_lceev_l37(struct t33_lce_pf *c, u32 *l37)
 }
 
 /*
- * tisp_lce_ev_update(ch, ev, x): lo / hi the 64-bit EV (the vendor's
- * long_ev_update words), bv its x word.  curve_pa / hist_pa the physical
- * addresses of the curve buffer and the LSF histogram buffer (the caller
- * invalidates the histogram buffer in the LSF mode, as the vendor's
- * private_dma_cache_sync), l16 / l37 the two lists.  mode[0] / mode[1]:
- * the vendor's lcemodeflag / lcemodecounter.
+ * The part tisp_lce_ev_update and tisp_lce_switch_para share: the LSF-mode
+ * curve slot (lists 16 slot 0x19 and 37 slot 5 = hist_pa in the LSF mode,
+ * else 0x19 = curve_pa), bin_para_update, the EV / BV interpolations,
+ * gausswgt_calc, func_lce_para_update, the list words, list 16 enable.
+ * mode[0] / mode[1]: the vendor's lcemodeflag / lcemodecounter.
  */
-static inline void t33_lcepf_ev_update(struct t33_lce_pf *c, u8 *s, u32 lo, u32 hi, u32 bv, u32 curve_pa,
-				       u32 hist_pa, u32 *l16, u32 *l37, u32 mode[2])
+static inline void t33_lceev_apply(struct t33_lce_pf *c, u8 *s, u32 curve_pa, u32 hist_pa, u32 *l16, u32 *l37,
+				   u32 mode[2])
 {
-	c->bv = bv;
-	c->ev = hi << 22 | lo >> 10;
 	if (s[0x2fb] == 1 && s[0xc8] == 1) {
 		T33_SW(l37, T33_LSF_SLOT_HIST, hist_pa);
 		T33_SW(l16, T33_LCE_SLOT_CURVE, hist_pa);
@@ -179,6 +179,45 @@ static inline void t33_lcepf_ev_update(struct t33_lce_pf *c, u8 *s, u32 lo, u32 
 	t33_lceev_l37(c, l37);
 	t33_lceev_l16(c, l16);
 	T33_SW(l16, T33_LCE_SLOT_EN, 1);
+}
+
+/*
+ * tisp_lce_ev_update(ch, ev, x): lo / hi the 64-bit EV (the vendor's
+ * long_ev_update words), bv its x word.  curve_pa / hist_pa the physical
+ * addresses of the curve buffer and the LSF histogram buffer (the caller
+ * invalidates the histogram buffer in the LSF mode, as the vendor's
+ * private_dma_cache_sync), l16 / l37 the two lists.
+ */
+static inline void t33_lcepf_ev_update(struct t33_lce_pf *c, u8 *s, u32 lo, u32 hi, u32 bv, u32 curve_pa,
+				       u32 hist_pa, u32 *l16, u32 *l37, u32 mode[2])
+{
+	c->bv = bv;
+	c->ev = hi << 22 | lo >> 10;
+	t33_lceev_apply(c, s, curve_pa, hist_pa, l16, l37, mode);
+}
+
+/*
+ * tisp_lce_switch_para (day / night bin switch): s is the new section 15
+ * (the vendor's tparamsP + 0x5e5c, already replaced); the size fields
+ * again from the lceInfo sensor size (tisp_lce_size_para_calc, its
+ * 1920 x 1080 defaults being what t33_lce_size gives), the default curves
+ * (tisp_lce_curve_init_default with tisp_lce_write_all_reg's curve into
+ * half2) when the mode byte sec[0xc8] changed (lceInfo + 0x23dc1), the soft
+ * update word sec[5] = 3, then the EV update part at the last EV / BV.
+ */
+static inline void t33_lcepf_switch_para(struct t33_lce_pf *c, u8 *s, u32 *half2, u32 curve_pa, u32 hist_pa,
+					 u32 *l16, u32 *l37, u32 mode[2])
+{
+	u8 *dn = (u8 *)(void *)c + 0x23dc1;
+
+	t33_lce_size(s, c->h, c->w);
+	if (*dn != s[0xc8]) {
+		*dn = s[0xc8];
+		t33_lcepf_curve_default(c);
+		t33_lcepf_write_curve(c, half2);
+	}
+	s[5] = 3;
+	t33_lceev_apply(c, s, curve_pa, hist_pa, l16, l37, mode);
 }
 
 #endif /* TX_ISP_T33_LCEEV_H */

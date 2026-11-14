@@ -91,6 +91,8 @@ LSF-mode curve slot, `tisp_lce_bin_para_update`, EV or BV interpolations,
 mirror, lists 16 / 37 words, list 16 enable) under the irq 8 lock; the
 next irq 8 starts the lists. Oracle `tests/t33_binoracle/lceev.conf`
 (init + EV chains and poked lceInfo blocks vs the vendor instructions).
+`tisp_lce_switch_para` (day / night) is ported and proven by the same oracle
+but not called: the module has no bin switch path yet (openimp #504).
 
 Build (3.10.14 kernel tree):
 

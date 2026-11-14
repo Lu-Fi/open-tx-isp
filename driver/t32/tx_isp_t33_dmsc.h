@@ -470,7 +470,7 @@ static inline void t33_dmsc_para(u32 *v)
 		v[0x277] = a;
 	}
 	a = v[0x271];
-	if (v[0x272] - (u32)a < 2) {
+	if ((int)(v[0x272] - (u32)a) < 2) {	/* signed, as the vendor */
 		b = a + 2;
 		if (a > 0xffd) {
 			v[0x271] = 0xffd;
@@ -479,7 +479,7 @@ static inline void t33_dmsc_para(u32 *v)
 		v[0x272] = b;
 	}
 	a = v[0x275];
-	if (v[0x276] - (u32)a < 2) {
+	if ((int)(v[0x276] - (u32)a) < 2) {
 		b = a + 2;
 		if (a > 0xffd) {
 			v[0x275] = 0xffd;

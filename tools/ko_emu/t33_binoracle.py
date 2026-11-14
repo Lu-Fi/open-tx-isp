@@ -19,6 +19,11 @@ SPEC: one function per line (from the block's .conf, FUNCS=):
         out:N                   pointer to N zero bytes, compared after the call
         kn:N:MAX                pointer to N ascending LE u32 in [0, MAX] (repeats allowed), compared
         s32s:N:LO:HI            pointer to N LE s32 in [LO, HI], compared
+        info:VSYM:SIZE          a block state of SIZE bytes (random words: full, below 2^8, below 2^12 or edge values):
+                                the vendor gets channel 0 and the block's address in its global pointer array VSYM[0]
+                                (e.g. mdnsInfo), ours gets the block's address; the block is compared after the call.
+        info:VSYM:SIZE:W<M,..   the same with block word W (hex index) below M (e.g. table indices the vendor
+                                takes from 8-bit IQ fields and does not mask)
   VEC VENDOR V1 V2 ...          (line) fixed values for the scalar arguments of VENDOR (pointer arguments
                                 generated as usual), run before the random cases
   More than four argument words go to the stack (o32).
@@ -114,11 +119,34 @@ def is_ptr(a):
     return a.split(':')[0] in ('buf', 'out', 'kn', 's32s')
 
 
-def run_one(e, fn, args, gl_init, gl_syms):
-    """args: list of ('v', int) / ('v64', int) / ('p', bytes); returns (v0, v1, [buffers], [globals], stop)"""
+def info_block(r, size, lim=''):
+    """random block state words: full 32 bit, small (< 2^8), medium (< 2^12) or edge values (so that equal /
+    neighbouring words and the usual limits are frequent), chosen per case; lim 'W<M,..'"""
+    n = size // 4; m = r.choice((32, 8, 12, 12, 0))
+    if m:
+        w = [r.getrandbits(m) for _ in range(n)]
+    else:
+        w = [r.choice((0, 1, 2, 3, 0x40, 0x7f, 0x80, 0xff, 0x100, 0x101, 0xffc, 0xffd, 0xffe, 0xfff, 0x1000,
+                       0xffffffff, r.getrandbits(12))) for _ in range(n)]
+    for c in filter(None, lim.split(',')):
+        i, mx = c.split('<')
+        w[int(i, 16)] %= int(mx, 0)
+    return struct.pack('<%dI' % n, *w) + bytes(size - 4 * n)
+
+
+def run_one(e, fn, args, gl_init, gl_syms, vendor=False):
+    """args: list of ('v', int) / ('v64', int) / ('p', bytes) / ('i', (vsym, bytes)); returns (v0, v1, [buffers],
+    [globals], stop)"""
     e.heap_reset(); words = []; ptrs = []
     for k, v in args:
-        if k == 'p':
+        if k == 'i':
+            sym, blk = v
+            ad = e.alloc(len(blk) + 16, blk + bytes(16)); ptrs.append((ad, len(blk)))
+            if vendor:
+                e.write(e.addr(sym), struct.pack('<I', ad)); words.append(0)
+            else:
+                words.append(ad)
+        elif k == 'p':
             ad = e.alloc(max(len(v), 4) + 16, v + bytes(16)); ptrs.append((ad, len(v))); words.append(ad)
         elif k == 'v64':
             if len(words) & 1:
@@ -162,13 +190,18 @@ def main():
         for case in range(a.n + len(fixed)):
             args = []; fv = list(fixed[case]) if case < len(fixed) else None
             for t in argt:
-                if is_ptr(t):
+                if t.startswith('info:'):
+                    _, sym, sz, lim = (t + ':').split(':')[:4]
+                    if sym not in oem.symaddr:
+                        print('t33_binoracle: %s missing' % sym); return 2
+                    args.append(('i', (sym, info_block(rnd, int(sz, 0), lim))))
+                elif is_ptr(t):
                     args.append(('p', g.buf(t, case)))
                 else:
                     v = fv.pop(0) if fv else g.value(t, case - len(fixed))
                     args.append(('v64' if t.startswith('u64') else 'v', v))
             gi = [bytes(rnd.getrandbits(8) for _ in range(sz)) for _, _, sz in gl]
-            ro = run_one(oem, vfn, args, gi, [(v, sz) for v, _, sz in gl])
+            ro = run_one(oem, vfn, args, gi, [(v, sz) for v, _, sz in gl], vendor=True)
             ru = run_one(our, ofn, args, gi, [(o, sz) for _, o, sz in gl])
             total += 1
             if ro[4] or ru[4]:
@@ -186,7 +219,7 @@ def main():
                 continue
             nf += 1; bad += 1
             if nf <= 5:
-                shown = ['%#x' % v if k != 'p' else '<%d B>' % len(v) for k, v in args]
+                shown = ['%#x' % v if k in ('v', 'v64') else '<%d B>' % len(v if k == 'p' else v[1]) for k, v in args]
                 print('MISMATCH %s(%s): %s' % (vfn, ', '.join(shown), diff))
         print('%s: %d cases, %d mismatches' % (vfn, a.n + len(fixed), nf))
     print('t33_binoracle: %d cases, %d mismatches' % (total, bad))

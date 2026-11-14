@@ -6,7 +6,8 @@ tisp_lce_ev_update, func_lce_para_update, tisp_lce_bin_para_update and tisp_lce_
 driver/t32/tx_isp_t33_lceev.h (built into LCEEV_EMU.o by tests/t33_binoracle/build_emu.sh from
 tests/t33_binoracle/lceev.c) run in Unicorn on the same state.
   chain: random section 15 (EV / BV knots and tables, Gauss parameters, LSF mode, sizes), the vendor's
-         tisp_lce_init and ours, then --evs EV updates with random EV / BV words.
+         tisp_lce_init and ours, then --evs EV updates with random EV / BV words; with "switch" a new random
+         section and tisp_lce_switch_para (day / night) after every second EV update (curve buffer compared too).
   poke:  the whole lceInfo block random (but the section pointer), a random section, one EV update; also
          func_lce_para_update, bin_para_update and gausswgt_calc on their own on random blocks.
 Compared after every call: the whole lceInfo block (but the section pointer 0x62f8), the section, lists 16 and
@@ -23,7 +24,7 @@ from unicorn.mips_const import UC_MIPS_REG_A0, UC_MIPS_REG_V0, UC_MIPS_REG_V1, U
 ap = argparse.ArgumentParser(); ap.add_argument("oem"); ap.add_argument("our")
 ap.add_argument("--n", type=int, default=40); ap.add_argument("--evs", type=int, default=4)
 ap.add_argument("--poke", type=int, default=300); ap.add_argument("--seed", type=int, default=11)
-ap.add_argument("--fn", default="chain,poke,leaf")
+ap.add_argument("--fn", default="chain,switch,poke,leaf")
 a = ap.parse_args(); rnd = random.Random(a.seed); M32 = 0xffffffff
 FNS = set(a.fn.split(","))
 LI, SEC, LST = 0x23dc8, 0x400, 0x1000
@@ -78,7 +79,7 @@ class Side:
         s.c = e.alloc(LI, blk if blk is not None else bytes(LI)); s.sec = e.alloc(SEC, sec)
         s.l16 = e.alloc(LST, bytes(LST)); s.l37 = e.alloc(LST, bytes(LST))
         s.bufs = e.alloc(16, struct.pack("<2I", CURVE_PA, HIST_PA) + bytes(8))
-        s.hist = e.alloc(0x4840, bytes(0x4840))
+        s.hist = e.alloc(0x4840, bytes(0x4840)); s.curve = e.alloc(0x2d00, bytes(0x2d00))
     def mode(s):
         if s.e is oem:
             return s.e.read(OS["lcemodeflag"], 4) + s.e.read(OS["lcemodecounter"], 4)
@@ -86,14 +87,14 @@ class Side:
     def blobs(s):
         c = bytearray(s.e.read(s.c, LI)); c[0x62f8:0x62fc] = bytes(4)
         return {"lceInfo": bytes(c), "sec": s.e.read(s.sec, SEC), "l16": s.e.read(s.l16, LST),
-                "l37": s.e.read(s.l37, LST), "mode": s.mode()}
+                "l37": s.e.read(s.l37, LST), "mode": s.mode(), "curve": s.e.read(s.curve, 0x2d00)}
 
 
 def oem_globals(o):
     e = o.e
     w32(e, OS["lceInfo"], o.c); w32(e, o.c + 0x62f8, o.sec)
     b = OS["lceBuffInfo"]
-    for off, v in ((0x18, o.hist), (0x20, CURVE_PA), (0x24, STAT_PA), (0x28, HIST_PA), (0x2c, LSF_PA)):
+    for off, v in ((0x10, o.curve), (0x18, o.hist), (0x20, CURVE_PA), (0x24, STAT_PA), (0x28, HIST_PA), (0x2c, LSF_PA)):
         w32(e, b + off, v)
     w32(e, OS["stModuleAttr"] + 0x10 * 0x1c + 8, o.l16); w32(e, OS["stModuleAttr"] + 0x25 * 0x1c + 8, o.l37)
     e.write(OS["lceCfgMode"], b"\x01"); e.write(OS["lsfCfgMode"], b"\x01")
@@ -176,8 +177,8 @@ def chain(case):
     run(oem, "tisp_lce_init", 0, info)
     o.c = struct.unpack("<I", oem.read(OS["lceInfo"], 4))[0]
     run(our, "emu_init", u.c, u.sec, w, h)
-    for s in (o, u):                                                 # the init's list words are tx_isp_t33_lce/lsf.h
-        s.e.write(s.l16, bytes(LST)); s.e.write(s.l37, bytes(LST))
+    for s in (o, u):                     # the init's list words / curve buffer: tx_isp_t33_lce/lsf.h, the driver
+        s.e.write(s.l16, bytes(LST)); s.e.write(s.l37, bytes(LST)); s.e.write(s.curve, bytes(0x2d00))
     set_mode(o, u, bytes(8))
     if not cmp("init case %d" % case, o, u, "(%dx%d bvmode=%d lsf %d/%d)" % (w, h, sec[0x3d9], sec[0x2fb], sec[0xc8])):
         return
@@ -187,6 +188,12 @@ def chain(case):
         if not cmp("ev case %d step %d" % (case, k), o, u, "(lo %#x hi %#x bv %#x bvmode %d lsf %d/%d)" %
                    (lo, hi, bv, sec[0x3d9], sec[0x2fb], sec[0xc8])):
             return
+        if "switch" in FNS and k % 2 == 1:      # day / night: a new section 15, tisp_lce_switch_para
+            sec = mk_sec(); oem.write(o.sec, sec); our.write(u.sec, sec)
+            run(oem, "tisp_lce_switch_para", 0)
+            run(our, "emu_switch", u.c, u.sec, u.curve + 0x1680, u.bufs, stack_args=(u.l16, u.l37))
+            if not cmp("switch case %d step %d" % (case, k), o, u, "(%dx%d lsf %d/%d)" % (w, h, sec[0x2fb], sec[0xc8])):
+                return
 
 
 def poke(case, leaf):
@@ -218,7 +225,8 @@ if "chain" in FNS:
     n0 = FAIL[0]
     for i in range(a.n):
         chain(i)
-    print("chain: %d inits x %d EV updates, %d mismatches" % (a.n, a.evs, FAIL[0] - n0))
+    print("chain: %d inits x %d EV updates%s, %d mismatches" % (a.n, a.evs, " + switch_para" if "switch" in FNS else "",
+                                                                 FAIL[0] - n0))
 if "poke" in FNS:
     n0 = FAIL[0]
     for i in range(a.poke):

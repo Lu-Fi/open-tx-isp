@@ -28,3 +28,9 @@ void emu_ev(struct t33_lce_pf *c, u8 *s, u32 lo, u32 hi, u32 bv, const u32 *bufs
 void emu_para(struct t33_lce_pf *c, u8 *s) { t33_lcepf_para_update(c, s); }
 void emu_bin(struct t33_lce_pf *c, u8 *s) { t33_lcepf_bin_para(c, s); }
 void emu_gw(struct t33_lce_pf *c, u8 *s) { t33_lcepf_gausswgt(c, s); }
+
+/* tisp_lce_switch_para(0); half2: curve buffer half 2 */
+void emu_switch(struct t33_lce_pf *c, u8 *s, u32 *half2, const u32 *bufs, u32 *l16, u32 *l37)
+{
+	t33_lcepf_switch_para(c, s, half2, bufs[0], bufs[1], l16, l37, emu_lcemode);
+}

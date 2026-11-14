@@ -1,6 +1,7 @@
 #!/bin/sh
 # T33 binary oracle block "lceev" (openimp #500): tests/t33_binoracle/lceev.c (driver/t32/tx_isp_t33_lceev.h) vs the
-# vendor tisp_lce_init / tisp_lce_ev_update / func_lce_para_update / tisp_lce_bin_para_update / tisp_lce_gausswgt_calc
+# vendor tisp_lce_init / tisp_lce_ev_update / tisp_lce_switch_para / func_lce_para_update / tisp_lce_bin_para_update /
+# tisp_lce_gausswgt_calc
 # in Unicorn (tools/ko_emu/diff_t33_lceev.py), then one-token mutations of the headers that must be detected
 # (lines: oracle part @ header @ from @ to).
 # Needs T33_OEM_KO, T33_CC (else T40_CC) and python3 unicorn + pyelftools, else SKIP (run.sh checks).
@@ -44,6 +45,10 @@ poke@tx_isp_t33_lceev.h@	T33_SW(l16, T33_LCE_SLOT_EN, 1);@	T33_SW(l16, T33_LCE_S
 poke@tx_isp_t33_lceev.h@		T33_SW(l37, 0x1b + k, T33_LIP2(c, 0x56c + 8 * k, 0x568 + 8 * k, 0xfffU));@		T33_SW(l37, 0x1b + k, T33_LIP2(c, 0x56c + 8 * k, 0x568 + 8 * k, 0x7ffU));
 chain@tx_isp_t33_lcepf.h@	((u32 *)(void *)c)[0x62e4 / 4] = 3;@	((u32 *)(void *)c)[0x62e4 / 4] = 2;
 chain@tx_isp_t33_lcepf.h@	T33_LCEPF_PARA_UPDATE(c, s);@	do { } while (0);
+chain,switch@tx_isp_t33_lceev.h@	s[5] = 3;@	s[5] = 2;
+chain,switch@tx_isp_t33_lceev.h@	if (*dn != s[0xc8]) {@	if (*dn != s[0xc9]) {
+chain,switch@tx_isp_t33_lceev.h@		t33_lcepf_write_curve(c, half2);@		(void)half2;
+chain,switch@tx_isp_t33_lceev.h@	t33_lce_size(s, c->h, c->w);@	t33_lce_size(s, c->w, c->h);
 M
 echo "t33_binoracle lceev: mutations $NM detected, $NF not detected"
 [ $NF = 0 ] || exit 1
