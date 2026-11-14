@@ -5534,7 +5534,8 @@ static uintptr_t frame_delay_10417;
 static uintptr_t __key_0;
 static unsigned char video_input_cmd_buf[128];
 /* #464: OEM video_input_cmd_buf proper (the symbol above aliases other relocations). */
-static char tx_isp_t30_vin_cmd_buf[128];
+static char tx_isp_t30_vin_cmd_buf[0x84];
+static char tx_isp_t30_vic_cmd_buf[0x24];
 static unsigned char sp_9007[8];
 static int32_t g_switch_lfb_off;
 static int tx_isp_t30_streamoff_trace_count;
@@ -7493,9 +7494,14 @@ static struct file_operations tx_isp_fops = {
     .open = (int (*)(struct inode *, struct file *))tx_isp_open,
     .release = (int (*)(struct inode *, struct file *))tx_isp_release,
 };
+static ssize_t video_input_cmd_set(struct file *file, const char __user *ubuf,
+				   size_t count, loff_t *ppos);
+static ssize_t isp_vic_cmd_set(struct file *file, const char __user *ubuf,
+			       size_t count, loff_t *ppos);
 static struct file_operations video_input_cmd_fops = {
     .owner = THIS_MODULE,
     .open = (int (*)(struct inode *, struct file *))video_input_cmd_open,
+    .write = video_input_cmd_set,
     .llseek = (loff_t (*)(struct file *, loff_t, int))seq_lseek,
     .read = (ssize_t (*)(struct file *, char __user *, size_t, loff_t *))seq_read,
     .release = (int (*)(struct inode *, struct file *))single_release,
@@ -7513,6 +7519,8 @@ static struct file_operations video_input_cmd_fops = {
  * overflow is retried by seq_read with a bigger buffer instead of -EPERM.
  */
 #define TX_ISP_T30_VIC_FRD_OFF 0x15c	/* OEM vic+0x15c, ISR BIT(16) count */
+#define TX_ISP_T30_VIC_SNAP_BUF 0x13c	/* OEM vic+0x13c snapraw buffer (phys) */
+#define TX_ISP_T30_VIC_SNAP_COMP 0x144	/* OEM vic+0x144 snapraw completion */
 
 static void *tx_isp_t30_proc_dev(struct seq_file *m)
 {
@@ -7674,7 +7682,14 @@ static struct file_operations _name = {						\
 	.release = (int (*)(struct inode *, struct file *))single_release,	\
 }
 TX_ISP_T30_SEQ_PROC_FOPS(isp_csi_fops, dump_isp_csi_open);
-TX_ISP_T30_SEQ_PROC_FOPS(isp_vic_frd_fops, dump_isp_vic_frd_open);
+static struct file_operations isp_vic_frd_fops = {
+	.owner = THIS_MODULE,
+	.open = dump_isp_vic_frd_open,
+	.write = isp_vic_cmd_set,
+	.llseek = (loff_t (*)(struct file *, loff_t, int))seq_lseek,
+	.read = (ssize_t (*)(struct file *, char __user *, size_t, loff_t *))seq_read,
+	.release = (int (*)(struct inode *, struct file *))single_release,
+};
 TX_ISP_T30_SEQ_PROC_FOPS(isp_mscaler_fops, dump_isp_mscaler_open);
 TX_ISP_T30_SEQ_PROC_FOPS(isp_framesource_fops, dump_isp_framesource_open);
 static struct miscdevice misc_dev = {
@@ -8020,6 +8035,11 @@ static int tx_isp_t30_vic_interrupt(struct tx_isp_t30_subdev *sd)
 	/* #464, OEM ISR 0x79c: frame-done count shown by /proc/jz/isp/isp-w02. */
 	if ((pending & BIT(16)) && sd->dev_priv && !IS_ERR(sd->dev_priv))
 		(*(u32 *)((char *)sd->dev_priv + TX_ISP_T30_VIC_FRD_OFF))++;
+	/* #464, OEM ISR 0x758: snapraw DMA done -> stop it, wake isp_vic_cmd_set. */
+	if ((pending & BIT(26)) && sd->dev_priv && !IS_ERR(sd->dev_priv)) {
+		__raw_writel(0, base + 0x10000);
+		complete((struct completion *)((char *)sd->dev_priv + TX_ISP_T30_VIC_SNAP_COMP));
+	}
 	if (pending & (BIT(20) | BIT(21))) {
 		control = __raw_readl(base);
 		__raw_writel(control | BIT(4), base);
@@ -12761,7 +12781,9 @@ int32_t isp_info_show(struct seq_file *m)
 		if ((uint32_t)priv >= 0xfffff001u)
 			priv = NULL;
 		else
-			priv = *(void **)((char *)((char *)&video_input_cmd_buf + 0x34));
+			/* #464, OEM 0xa800: the ISP core device is module+0xd4
+			 * (dev_priv); the lift read a mislabelled relocation. */
+			priv = *(void **)((char *)priv + 0xd4);
 	}
 	sensor = priv;
 
@@ -12778,7 +12800,8 @@ int32_t isp_info_show(struct seq_file *m)
 			raw_pattern = "The format of isp input is RGB or YUV422";
 		else
 			raw_pattern = (const char *const[]){
-				"RAW", "RGB", "YUV422", "YUV420"
+				/* #464: OEM CSWTCH_237 (.rodata 0x648), "GBRB" sic */
+				"RGGB", "GRBG", "GBRB", "BGGR"
 			}[raw_fmt];
 
 		apical_command(3, 0x68, 0, 1, &cmd_val);
@@ -12829,7 +12852,9 @@ int32_t isp_info_show(struct seq_file *m)
 		/* #202 symval: OEM ko 0xab1c..0xab24 sums lbu 28/30/32(stab) (s8 = stab, 0xaaec); the lift read cal_byte+0/2/4, i.e. the stack past a 1-byte local */
 		exp_val = math_exp2(stab[0x1c] + stab[0x1e] + stab[0x20], 5, 8);
 
-		sensor_name = *(const char **)((char *)sensor + 0x120);
+		/* #464, OEM: **(char ***)(dev + 0x120) (the lift dropped one level) */
+		sensor_name = *(void **)((char *)sensor + 0x120) ?
+			      **(const char ***)((char *)sensor + 0x120) : "";
 		sensor_w = *(uint32_t *)((char *)sensor + 0xec);
 		sensor_h = *(uint32_t *)((char *)sensor + 0xf0);
 		integ_time = *(uint16_t *)(stab + 0x18);	/* OEM abe4 lhu a2,24(s8), s8 = stab (#371) */
@@ -12988,7 +13013,7 @@ int32_t isp_info_show(struct seq_file *m)
 		bright = val_77;
 		total += ((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))seq_printf)((uintptr_t)(m), (uintptr_t)("Brightness : %d\n"), (uintptr_t)(bright));
 	} else {
-		total += seq_printf(m, "(uintptr_t)sensor doesn't work, please enable (uintptr_t)sensor\n");
+		total += seq_printf(m, "sensor doesn't work, please enable sensor\n");
 	}
 
 	return total;
@@ -26520,6 +26545,186 @@ struct tx_isp_t30_dbg_register_wire {
 	u64 reg;
 	u64 val;
 };
+
+/*
+ * #464: /proc/jz/isp/isp-w00 write, OEM video_input_cmd_set (0x1b3c).
+ * "r sen_reg <reg>" reads, "w sen_reg <reg> <val>" writes a register of the
+ * active sensor through its core g_register/s_register with the OEM debug
+ * struct {name = sensor chip name, size, reg, val}; the result ("0x<val>",
+ * "ok"/"failed", "null" for an unknown command) is kept for the next read.
+ * Better than OEM: the copied command is NUL-terminated, a read value starts
+ * at 0, and the "no active sensor" case returns -EINVAL instead of 0 (a write
+ * returning 0 makes user space retry forever).
+ */
+static ssize_t video_input_cmd_set(struct file *file, const char __user *ubuf,
+				   size_t count, loff_t *ppos)
+{
+	struct seq_file *m = file->private_data;
+	void *mod = m ? m->private : NULL;
+	void *vin = NULL;
+	struct tx_isp_t30_subdev *sensor = NULL;
+	struct tx_isp_t30_subdev_core_ops *core;
+	struct tx_isp_t30_dbg_register dbg;
+	char *buf;
+	int (*fn)(struct tx_isp_t30_subdev *, struct tx_isp_t30_dbg_register *);
+	int ret;
+
+	BUILD_BUG_ON(offsetof(struct tx_isp_t30_subdev, chip) != 0x8c);
+	if (mod && !IS_ERR(mod))
+		vin = *(void **)((char *)mod + 0xd8);
+	if (vin && !IS_ERR(vin))
+		sensor = *(struct tx_isp_t30_subdev **)((char *)vin + 0xe4);
+	if (!sensor || IS_ERR(sensor)) {
+		if (m)
+			seq_printf(m, "don't have active sensor, please set sensor firstly!\n");
+		isp_printf(2, "don't have active sensor, please set sensor firstly!\n", 0);
+		return -EINVAL;
+	}
+	if (count <= 0x80) {
+		buf = tx_isp_t30_vin_cmd_buf;
+	} else {
+		buf = kmalloc(count + 1, GFP_KERNEL);
+		if (!buf)
+			return -ENOMEM;
+	}
+	if (copy_from_user(buf, ubuf, count)) {
+		if (buf != tx_isp_t30_vin_cmd_buf)
+			kfree(buf);
+		return -EFAULT;
+	}
+	buf[count] = '\0';
+	core = sensor->ops ? sensor->ops->core : NULL;
+	memset(&dbg, 0, sizeof(dbg));
+	dbg.name = sensor->chip.name;
+	if (!strncmp(buf, "r sen_reg", 9)) {
+		dbg.reg = simple_strtoull(buf + 10, NULL, 0);
+		fn = core ? core->g_register : NULL;
+		ret = fn ? fn(sensor, &dbg) : -1;
+		if (ret)
+			isp_printf(2, "##### err %s.%d\n", "video_input_cmd_set", 621);
+		seq_printf(m, "isp: sensor reg read 0x%x(0x%x)\n",
+			   (u32)dbg.reg, (u32)dbg.val);
+		snprintf(tx_isp_t30_vin_cmd_buf, sizeof(tx_isp_t30_vin_cmd_buf),
+			 "0x%x\n", (u32)dbg.val);
+	} else if (!strncmp(buf, "w sen_reg", 9)) {
+		char *end = NULL;
+
+		dbg.reg = simple_strtoull(buf + 10, &end, 0);
+		dbg.val = simple_strtoull(end ? end + 1 : buf + 10, NULL, 0);
+		seq_printf(m, "isp: sensor reg write 0x%x(0x%x)\n",
+			   (u32)dbg.reg, (u32)dbg.val);
+		fn = core ? core->s_register : NULL;
+		ret = fn ? fn(sensor, &dbg) : -1;
+		snprintf(tx_isp_t30_vin_cmd_buf, sizeof(tx_isp_t30_vin_cmd_buf),
+			 "%s\n", ret ? "failed" : "ok");
+	} else {
+		snprintf(tx_isp_t30_vin_cmd_buf, sizeof(tx_isp_t30_vin_cmd_buf), "null");
+	}
+	if (buf != tx_isp_t30_vin_cmd_buf)
+		kfree(buf);
+	return count;
+}
+
+/*
+ * #464: /proc/jz/isp/isp-w02 write, OEM isp_vic_cmd_set (0x924).  "snapraw"
+ * takes one RAW frame through the VIC snapshot DMA (base + 0x10000..0x10018)
+ * into an ISP reserved-memory buffer (isp_malloc_buffer, width * 2 * height,
+ * width <= 0xa80) and writes it to /tmp/snap.raw.  The ISR (bit 26) stops
+ * the DMA and completes vic+0x144.  Better than OEM: the wait has a 2 s
+ * timeout per try and stops after 3 tries (OEM waits interruptibly without one),
+ * the file is written from the uncached alias (no stale cache lines), missing ISP memory is
+ * reported instead of returning silently, and the command is NUL-terminated.
+ */
+static ssize_t isp_vic_cmd_set(struct file *file, const char __user *ubuf,
+			       size_t count, loff_t *ppos)
+{
+	struct seq_file *m = file->private_data;
+	struct tx_isp_t30_subdev *sd = m ? m->private : NULL;
+	char *vic = NULL;
+	void __iomem *base;
+	char *buf;
+	u32 w, h, size, phys;
+	int tries;
+	long r = 0;
+
+	if (sd && !IS_ERR(sd))
+		vic = sd->dev_priv;
+	if (!vic || IS_ERR(vic)) {
+		if (m)
+			seq_printf(m, "Can't ops the node!\n");
+		return -EINVAL;
+	}
+	if (count <= 0x20) {
+		buf = tx_isp_t30_vic_cmd_buf;
+	} else {
+		buf = kmalloc(count + 1, GFP_KERNEL);
+		if (!buf)
+			return -ENOMEM;
+	}
+	if (copy_from_user(buf, ubuf, count)) {
+		if (buf != tx_isp_t30_vic_cmd_buf)
+			kfree(buf);
+		return -EFAULT;
+	}
+	buf[count] = '\0';
+	if (strncmp(buf, "snapraw", 7))
+		goto out;
+	base = sd->base;
+	w = *(u32 *)(vic + 0xdc);
+	h = *(u32 *)(vic + 0xe0);
+	if (w > 0xa80) {
+		seq_printf(m, "Can't output the width(%d)!\n", w);
+		goto out;
+	}
+	if (*(u32 *)(vic + TX_ISP_T30_VIC_SNAP_BUF)) {
+		seq_printf(m, "The node is busy!\n");
+		goto out;
+	}
+	size = w * 2 * h;
+	phys = isp_malloc_buffer(size);
+	if (!phys) {
+		isp_printf(2, "snapraw: no ISP reserved memory for %u bytes\n", size);
+		goto out;
+	}
+	*(u32 *)(vic + TX_ISP_T30_VIC_SNAP_BUF) = phys;
+	*(u32 *)(vic + TX_ISP_T30_VIC_SNAP_BUF + 4) = phys + 0x80000000u;
+	init_completion((struct completion *)(vic + TX_ISP_T30_VIC_SNAP_COMP));
+	__raw_writel(1, base + 0x10008);
+	__raw_writel(w << 16 | h, base + 0x10004);
+	__raw_writel(w * 2, base + 0x10014);
+	__raw_writel(phys, base + 0x10018);
+	__raw_writel(0x80000000u, base + 0x10000);
+	for (tries = 0; tries < 100; tries++) {
+		r = wait_for_completion_interruptible_timeout(
+			(struct completion *)(vic + TX_ISP_T30_VIC_SNAP_COMP), 2 * HZ);
+		if (r != 0)
+			break;
+		if (tries >= 2)	/* 3 x 2 s without a VIC snapshot interrupt */
+			break;
+	}
+	if (r > 0) {
+		struct file *fp = filp_open("/tmp/snap.raw", O_WRONLY | O_CREAT | O_TRUNC, 0766);
+
+		if (!IS_ERR(fp)) {
+			mm_segment_t fs = get_fs();
+
+			set_fs(KERNEL_DS);
+			/* uncached KSEG1 alias: no stale cache lines of the DMA'd frame */
+			vfs_write(fp, (const char __user *)(phys | 0xa0000000u), size, &fp->f_pos);
+			set_fs(fs);
+			filp_close(fp, NULL);
+		}
+	} else {
+		__raw_writel(0, base + 0x10000);
+		seq_printf(m, "snapraw timeout!\n");
+	}
+	isp_free_buffer(phys);
+	*(u32 *)(vic + TX_ISP_T30_VIC_SNAP_BUF) = 0;
+out:
+	if (buf != tx_isp_t30_vic_cmd_buf)
+		kfree(buf);
+	return count;
+}
 
 static long tx_isp_t30_sensor_register_ioctl(struct file *file,
 					      unsigned int cmd,
