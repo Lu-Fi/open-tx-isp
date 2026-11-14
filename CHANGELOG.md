@@ -4,6 +4,10 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD[-rcN]` are set on the `aperto` branch, the same tag in open-tx-isp and OpenIMP: RC1 `v2026.10.11-rc1`, RC2 `v2026.10.25-rc2`, RC3 `v2026.11.07-rc3` (2026-11-07). Gate SoCs of RC3 and Release 1: T10, T20, T21, T23, T30, T31, T40, T41 (T32/T33 planned, QEMU only); release notes: [docs/releases/ in OpenIMP](https://github.com/Lu-Fi/openimp/blob/next/docs/releases/README.md). Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-11-14: docs: kernel module size row (user OK 2026-11-14)
+
+- `docs/BEYOND_VENDOR.md`: new row 'Kernel module smaller than the vendor module' (T21, T23, T30, T31; numbers from OpenIMP `docs/SIZE.md`). Docs only.
+
 ## 2026-11-14: T33 binary oracle (openimp #99, #501; planned, host only)
 
 - `tests/t33_binoracle/`: single functions of the vendor `tx-isp-t33.ko` run in Unicorn next to our C of `driver/t32/tx_isp_t33_*.h` (built for mipsel with the vendor calling convention): `tools/ko_emu/t33_binoracle.py` (on the `ko_emu` loader) compares return values, pointer buffers and listed globals on random and edge inputs; one `<block>.c` + `<block>.conf` per block (FUNCS spec, PROVES, MUTATIONS), `run.sh <block>`, make target `t33_binoracle_leaf` in `check-oracles`; SKIP without `T33_OEM_KO` / `T33_CC` (vendor module never in the repository). `lcepf.conf` routes the #444 oracle through the same runner.
