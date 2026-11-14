@@ -190,6 +190,10 @@ struct t20_fsm_dis {
 	uint32_t field_28;
 };
 
+struct t20_fsm_crop {
+	struct t20_fsm_hdr hdr;
+};
+
 struct t20_fsm_matrix_yuv {
 	struct t20_fsm_hdr hdr;
 	uint8_t pad_0c[0x94];
@@ -203,6 +207,43 @@ struct t20_fsm_matrix_yuv {
 	uint8_t field_c2;
 	uint8_t pad_c3[0x19];
 	uint8_t field_dc;
+};
+
+struct t20_fsm_defect_pixel {
+	struct t20_fsm_hdr hdr;
+	uint8_t pad_0c[6];
+	uint16_t threshold;	/* 0x12 */
+	uint8_t field_14;
+};
+
+/* Frame-period counter used by _process_fps_cnt. */
+struct t20_fps_cnt {
+	uint32_t average;	/* 0x00 */
+	uint32_t first;		/* 0x04 */
+	uint32_t last;		/* 0x08 */
+};
+
+/* Firmware flag block pointed to by the API context (+4). */
+struct t20_api_fw {
+	uint32_t pad_00;
+	uint32_t irq_locked;	/* 0x04 */
+};
+
+/* API context used by the ROI/histogram handlers. */
+struct t20_api_ctx {
+	uint8_t pad_00[4];
+	struct t20_api_fw *fw;		/* 0x04 */
+	uint8_t pad_08[1844];
+	uint32_t ae_roi;		/* 0x73c (1852) */
+	uint8_t hist_request;		/* 0x740 (1856) */
+	uint8_t pad_741[1947];
+	uint32_t awb_roi;		/* 0xedc (3804) */
+};
+
+/* Table of 32-bit entries with a bound, used by get_exp. */
+struct t20_exp_lut {
+	uint32_t *entries;	/* 0x00 */
+	uint32_t count;		/* 0x04 */
 };
 
 #endif

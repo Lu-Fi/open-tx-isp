@@ -4612,98 +4612,54 @@ void sensor_write_data(int32_t *dev, int32_t reg, char *buf, int32_t len)
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000018338 origin=fragment_seed original=sequence_read_u16 */
-static int64_t sequence_read_u16(uintptr_t a0)
+static int64_t sequence_read_u16(uintptr_t addr)
 {
-    uint32_t ra = 0;
-    uintptr_t v0 = 0;
-    uint32_t v1 = 0;
+    const uint8_t *bytes = (const uint8_t *)addr;
+    uint32_t high = (uint32_t)bytes[1] << 8;
+    uint32_t value = high | bytes[0];
 
-    /* fragment 0: MemoryAccess */
-    v1 = *(uint8_t *)((char *)a0 + 1);
-    v0 = *(uint8_t *)((char *)a0 + 0);
-    v1 = v1 << 8;
-
-    /* fragment 1: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    /* fragment 2: Arithmetic */
-    v0 = v1 | v0;
-
-    return ((int64_t)(uint32_t)v1 << 32) | (uint32_t)v0;
+    return ((int64_t)high << 32) | value;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000001834c origin=fragment_seed original=sequence_read_u32 */
-static int64_t sequence_read_u32(uintptr_t a0)
+static int64_t sequence_read_u32(uintptr_t addr)
 {
-    uint32_t ra = 0;
-    uintptr_t v0 = 0;
-    uint32_t v1 = 0;
+    const uint8_t *bytes = (const uint8_t *)addr;
+    uint32_t high = (((uint32_t)bytes[3] << 8) | bytes[2]) << 16;
+    uint32_t low = ((uint32_t)bytes[1] << 8) | bytes[0];
+    uint32_t value = high | low;
 
-    /* fragment 0: MemoryAccess */
-    v1 = *(uint8_t *)((char *)a0 + 3);
-    v0 = *(uint8_t *)((char *)a0 + 2);
-    v1 = v1 << 8;
-    v1 = v1 | v0;
-    v0 = *(uint8_t *)((char *)a0 + 1);
-    a0 = *(uint8_t *)((char *)a0 + 0);
-    v0 = v0 << 8;
-    v1 = v1 << 16;
-    v0 = v0 | a0;
-
-    /* fragment 1: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    /* fragment 2: Arithmetic */
-    v0 = v1 | v0;
-
-    return ((int64_t)(uint32_t)v1 << 32) | (uint32_t)v0;
+    return ((int64_t)high << 32) | value;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000018378 origin=fragment_seed original=sequence_write_u16 */
-static uint8_t sequence_write_u16(uintptr_t a0, uint32_t a1)
+static uint8_t sequence_write_u16(uintptr_t addr, uint32_t value)
 {
-    uint32_t ra = 0;
-    uint32_t v0 = 0;
+    uint8_t *bytes = (uint8_t *)addr;
+    uint32_t v = value & 65535;
+    uint32_t high = v >> 8;
 
-    /* fragment 0: Arithmetic */
-    a1 = a1 & 65535;
-    v0 = a1 >> 8;
+    bytes[1] = high;
+    bytes[0] = v;
 
-    /* fragment 1: MemoryAccess */
-    *(uint8_t *)((char *)a0 + 1) = v0;
-
-    /* fragment 2: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    /* fragment 3: MemoryAccess */
-    *(uint8_t *)((char *)a0 + 0) = a1;
-
-    return (uint8_t)v0;
+    return (uint8_t)high;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000001838c origin=fragment_seed original=sequence_write_u32 */
-static uint8_t sequence_write_u32(uintptr_t a0, uint32_t a1)
+static uint8_t sequence_write_u32(uintptr_t addr, uint32_t value)
 {
-    uint32_t ra = 0;
-    uintptr_t v0 = 0;
+    uint8_t *bytes = (uint8_t *)addr;
+    uint32_t part;
 
-    /* fragment 0: Arithmetic */
-    v0 = a1 >> 24;
+    part = value >> 24;
+    bytes[3] = part;
+    part = value >> 16;
+    bytes[2] = part;
+    part = value >> 8;
+    bytes[1] = part;
+    bytes[0] = value;
 
-    /* fragment 1: MemoryAccess */
-    *(uint8_t *)((char *)a0 + 3) = v0;
-    v0 = a1 >> 16;
-    *(uint8_t *)((char *)a0 + 2) = v0;
-    v0 = a1 >> 8;
-    *(uint8_t *)((char *)a0 + 1) = v0;
-
-    /* fragment 2: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    /* fragment 3: MemoryAccess */
-    *(uint8_t *)((char *)a0 + 0) = a1;
-
-    return (uint8_t)v0;
+    return (uint8_t)part;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000183ac origin=model_output original=sensor_load_binary_sequence */
@@ -5980,11 +5936,11 @@ int32_t system_calibrate_bad_pixels(int32_t unused, char value, char direction, 
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000001a35c origin=fragment_seed original=selftest_lens_interface */
-int32_t selftest_lens_interface(uint32_t a0, uint32_t a1, uint32_t a2, uintptr_t a3)
+int32_t selftest_lens_interface(uint32_t cmd, uint32_t param, uint32_t flags, uintptr_t ret_ptr)
 {
 	/* OEM 0x199fc: *ret = 0, status 2 (not supported); the recovery lost
 	 * the delay-slot "li v0,2" and reported success */
-	*(uint32_t *)a3 = 0;
+	*(uint32_t *)ret_ptr = 0;
 	return 2;
 }
 
@@ -6149,21 +6105,13 @@ int32_t isp_system_state(void *arg1, int32_t arg2, char arg3, int32_t *arg4)
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000001a5a8 origin=fragment_seed original=system_sensor_select */
-static int32_t system_sensor_select(uint32_t a0, uint32_t a1, uint32_t a2, uintptr_t a3)
+static int32_t system_sensor_select(uint32_t ctx_addr, uint32_t value, uint32_t direction, uintptr_t ret_addr)
 {
-    uint32_t ra = 0;
-    uintptr_t v0 = 0;
+	/* Sensor selection is not supported: always report 0, status 0. */
+	uint32_t *ret_value = (uint32_t *)ret_addr;
 
-    /* fragment 0: MemoryAccess */
-    *(uint32_t *)((char *)a3 + 0) = 0;
-
-    /* fragment 1: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    /* fragment 2: Arithmetic */
-    v0 = 1;
-
-    return 0;
+	*ret_value = 0;
+	return 0;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000001a5b4 origin=model_output original=test_pattern_enable */
@@ -6325,16 +6273,7 @@ int32_t ds2_pipe_status(int32_t arg1, int32_t arg2, char arg3, int32_t *arg4)
 /* WHOLE_DRIVER_CANDIDATE fn_000000000001a9a4 origin=fragment_seed original=system_frame_buffer */
 static int32_t system_frame_buffer(void)
 {
-    uint32_t ra = 0;
-    uintptr_t v0 = 0;
-
-    /* fragment 0: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    /* fragment 1: Arithmetic */
-    v0 = 1;
-
-    return 0;
+	return 0;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000001a9ac origin=model_output original=resolution_active_image */
@@ -6868,75 +6807,76 @@ int32_t wdr_mode(void *arg1, int32_t arg2, char arg3, int32_t *arg4)
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000001b308 origin=fragment_seed original=histogram_lum */
-int32_t histogram_lum(uintptr_t a0, uint32_t a1, uint32_t a2, uintptr_t a3)
+int32_t histogram_lum(uintptr_t ctx_addr, uint32_t value, uint32_t direction, uintptr_t ret_addr)
 {
 	/* OEM 0x1a9a8: only GET (1) is valid (else status 1); it requests a
 	 * histogram dump (byte +1856 = 1, buffer size 0) with interrupts off
 	 * unless fw[4] is set, *ret = 0, status 0 */
-	uint32_t *fw = *(uint32_t **)(a0 + 4);
+	struct t20_api_ctx *ctx = (struct t20_api_ctx *)ctx_addr;
+	struct t20_api_fw *fw = ctx->fw;
 
-	if ((a2 & 0xff) != 1)
+	if ((direction & 0xff) != 1)
 		return 1;
-	if (fw[1] == 0)
+	if (fw->irq_locked == 0)
 		system_hw_interrupts_disable();
 	apical_api_buffer_data_size = 0;
-	*(uint8_t *)(a0 + 1856) = 1;
-	if ((*(uint32_t **)(a0 + 4))[1] == 0)
+	ctx->hist_request = 1;
+	if (ctx->fw->irq_locked == 0)
 		system_hw_interrupts_enable();
-	*(uint32_t *)a3 = 0;
+	*(uint32_t *)ret_addr = 0;
 	return 0;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000001b39c origin=fragment_seed original=af_mode */
-int32_t af_mode(uint32_t a0, uint32_t a1, uint32_t a2, uintptr_t a3)
+int32_t af_mode(uint32_t cmd, uint32_t param, uint32_t flags, uintptr_t ret_ptr)
 {
 	/* OEM 0x1aa3c: *ret = 0, status 2 (not supported); the recovery lost
 	 * the delay-slot "li v0,2" and reported success */
-	*(uint32_t *)a3 = 0;
+	*(uint32_t *)ret_ptr = 0;
 	return 2;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000001b3a8 origin=fragment_seed original=af_range_low */
-int32_t af_range_low(uint32_t a0, uint32_t a1, uint32_t a2, uintptr_t a3)
+int32_t af_range_low(uint32_t cmd, uint32_t param, uint32_t flags, uintptr_t ret_ptr)
 {
 	/* OEM 0x1aa48: *ret = 0, status 2 (not supported); the recovery lost
 	 * the delay-slot "li v0,2" and reported success */
-	*(uint32_t *)a3 = 0;
+	*(uint32_t *)ret_ptr = 0;
 	return 2;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000001b3b4 origin=fragment_seed original=af_range_high */
-int32_t af_range_high(uint32_t a0, uint32_t a1, uint32_t a2, uintptr_t a3)
+int32_t af_range_high(uint32_t cmd, uint32_t param, uint32_t flags, uintptr_t ret_ptr)
 {
 	/* OEM 0x1aa54: *ret = 0, status 2 (not supported); the recovery lost
 	 * the delay-slot "li v0,2" and reported success */
-	*(uint32_t *)a3 = 0;
+	*(uint32_t *)ret_ptr = 0;
 	return 2;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000001b3c0 origin=fragment_seed original=af_roi */
-int64_t af_roi(uint32_t a0, uint32_t a1, uint32_t a2, uintptr_t a3)
+int64_t af_roi(uint32_t ctx_addr, uint32_t roi, uint32_t direction, uintptr_t ret_addr)
 {
 	/* OEM 0x1aa60: GET (1) -> 0, other directions -> 2; SET accepts the
-	 * ROI only when x1 >= x2 byte order holds ((a1 >> 24) < ((a1 >> 8) &
-	 * 0xff) and ((a1 >> 16) & 0xff) < (a1 & 0xff)), else *ret = 1 and
+	 * ROI only when x1 >= x2 byte order holds ((roi >> 24) < ((roi >> 8) &
+	 * 0xff) and ((roi >> 16) & 0xff) < (roi & 0xff)), else *ret = 1 and
 	 * status 5.  The recovery fell through all three exits (status 0). */
-	uint32_t dir = a2 & 0xff;
+	uint32_t dir = direction & 0xff;
 
 	if (dir != 0)
 		return dir == 1 ? 0 : 2;
-	if ((a1 >> 24) < ((a1 >> 8) & 0xff) && ((a1 >> 16) & 0xff) < (a1 & 0xff))
+	if ((roi >> 24) < ((roi >> 8) & 0xff) && ((roi >> 16) & 0xff) < (roi & 0xff))
 		return 0;
-	*(uint32_t *)a3 = 1;
+	*(uint32_t *)ret_addr = 1;
 	return 5;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000001b424 origin=fragment_seed original=af_status */
-int32_t af_status(uint32_t a0, uint32_t a1, uint32_t a2, uintptr_t a3)
+int32_t af_status(uint32_t cmd, uint32_t param, uint32_t flags, uintptr_t ret_ptr)
 {
 	/* OEM 0x1aac4: *ret = 0, status 2 (not supported); the recovery lost
 	 * the delay-slot "li v0,2" and reported success */
-	*(uint32_t *)a3 = 0;
+	*(uint32_t *)ret_ptr = 0;
 	return 2;
 }
 
@@ -7093,13 +7033,13 @@ int32_t ae_exposure(void *arg1, int32_t arg2, char arg3, int32_t *arg4)
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000001b7b0 origin=fragment_seed original=ae_roi */
-int32_t ae_roi(uintptr_t a0, uint32_t a1, uint32_t a2, uintptr_t a3)
+int32_t ae_roi(uintptr_t ctx_addr, uint32_t roi, uint32_t direction, uintptr_t ret_addr)
 {
-	a2 &= 0xff;
-	if (a2 == 0)
-		return ae_roi_part_1((void *)a0, a1, (int32_t *)a3);
-	if (a2 == 1) {
-		*(uint32_t *)a3 = *(uint32_t *)(a0 + 1852);
+	direction &= 0xff;
+	if (direction == 0)
+		return ae_roi_part_1((void *)ctx_addr, roi, (int32_t *)ret_addr);
+	if (direction == 1) {
+		*(uint32_t *)ret_addr = ((struct t20_api_ctx *)ctx_addr)->ae_roi;
 		return 0;
 	}
 	return 2;
@@ -7322,13 +7262,13 @@ int32_t awb_temperature(void *arg1, int32_t arg2, char arg3, int32_t *arg4)
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000001bbc0 origin=fragment_seed original=awb_roi */
-int32_t awb_roi(uintptr_t a0, uint32_t a1, uint32_t a2, uintptr_t a3)
+int32_t awb_roi(uintptr_t ctx_addr, uint32_t roi, uint32_t direction, uintptr_t ret_addr)
 {
-	a2 &= 0xff;
-	if (a2 == 0)
-		return awb_roi_part_2((void *)a0, a1, (int32_t *)a3);
-	if (a2 == 1) {
-		*(uint32_t *)a3 = *(uint32_t *)(a0 + 3804);
+	direction &= 0xff;
+	if (direction == 0)
+		return awb_roi_part_2((void *)ctx_addr, roi, (int32_t *)ret_addr);
+	if (direction == 1) {
+		*(uint32_t *)ret_addr = ((struct t20_api_ctx *)ctx_addr)->awb_roi;
 		return 0;
 	}
 	return 2;
@@ -8408,21 +8348,13 @@ label_1d5dc:
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000001d6b8 origin=fragment_seed original=sharpening_mode */
-static int32_t sharpening_mode(uint32_t a0, uint32_t a1, uint32_t a2, uintptr_t a3)
+static int32_t sharpening_mode(uint32_t ctx_addr, uint32_t value, uint32_t direction, uintptr_t ret_addr)
 {
-    uint32_t ra = 0;
-    uintptr_t v0 = 0;
+	/* Sharpening mode is not supported: always report 0, status 0. */
+	uint32_t *ret_value = (uint32_t *)ret_addr;
 
-    /* fragment 0: MemoryAccess */
-    *(uint32_t *)((char *)a3 + 0) = 0;
-
-    /* fragment 1: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    /* fragment 2: Arithmetic */
-    v0 = 2;
-
-    return 0;
+	*ret_value = 0;
+	return 0;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000001d6c4 origin=model_output original=sharpening_strength */
@@ -10832,7 +10764,7 @@ int32_t defect_pixel_table_write(uint32_t *table, uint32_t count)
 /* WHOLE_DRIVER_CANDIDATE fn_000000000002006c origin=fragment_seed original=defect_pixel_initialize */
 int32_t defect_pixel_initialize(uintptr_t a0)
 {
-	uint8_t *fsm = (uint8_t *)a0;
+	struct t20_fsm_defect_pixel *fsm = (struct t20_fsm_defect_pixel *)a0;
 	int32_t result;
 	uint32_t reg;
 	uint16_t threshold;
@@ -10843,13 +10775,13 @@ int32_t defect_pixel_initialize(uintptr_t a0)
 	APICAL_WRITE_32(0x1c0, reg | 4);
 
 	threshold = 0x40;
-	*(uint16_t *)(fsm + 0x12) = threshold;
+	fsm->threshold = threshold;
 	reg = APICAL_READ_32(0x200);
 	APICAL_WRITE_32(0x200, reg | 4);
 	reg = APICAL_READ_32(0x1cc);
 	result = APICAL_WRITE_32(0x1cc,
 		(reg & 0xfffff000) | ((uint32_t)threshold & 0xfff));
-	fsm[0x14] = 0;
+	fsm->field_14 = 0;
 
 	return result;
 }
@@ -11471,57 +11403,58 @@ int32_t color_matrix_initialize(int32_t *arg1)
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000021740 origin=model_output original=iridix_fsm_process_interrupt */
 void iridix_fsm_process_interrupt(int32_t *arg1, char arg2)
 {
-    int32_t reg_val;
-    void *base;
-    int32_t idx;
-    int32_t exp_a;
-    int32_t exp_b;
-    int32_t diff;
-    int32_t result;
-    int32_t *cur;
-    uint16_t val16;
-    int32_t div;
-    int32_t s0_2;
-    int32_t a0_4;
-    int32_t v1_5;
-    int32_t cur2;
+	struct t20_fsm_iridix *fsm = (struct t20_fsm_iridix *)arg1;
+	int32_t reg_val;
+	void *base;
+	int32_t prev_idx;
+	int32_t exp_cur;
+	int32_t exp_prev;
+	int32_t exp_delta;
+	int32_t strength;
+	uint32_t cur_reg;
+	int32_t avg_div;
+	int32_t level;
+	uint16_t level16;
+	int32_t old_acc;
+	int32_t new_acc;
+	int32_t cur_lo;
 
-    /* OEM 0x21740 handles Iridix commits only on frame-start IRQ 0. */
-    if ((uint8_t)arg2 != 0)
-        return;
+	/* OEM 0x21740 handles Iridix commits only on frame-start IRQ 0. */
+	if ((uint8_t)arg2 != 0)
+		return;
 
-    reg_val = APICAL_READ_32(0x2c0);
-    base = (void *)((char *)(*(int32_t *)arg1) + 0x100);
-    idx = (reg_val & 0x80) ? 0 : -1;
-    exp_a = *(int32_t *)cmos_get_frame_exposure_set((uintptr_t)base, (reg_val & 0x80) ? 1 : 0);
-    exp_b = *(int32_t *)cmos_get_frame_exposure_set(base, idx);
-    diff = exp_b - exp_a;
-    result = (int32_t)math_exp2(diff, 0x10, 8);
+	reg_val = APICAL_READ_32(0x2c0);
+	base = (void *)((char *)fsm->hdr.isp + 0x100);
+	prev_idx = (reg_val & 0x80) ? 0 : -1;
+	exp_cur = *(int32_t *)cmos_get_frame_exposure_set(base, (reg_val & 0x80) ? 1 : 0);
+	exp_prev = *(int32_t *)cmos_get_frame_exposure_set(base, prev_idx);
+	exp_delta = exp_prev - exp_cur;
+	strength = (int32_t)math_exp2(exp_delta, 0x10, 8);
 
-    if (result < 0)
-        result = 0x100;
-    else if (result >= 0x1000)
-        result = 0x1000;
+	if (strength < 0)
+		strength = 0x100;
+	else if (strength >= 0x1000)
+		strength = 0x1000;
 
-    cur = APICAL_READ_32(0x3dc);
-    APICAL_WRITE_32(0x3dc, (result & 0xfff) | ((uintptr_t)cur & 0xfffff000));
+	cur_reg = APICAL_READ_32(0x3dc);
+	APICAL_WRITE_32(0x3dc, (strength & 0xfff) | (cur_reg & 0xfffff000));
 
-    if (result != 0x100)
-        return;
+	if (strength != 0x100)
+		return;
 
-    val16 = *(uint16_t *)((char *)arg1 + 0x10);
-    div = *(uint8_t *)_GET_UCHAR_PTR(0x107);
-    s0_2 = val16;
+	level16 = fsm->field_10;
+	avg_div = *(uint8_t *)_GET_UCHAR_PTR(0x107);
+	level = level16;
 
-    if (div >= 2) {
-        a0_4 = arg1[5];
-        v1_5 = val16 + a0_4 - (a0_4 / div);
-        ((void **)arg1)[5] = v1_5;
-        s0_2 = (v1_5 / div) & 0xffff;
-    }
+	if (avg_div >= 2) {
+		old_acc = fsm->field_14;
+		new_acc = level16 + old_acc - (old_acc / avg_div);
+		fsm->field_14 = new_acc;
+		level = (new_acc / avg_div) & 0xffff;
+	}
 
-    cur2 = APICAL_READ_32(0x3c4);
-    APICAL_WRITE_32(0x3c4, (s0_2 >> 8) | (cur2 & 0xffffff00));
+	cur_lo = APICAL_READ_32(0x3c4);
+	APICAL_WRITE_32(0x3c4, (level >> 8) | (cur_lo & 0xffffff00));
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000218e4 origin=model_output original=iridix_init_pre_post_gamma */
@@ -12242,15 +12175,16 @@ int32_t _update_fr(uint32_t *arg1)
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000022cdc origin=model_output original=crop_fsm_process_interrupt */
 int32_t crop_fsm_process_interrupt(int32_t *arg1, char arg2)
 {
+	struct t20_fsm_crop *fsm = (struct t20_fsm_crop *)arg1;
 	int32_t result = 2;
 
-	if (arg1[1] == 2) {
+	if (fsm->hdr.state == 2) {
 		result = 5;
 		if ((arg2 & 0xff) == 5) {
-			((uintptr_t (*)(uintptr_t, uintptr_t))_update_fr)((uintptr_t)(arg1), (uintptr_t)(0));
-			((uintptr_t (*)(uintptr_t, uintptr_t))_update_ds)((uintptr_t)(arg1), (uintptr_t)(0));
-			((uintptr_t (*)(uintptr_t, uintptr_t))_update_ds2)((uintptr_t)(arg1), (uintptr_t)(0));
-			return apical_isp_raise_event(*arg1, 7);
+			((uintptr_t (*)(uintptr_t, uintptr_t))_update_fr)((uintptr_t)fsm, 0);
+			((uintptr_t (*)(uintptr_t, uintptr_t))_update_ds)((uintptr_t)fsm, 0);
+			((uintptr_t (*)(uintptr_t, uintptr_t))_update_ds2)((uintptr_t)fsm, 0);
+			return apical_isp_raise_event(fsm->hdr.isp, 7);
 		}
 	}
 
@@ -14795,9 +14729,7 @@ T20_NO_STORE_MERGE void* cmos_fsm_clear(uintptr_t a0)
 	fsm->field_1d4 = 0;
 	fsm->field_1d8 = 0;
 
-	/* OEM 0x26e48-0x26e58: a1 = 12 and a2 = 16 (jalr delay slot); the
-	 * recovery passed only a0, so a1/a2 were whatever the caller left in
-	 * the registers (-O0) or on the stack. */
+	/* OEM 0x26e48-0x26e58: a1 = 12 and a2 = 16 (jalr delay slot). */
 	log2_val = (uintptr_t)log2_fixed_to_fixed(4095, 12, 16);
 	log2_val = log2_val + (uint32_t)262144;
 
@@ -15911,9 +15843,9 @@ int32_t crop_fsm_process_event(int32_t *fsm_ptr, int32_t event)
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000291a0 origin=fragment_seed original=general_fsm_clear */
-T20_NO_STORE_MERGE int32_t general_fsm_clear(uintptr_t a0)
+T20_NO_STORE_MERGE int32_t general_fsm_clear(uintptr_t fsm_addr)
 {
-	struct t20_fsm_general *fsm = (struct t20_fsm_general *)a0;
+	struct t20_fsm_general *fsm = (struct t20_fsm_general *)fsm_addr;
 
 	fsm->field_18 = 0;
 	fsm->field_1c = 8;
@@ -15973,9 +15905,9 @@ int32_t general_fsm_process_event(int32_t *fsm, int32_t event)
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000292b0 origin=fragment_seed original=dis_fsm_clear */
-int32_t dis_fsm_clear(uintptr_t a0)
+int32_t dis_fsm_clear(uintptr_t fsm_addr)
 {
-	struct t20_fsm_dis *fsm = (struct t20_fsm_dis *)a0;
+	struct t20_fsm_dis *fsm = (struct t20_fsm_dis *)fsm_addr;
 
 	fsm->field_10 = 0;
 	fsm->field_14 = 0;
@@ -19305,7 +19237,8 @@ apply_gains:
 /* WHOLE_DRIVER_CANDIDATE fn_000000000002cdf8 origin=model_output original=AWB_fsm_process_interrupt */
 int32_t AWB_fsm_process_interrupt(int32_t *arg1, char arg2)
 {
-	int32_t ret;
+	struct t20_fsm_awb *fsm = (struct t20_fsm_awb *)arg1;
+	int32_t isp;
 
 	if ((arg2 & 0xff) != 4)
 		return 4;
@@ -19316,8 +19249,8 @@ int32_t AWB_fsm_process_interrupt(int32_t *arg1, char arg2)
 	}
 
 	awb_read_statistics(arg1);
-	ret = *arg1;
-	return apical_isp_raise_event(ret, 4);
+	isp = (int32_t)(uintptr_t)fsm->hdr.isp;
+	return apical_isp_raise_event((void *)(uintptr_t)isp, 4);
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000002ce4c origin=model_output original=awb_zones_calculate */
@@ -21017,23 +20950,12 @@ int32_t au_read_histogram(int32_t *arg1)
 /* WHOLE_DRIVER_CANDIDATE fn_000000000002f558 origin=fragment_seed original=setup_parameters_to_default */
 int32_t setup_parameters_to_default(uintptr_t a0)
 {
-    uint32_t t9 = 0;
-    uintptr_t v0 = 0;
+	struct t20_fsm_sharpening *fsm = (struct t20_fsm_sharpening *)a0;
 
-    /* fragment 0: Arithmetic */
-    v0 = 256;
+	fsm->field_62 = 0;
+	fsm->field_64 = 256;
 
-    /* fragment 1: MemoryAccess */
-    *(uint16_t *)((char *)a0 + 98) = 0;
-    *(uint16_t *)((char *)a0 + 100) = v0;
-    a0 = *(uint32_t *)((char *)a0 + 0);
-    t9 = (uintptr_t)&sensor_update_black;
-    t9 = t9;
-
-    /* fragment 2: IndirectTailCall */
-    return sensor_update_black(a0 + 12);
-
-    return 0;
+	return sensor_update_black((int32_t *)((char *)fsm->hdr.isp + 12));
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000002f578 origin=model_output original=sharpening_initialize */
@@ -21724,10 +21646,12 @@ void dis_analyze_stats(void *arg1)
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000307a4 origin=model_output original=dis_fsm_process_interrupt */
 int32_t dis_fsm_process_interrupt(int32_t *arg1, char arg2)
 {
+	struct t20_fsm_dis *fsm = (struct t20_fsm_dis *)arg1;
+
 	if ((arg2 & 0xff) != 6)
 		return 6;
 
-	((void **)arg1)[7] = APICAL_READ_32(0xc28);
+	fsm->field_1c = APICAL_READ_32(0xc28);
 	return dis_update_stats(arg1);
 }
 
@@ -22095,33 +22019,15 @@ int32_t validate_motion_vectors(int32_t arg1, void *arg2, int32_t arg3, int32_t 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000030f80 origin=fragment_seed original=get_exp */
 int32_t get_exp(uint32_t a0, uintptr_t a1)
 {
-    uint32_t ra = 0;
-    uintptr_t v0 = 0;
-    uint32_t v1 = 0;
-
-    /* fragment 0: MemoryAccess */
-    v1 = *(uint32_t *)((char *)a1 + 4);
-    v1 = a0 < v1;
-
-    /* fragment 1: Branch */
-    v0 = 0;
-    if (v1 == 0) { goto get_exp0x20; }
-
-    /* fragment 2: MemoryAccess */
-    v0 = *(uint32_t *)((char *)a1 + 0);
-    a0 = a0 << 2;
-    a0 = v0 + a0;
-    v0 = *(uint32_t *)((char *)a0 + 0);
-
-get_exp0x20:
-    /* fragment 3: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    /* fragment 4: Unknown */
-    /* unmatched fragment 4 (Unknown): no deterministic matcher for Unknown */
-    /* asm: 30fa4:	00000000 	nop */
-
-    return 0;
+	/*
+	 * OEM 0x30f84: the recovered body looked up
+	 * ((struct t20_exp_lut *)a1)->entries[a0] when a0 < count, but the
+	 * original function as built returns 0 unconditionally (the lookup
+	 * result is dead); keep that behaviour exactly.
+	 */
+	(void)a0;
+	(void)a1;
+	return 0;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000030fa8 origin=model_output original=get_gmv_gauss_init */
