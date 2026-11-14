@@ -32,7 +32,7 @@ SPEC: one function per line (from the block's .conf, FUNCS=):
                                 compared after the call): the section / parameter pointers a block state holds
   CALLS NAME[:NARGS][@ARG:LEN]..[=RET] ...        (line) functions the code under test calls (vendor: a function of the module or a kernel
                                 import; ours: an `extern` declaration in the wrapper with the SAME name): neither side runs
-                                them, every call is recorded as (name, first NARGS of $a0..$a3; default 4) and returns RET (default 0; R1,R2,.. cycles through the values, by case number and call index, identical on both sides); @ARG:LEN (repeatable) records the LEN bytes argument ARG points to instead of the pointer value; the call
+                                them, every call is recorded as (name, first NARGS of $a0..$a3; default 4) and returns RET (default 0; R1,R2,.. cycles through the values, by case number and call index, identical on both sides; =~R1,R2,.. holds one value per case, =^R1,R2,.. one per case and first argument (a register): polls that time out); @ARG:LEN (repeatable) records the LEN bytes argument ARG points to instead of the pointer value; the call
                                 sequences are compared like the buffers.  Use it for callees that are ported elsewhere
                                 or need hardware (register access, rcfg trigger, printk).
   VEC VENDOR V1 V2 ...          (line) fixed values for the scalar arguments of VENDOR (pointer arguments
@@ -105,7 +105,8 @@ def parse(path):
                 n, _, rv = x.partition('=')
                 n, *deref = n.split('@')
                 n, _, na = n.partition(':')
-                calls[n] = ([int(v, 0) for v in rv.split(',')] if rv else [0], int(na) if na else 4, [tuple(int(v, 0) for v in d.split(':')) for d in deref])
+                hold = rv[:1] if rv[:1] in ('~', '^') else ''; rv = rv.lstrip('~^')
+                calls[n] = ([int(v, 0) for v in rv.split(',')] if rv else [0], int(na) if na else 4, [tuple(int(v, 0) for v in d.split(':')) for d in deref], hold)
         elif t[0] == 'VEC':
             vec.setdefault(t[1], []).append([int(x, 0) for x in t[2:]])
         else:
@@ -242,7 +243,7 @@ def main():
         for i, n in enumerate(fnames):          # fn: callbacks at one fixed address in the stub page on both sides
             emu.fnaddr = getattr(emu, 'fnaddr', {}); emu.fnaddr[n] = 0x70000f00 + 0x10 * i; emu.stubname[emu.fnaddr[n]] = n
     for emu, side in ((oem, 'vendor'), (our, 'ours')):
-        for n, (rv, na, dr) in calls.items():
+        for n, (rv, na, dr, hold) in calls.items():
             if n in fnames:
                 pass
             elif n not in emu.symaddr and n not in emu.stubs:
@@ -251,7 +252,7 @@ def main():
                 print('t33_binoracle: CALLS %s not found on the %s side' % (n, side)); return 2
             if n in emu.symaddr and n not in emu.stubs:      # a function of the module: trap its entry
                 ad = emu.symaddr[n]; emu.stubname[ad] = n
-            emu.hle[n] = (lambda nm, r, k, d: lambda e: (calllog.append((nm,) + tuple('*' if i in [x for x, _ in d] else _r(e, i) for i in range(k)) + tuple(bytes(e.read(_r(e, i), ln)).hex() for i, ln in d)), r[(caseno[0] + len(calllog)) % len(r)])[1])(n, rv, na, dr)
+            emu.hle[n] = (lambda nm, r, k, d, h: lambda e: (calllog.append((nm,) + tuple('*' if i in [x for x, _ in d] else _r(e, i) for i in range(k)) + tuple(bytes(e.read(_r(e, i), ln)).hex() for i, ln in d)), r[(caseno[0] + (_r(e, 0) if h == '^' else 0 if h else len(calllog))) % len(r)])[1])(n, rv, na, dr, hold)
     for v, o, sz, _w in gl:
         if v not in oem.symaddr or o not in our.symaddr:
             print('t33_binoracle: global %s / %s missing' % (v, o)); return 2

@@ -32,6 +32,9 @@
 #include "tx_isp_t32.h"
 #include "tx_isp_t32_abi.h"
 #include "tx_isp_t32_regs.h"
+#ifdef TX_ISP_T33
+#include "tx_isp_t33_clkp.h"
+#endif
 #include "tx_isp_t32_mem.h"
 #ifdef TX_ISP_T33
 #include "tx_isp_t33_mem.h"
@@ -1107,6 +1110,46 @@ static void t32_clks_put(void)
 	}
 }
 
+#ifdef TX_ISP_T33
+/* hooks of tisp's ispcore_set_clk_parent / ivdc_set_clk_parent (tx_isp_t33_clkp.h) */
+static void *t33_clkp_get(void *dev, const char *name)
+{
+	return clk_get(NULL, name);
+}
+
+static void t33_clkp_put(void *dev, void *clk)
+{
+	if (!IS_ERR_OR_NULL(clk))	/* the vendor puts error pointers too (devm: a warning) */
+		clk_put(clk);
+}
+
+static void *t33_clkp_pget(void *dev, const char *name)
+{
+	return clk_get(NULL, name);
+}
+
+static int t33_clkp_set(void *clk, void *parent)
+{
+	return IS_ERR(parent) ? PTR_ERR(parent) : clk_set_parent(clk, parent);
+}
+
+static void t33_clkp_pput(void *clk)
+{
+	if (!IS_ERR_OR_NULL(clk))
+		clk_put(clk);
+}
+
+static void t33_clkp_log(const char *fmt, const char *arg)
+{
+	isp_printf(1, fmt, arg);
+}
+
+static const struct t33_clkp_ops t33_clkp = {
+	.devm_clk_get = t33_clkp_get, .devm_clk_put = t33_clkp_put, .clk_get = t33_clkp_pget,
+	.clk_set_parent = t33_clkp_set, .clk_put = t33_clkp_pput, .log = t33_clkp_log,
+};
+#endif
+
 static void t32_clks_activate(void)
 {
 	unsigned int i;
@@ -1114,6 +1157,16 @@ static void t32_clks_activate(void)
 	for (i = 0; i < ARRAY_SIZE(t32_clk_parents); i++) {
 		const struct t32_clk_parent *p = &t32_clk_parents[i];
 		const char *pname = *p->param && **p->param ? *p->param : p->parent;
+#ifdef TX_ISP_T33
+		/*
+		 * ispcore_activate_module (div_isp / div_ldc) and ivdc_activate_module
+		 * (div_ispa / div_vpu): the parent must be "sclka" or "mpll", else it is
+		 * only logged and not set (vendor sclk_name, no "vpll" on the T33).
+		 */
+		void *dev = NULL;
+
+		t33_set_clk_parent(&t33_clkp, &dev, pname, p->mux);
+#else
 		struct clk *mux = clk_get(NULL, p->mux);
 		struct clk *par = clk_get(NULL, pname);
 
@@ -1123,6 +1176,7 @@ static void t32_clks_activate(void)
 			clk_put(par);
 		if (!IS_ERR(mux))
 			clk_put(mux);
+#endif
 	}
 	for (i = 0; i < ARRAY_SIZE(t32_clks); i++) {
 		struct t32_clk *c = &t32_clks[i];
@@ -1193,8 +1247,12 @@ static int t32_isp_open(struct inode *inode, struct file *file)
 static int t32_isp_release(struct inode *inode, struct file *file)
 {
 	mutex_lock(&core.lock);
-	if (t32_clk_users && !--t32_clk_users)
+	if (t32_clk_users && !--t32_clk_users) {
+#ifdef TX_ISP_T33
+		t33_hw_lib_deinit();	/* lib_tisp_deinit: tisp_all_reset, LDC mask */
+#endif
 		t32_clks_deactivate();
+	}
 	mutex_unlock(&core.lock);
 	return 0;
 }

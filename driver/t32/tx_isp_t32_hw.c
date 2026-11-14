@@ -96,6 +96,7 @@ static void t33_lcepf_ev(u32 lo, u32 hi, u32 bv);
 #include "tx_isp_t33_rcfg9.h"
 #include "tx_isp_t33_rcfg10.h"
 #include "tx_isp_t33_rcfgcore.h"
+#include "tx_isp_t33_deinit.h"
 #endif
 
 static void t32_bringup_ae_kick(void);
@@ -727,6 +728,46 @@ static void t33_rcfg_core_init(void)
 	isp_wr(T33_RCFG_MASK0, 0xffffffff);
 	isp_wr(T33_RCFG_MASK1, 0xffffffff);
 }
+
+#ifdef TX_ISP_T33
+/* tisp_all_reset hooks (tx_isp_t33_deinit.h); the other members are vendor allocations our driver has not */
+static u32 t33_dn_rd(u32 reg)
+{
+	return isp_rd(reg);
+}
+
+static void t33_dn_wr(u32 reg, u32 val)
+{
+	isp_wr(reg, val);
+}
+
+static u32 t33_dn_log(u32 level, u32 line)
+{
+	if (line == 289)
+		return isp_printf(level, "tx-isp-t33: isp stop timeout\n");
+	if (line == 301)
+		return isp_printf(level, "tx-isp-t33: isp all reset timeout\n");
+	return isp_printf(level, "tx-isp-t33: isp all reset\n");
+}
+
+static const struct t33_deinit t33_dn = { .rd = t33_dn_rd, .wr = t33_dn_wr, .log = t33_dn_log };
+
+/*
+ * lib_tisp_deinit, register part (pipe 0): at the last close, after the stream
+ * off and before the clocks go off, as the vendor: tisp_all_reset, then
+ * tisp_ldc_t33_deinit's LDC interrupt mask.  The block lists (BLC 4, MSCA 23,
+ * LDC 25, ...) stay built until rmmod (t33_mod_free): our lists persist over
+ * sessions, the next open resets and reprograms the core (CPM soft reset,
+ * S_INPUT -> t32_hw_input_setup -> tisp_all_reset).
+ */
+void t33_hw_lib_deinit(void)
+{
+	if (!isp_base)
+		return;
+	t33_all_reset(&t33_dn);
+	isp_wr(T33_LDC_INT_MASK, 0xffffffffU);
+}
+#endif
 
 /* lists the vendor's tisp_rcfg_t33_write_all_reg does not start (LSF 37: LCE irq only) */
 #ifdef TX_ISP_T33
@@ -2806,6 +2847,11 @@ int t32_hw_input_setup(const void *attr, u32 w, u32 h)
 			   t32_attr_u32(attr, T32_ATTR_SC_CSI_FMT), ret);
 		return ret;
 	}
+#ifdef TX_ISP_T33
+	/* lib_tisp_init -> tisp_all_reset (T33: 20000 polls, core state register 0 nonzero) */
+	t33_all_reset(&t33_dn);
+	i = 0;
+#else
 	isp_wr(T32_RDMA_IRQ_EN, 0xffffffff);
 	isp_wr(T32_RDMA_IRQ_CLR, 0xffffffff);
 	isp_wr(T32_CORE_IDLE_REQ, 1);
@@ -2825,6 +2871,7 @@ int t32_hw_input_setup(const void *attr, u32 w, u32 h)
 		udelay(1);
 	if (i == 10000)
 		isp_printf(2, "tx-isp-t32: ISP core reset timeout\n");
+#endif
 	if (T32_SOC_LIST_IRQ) {
 		isp_wr(T32_INT5_EN, 0xffffffff);
 		isp_wr(T32_INT4_EN, 0xffffffff);
