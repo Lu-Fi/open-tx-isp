@@ -407,13 +407,13 @@ long t32_ldc_online_ioctl(unsigned int cmd, unsigned long arg, u32 ldc_mode)
 		}
 		return 0;
 	}
-	/* T32_IOC_LDC_ONLINE_PAR: lib_tisp_ldc_get_par, no IQ-bin LDC parameters here */
+	/* T32_IOC_LDC_ONLINE_PAR: lib_tisp_ldc_get_par, the LDC parameters of the IQ bin's append data (APPEND_LDC) */
 	if (copy_from_user(b, (void __user *)arg, 88)) {
 		isp_printf(2, "[ %s:%d ] copy from user error\n", "tx_ldc_get_online_param", 111);
 		isp_printf(2, "[ %s:%d ] Failed to ioctl!\n", "ldc_core_ops_ioctl", 207);
 		return -EFAULT;
 	}
-	b[1] = 0;
+	b[1] = !t33_bin_ldc_par(b[0], (u8 *)&b[2]);
 	if (copy_to_user((void __user *)arg, b, 88)) {
 		isp_printf(2, "[ %s:%d ] copy from user error\n", "tx_ldc_get_online_param", 125);
 		isp_printf(2, "[ %s:%d ] Failed to ioctl!\n", "ldc_core_ops_ioctl", 207);
@@ -782,6 +782,32 @@ int t32_snapldc_init(void)
 		ldc_misc_ok = 1;
 	return 0;
 }
+
+#ifdef TX_ISP_T33
+/* ldc_core_ops_ioctl cmds 0x5000009 / 0x500000a: tx-isp-t33.ko's handlers (tx_isp_t32_hw.c holds the TOP / LDC list side) */
+void t33_ldc_set_bypass_state(u32 idx, u32 state);
+int t33_ldc_reflesh_lut(u32 idx, u32 addr);
+
+long t32_ldc_ctl_ioctl(unsigned int cmd, unsigned long arg, u32 ldc_mode)
+{
+	u32 b[3];
+	int bypass = cmd == T32_IOC_LDC_BYPASS_STATE;
+
+	if (ldc_mode == 1)	/* offline LDC: the vendor handler does nothing */
+		return 0;
+	if (copy_from_user(b, (void __user *)arg, bypass ? 8 : 12)) {
+		isp_printf(2, "[ %s:%d ] copy from user error\n", bypass ? "tx_ldc_set_hldc_bypass_state" : "tx_ldc_online_reflesh_lut",
+			   bypass ? 140 : 159);
+		isp_printf(2, "[ %s:%d ] Failed to ioctl!\n", "ldc_core_ops_ioctl", 207);
+		return -EFAULT;
+	}
+	if (bypass)
+		t33_ldc_set_bypass_state(b[0] & 0xff, b[1]);
+	else
+		return t33_ldc_reflesh_lut(b[0] & 0xff, b[1] + b[2]);
+	return 0;
+}
+#endif
 
 void t32_snapldc_exit(void)
 {

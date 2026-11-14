@@ -85,6 +85,7 @@ static void t33_lcepf_ev(u32 lo, u32 hi, u32 bv);
 #include "tx_isp_t32_rdnstab.h"
 #ifdef TX_ISP_T33
 #include "tx_isp_t33_ldc.h"
+#include "tx_isp_t33_append.h"
 #include "tx_isp_t33_rcfg1.h"
 #include "tx_isp_t33_rcfg2.h"
 #include "tx_isp_t33_rcfg3.h"
@@ -351,7 +352,7 @@ static unsigned long rcfg_pages;	/* table (256 B) + list */
  * tables in DDR with zeros (T33 silicon: lists did not run or ran zeros,
  * no frames; QEMU has no cache, openimp #393).
  */
-static unsigned long t32_dma_zpages(unsigned int order)
+unsigned long t32_dma_zpages(unsigned int order)
 {
 	unsigned long p = __get_free_pages(GFP_KERNEL | __GFP_ZERO, order);
 
@@ -625,6 +626,94 @@ static void __maybe_unused t33_mod_set_tmpl(unsigned int id, const struct t33_tc
 /* LSC mesh table, read by the core by DMA from the address in 0x5078 */
 static unsigned long t33_lsc_pages;
 #define T33_LSC_ORDER	get_order(T33_LSC_LUT_BYTES)
+#ifdef TX_ISP_T33
+/*
+ * IQ bin append data (tisp_bin_append_data_parse, tx_isp_t33_append.h), parsed with every bin (tisp_bin_data_parse:
+ * load and day / night refresh): the LDC parameters for lib_tisp_ldc_get_par, and LSC tables behind the payload.
+ * With appended tables the LSC block reads a copy of section 7 (count, lists) and the table buffer instead of
+ * the bin.  One channel.
+ */
+static u8 t33_app_ldc_exist[4], t33_app_ldc_par[T33_LDC_PAR_BYTES];
+static u8 t33_app_lsc_sec[T33_LSC_SEC_BYTES];
+static struct t33_app_lsc t33_app_lsc;
+static u32 t33_app_lsc_n;	/* appended tables; 0: the bin's section and payload */
+
+static int t33_app_grow(struct t33_app_lsc *l, u32 need)
+{
+	u8 *n = vzalloc(need);
+
+	if (!n)
+		return -ENOMEM;
+	vfree(l->lut);	/* the payload is copied in after the parse */
+	l->lut = n;
+	return 0;
+}
+
+static void t33_app_log(int what, u32 val)
+{
+	static const char fn[] = "tisp_bin_append_data_parse";
+
+	if (what == T33_APP_LOG_NULL)
+		isp_printf(2, "[ISP][%s, %d]: append data is null or size is %d beacuse of size < sizeof(tisp_append_par_t)!!!\n",
+			   fn, 913, val);
+	else if (what == T33_APP_LOG_LSC0)
+		isp_printf(1, "[%s %d]: LSC mesh lut size = %d!!!\n", fn, 946, val);
+	else if (what == T33_APP_LOG_LDCSZ)
+		isp_printf(1, "[%s %d]: LDC par size=%d is invalid!!!\n", "tisp_ldc_get_extra_par", 391, val);
+	else
+		isp_printf(1, "[ISP][%s, %d]: append type %d is not supported!!!\n", fn, 982, val);
+}
+
+static const struct t33_app_ops t33_app_ops = { t33_app_grow, t33_app_log };
+
+static void t33_bin_append(const u8 *bin, u32 bytes)
+{
+	u32 app = t33_bin_append_off(bin, bytes), off, len = 0, pay = 0;
+	struct t33_app_lsc *l = &t33_app_lsc;
+
+	t33_ldc_reset_par(t33_app_ldc_exist, 0);	/* tisp_ldc_reset_par_state */
+	t33_app_lsc_n = 0;
+	if (!app || app >= bytes)	/* no append data: "Bin file data parse successed" */
+		return;
+	off = t32_iq_section(bin, bytes, T33_SEC_LSC, &len);
+	l->sec = NULL;
+	if (off && len == T33_LSC_SEC_BYTES) {
+		pay = t32_iq_payload(bin + off, bytes - off, T33_SEC_LSC);
+		if (off + len + pay <= bytes) {
+			memcpy(t33_app_lsc_sec, bin + off, len);
+			l->sec = t33_app_lsc_sec;
+			l->size16 = pay;
+		}
+	}
+	t33_bin_append_parse(0, bin + app, bytes - app, t33_app_ldc_exist, t33_app_ldc_par, l, &t33_app_ops);
+	if (l->sec && l->lut && l->sec[T33_APP_LSC_CNT] > bin[off + T33_APP_LSC_CNT] && pay <= l->cap) {
+		memcpy(l->lut, bin + off + len, pay);
+		t33_app_lsc_n = l->sec[T33_APP_LSC_CNT] - bin[off + T33_APP_LSC_CNT];
+	}
+}
+
+/* the LSC section and its tables: the bin's, or the copy with the appended tables */
+static const u8 *t33_lsc_src(const u8 *bin, u32 bytes, u32 off, u32 len, const u8 **tab, u32 *tabbytes)
+{
+	if (t33_app_lsc_n) {
+		*tab = t33_app_lsc.lut;
+		*tabbytes = t33_app_lsc.cap;
+		return t33_app_lsc_sec;
+	}
+	*tab = bin + off + len;
+	*tabbytes = t32_iq_payload(bin + off, bytes - off, T33_SEC_LSC);
+	return bin + off;
+}
+
+/* lib_tisp_ldc_get_par: the 80 LDC parameter bytes of the bin's append data, -1 without */
+int t33_bin_ldc_par(u32 ch, u8 *par)
+{
+	if ((ch & 0xff) || !t33_app_ldc_exist[0])
+		return -1;
+	memcpy(par, t33_app_ldc_par, T33_LDC_PAR_BYTES);
+	return 0;
+}
+#endif
 /* defog statistics area (four 2 KiB parts, 0xa210..0xa21c), written by the core */
 static unsigned long t33_defog_pages;
 static u8 t33_defog_sec[T33_DEFOG_SEC_BYTES];
@@ -664,6 +753,9 @@ static void t33_mod_free(void)
 	t33_awbc_detach();
 	t33_aec_detach();
 	t33_lcepf_free();	/* before its buffers */
+	vfree(t33_app_lsc.lut);
+	memset(&t33_app_lsc, 0, sizeof(t33_app_lsc));
+	t33_app_lsc_n = 0;
 #endif
 
 	if (t33_lsc_pages)
@@ -719,14 +811,30 @@ static void t33_mod_free(void)
 #endif
 }
 
+#ifdef TX_ISP_T33
+/*
+ * The vendor tisp_rcfg_t33_reset_reg_cfg (oracle-proven port tx_isp_t33_rcfgmisc.h, block rcfgmisc) runs here:
+ * its module data objects become these statics (rcfg_buf_info[0] + 4 holds the list table address).
+ */
+static void system_reg_write(u32 reg, u32 val) { isp_wr(reg, val); }
+static u32 t33_rcfg_buf[2];
+static u8 *rcfg_buf_info[1] = { (u8 *)t33_rcfg_buf };
+#include "tx_isp_t33_rcfgmisc.h"
+#endif
+
 /* tisp_rcfg_init: table, control and masks; at the core init */
 static void t33_rcfg_core_init(void)
 {
 	isp_wr(T33_RCFG_MODE, 0);
+#ifdef TX_ISP_T33
+	t33_rcfg_buf[1] = rcfg_pa;
+	t33_rcfg_reset_reg_cfg();	/* tisp_rcfg_t33_reset_reg_cfg: table, control, masks */
+#else
 	isp_wr(T33_RCFG_TABLE, rcfg_pa);
 	isp_wr(T33_RCFG_CTRL, 1);
 	isp_wr(T33_RCFG_MASK0, 0xffffffff);
 	isp_wr(T33_RCFG_MASK1, 0xffffffff);
+#endif
 }
 
 #ifdef TX_ISP_T33
@@ -1145,6 +1253,7 @@ static void t33_gamma_state(const u8 *sec, const u8 *tab, u32 tabbytes, int clea
 	}
 }
 static u32 t33_tmo_v[T33_TMO_WORDS], t33_mdns_v[T33_MDNS_WORDS];
+#define tispTopRefresh t33_top_refresh	/* the vendor name of the TOP refresh state (tx_isp_t33_top.h) */
 #include "tx_isp_t33_bst.h"
 #include "tx_isp_t33_tmo1s.h"
 
@@ -1196,6 +1305,74 @@ void t33_tmo_oneshot(u32 op)
 	local_irq_restore(flags);
 	t33_tmo1s_runs[op > 2 ? 2 : op]++;
 }
+
+/*
+ * tisp_s_module_control / tisp_g_module_control (oracle-proven tx_isp_t33_top.h, block top): the module control
+ * word is the TOP bypass word (bit set = module bypassed), low 22 bits the user's.  Open (not ported, #99): the
+ * vendor's side effects of a changed bit 12 (tisp_mdns_start before, tisp_mdns_t33_reg_trig after) and of
+ * changed bits 5 / 11 (tisp_lce_top_change_state).
+ */
+/*
+ * LDC ioctls of ldc_core_ops_ioctl (T33): the HLDC bypass state (tisp_ldc_set_bypass_state ->
+ * tisp_top_ldc_bypass_refresh) and the LUT refresh (tisp_online_ldc_reflesh_lut), as the oracle-proven ports
+ * tx_isp_t33_ldcpar.h (block ldc) and tx_isp_t33_aeldc.h (block aeldc).  The vendor's module data objects used by
+ * the aeldc port are these shims (ldcCfgMode: slot indexes like the other blocks; stIspInitPar word 226 = 1).
+ */
+u8 ldcCfgMode = 1;
+extern u8 stIspInitPar[4032] __attribute__((alias("t33_st_isp_init_par_mode")));
+u32 g_ae_contexts[4];
+static int t33_ldc_sysw(u32 reg, u32 val)
+{
+	isp_wr(reg, val);
+	return 0;
+}
+#define system_reg_write t33_ldc_sysw
+#define normal_ae_dn_par_refresh t33_ldc_unused_ae_dn
+#include "tx_isp_t33_aeldc.h"
+#include "tx_isp_t33_ldcpar.h"
+#undef system_reg_write
+#undef normal_ae_dn_par_refresh
+
+/* tisp_top_ldc_bypass_refresh: LDC bypass bit (0x800000) of the TOP bypass word from block[idx], TOP list rerun */
+static void t33_ldc_bypass_refresh(u32 idx, const u8 *blk)
+{
+	u32 sel = ipcCfgMode ? 1 : 64, v;
+
+	idx &= 0xff;
+	v = tisp_reg_read_t33(idx, 33, sel);
+	v = blk[idx] == 1 ? v & ~0x800000U : v | 0x800000U;
+	tisp_reg_write_t33(idx, 33, sel, v);
+	tispTopRefresh = tisp_rcfg_get_dma_state(33) ? 2 : 1;
+}
+
+/* IOC 0xc00454bc: {idx, state}; vendor core command 0x5000009 */
+void t33_ldc_set_bypass_state(u32 idx, u32 state)
+{
+	u8 blk[4];
+
+	if (t33_ldc_bypass_buf(blk, idx, state) >= 4)
+		return;		/* the vendor writes past its block here (BEYOND_VENDOR row) */
+	t33_ldc_bypass_refresh(idx & 0xff, blk);
+}
+
+/* IOC 0xc00454bd: {idx, base, offset}; vendor core command 0x500000a */
+int t33_ldc_reflesh_lut(u32 idx, u32 addr)
+{
+	return t33_online_ldc_refresh(idx, addr);
+}
+
+void t33_module_control_set(u32 ch, u32 v)
+{
+	u32 cur = t33_top_get_bypass(ch);
+
+	t33_top_set_bypass(ch, (v & 0x3fffffU) | (cur & 0xffc00000U));
+}
+
+u32 t33_module_control_get(u32 ch)
+{
+	return t33_top_get_bypass(ch) & 0x3fffffU;
+}
+
 #define T33_INIT_EV	0xffffffffU	/* the vendor's EV before the first AE run */
 
 #define T33_MOD_VB(blk, BLK, v)								\
@@ -2186,6 +2363,7 @@ static void t33_tisp_init(const u8 *bin, u32 bytes)
 {
 	u32 off, len, code, width, height;
 
+	t33_bin_append(bin, bytes);
 	t33_gref_reset();
 	t33_tisp_init_ae(bin, bytes);
 	t33_tisp_init_awb(bin, bytes);
@@ -2305,15 +2483,15 @@ static void t33_tisp_init(const u8 *bin, u32 bytes)
 	t33_tisp_init_mdns(bin, bytes);
 	off = t32_iq_section(bin, bytes, T33_SEC_LSC, &len);
 	if (off && len == T33_LSC_SEC_BYTES && !t32_core_sensor_size(&width, &height)) {
-		u32 *buf = t33_mod_buf(T33_MOD_LSC);
+		u32 *buf = t33_mod_buf(T33_MOD_LSC), tb;
+		const u8 *tab, *sec = t33_lsc_src(bin, bytes, off, len, &tab, &tb);
 
 		if (!t33_lsc_pages)
 			t33_lsc_pages = t32_dma_zpages(T33_LSC_ORDER);
 		/* CT 5000 K as the CCM; the table written uncached */
 		if (buf && t33_lsc_pages)
 			t33_mod_done(T33_MOD_LSC,
-				     t33_lsc_init(bin + off, bin + off + len,
-						  t32_iq_payload(bin + off, bytes - off, T33_SEC_LSC), height, width,
+				     t33_lsc_init(sec, tab, tb, height, width,
 						  T33_INIT_GAIN, T33_CCM_INIT_CT, t33_lsc_v, &t33_lsc_m,
 						  (u8 *)CKSEG1ADDR(virt_to_phys((void *)t33_lsc_pages)),
 						  (u32)virt_to_phys((void *)t33_lsc_pages), buf, T33_SLOT_WORDS));
@@ -2401,13 +2579,15 @@ static noinline_for_stack void t33_sw_tone(const u8 *bin, u32 bytes, u32 width, 
 					   u32 hi)
 {
 	unsigned long long ev = (unsigned long long)hi << 32 | lo;
-	u32 off, len;
+	u32 off, len, tb;
 
 	/* tisp_lsc_switch_para: interp_by_tgain / _by_ct (forced), write_reg */
 	if (T33_SW_SEC(LSC) && t33_lsc_pages) {
+		const u8 *tab, *sec = t33_lsc_src(bin, bytes, off, len, &tab, &tb);
+
 		T33_SW_TMP();
 		t33_gr_commit(T33_MOD_LSC,
-			      t33_lsc_init(bin + off, bin + off + len, t32_iq_payload(bin + off, bytes - off, T33_SEC_LSC),
+			      t33_lsc_init(sec, tab, tb,
 					   height, width, gain, ct, t33_lsc_v, &t33_lsc_m,
 					   (u8 *)CKSEG1ADDR(virt_to_phys((void *)t33_lsc_pages)),
 					   (u32)virt_to_phys((void *)t33_lsc_pages), t33_gr_tmp, T33_SLOT_WORDS));
@@ -2533,6 +2713,7 @@ void t33_refresh_para(u32 mode)
 	}
 	lo = t33_sw_ev_lo;
 	hi = t33_sw_ev_hi;
+	t33_bin_append(bin, bytes);	/* tisp_bin_data_parse */
 	t33_sw_top(bin, bytes, width, height, bayer);
 	/* tisp_blc_switch_para: interp_by_tgain at the current gain, write_reg */
 	if (T33_SW_SEC(BLC) && bayer >= 0)
@@ -2943,6 +3124,42 @@ int t32_hw_input_setup(const void *attr, u32 w, u32 h)
 	return 0;
 }
 
+#ifdef TX_ISP_T33
+/*
+ * T33: the vendor's mipi_phy_stream_on (tx_isp_t33_mipi.h, oracle block mipiphy), single mode, the sensor on CSI
+ * host 0 (t32_csi_cfg_from_attr takes no other): host 0 pulsed at every stream-on, lanes, D-PHY 0 and the five
+ * settle words from get_settle_time; the D-PHY word 0x80 and the lane words 0x128 + n * 0x80 keep their reset values.
+ */
+static void t33_mipi_host(unsigned int ctl, unsigned int reg, unsigned int val)
+{
+	if (!ctl)
+		writel(val, csi_base + reg);
+}
+
+static void t33_mipi_phy(unsigned int reg, unsigned int val)
+{
+	writel(val, dphy_base + reg);
+}
+
+static void t33_mipi_sleep(void)
+{
+	msleep(1);
+}
+
+static void t33_mipi_log(int what, unsigned int val)
+{
+	isp_printf(what >= T33_MIPI_LOG_SETTLE0 ? 0 : 2, "tx-isp-t33: mipi_phy_stream_on: message %d (%u)\n", what, val);
+}
+
+static const struct t33_mipi_ops t33_mipi_ops = { t33_mipi_host, t33_mipi_phy, t33_mipi_sleep, t33_mipi_log };
+
+static void t32_csi_start(void)
+{
+	const struct t33_mipi_sensor s = { T32_DBUS_MIPI, csi_cfg.clk, 0, (unsigned char)(csi_cfg.lanes_m1 + 1) };
+
+	t33_mipi_phy_stream_on(&t33_mipi_ops, 1, 2, 0, &s);
+}
+#else
 static void t32_csi_start(void)
 {
 	int i;
@@ -2969,6 +3186,7 @@ static void t32_csi_start(void)
 	for (i = 0; i < 5; i++)
 		writel(csi_cfg.settle, dphy_base + 0x160 + i * 0x80);
 }
+#endif
 
 static void t32_csi_stop(void)
 {
@@ -3328,6 +3546,10 @@ int t32_hw_msca_pop_done(int ch, u32 *y, u32 *uv)
 	 */
 	*uv &= ~0xfU;
 	*y &= ~0xfU;
+#else
+	/* vendor T32 tisp_msca_addr_fifo_read: both words & ~7 (oracle block t32-mscafifo) */
+	*uv = T32_MSCA_DONE_ADDR(*uv);
+	*y = T32_MSCA_DONE_ADDR(*y);
 #endif
 	return 0;
 }

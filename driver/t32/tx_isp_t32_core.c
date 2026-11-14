@@ -371,7 +371,7 @@ static int t32_malloc(struct t32_buf_info *bi)
 	if (!a)
 		return -ENOMEM;
 	a->order = get_order(bi->size);
-	p = __get_free_pages(GFP_KERNEL | __GFP_ZERO, a->order);
+	p = t32_dma_zpages(a->order);	/* ISP DMA memory: zero lines written back (openimp #530) */
 	if (!p) {
 		kfree(a);
 		return -ENOMEM;
@@ -944,6 +944,12 @@ static long t32_isp_ioctl(struct file *file, unsigned int cmd, unsigned long arg
 	case T32_IOC_LDC_ONLINE_PAR:
 		ret = t32_ldc_online_ioctl(cmd, arg, core.ldc_mode);
 		break;
+#ifdef TX_ISP_T33
+	case T32_IOC_LDC_BYPASS_STATE:
+	case T32_IOC_LDC_REFLESH_LUT:
+		ret = t32_ldc_ctl_ioctl(cmd, arg, core.ldc_mode);
+		break;
+#endif
 	case T32_IOC_SET_PM_CTRL:
 	case T32_IOC_GET_PM_CTRL:
 		/* vendor tx-isp-t33.ko (QEMU, openimp #54): 0, the user block {mode,

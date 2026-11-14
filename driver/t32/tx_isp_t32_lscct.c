@@ -165,7 +165,7 @@ void t32_lsc_drv_attach(const u8 *blk, const struct t32_lsc *s, const struct t32
 	if (!t32_pp_on(T32_PP_LSC) || !t32_pp_on(T32_PP_CT) || !t32_pp_on(T32_PP_LSCCT))
 		return;
 	if (!img_pages) {
-		img_pages = __get_free_pages(GFP_KERNEL | __GFP_ZERO, LSC_IMG_ORDER);
+		img_pages = t32_dma_zpages(LSC_IMG_ORDER);	/* written through KSEG1 below (openimp #530) */
 		if (!img_pages) {
 			isp_printf(2, "tx-isp-t32: no memory for the LSC list, LSC colour temperature path off\n");
 			return;

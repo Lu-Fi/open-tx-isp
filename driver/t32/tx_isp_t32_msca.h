@@ -23,6 +23,7 @@
 #define TX_ISP_T32_MSCA_H
 
 #include "tx_isp_t32_regs.h"
+#include "tx_isp_t32_msca_done.h"
 #include "../t23/tx_isp_t23_msca_geom.h"
 
 #define T32_MSCA_CHANNELS		3
