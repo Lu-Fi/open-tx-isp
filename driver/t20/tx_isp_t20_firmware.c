@@ -3028,181 +3028,44 @@ static uint32_t calc_modulation_u32(uint32_t arg1, int32_t *arg2, uint32_t arg3)
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000016908 origin=fragment_seed original=calc_adjust_modulation_u16 */
-static uint32_t calc_adjust_modulation_u16_recovered(uint32_t a0, uint32_t a1,
-	uint32_t a2, uintptr_t a3, uint32_t arg4)
+static uint32_t calc_adjust_modulation_u16_recovered(uint32_t x_in, uint32_t y_low_in,
+	uint32_t y_high_in, uintptr_t table_addr, uint32_t count)
 {
-    uint32_t local_0 = 0;
-    uint32_t local_18 = 0;
-    uint32_t ra = 0;
-    uint32_t t0 = 0;
-    uintptr_t t1 = 0;
-    uintptr_t t2 = 0;
-    uint32_t t3 = 0;
-    uintptr_t v0 = 0;
-    uint32_t v1 = 0;
+    const uint16_t *table = (const uint16_t *)table_addr;	/* {x, y} pairs, x descending */
+    uint16_t x = x_in;
+    uint16_t y_low = y_low_in;
+    uint16_t y_high = y_high_in;
+    uint32_t idx;
+    uint32_t x_hi, x_lo, y_hi, y_lo, frac;
 
-    /* fragment 0: MemoryAccess */
-    v1 = *(uint16_t *)((char *)a3 + 0);
-    a0 = a0 & 65535;
-    v0 = a1 & 65535;
-    a1 = v1 < a0;
-    a2 = a2 & 65535;
+    if (!(table[0] < x))
+        return y_low;
+    if (!(x < table[(count - 1) * 2]))
+        return y_high;
+    if (table[1] == 0 || table[(count - 1) * 2 + 1] == 0)
+        return 0;
+    if (table[(count - 1) * 2] == table[0])
+        return 0;
 
-    /* fragment 1: Branch */
-    t0 = local_18;
-    if (a1 == 0) { goto calc_adjust_modulation_u160x124; }
+    idx = 1;
+    while (idx < count && x < table[idx * 2])
+        idx++;
+    if (idx >= count)
+        idx = count - 1;
 
-    /* fragment 2: Arithmetic */
-    t1 = t0 - 1;
-    t1 = t1 << 2;
-    t1 = a3 + t1;
+    x_hi = table[(idx + 1) * 2];
+    x_lo = table[(idx - 1) * 2];
+    y_hi = table[(idx + 1) * 2 + 1];
+    y_lo = table[(idx - 1) * 2 + 1];
+    if (x_hi == x_lo) {
+        frac = y_hi;
+    } else {
+        uint32_t w = ((uint32_t)(x - x_lo) << 8) / (x_hi - x_lo);
 
-    /* fragment 3: MemoryAccess */
-    t2 = *(uint16_t *)((char *)t1 + 0);
-    a1 = a0 < t2;
-
-    /* fragment 4: Unknown */
-    /* unmatched fragment 4 (Unknown): no deterministic matcher for Unknown */
-    /* asm: 1693c:	50a0003b 	beqzl	a1,16a2c <calc_adjust_modulation_u16+0x124> */
-
-    /* fragment 5: Arithmetic */
-    v0 = a2;
-
-    /* fragment 6: MemoryAccess */
-    a1 = *(uint16_t *)((char *)a3 + 2);
-
-    /* fragment 7: Unknown */
-    /* unmatched fragment 7 (Unknown): no deterministic matcher for Unknown */
-    /* asm: 16948:	50a00038 	beqzl	a1,16a2c <calc_adjust_modulation_u16+0x124> */
-
-    /* fragment 8: Arithmetic */
-    v0 = 0;
-
-    /* fragment 9: MemoryAccess */
-    t1 = *(uint16_t *)((char *)t1 + 2);
-
-    /* fragment 10: Unknown */
-    /* unmatched fragment 10 (Unknown): no deterministic matcher for Unknown */
-    /* asm: 16954:	51200035 	beqzl	t1,16a2c <calc_adjust_modulation_u16+0x124> */
-
-    /* fragment 11: Arithmetic */
-    v0 = 0;
-
-    /* fragment 12: Branch */
-    int _bc_t2_12 = t2 == v1;
-    v1 = 1;
-    if (_bc_t2_12) { goto calc_adjust_modulation_u160x120; }
-
-    /* fragment 13: Branch */
-    t2 = v1 < t0;
-    goto calc_adjust_modulation_u160xa8;
-
-calc_adjust_modulation_u160x64:
-    /* fragment 14: Arithmetic */
-    t2 = a3 + t2;
-
-    /* fragment 15: MemoryAccess */
-    t2 = *(uint16_t *)((char *)t2 + 0);
-    t2 = a0 < t2;
-
-    /* fragment 16: Unknown */
-    /* unmatched fragment 16 (Unknown): no deterministic matcher for Unknown */
-    /* asm: 16978:	5140000c 	beqzl	t2,169ac <calc_adjust_modulation_u16+0xa4> */
-
-    /* fragment 17: Arithmetic */
-    v1 = v1 + 1;
-    t2 = v1 << 2;
-    v1 = v1 - 1;
-
-calc_adjust_modulation_u160x80:
-    /* fragment 18: Arithmetic */
-    v1 = v1 << 2;
-    t2 = a3 + t2;
-    a3 = a3 + v1;
-
-    /* fragment 19: MemoryAccess */
-    t3 = *(uint16_t *)((char *)t2 + 0);
-    t0 = *(uint16_t *)((char *)a3 + 0);
-
-    /* fragment 20: Branch */
-    t2 = *(uint16_t *)((char *)(t2) + 2);
-    if (t3 != t0) { goto calc_adjust_modulation_u160xb8; }
-
-    /* fragment 21: Branch */
-    t0 = t2;
-    goto calc_adjust_modulation_u160xec;
-
-    /* fragment 22: Arithmetic */
-    t2 = v1 < t0;
-
-calc_adjust_modulation_u160xa8:
-    /* fragment 23: Branch */
-    int _bc_t2_23 = t2 != 0;
-    t2 = v1 << 2;
-    if (_bc_t2_23) { goto calc_adjust_modulation_u160x64; }
-
-    /* fragment 24: Branch */
-    v1 = v1 - 1;
-    goto calc_adjust_modulation_u160x80;
-
-calc_adjust_modulation_u160xb8:
-    /* fragment 25: Arithmetic */
-    a0 = a0 - t0;
-    a0 = a0 << 8;
-    t0 = t3 - t0;
-
-    /* fragment 26: Unknown */
-    /* unmatched fragment 26 (Unknown): no deterministic matcher for Unknown */
-    /* asm: 169cc:	0088001a 	div	zero,a0,t0 */
-
-    /* fragment 27: Arithmetic */
-    /* trap/BUG_ON check */
-    v1 = 256;
-
-    /* fragment 28: MemoryAccess */
-    a0 = *(uint16_t *)((char *)a3 + 2);
-    v1 = v1 - t0;
-
-    /* fragment 29: Unknown */
-    /* unmatched fragment 29 (Unknown): no deterministic matcher for Unknown */
-    /* asm: 169e8:	71480000 	madd	t2,t0 */
-
-    /* fragment 30: Arithmetic */
-    t0 = (int32_t)t0 >> 8;
-
-calc_adjust_modulation_u160xec:
-    /* fragment 31: Arithmetic */
-    a2 = a2 - v0;
-    t0 = t0 - a1;
-    a2 = a2 << 8;
-    a2 = a2 * t0;
-    a1 = t1 - a1;
-
-    /* fragment 32: Unknown */
-    /* unmatched fragment 32 (Unknown): no deterministic matcher for Unknown */
-    /* asm: 16a08:	00c5001b 	divu	zero,a2,a1 */
-
-    /* fragment 33: Arithmetic */
-    /* trap/BUG_ON check */
-
-    /* fragment 34: StackAccess */
-    local_0 = v1;
-    v1 = v1 >> 8;
-    v0 = v1 + v0;
-
-    /* fragment 35: Branch */
-    v0 = v0 & 65535;
-    goto calc_adjust_modulation_u160x124;
-
-calc_adjust_modulation_u160x120:
-    /* fragment 36: Arithmetic */
-    v0 = 0;
-
-calc_adjust_modulation_u160x124:
-    /* fragment 37: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    return (uint32_t)v0;
+        frac = (((256 - w) * table[idx * 2 + 1]) + w * y_lo) >> 8;
+    }
+    return (uint16_t)(y_low + ((((y_high - y_low) << 8) * (frac - y_hi)) /
+		(table[(count - 1) * 2 + 1] - y_hi) >> 8));
 }
 
 uint32_t calc_adjust_modulation_u16(uint32_t x, uint32_t target_min,
@@ -16570,247 +16433,68 @@ int32_t apical_sbus_write_data_u32(uint32_t *arg1, uint32_t arg2, void *arg3, in
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000002a51c origin=fragment_seed original=apical_sbus_write_data */
-static int32_t apical_sbus_write_data(uintptr_t a0, uint32_t a1, uintptr_t a2, uint32_t a3)
+static int32_t apical_sbus_write_data(uintptr_t bus_addr, uint32_t addr, uintptr_t src_addr, uint32_t count)
 {
-    uint32_t local_14 = 0;
-    uint32_t local_18 = 0;
-    uint32_t local_1c = 0;
-    uint32_t local_20 = 0;
-    uint32_t local_24 = 0;
-    uint32_t local_28 = 0;
-    uint32_t local_2c = 0;
-    uint32_t ra = 0;
-    uint32_t *s0 = 0;
-    uint32_t *s1 = 0;
-    uintptr_t *s2 = 0;
-    uintptr_t *s3 = 0;
-    uint32_t s4 = 0;
-    uint32_t s5 = 0;
-    uint32_t t9 = 0;
-    uintptr_t v0 = 0;
-    uint32_t v1 = 0;
+    struct t20_sbus *bus = (struct t20_sbus *)bus_addr;
+    uint8_t *src = (uint8_t *)src_addr;
+    uint32_t shift = (bus->mask & 0x80) ? 2 : ((bus->mask >> 6) & 1);
+    uint32_t chunk;
 
-    /* fragment 0: MemoryAccess */
-    v0 = *(uint32_t *)((char *)a0 + 0);
-    v1 = v0 & 128;
-    local_24 = s4;
-    local_20 = s3;
-    local_1c = s2;
-    local_18 = s1;
-    local_14 = s0;
-    local_2c = ra;
-    local_28 = s5;
-    s3 = a0;
-    s1 = a1;
-    s2 = a2;
-    s0 = a3;
-
-    /* fragment 1: Branch */
-    s4 = 2;
-    if (v1 != 0) { goto apical_sbus_write_data0x48; }
-
-    /* fragment 2: Arithmetic */
-    s4 = v0 >> 6;
-    s4 = s4 & 1;
-
-apical_sbus_write_data0x48:
-    /* fragment 3: Arithmetic */
-    v0 = (uintptr_t)s1 << s4;
-    v0 = v0 & 3;
-    v1 = 2;
-
-    /* fragment 4: Branch */
-    int _bc_v0_4 = v0 == v1;
-    v1 = 3;
-    if (_bc_v0_4) { goto apical_sbus_write_data0xc4; }
-
-    /* fragment 5: Branch */
-    int _bc_v0_5 = v0 == v1;
-    v1 = 1;
-    if (_bc_v0_5) { goto apical_sbus_write_data0x74; }
-
-    /* fragment 6: Branch */
-    int _bc_v0_6 = v0 != v1;
-    v0 = s0 < 4;
-    if (_bc_v0_6) { goto apical_sbus_write_data0x148; }
-
-    /* fragment 7: Branch */
-    a2 = *(uint8_t *)((char *)(s2) + 0);
-    goto apical_sbus_write_data0xa0;
-
-apical_sbus_write_data0x74:
-    /* fragment 8: CallSetup */
-    s0 = s0 - 1;
-    v0 = (uintptr_t)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)apical_sbus_write_u8)(s3, s1, *(uint8_t *)((char *)(s2) + 0)); /* jalr target resolved by relocation */
-
-    /* fragment 9: Branch */
-    s2 = s2 + 1;
-    if (s0 == 0) { goto apical_sbus_write_data0x240; }
-
-    /* fragment 10: Branch */
-    s1 = s1 + 1;
-    goto apical_sbus_write_data0x144;
-
-apical_sbus_write_data0xa0:
-    /* fragment 11: CallSetup */
-    s0 = s0 - 1;
-    v0 = (uintptr_t)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)apical_sbus_write_u8)(s3, s1); /* jalr target resolved by relocation */
-
-    /* fragment 12: Branch */
-    s2 = s2 + 1;
-    if (s0 == 0) { goto apical_sbus_write_data0x240; }
-
-    /* fragment 13: Arithmetic */
-    s1 = s1 + 1;
-
-apical_sbus_write_data0xc4:
-    /* fragment 14: Arithmetic */
-    v0 = 1;
-
-    /* fragment 15: Branch */
-    int _bc_s0_15 = s0 != v0;
-    v0 = (uintptr_t)&mem_read_u16;
-    if (_bc_s0_15) { goto apical_sbus_write_data0x108; }
-
-    /* fragment 16: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    /* fragment 17: Arithmetic */
-    a0 = s3;
-    a1 = s1;
-
-    /* fragment 18: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    /* fragment 19: MemoryAccess */
-    a2 = *(uint8_t *)((char *)s2 + 0);
-    t9 = (uintptr_t)&apical_sbus_write_u8;
-    s2 = local_1c;
-    t9 = t9;
-
-    /* fragment 20: IndirectTailCall */
-    return ((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))apical_sbus_write_u8)((uintptr_t)(a0), (uintptr_t)(a1), (uintptr_t)(a2), (uintptr_t)(a3));
-
-apical_sbus_write_data0x108:
-    /* fragment 21: CallSetup */
-    v0 = (uintptr_t)((uintptr_t (*)(uintptr_t))(uintptr_t)mem_read_u16)(s2); /* jalr target resolved by relocation */
-
-    /* fragment 22: CallSetup */
-    s0 = s0 - 2;
-    v0 = (uintptr_t)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)apical_sbus_write_u16)(s3, s1, v0); /* jalr target resolved by relocation */
-
-    /* fragment 23: Branch */
-    v0 = 2;
-    if (s0 == 0) { goto apical_sbus_write_data0x240; }
-
-    /* fragment 24: Arithmetic */
-    v0 = (int32_t)v0 >> s4;
-    s2 = s2 + 2;
-    s1 = s1 + v0;
-
-apical_sbus_write_data0x144:
-    /* fragment 25: Arithmetic */
-    v0 = s0 < 4;
-
-apical_sbus_write_data0x148:
-    /* fragment 26: Branch */
-    int _bc_v0_26 = v0 != 0;
-    v0 = s0 < 2;
-    if (_bc_v0_26) { goto apical_sbus_write_data0x1a8; }
-
-    /* fragment 27: CallSetup */
-    s5 = -4;
-    s5 = (uintptr_t)s0 & s5;
-    s0 = s0 - s5;
-    v0 = (uintptr_t)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)apical_sbus_write_data_u32)((uintptr_t)s3, (uintptr_t)s1, (uintptr_t)s2, (int32_t)s0 >> 2); /* jalr target resolved by relocation */
-
-    /* fragment 28: Branch */
-    s2 = s2 + s5;
-    if (s0 == 0) { goto apical_sbus_write_data0x240; }
-
-    /* fragment 29: Arithmetic */
-    v0 = s0 < 2;
-    s5 = (int32_t)s5 >> s4;
-
-    /* fragment 30: Branch */
-    s1 = s1 + s5;
-    if (v0 == 0) { goto apical_sbus_write_data0x1b0; }
-
-    /* fragment 31: Branch */
-    goto apical_sbus_write_data0x208;
-
-apical_sbus_write_data0x1a8:
-    /* fragment 32: Branch */
-    if (v0 != 0) { goto apical_sbus_write_data0x1fc; }
-
-apical_sbus_write_data0x1b0:
-    /* fragment 33: MemoryAccess */
-    v0 = *(uint32_t *)((char *)s3 + 0);
-    v0 = v0 & 2;
-
-    /* fragment 34: Branch */
-    if (v0 == 0) { goto apical_sbus_write_data0x208; }
-
-    /* fragment 35: CallSetup */
-    s5 = -2;
-    s5 = (uintptr_t)s0 & s5;
-    s0 = s0 - s5;
-    v0 = (uintptr_t)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)apical_sbus_write_data_u16)((uintptr_t)s3, (uintptr_t)s1, (uintptr_t)s2, (int32_t)s0 >> 1); /* jalr target resolved by relocation */
-
-    /* fragment 36: Branch */
-    s4 = (int32_t)s5 >> s4;
-    if (s0 == 0) { goto apical_sbus_write_data0x240; }
-
-    /* fragment 37: Arithmetic */
-    s2 = s2 + s5;
-
-    /* fragment 38: Branch */
-    s1 = s1 + s4;
-    goto apical_sbus_write_data0x204;
-
-apical_sbus_write_data0x1fc:
-    /* fragment 39: Branch */
-    if (s0 == 0) { goto apical_sbus_write_data0x244; }
-
-apical_sbus_write_data0x204:
-    /* fragment 40: Epilogue */
-    /* function epilogue: restore registers and return */
-    return (int32_t)v0;
-
-apical_sbus_write_data0x208:
-    /* fragment 41: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    /* fragment 42: Arithmetic */
-    a0 = s3;
-    a1 = s1;
-
-    /* fragment 43: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    /* fragment 44: Arithmetic */
-    a2 = s2;
-    a3 = s0;
-
-    /* fragment 45: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    /* fragment 46: ConstantLoad */
-    t9 = 0x0;
-
-    /* fragment 47: IndirectTailCall */
-    return apical_sbus_write_data_u8(a0, a1, a2, a3);
-
-apical_sbus_write_data0x240:
-    /* fragment 48: Epilogue */
-    /* function epilogue: restore registers and return */
-    return (int32_t)v0;
-
-apical_sbus_write_data0x244:
-    /* fragment 49: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    return 0;
+    switch ((addr << shift) & 3) {
+    case 1:
+    case 3:
+        if ((addr << shift & 3) == 3) {
+            if (count == 1)
+                return apical_sbus_write_u8((int32_t *)bus, addr, *src);
+            apical_sbus_write_u16((int32_t *)bus, addr, mem_read_u16((uintptr_t)src));
+            count -= 2;
+            if (count == 0)
+                return 0;
+            src += 2;
+            addr += 2 >> shift;
+        } else {
+            count--;
+            apical_sbus_write_u8((int32_t *)bus, addr, *src);
+            src++;
+            if (count == 0)
+                return 0;
+            addr++;
+        }
+        break;
+    case 2:
+        apical_sbus_write_u16((int32_t *)bus, addr, mem_read_u16((uintptr_t)src));
+        count -= 2;
+        if (count == 0)
+            return 0;
+        src += 2;
+        addr += 2 >> shift;
+        break;
+    default:
+        if (count >= 4)
+            break;
+        break;
+    }
+    if (count >= 4) {
+        chunk = count & ~3u;
+        count -= chunk;
+        apical_sbus_write_data_u32((uint32_t *)bus, addr, src, (int32_t)count >> 2);
+        src += chunk;
+        if (count == 0)
+            return 0;
+        addr += (int32_t)chunk >> shift;
+    }
+    if (count >= 2 && (bus->mask & 2)) {
+        chunk = count & ~1u;
+        count -= chunk;
+        apical_sbus_write_data_u16((int32_t *)bus, addr, src, (int32_t)count >> 1);
+        if (count == 0)
+            return 0;
+        src += chunk;
+        addr += (int32_t)chunk >> shift;
+    }
+    if (count == 0)
+        return 0;
+    return apical_sbus_write_data_u8((int32_t *)bus, addr, src, count);
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000002a780 origin=model_output original=apical_sbus_copy */
@@ -19893,200 +19577,9 @@ uint32_t stitching_error_calculate(int32_t *arg1)
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000002ea5c origin=fragment_seed original=sinter_strength_calculate */
-static int32_t sinter_strength_calculate_recovered(uintptr_t a0)
+static int32_t sinter_strength_calculate_recovered(uintptr_t state_addr)
 {
-    uint32_t *local_10 = 0;
-    uint32_t local_18 = 0;
-    uint32_t local_1c = 0;
-    uint32_t local_20 = 0;
-    uint32_t local_28 = 0;
-    uint32_t local_2c = 0;
-    uint32_t local_30 = 0;
-    uint32_t local_34 = 0;
-    uint32_t local_38 = 0;
-    uint32_t local_3c = 0;
-    uint32_t local_40 = 0;
-    uint32_t local_44 = 0;
-    uint32_t local_48 = 0;
-    uint32_t local_4c = 0;
-    uint32_t a1 = 0;
-    uint32_t a2 = 0;
-    uint32_t *a3 = 0;
-    uint32_t ra = 0;
-    uintptr_t *s0 = 0;
-    uint32_t *s1 = 0;
-    uintptr_t *s2 = 0;
-    uint32_t *s3 = 0;
-    uint32_t s4 = 0;
-    uint32_t s5 = 0;
-    uint32_t s6 = 0;
-    uint32_t s7 = 0;
-    uint32_t s8 = 0;
-    uint32_t t0 = 0;
-    uintptr_t v0 = 0;
-    uintptr_t v1 = 0;
-
-    /* fragment 0: CallSetup */
-    s0 = a0;
-    v0 = (uintptr_t)((uintptr_t (*)(uintptr_t))(uintptr_t)log16)(*(uint16_t *)((char *)(*(uint32_t *)((char *)(a0) + 0)) + 714)); /* jalr target resolved by relocation */
-
-    /* fragment 1: CallSetup */
-    t0 = v0;
-    s1 = stab.global_sinter_threshold_target;
-    local_20 = t0;
-    v0 = (uintptr_t)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)_GET_HDR_TABLE_INDEX)(46, *(uint8_t *)((char *)(*(uint32_t *)((char *)(s0) + 0)) + 5412)); /* jalr target resolved by relocation */
-
-    /* fragment 2: CallSetup */
-    s5 = v0;
-    s6 = (uintptr_t)&_GET_MOD_ENTRY16_PTR;
-    v0 = (uintptr_t)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)_GET_HDR_TABLE_INDEX)(51, *(uint8_t *)((char *)(*(uint32_t *)((char *)(s0) + 0)) + 5412)); /* jalr target resolved by relocation */
-
-    /* fragment 3: CallSetup */
-    s3 = v0;
-    s6 = (uintptr_t)&_GET_MOD_ENTRY16_PTR;
-    v0 = (uintptr_t)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)_GET_HDR_TABLE_INDEX)(56, *(uint8_t *)((char *)(*(uint32_t *)((char *)(s0) + 0)) + 5412)); /* jalr target resolved by relocation */
-
-    /* fragment 4: CallSetup */
-    s8 = v0;
-    v0 = (uintptr_t)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)_GET_HDR_TABLE_INDEX)(61, *(uint8_t *)((char *)(*(uint32_t *)((char *)(s0) + 0)) + 5412)); /* jalr target resolved by relocation */
-
-    /* fragment 5: CallSetup */
-    local_18 = v0;
-    s4 = *(uint32_t *)((char *)(*(uint32_t *)((char *)(s0) + 0)) + 716);
-    s4 = s4 + (*(uint32_t *)((char *)(*(uint32_t *)((char *)(s0) + 0)) + 720));
-    s7 = *(uint8_t *)((char *)&sp_9015);
-    local_1c = *(uint8_t *)((char *)((char *)&sp_9015 + 0x1));
-    s4 = s4 + (*(uint32_t *)((char *)(*(uint32_t *)((char *)(s0) + 0)) + 724));
-    v0 = (uintptr_t)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)_GET_MOD_ENTRY16_PTR)(s5, *(uint8_t *)((char *)(s2) + 45)); /* jalr target resolved by relocation */
-
-    /* fragment 6: CallSetup */
-    s1 = v0;
-    s4 = (int32_t)s4 >> 8;
-    v0 = (uintptr_t)((uintptr_t (*)(uintptr_t))(uintptr_t)_GET_ROWS)(s5); /* jalr target resolved by relocation */
-
-    /* fragment 7: CallSetup */
-    s4 = s4 & 65535;
-    local_10 = v0;
-    /* OEM 0x2e208 stores the _GET_ROWS result to sp+16: the fifth
-     * (stack-passed) argument.  The recovery dropped it. */
-    v0 = (uintptr_t)calc_adjust_modulation_u16(s4 & 65535, local_1c, s7, (uintptr_t)s1, (uint32_t)(uintptr_t)local_10); /* jalr target resolved by relocation */
-
-    /* fragment 8: CallSetup */
-    s1 = 255;
-    *(uint8_t *)((char *)((char *)&csp_9009 + 0x7)) = s1;
-    v0 = (uintptr_t)((uintptr_t (*)(uintptr_t))(uintptr_t)_GET_MOD_ENTRY16_PTR)(s3); /* jalr target resolved by relocation */
-
-    /* fragment 9: CallSetup */
-    s2 = v0;
-    v0 = (uintptr_t)((uintptr_t (*)(uintptr_t))(uintptr_t)_GET_ROWS)(s3); /* jalr target resolved by relocation */
-
-    /* fragment 10: CallSetup */
-    s3 = (uint32_t *)&APICAL_READ_32;
-    v0 = (uintptr_t)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)calc_modulation_u16)(s4, s2, v0); /* jalr target resolved by relocation */
-
-    /* fragment 11: CallSetup */
-    s2 = v0;
-    v0 = (uintptr_t)((uintptr_t (*)(uintptr_t))(uintptr_t)APICAL_READ_32)(688); /* jalr target resolved by relocation */
-
-    /* fragment 12: CallSetup */
-    v0 = (uintptr_t)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)APICAL_WRITE_32)(688, ((uintptr_t)s2 & 255) | (v0 & (-256))); /* jalr target resolved by relocation */
-
-    /* fragment 13: CallSetup */
-    v0 = (uintptr_t)((uintptr_t (*)(uintptr_t))(uintptr_t)_GET_MOD_ENTRY16_PTR)(s8); /* jalr target resolved by relocation */
-
-    /* fragment 14: CallSetup */
-    local_1c = v0;
-    v0 = (uintptr_t)((uintptr_t (*)(uintptr_t))(uintptr_t)_GET_ROWS)(s8); /* jalr target resolved by relocation */
-
-    /* fragment 15: CallSetup */
-    v0 = (uintptr_t)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)calc_modulation_u16)(s4, local_1c, v0); /* jalr target resolved by relocation */
-
-    /* fragment 16: CallSetup */
-    s8 = v0;
-    v0 = (uintptr_t)((uintptr_t (*)(uintptr_t))(uintptr_t)APICAL_READ_32)(656); /* jalr target resolved by relocation */
-
-    /* fragment 17: CallSetup */
-    s8 = 4278190080;
-    s8 = s8 | 65535;
-    local_1c = (s8 & 255) << 16;
-    v0 = (uintptr_t)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)APICAL_WRITE_32)(656, ((s8 & 255) << 16) | (v0 & (4278190080 | 65535)), (s8 & 255) << 16); /* jalr target resolved by relocation */
-
-    /* fragment 18: CallSetup */
-    v0 = (uintptr_t)((uintptr_t (*)(uintptr_t))(uintptr_t)APICAL_READ_32)(664); /* jalr target resolved by relocation */
-
-    /* fragment 19: CallSetup */
-    v0 = (uintptr_t)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)APICAL_WRITE_32)(664, local_1c | (v0 & s8), local_1c); /* jalr target resolved by relocation */
-
-    /* fragment 20: CallSetup */
-    v0 = (uintptr_t)((uintptr_t (*)(uintptr_t))(uintptr_t)_GET_MOD_ENTRY16_PTR)(local_18); /* jalr target resolved by relocation */
-
-    /* fragment 21: CallSetup */
-    s6 = v0;
-    v0 = (uintptr_t)((uintptr_t (*)(uintptr_t))(uintptr_t)_GET_ROWS)(local_18); /* jalr target resolved by relocation */
-
-    /* fragment 22: CallSetup */
-    v0 = (uintptr_t)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)calc_modulation_u16)(s4, s6, v0); /* jalr target resolved by relocation */
-
-    /* fragment 23: CallSetup */
-    s4 = v0;
-    v0 = (uintptr_t)((uintptr_t (*)(uintptr_t))(uintptr_t)APICAL_READ_32)(660); /* jalr target resolved by relocation */
-
-    /* fragment 24: CallSetup */
-    s4 = s4 & 255;
-    s4 = s4 << 16;
-    v0 = (uintptr_t)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)APICAL_WRITE_32)(660, ((s4 & 255) << 16) | (v0 & s8)); /* jalr target resolved by relocation */
-
-    /* fragment 25: CallSetup */
-    v0 = (uintptr_t)((uintptr_t (*)(uintptr_t))(uintptr_t)APICAL_READ_32)(668); /* jalr target resolved by relocation */
-
-    /* fragment 26: CallSetup */
-    v0 = (uintptr_t)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)APICAL_WRITE_32)(668, s4 | (v0 & s8)); /* jalr target resolved by relocation */
-
-    /* fragment 27: StackAccess */
-    t0 = local_20;
-    v0 = *(uint32_t *)((char *)s0 + 0);
-    *(uint16_t *)((char *)s0 + 32) = s1;
-    *(uint16_t *)((char *)s0 + 20) = s1;
-    a0 = *(uint8_t *)((char *)v0 + 5412);
-    v0 = 3;
-
-    /* fragment 28: Branch */
-    v1 = s1;
-    if (a0 == v0) { goto sinter_strength_calculate0x298; }
-
-    /* fragment 29: Arithmetic */
-    t0 = s1 - t0;
-    t0 = t0 + 96;
-
-    /* fragment 30: MemoryAccess */
-    *(uint16_t *)((char *)s0 + 20) = t0;
-
-sinter_strength_calculate0x298:
-    /* fragment 31: MemoryAccess */
-    v0 = *(uint16_t *)((char *)s0 + 20);
-
-    /* fragment 32: Unknown */
-    /* unmatched fragment 32 (Unknown): no deterministic matcher for Unknown */
-    /* asm: 2ecf8:	04420001 	bltzl	v0,2ed00 <sinter_strength_calculate+0x2a4> */
-
-    /* fragment 33: MemoryAccess */
-    *(uint16_t *)((char *)s0 + 20) = 0;
-    ra = local_4c;
-    s8 = local_48;
-    s7 = local_44;
-    s6 = local_40;
-    s5 = local_3c;
-    s4 = local_38;
-    s3 = local_34;
-    s2 = local_30;
-    s1 = local_2c;
-    *(uint16_t *)((char *)s0 + 22) = v1;
-    s0 = local_28;
-
-    /* fragment 34: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    return 0;
+    return sinter_strength_calculate((struct tx_isp_t20_nr_state *)state_addr);
 }
 
 /* T20 APICAL spatial-denoise modulation, reconstructed from the OEM image. */
