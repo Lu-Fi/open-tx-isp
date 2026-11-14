@@ -33,6 +33,9 @@
 #include "tx_isp_t32_abi.h"
 #include "tx_isp_t32_regs.h"
 #include "tx_isp_t32_mem.h"
+#ifdef TX_ISP_T33
+#include "tx_isp_t33_mem.h"
+#endif
 #include "tx_isp_t32_msca.h"
 #include "tx_isp_t32_soc.h"
 
@@ -820,7 +823,15 @@ static long t32_isp_ioctl(struct file *file, unsigned int cmd, unsigned long arg
 			ret = -ENODEV;
 			break;
 		}
+#ifdef TX_ISP_T33
+		/* lib_tisp_get_isp_memory_space: the T33 always takes tisp_mdns_t33_get_mem_size; with our ratio
+		 * memopt the vendor's memopt bits 4..7 / 8..15 (second plane off / extra MiB) are 0, as its default 5 */
+		bi.size = t33_mdns_get_mem_size(isp_memopt, vi->width, vi->height, 0, 0);
+		if (bi.size == T33_MDNS_E_MEMOPT)
+			bi.size = 0;
+#else
 		bi.size = t32_isp_mem_size(vi->width, vi->height, isp_memopt, 0, 0);
+#endif
 		ret = bi.size ? T32_PUT(arg, bi) : -EINVAL;
 		break;
 	case T32_IOC_SET_ISP_MEM_INFO:

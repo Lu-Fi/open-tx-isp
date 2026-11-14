@@ -4,6 +4,12 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD[-rcN]` are set on the `aperto` branch, the same tag in open-tx-isp and OpenIMP: RC1 `v2026.10.11-rc1`, RC2 `v2026.10.25-rc2`, RC3 `v2026.11.07-rc3` (2026-11-07). Gate SoCs of RC3 and Release 1: T10, T20, T21, T23, T30, T31, T40, T41 (T32/T33 planned, QEMU only); release notes: [docs/releases/ in OpenIMP](https://github.com/Lu-Fi/openimp/blob/next/docs/releases/README.md). Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-11-14: T33 ISP working memory size as the vendor (tisp_mdns_t33_get_mem_size, openimp #99; host + QEMU, planned)
+
+- `tx-isp-t33.ko` GET_ISP_MEM_INFO: the size now comes from `t33_mdns_get_mem_size` (new `tx_isp_t33_mem.h`), the port of `tisp_mdns_t33_get_mem_size`, which the T33 `lib_tisp_get_isp_memory_space` always takes (core init sets stIspInitPar word 0 = 1). Before, the T32 formula answered (uncompressed plane, statistics and second plane are computed differently): 1920x1080 at ratio 1500 was 0x27f000, now 0x27e000 = the vendor answer in QEMU, and exactly the layout of our `t33_mdns_mem` (port of `tisp_mdns_t33_set_mem_cfg`). T32 module unchanged.
+- New binary oracle block `t33mem` (2003 cases incl. ratio edges 1000/1001/2000/2001 and the error path, 13/13 mutants).
+- QEMU -M ingenic-t33 day + night: 0 oops; register lists equal to before except the DMA addresses behind the 4 KB smaller ISP memory.
+
 ## 2026-11-14: T33 TMO one-shot glue and D-PHY settle table (openimp #99; host + QEMU, planned)
 
 - `tx-isp-t33.ko`: the running mode switch (IMP_ISP_OneShotDisable / Enable / Tick, ioctl 0xc004543c = core ioctls 0x100000e / 0x100000f / 0x1000010) now runs `tisp_tmo_oneshot_disable` / `_enable` / `_tick` like the vendor (`tx_isp_t33_tmo1s.h`): single sensor TMO list 8 slot 0x58 (0x70dc) on / off and list 8 restarted, disable restores the short list length 0xc4. Counters in `/proc/jz/isp/isp-w02` ("t33 tmo oneshot"). The VIC hand-over to the RISC-V core in one-shot mode is not modelled (frames keep flowing; the vendor stops the VIC and waits for the RISC-V firmware).
