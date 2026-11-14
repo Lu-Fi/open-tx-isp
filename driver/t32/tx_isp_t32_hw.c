@@ -852,10 +852,14 @@ static void t33_dn_wr(u32 reg, u32 val)
 	isp_wr(reg, val);
 }
 
+static bool t33_dn_stop_to;	/* tisp_all_reset ended at the stop timeout (no core reset) */
+
 static u32 t33_dn_log(u32 level, u32 line)
 {
-	if (line == 289)
+	if (line == 289) {
+		t33_dn_stop_to = true;
 		return isp_printf(level, "tx-isp-t33: isp stop timeout\n");
+	}
 	if (line == 301)
 		return isp_printf(level, "tx-isp-t33: isp all reset timeout\n");
 	return isp_printf(level, "tx-isp-t33: isp all reset\n");
@@ -3119,7 +3123,23 @@ int t32_hw_input_setup(const void *attr, u32 w, u32 h)
 	}
 #ifdef TX_ISP_T33
 	/* lib_tisp_init -> tisp_all_reset (T33: 20000 polls, core state register 0 nonzero) */
+	t33_dn_stop_to = false;
 	t33_all_reset(&t33_dn);
+	/*
+	 * openimp #514: on the T33L with the thingino boot chain the ISP sometimes
+	 * never acknowledges the stop request (0x204, and the CPM SRBC bit 20
+	 * before it); the vendor tisp_all_reset then returns without the core
+	 * reset and no register list runs (no frames).  Here the core reset is
+	 * still done (the pre-#99 T32-style order, which streamed in that state).
+	 */
+	if (t33_dn_stop_to) {
+		isp_printf(2, "tx-isp-t33: core reset without the stop ack (#514)\n");
+		isp_wr(T33_RST_CORE, T33_RST_CORE_VAL);
+		for (i = T33_RST_POLLS; i && !isp_rd(T33_RST_STATE); i--)
+			;
+		if (!i)
+			isp_printf(2, "tx-isp-t33: isp all reset timeout\n");
+	}
 	i = 0;
 #else
 	isp_wr(T32_RDMA_IRQ_EN, 0xffffffff);

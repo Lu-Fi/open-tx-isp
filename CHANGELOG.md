@@ -8,6 +8,9 @@ marked otherwise. Release tags `vYYYY.MM.DD[-rcN]` are set on the `aperto` branc
 
 - `driver/t31/tx_isp_tuning.c`: `tiziano_bcsh_update` blended Cxl / Cxh / Cyl / Cyh into separate `bcsh_C*_now` variables, but `tiziano_bcsh_TransitParam` copied the bin array `bcsh_C` at contrast 128, so the contrast (C) curve always had the bin values. The vendor (`tx-isp-t31.ko` H20221206a) writes the blend into `tisp_BCSH_au32C[1..4]`, the array TransitParam copies (memcpy 20 bytes at 0x299dc) or reads in its contrast branch. Ours now keeps the one array `bcsh_C[1..4]`. At day the bin values equal the bright end of the EV list, so only night (high EV) differed: BCSH 0x8000 / 0x800c / 0x8054..0x8060 on the T31L device check (#533).
 - Proof: new host check `tests/check_t31_bcsh_c.sh` (make `t31_bcsh_c_check`, fails on the old code); `t31_binoracle` bcshup / bcshtr pass; make check 617/0; T31 ko builds. The binary oracle proved `tiziano_bcsh_update` itself; the bug was in the driver's hook targets, outside the proven header. Device re-check (night BCSH registers vs the vendor, apitest `ctsweep`) planned. Separate AE ceiling difference filed as openimp #551.
+## 2026-11-14: T33 core reset fallback after an ISP stop timeout (openimp #514, beyond vendor, user OK)
+
+- On a missing stop ack the T33 input setup still resets the ISP core, so boots where the ack never comes (#544) stream instead of giving no frames; documented in docs/BEYOND_VENDOR.md.
 
 ## 2026-11-14: T33 CSC list writes, CSCCR range check, SDNS plain parameters, 96-byte DRIVER_VERSION (openimp #99; host + QEMU, planned)
 
