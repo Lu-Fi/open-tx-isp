@@ -26577,7 +26577,6 @@ static ssize_t video_input_cmd_set(struct file *file, const char __user *ubuf,
 	if (!sensor || IS_ERR(sensor)) {
 		if (m)
 			seq_printf(m, "don't have active sensor, please set sensor firstly!\n");
-		isp_printf(2, "don't have active sensor, please set sensor firstly!\n", 0);
 		return -EINVAL;
 	}
 	if (count <= 0x80) {
@@ -26683,7 +26682,7 @@ static ssize_t isp_vic_cmd_set(struct file *file, const char __user *ubuf,
 	size = w * 2 * h;
 	phys = isp_malloc_buffer(size);
 	if (!phys) {
-		isp_printf(2, "snapraw: no ISP reserved memory for %u bytes\n", size);
+		pr_info("tx-isp-t30: snapraw: no ISP reserved memory for %u bytes\n", size);
 		goto out;
 	}
 	*(u32 *)(vic + TX_ISP_T30_VIC_SNAP_BUF) = phys;
