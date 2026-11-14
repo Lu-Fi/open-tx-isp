@@ -75,6 +75,9 @@
 #include "tx_isp_t32_abi.h"
 #include "tx_isp_t32_regs.h"
 #include "tx_isp_t32_soc.h"
+#ifdef TX_ISP_T33
+#include "tx_isp_t33_ldc.h"
+#endif
 
 #if LINUX_VERSION_CODE < KERNEL_VERSION(3, 13, 0)
 #define reinit_completion(c)	INIT_COMPLETION(*(c))	/* T33 kernel 3.10 */
@@ -101,6 +104,7 @@ static struct {
 } snap = { .wdma_vinum = -1 };
 
 #ifdef TX_ISP_T33
+static int ldc_init_on;		/* online LDC at ISP init (below) */
 #define T33_WDMA_CFG		0x20054
 #define T33_WDMA_ADDR		0x20058
 #define T33_WDMA_ADDR2		0x2005c
@@ -130,6 +134,11 @@ static long t32_snap_raw(const u32 *req)
 	isp_printf(1, "snap_param.vimum = %d, snap_param.paddr = 0x%08x\n", req[0], req[5]);
 	isp_printf(1, "[ISP][%s, %d]:  =======  vinum = %d, paddr is 0x%08x \n",
 		   "tisp_func_wdma_save_file", 653, req[0], req[5]);
+	if (ldc_init_on) {
+		/* the WDMA carries the online LDC (0x20054..0x20060): not taken away (vendor would) */
+		isp_printf(1, "tx-isp-t33: SnapRaw refused while online LDC is on\n");
+		return 0;
+	}
 	reinit_completion(&snap_done);
 	t32_hw_wr(T33_WDMA_CFG, T33_SNAP_FMT | 0x10000);
 	t32_hw_wr(T33_WDMA_STRIDE, w << 17 | w << 1);
@@ -263,6 +272,80 @@ static struct t32_ldc_on {
 } ldc_on[T32_LDC_VIS];
 static u32 ldc_probes, ldc_inits;
 
+#ifdef TX_ISP_T33
+/*
+ * Online LDC at ISP init (Fable analysis audit/issue491/fable/REPORT.md): LDC mode 0 (0xc00454b8,
+ * ldc_core_ops_ioctl 0x5000005: ldc +0x230 = 1) is sticky; S_INPUT latches it as the init flag
+ * (0x5000007 -> stIspInitPar +0x2c; nothing while the mode is offline).  With the flag
+ * 0xc00454ba sets the attribute (tisp_online_ldc_set_attr), the IPC memory grows by the LDC
+ * part, SET_ISP_IPC_MEM programs the LDC / WDMA / RDMA addresses, list 25 runs at stream-on.
+ */
+static int ldc_online_mode, ldc_init_on, ldc_info, ldc_attr_ok, ldc_hldc, ldc_top_refresh;
+static struct t33_ldc_attr ldc_attr;
+
+void t32_ldc_mode_set(u32 mode)
+{
+	if (mode == 0)
+		ldc_online_mode = 1;
+}
+
+void t32_ldc_input_latch(u32 mode)
+{
+	ldc_init_on = ldc_online_mode && mode != 1;
+}
+
+/* GET_ISP_IPC_MEM_INFO: the LDC part (lib_tisp_get_isp_ipc_memory_space, single sensor) */
+u32 t32_ldc_ipc_size(u32 w, u32 h)
+{
+	u32 area;
+
+	if (!ldc_init_on || !ldc_info || !ldc_attr_ok)
+		return 0;
+	return t33_ldc_mem_size(&ldc_attr, w, h, &area);
+}
+
+/* SET_ISP_IPC_MEM_INFO: lib_tisp_set_isp_ipc_memory_space + the LDC DMA set-up */
+void t32_ldc_ipc_set(u32 pa, u32 w, u32 h)
+{
+	struct t32_front_write o[T33_LDC_IPC_WRITES];
+	unsigned int i, n;
+
+	if (!ldc_init_on || !ldc_info || !ldc_attr_ok || !pa)
+		return;
+	n = t33_ldc_ipc_writes(&ldc_attr, pa, w, h, o);
+	for (i = 0; i < n; i++)
+		t32_hw_wr(o[i].reg, o[i].val);
+}
+
+/* stream-on: list 25 (tisp_ldc_t33_init / tisp_ldc_cfg_load); 0 when online LDC is off */
+unsigned int t32_ldc_stream_list(struct t32_front_write *w)
+{
+	if (!ldc_init_on || !ldc_attr_ok)
+		return 0;
+	return t33_ldc_list(&ldc_attr, w);
+}
+
+/* top list word 0x40 bit 23 (LDC bypass): cleared for HLDC (tisp_top_ldc_bypass_refresh) */
+int t32_ldc_top_hldc(void)
+{
+	return ldc_init_on && ldc_hldc;
+}
+
+/* tispTopRefresh: the top list once more at the first frame of an LDC stream */
+int t32_ldc_top_refresh(void)
+{
+	int r = ldc_top_refresh;
+
+	ldc_top_refresh = 0;
+	return r;
+}
+
+void t32_ldc_stream_on(void)
+{
+	ldc_top_refresh = ldc_init_on;
+}
+#endif
+
 void t32_ldc_probe_count(void)
 {
 	ldc_probes++;
@@ -310,6 +393,18 @@ long t32_ldc_online_ioctl(unsigned int cmd, unsigned long arg, u32 ldc_mode)
 		}
 		t32_ldc_online_init(b);
 		ldc_inits++;
+		if (ldc_init_on && !t33_ldc_attr_from_block(b, &ldc_attr)) {
+			/* tisp_online_ldc_set_attr: the direct writes of tisp_ldc_cfg_load */
+			ldc_attr_ok = 1;
+			ldc_hldc = ldc_attr.type == 1;
+			if (!ldc_hldc) {
+				ldc_info = 1;
+				t32_hw_wr(0x27090, 1);
+			}
+			t32_hw_wr(0x27088, 0);
+			t32_hw_wr(0x27084, 0xffffffff);
+			t32_hw_wr(0x27030, 1);
+		}
 		return 0;
 	}
 	/* T32_IOC_LDC_ONLINE_PAR: lib_tisp_ldc_get_par, no IQ-bin LDC parameters here */
@@ -401,8 +496,13 @@ static irqreturn_t t32_ldc_isr(int irq, void *dev)
 	ldc_irqs++;
 	if (st & 2)
 		ldc_errors++;
-	if (st & 1)
+	if (st & 1) {
+#ifdef TX_ISP_T33
+		if (ldc_init_on)	/* tisp_ldc_t33_intp_handle: next online pass */
+			ldc_wr(0x24, 1);
+#endif
 		complete(&ldc_done);
+	}
 	return IRQ_HANDLED;
 }
 

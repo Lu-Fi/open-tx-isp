@@ -4,6 +4,11 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD[-rcN]` are set on the `aperto` branch, the same tag in open-tx-isp and OpenIMP: RC1 `v2026.10.11-rc1`, RC2 `v2026.10.25-rc2`, RC3 `v2026.11.07-rc3` (2026-11-07). Gate SoCs of RC3 and Release 1: T10, T20, T21, T23, T30, T31, T40, T41 (T32/T33 planned, QEMU only); release notes: [docs/releases/ in OpenIMP](https://github.com/Lu-Fi/openimp/blob/next/docs/releases/README.md). Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-11-14: T33 online LDC switched on at ISP init like the vendor (openimp #491; QEMU only)
+
+- After LDC mode online (0xc00454b8 = 0, sticky) S_INPUT latches the init flag (vendor 0x5000007 -> stIspInitPar +0x2c); then 0xc00454ba sets the attribute (tisp_online_ldc_set_attr: direct 0x27090 / 0x27088 / 0x27084 / 0x27030), GET_ISP_IPC_MEM adds the LDC part (1923840 B at 1920x1080), SET_ISP_IPC_MEM writes the IPC words and the 24 LDC / WDMA / RDMA addresses, stream-on builds list 25 in the vendor layout (template, not ascending) so 0x22010 = 0xe2fffffc; HLDC clears top 0x40 bit 23; the top list runs once more at the first frame; the LDC done interrupt retriggers 0x27024 (only while /dev/offline_ldc is open). S_INPUT writes tisp_top_ipc_init (0x1080 / 0x1084 / 0x10a0 / 0x10a4, 0x10c4 / 0x10c8 = w x h / 6). SnapRaw is refused while online LDC uses the WDMA. Pure helpers `driver/t32/tx_isp_t33_ldc.h`, host test `tests/tx_isp_t33_ldc_test` (the vendor values).
+- QEMU (cv2005 1920x1080, OpenIMP `APITEST_LDC_ONLINE=strength`, area fs): the 50 online-LDC writes of a vendor run equal (audit issue491 ldcdiff.sh), frames flow, 0 oopses; without LDC mode online nothing changes (t33f1 / t33l1 / t33l2 / t33drv as before). T32: the ported tx_isp_t32_ldc.h is not wired yet.
+
 ## 2026-11-14: T32 driver builds on the 3.10.14 vendor tree
 
 - driver/t32/tx_isp_t32.h: READ_ONCE/WRITE_ONCE fall back to ACCESS_ONCE on kernels that predate them (T32-2.1.0-3.10.14 vendor tree for the PRJ007 image); 4.4 builds unchanged (T32 and T33 kos built).

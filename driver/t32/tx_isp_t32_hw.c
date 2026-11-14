@@ -71,6 +71,9 @@
 #include "tx_isp_t32_lce.h"
 #include "tx_isp_t32_rdns.h"
 #include "tx_isp_t32_rdnstab.h"
+#ifdef TX_ISP_T33
+#include "tx_isp_t33_ldc.h"
+#endif
 
 static void t32_bringup_ae_kick(void);
 #ifdef TX_ISP_T33
@@ -171,6 +174,8 @@ static irqreturn_t t32_isp_irq(int irq, void *dev)
 		if (t33_first_fe && !isp_rd(T33_RCFG_TRIG)) {
 			t33_first_fe = false;
 			t33_first_frame_words();
+			if (t32_ldc_top_refresh() && !isp_rd(T33_RCFG_TRIG_HI))
+				isp_wr(T33_RCFG_TRIG_HI, 1U << (T33_MOD_TOP - 32));	/* tispTopRefresh */
 		}
 		/* the vendor's frame-done list refresh: modules marked since, when no list runs */
 		if (t33_mod_dirty && !isp_rd(T33_RCFG_TRIG)) {
@@ -649,6 +654,8 @@ static void t32_front_init(void)
 		t33_top_init(bin + off, width, height, (u32)bayer, 0, w, dw);	/* buffered path only */
 		for (i = 0; i < T33_TOP_DIRECT_WRITES; i++)
 			isp_wr(dw[i].reg, dw[i].val);
+		if (t32_ldc_top_hldc())	/* tisp_top_ldc_bypass_refresh: HLDC takes the LDC out of bypass */
+			w[0].val &= ~0x800000U;
 		t33_mod_set(T33_MOD_TOP, w, T33_TOP_LIST_WRITES);
 	}
 	return;
@@ -1875,6 +1882,15 @@ static int csi_reset_done;
  */
 int t32_hw_input_setup(const void *attr, u32 w, u32 h)
 {
+#ifdef TX_ISP_T33
+	/* lib_tisp_init -> tisp_top_ipc_init (one sensor) */
+	isp_wr(0x1080, 0);
+	isp_wr(0x1084, 0);
+	isp_wr(0x10a0, 0xffffffff);
+	isp_wr(0x10a4, 4);
+	isp_wr(0x10c4, w * h / 6);
+	isp_wr(0x10c8, w * h / 6);
+#endif
 	struct t32_reg_seq seq;
 	u32 size = (w << 16) | h;
 	unsigned int i;
@@ -1990,6 +2006,21 @@ void t32_hw_stream_on(void)
 	if (T32_SOC_LIST_IRQ) {
 		int ch;
 
+#ifdef TX_ISP_T33
+		{
+			/* online LDC: list 25 in the vendor layout (tisp_rcfg_ldc_reg_init) */
+			static const struct t33_tcmd ldc_tmpl[] = {
+				{ 0x27040, 3, 0 }, { 0x2706c, 3, 0 }, { 0x27020, 2, 0 },
+				{ 0x2104c, 2, 0 }, { 0x21084, 1, 0 }, { 0x20058, 2, 0 },
+			};
+			struct t32_front_write lw[T33_LDC_LIST_WRITES];
+			unsigned int ln = t32_ldc_stream_list(lw);
+
+			if (ln)
+				t33_mod_set_tmpl(T33_MOD_LDC, T33_TMPL(ldc_tmpl), lw, (int)ln);
+			t32_ldc_stream_on();
+		}
+#endif
 		t33_rcfg_write_all();
 		/* lib_tisp_msca_chx_reg_stream_off for the three channels */
 		for (ch = 0; ch < 3; ch++)

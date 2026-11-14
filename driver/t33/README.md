@@ -48,7 +48,7 @@ ISP clock is off (as the vendor module). Not tested on a camera.
 RAW snapshot and LDC (openimp #491, `../t32/tx_isp_t32_snapldc.c`): `0xc004548e` / `0xc004548f`
 (raw WDMA, MSCA channel stop / restart), the online LDC requests `0xc00454b9..bb` and the
 `/dev/offline_ldc` misc device (LUT memory, one job on the ISP LDC at 0x27000, IRQ `isp-m1`) answer as
-the vendor module in QEMU (apitest t33f1, t33l1, t33drv); the online attribute is kept, not applied.
+the vendor module in QEMU (apitest t33f1, t33l1, t33drv). Online LDC at ISP init (`../t32/tx_isp_t33_ldc.h`): after LDC mode online the module programs list 25, the IPC LDC memory and the LDC/WDMA/RDMA addresses as the vendor (QEMU: the 50 vendor writes equal).
 
 Tuning controls (`/dev/isp-m0` 0xc0105467, openimp #389): the T32 dispatchers
 (`../t32/tx_isp_t32_txsctrl.h:297`, `txgctrl.h:177`, glue

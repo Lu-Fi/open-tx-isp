@@ -231,6 +231,17 @@ void t32_snap_isp_irq(u32 sta2, u32 sta3);
 void t32_snap_vic_irq(u32 ch, u32 s, u32 s2);
 void t32_snapldc_show(struct seq_file *m);
 void t32_ldc_probe_count(void);
+#ifdef TX_ISP_T33
+struct t32_front_write;
+void t32_ldc_mode_set(u32 mode);
+void t32_ldc_input_latch(u32 mode);
+u32 t32_ldc_ipc_size(u32 w, u32 h);
+void t32_ldc_ipc_set(u32 pa, u32 w, u32 h);
+unsigned int t32_ldc_stream_list(struct t32_front_write *w);
+int t32_ldc_top_hldc(void);
+int t32_ldc_top_refresh(void);
+void t32_ldc_stream_on(void);
+#endif
 
 /* tx_isp_t32_ivdcdrv.c: IVDC direct mode (#349) */
 int t32_ivdc_init(void);
