@@ -587,6 +587,35 @@ static long t32_frame_drop_set(unsigned long arg)
 }
 #endif
 
+#ifdef TX_ISP_T33
+/*
+ * The default IQ bin path table (tx_isp_t33_bin.h, oracle block bin): ctx -> priv -> word 276 -> table of 4 x 4
+ * records of 136 B {idx, sel, path[128]}; the vendor keeps it in the ISP core context, here three static blocks.
+ */
+#include "tx_isp_t33_bin.h"
+static u8 t33_bin_tab[4096], t33_bin_priv[300];
+static u32 t33_bin_ctx[1];
+static int t33_bin_cfu(void *to, const void *from, unsigned long n) { return copy_from_user(to, (const void __user *)from, n); }
+static int t33_bin_ctu(void *to, const void *from, unsigned long n) { return copy_to_user((void __user *)to, from, n); }
+static int t33_bin_sprintf(char *buf, const char *fmt, const char *arg) { return scnprintf(buf, 128, "%.127s", fmt); }	/* bounded: the vendor sprintf can run past the 128-byte path field */
+static void *t33_bin_memcpy(void *to, const void *from, unsigned long n) { return memcpy(to, from, n); }
+static int t33_bin_printf(int level, const char *fmt, ...) { isp_printf(level, "%s\n", fmt); return 0; }
+/* positional: the member names copy_from_user / copy_to_user are kernel macros here */
+static const struct t33_bin_ops t33_bin_ops = {
+	t33_bin_cfu, t33_bin_ctu, t33_bin_sprintf, t33_bin_memcpy, t33_bin_printf,
+};
+
+static long t33_bin_path_ioctl(unsigned int cmd, unsigned long arg)
+{
+	*(u32 *)t33_bin_priv = 0;
+	*(u32 *)(t33_bin_priv + 276) = (u32)(unsigned long)t33_bin_tab;
+	t33_bin_ctx[0] = (u32)(unsigned long)t33_bin_priv;
+	if (cmd == T32_IOC_SET_BIN_PATH)
+		return t33_bin_set_path((u8 *)t33_bin_ctx, (u8 *)arg, &t33_bin_ops);
+	return t33_bin_get_path((u8 *)t33_bin_ctx, (u8 *)arg, &t33_bin_ops);
+}
+#endif
+
 static long t32_frame_drop_get(unsigned long arg)
 {
 	u32 b[T32_FD_BLOCK / 4];
@@ -942,6 +971,10 @@ static long t32_isp_ioctl(struct file *file, unsigned int cmd, unsigned long arg
 		ret = t32_ldc_online_ioctl(cmd, arg, core.ldc_mode);
 		break;
 #ifdef TX_ISP_T33
+	case T32_IOC_SET_BIN_PATH:
+	case T32_IOC_GET_BIN_PATH:
+		ret = t33_bin_path_ioctl(cmd, arg);
+		break;
 	case T32_IOC_LDC_BYPASS_STATE:
 	case T32_IOC_LDC_REFLESH_LUT:
 		ret = t32_ldc_ctl_ioctl(cmd, arg, core.ldc_mode);

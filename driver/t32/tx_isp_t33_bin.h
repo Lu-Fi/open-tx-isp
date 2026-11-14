@@ -29,8 +29,8 @@
 #define T33_BIN_TIMEOUT_MS	1000
 
 struct t33_bin_ops {
-	int (*copy_from_user)(void *to, const void *from, unsigned long n);
-	int (*copy_to_user)(void *to, const void *from, unsigned long n);
+	int (*cfu)(void *to, const void *from, unsigned long n);
+	int (*ctu)(void *to, const void *from, unsigned long n);
 	int (*sprintf)(char *buf, const char *fmt, const char *arg);
 	void *(*memcpy)(void *to, const void *from, unsigned long n);
 	int (*isp_printf)(int level, const char *fmt, ...);
@@ -54,7 +54,7 @@ static inline int t33_bin_get_path(u8 *ctx, u8 *user, const struct t33_bin_ops *
 	u32 idx, sel;
 	u8 *tab;
 
-	if (ops->copy_from_user(req, user, T33_BIN_REQ_BYTES)) {
+	if (ops->cfu(req, user, T33_BIN_REQ_BYTES)) {
 		ops->isp_printf(2, "copy_from_user error");
 		return -14;
 	}
@@ -68,7 +68,7 @@ static inline int t33_bin_get_path(u8 *ctx, u8 *user, const struct t33_bin_ops *
 	ops->sprintf((char *)(req + 8),
 		     (const char *)(tab + T33_BIN_GET_OFF + idx * T33_BIN_ENTRY_BYTES +
 				    sel * T33_BIN_REQ_BYTES), 0);
-	if (ops->copy_to_user(user, req, T33_BIN_REQ_BYTES)) {
+	if (ops->ctu(user, req, T33_BIN_REQ_BYTES)) {
 		ops->isp_printf(2, "copy_to_user error");
 		return -14;
 	}
@@ -82,7 +82,7 @@ static inline int t33_bin_set_path(u8 *ctx, u8 *user, const struct t33_bin_ops *
 	u32 idx, sel;
 	u8 *tab;
 
-	if (ops->copy_from_user(req, user, T33_BIN_REQ_BYTES)) {
+	if (ops->cfu(req, user, T33_BIN_REQ_BYTES)) {
 		ops->isp_printf(2, "copy_from_user error");
 		return -14;
 	}
@@ -107,7 +107,7 @@ static inline int t33_bin_switch(unsigned int ch, u8 *ctx, u8 *user, const struc
 	int ret, cret;
 	unsigned long to;
 
-	cret = ops->copy_from_user(req, user, T33_BIN_REQ_BYTES);
+	cret = ops->cfu(req, user, T33_BIN_REQ_BYTES);
 	if (cret) {
 		ops->isp_printf(2, "copy_from_user error");
 		return cret;

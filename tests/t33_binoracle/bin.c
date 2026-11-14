@@ -17,8 +17,8 @@ extern unsigned long private_wait_for_completion_timeout(void *done, unsigned lo
 extern int tisp_switch_bin(unsigned int ch, const u8 *req);
 
 static const struct t33_bin_ops bin_ops = {
-	.copy_from_user = private_copy_from_user,
-	.copy_to_user = private_copy_to_user,
+	.cfu = private_copy_from_user,
+	.ctu = private_copy_to_user,
 	.sprintf = (int (*)(char *, const char *, const char *))sprintf,
 	.memcpy = (void *(*)(void *, const void *, unsigned long))memcpy,
 	.isp_printf = isp_printf,
