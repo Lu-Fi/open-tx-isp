@@ -3634,6 +3634,29 @@ int tisp_ct_update(uint32_t ct);
 int tisp_ae_ir_update(uint32_t ir_val);
 int tisp_lsc_write_lut_datas(void);
 static int tisp_lsc_ct_update(uint32_t ct);
+int tisp_awb_ev_update(uint32_t ev);
+int tisp_bcsh_ev_update(uint32_t ev);
+int tisp_bcsh_ct_update(uint32_t ct);
+static int tisp_adr_ev_update(uint32_t ev, uint32_t aux_ev);
+static int tisp_defog_ev_update(uint32_t ev, uint32_t aux_ev);
+
+/* Vendor-equal CT / EV fan-out and BCSH triggers, proven against the vendor instructions by
+ * tests/t31_binoracle (blocks ctev, bcshtr; openimp #532 / #533).  The callees keep our argument lists. */
+extern uint32_t system_reg_read(u32 reg);
+#define T31_CTEV_HOOKS
+#define T31_CTEV_BYPASS()		system_reg_read(0xc)
+#define T31_CT_CCM(a, b)		tisp_ccm_ct_update()
+#define T31_CT_LSC(a, b)		tisp_lsc_ct_update(a)
+#define T31_CT_BCSH(a, b)		tisp_bcsh_ct_update(a)
+#define T31_EV_AWB(a, b)		tisp_awb_ev_update(a)
+#define T31_EV_CCM(a, b)		tisp_ccm_ev_update()
+#define T31_EV_ADR(a, b)		tisp_adr_ev_update(a, b)
+#define T31_EV_DEFOG(a, b)		tisp_defog_ev_update(a, b)
+#define T31_EV_BCSH(a, b)		tisp_bcsh_ev_update(a)
+/* wdr_ready: not in the vendor; our WDR buffers are allocated / freed at run time (beyond vendor guard) */
+#define T31_EV_WDR(a, b)		do { if (READ_ONCE(wdr_ready)) tisp_wdr_ev_update(a, b); } while (0)
+#define T31_BCSH_UPDATE()		tiziano_bcsh_update(NULL)
+#include "tx_isp_t31_ctev.h"
 static int tisp_lsc_gain_update(uint32_t gain);
 static void tisp_lsc_upside_down_lut(uint32_t *lut, int rows, int cols_padded);
 static int tisp_lsc_lut_mirror_exchange(uint32_t *lut, int idx_a, int idx_b,
@@ -8443,42 +8466,22 @@ int tisp_bcsh_g_saturation(void)
     return bcsh_saturation_user;
 }
 
+/* vendor tisp_bcsh_ev_update 0x2a63c / tisp_bcsh_ct_update 0x2a6d8 (tx_isp_t31_ctev.h, oracle block bcshtr):
+ * bcsh_ev_current / bcsh_ct_current = vendor BCSH_ev / BCSH_ct, bcsh_cm_ev / bcsh_cm_ct = cm_ev / cm_ct */
+static uint32_t bcsh_cm_ev, bcsh_cm_ct;
+
 int tisp_bcsh_ev_update(uint32_t ev)
 {
-    uint32_t ev_shifted;
-    uint32_t prev_ev;
-    uint32_t delta;
-
     if (ourISPdev && ourISPdev->tuning_data)
         ourISPdev->tuning_data->bcsh_ev = ev;
-    bcsh_ev_current = ev;
-    ev_shifted = ev >> 10;
-    prev_ev = bcsh_last_ev;
-    delta = (prev_ev >= ev_shifted) ? (prev_ev - ev_shifted) : (ev_shifted - prev_ev);
-
-    if (BCSH_real == 1 || delta > bcsh_ev_threshold) {
-        tiziano_bcsh_update(NULL);
-        bcsh_last_ev = ev_shifted;
-    }
-    return 0;
+    return t31_bcsh_ev_update(ev, &bcsh_ev_current, &bcsh_cm_ev, &BCSH_real, &bcsh_last_ev, bcsh_ev_threshold);
 }
 
 int tisp_bcsh_ct_update(uint32_t ct)
 {
-    uint32_t prev_ct;
-    uint32_t delta;
-
     if (ourISPdev && ourISPdev->tuning_data)
         ourISPdev->tuning_data->wb_temp = ct;
-    bcsh_ct_current = ct;
-    prev_ct = bcsh_last_ct;
-    delta = (prev_ct >= ct) ? (prev_ct - ct) : (ct - prev_ct);
-
-    if (BCSH_real == 1 || delta > bcsh_ct_threshold) {
-        tiziano_bcsh_update(NULL);
-        bcsh_last_ct = ct;
-    }
-    return 0;
+    return t31_bcsh_ct_update(ct, &bcsh_ct_current, &bcsh_cm_ct, &BCSH_real, &bcsh_last_ct, bcsh_ct_threshold);
 }
 
 
@@ -32469,33 +32472,18 @@ static int tisp_adr_ev_update(uint32_t ev, uint32_t aux_ev)
     return 0;
 }
 
-/* OEM EXACT: tisp_ev_update calls sub-module EV update functions.
- * ADR (bit 7), defog (bit 11), WDR (bit 3) are gated on bypass register 0xc. */
+/* vendor tisp_ev_update 0x14cd4 (tx_isp_t31_ctev.h, oracle block ctev; openimp #532): skip on an unchanged
+ * (ev, aux) pair, then AWB, CCM, ADR (0x80), defog (0x800), BCSH, WDR (0x8) */
+static uint32_t ev_last[2];
+
 int tisp_ev_update(uint32_t ev, uint32_t aux_ev)
 {
-    uint32_t reg_0c;
-
     data_9a454 = ev;
-
-    tisp_awb_ev_update(ev);
-    tisp_ccm_ev_update();
-    tisp_bcsh_ev_update(ev);
-
-    reg_0c = system_reg_read(0xc);
-    if ((reg_0c & 0x80) == 0)
-        tisp_adr_ev_update(ev, aux_ev);
-    if ((reg_0c & 0x800) == 0)
-        tisp_defog_ev_update(ev, aux_ev);
-    if (wdr_ready && (reg_0c & 8) == 0)
-        tisp_wdr_ev_update(ev, aux_ev);
-
-    return 0;
+    return t31_ev_update(ev, aux_ev, ev_last);
 }
 
 int tisp_ct_update(uint32_t ct)
 {
-	uint32_t reg_0c;
-
 	if (!ourISPdev || !ourISPdev->tuning_data)
 		return 0;
 
@@ -32505,21 +32493,11 @@ int tisp_ct_update(uint32_t ct)
 		ourISPdev->tuning_data->wb_temp = ct;
 
 	data_9a450 = ct;
-	reg_0c = system_reg_read(0xc);
 
-	if ((reg_0c & 0x200) == 0)
-		tisp_ccm_ct_update();
-
-	if ((reg_0c & 0x40) == 0)
-		tisp_lsc_ct_update(ct);
-
-	/* OEM gates on MDNS bypass bit 16, but our isp_block_enable
-	 * intentionally bypasses MDNS (bit 16=1), permanently blocking
-	 * BCSH CT adaptation. Call unconditionally — the HMatrix and
-	 * saturation update is independent of MDNS processing. */
-	tisp_bcsh_ct_update(ct);
-
-	return 0;
+	/* vendor tisp_ct_update 0x14de4 (oracle block ctev; openimp #532): CCM unless 0xc bit 9, LSC unless
+	 * bit 6, BCSH unless bit 16.  Bit 16 is clear while streaming (tisp_mdns_enable_after_dma clears it);
+	 * it stays set only with force_bypass_mdns=1, then BCSH keeps its CT state, as in the vendor. */
+	return t31_ct_update(ct, 0);
 }
 
 /* OEM EXACT: tisp_ae_ir_update delegates to GIB DEIR IR update */
