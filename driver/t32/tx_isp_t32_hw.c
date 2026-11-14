@@ -1307,12 +1307,6 @@ void t33_tmo_oneshot(u32 op)
 }
 
 /*
- * tisp_s_module_control / tisp_g_module_control (oracle-proven tx_isp_t33_top.h, block top): the module control
- * word is the TOP bypass word (bit set = module bypassed), low 22 bits the user's.  Open (not ported, #99): the
- * vendor's side effects of a changed bit 12 (tisp_mdns_start before, tisp_mdns_t33_reg_trig after) and of
- * changed bits 5 / 11 (tisp_lce_top_change_state).
- */
-/*
  * LDC ioctls of ldc_core_ops_ioctl (T33): the HLDC bypass state (tisp_ldc_set_bypass_state ->
  * tisp_top_ldc_bypass_refresh) and the LUT refresh (tisp_online_ldc_reflesh_lut), as the oracle-proven ports
  * tx_isp_t33_ldcpar.h (block ldc) and tx_isp_t33_aeldc.h (block aeldc).  The vendor's module data objects used by
@@ -1361,11 +1355,34 @@ int t33_ldc_reflesh_lut(u32 idx, u32 addr)
 	return t33_online_ldc_refresh(idx, addr);
 }
 
+/*
+ * tisp_s_module_control / tisp_g_module_control (oracle-proven tx_isp_t33_top.h, block top; the side effects
+ * tx_isp_t33_mcside.h, block mcside): the module control word is the TOP bypass word (bit set = module bypassed),
+ * low 22 bits the user's.  A changed bit 12 starts MDNS before the new word (tisp_mdns_start) and triggers it after
+ * (tisp_mdns_t33_reg_trig); changed bits 5 / 11 (0x820) switch the LCE curve source (tisp_lce_top_change_state).
+ */
+#include "tx_isp_t33_mcside.h"
+
+static u8 t33_mdns_started;	/* g_mdnsStart */
+static struct t33_lce_pf *t33_lcepf;	/* the LCE block (defined below, with the LCE / LSF code) */
+
+static void t33_lce_curve_default_cb(u32 ch)
+{
+	if (t33_lcepf)
+		t33_lcepf_curve_default(t33_lcepf);
+}
+
 void t33_module_control_set(u32 ch, u32 v)
 {
-	u32 cur = t33_top_get_bypass(ch);
+	u32 cur = t33_top_get_bypass(ch), chg = v ^ cur;
 
+	if (chg & 0x1000)
+		t33_mdns_start(ch, t33_bst_cfg_mode, &t33_mdns_started);
+	if (chg & 0x820)
+		t33_lce_top_change_state(t33_lce_sec, ch, t33_lce_curve_default_cb);
 	t33_top_set_bypass(ch, (v & 0x3fffffU) | (cur & 0xffc00000U));
+	if (chg & 0x1000)	/* tisp_mdns_t33_reg_trig: mdnsInit is the pending first frame (t33_first_fe) */
+		t33_mdns_reg_trig(ch, t33_bst_cfg_mode, t33_first_fe, &t33_bst_refresh_mdns);
 }
 
 u32 t33_module_control_get(u32 ch)
@@ -2581,14 +2598,19 @@ static noinline_for_stack void t33_sw_tone(const u8 *bin, u32 bytes, u32 width, 
 	unsigned long long ev = (unsigned long long)hi << 32 | lo;
 	u32 off, len, tb;
 
-	/* tisp_lsc_switch_para: interp_by_tgain / _by_ct (forced), write_reg */
+	/*
+	 * tisp_lsc_switch_para: interp_by_tgain / _by_ct (forced) at the block's OWN gain (info + 0x14)
+	 * and CT (info + 8), not the AE / AWB values of the other blocks: both move only through
+	 * tisp_lsc_tgain_update / tisp_lsc_ct_update, which the top bypass bit 0x08 skips (PRJ008) and
+	 * which are not ported, so they stay at the init values (openimp #537)
+	 */
 	if (T33_SW_SEC(LSC) && t33_lsc_pages) {
 		const u8 *tab, *sec = t33_lsc_src(bin, bytes, off, len, &tab, &tb);
 
 		T33_SW_TMP();
 		t33_gr_commit(T33_MOD_LSC,
 			      t33_lsc_init(sec, tab, tb,
-					   height, width, gain, ct, t33_lsc_v, &t33_lsc_m,
+					   height, width, T33_INIT_GAIN, T33_CCM_INIT_CT, t33_lsc_v, &t33_lsc_m,
 					   (u8 *)CKSEG1ADDR(virt_to_phys((void *)t33_lsc_pages)),
 					   (u32)virt_to_phys((void *)t33_lsc_pages), t33_gr_tmp, T33_SLOT_WORDS));
 	}

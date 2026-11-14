@@ -12,6 +12,14 @@ marked otherwise. Release tags `vYYYY.MM.DD[-rcN]` are set on the `aperto` branc
 - Ported and proven, not wired (vendor allocations our driver has not): `tisp_blc_deinit`, `tisp_msca_t33_deinit`, `tisp_normal_ae_deinit`, the list release of `tisp_ldc_t33_deinit`, `tisp_dma_deinit` (no caller in the vendor module).
 - New binary oracle blocks `clkp` (2 functions, 10/10 mutants), `deinit` (6 functions, 15/15) and `deinitto` (`tisp_all_reset` timeouts, 4/4); harness `t33_binoracle.py`: CALLS return values `=~..` (one per case) and `=^..` (one per case and first argument) for polls that time out.
 - QEMU -M ingenic-t33 vs a fresh vendor-module run: div_isp / div_ldc / div_ispa / div_vpu parents equal; close sequence 0x22028, 0x2202c, 0x200, 0x24, 0x27088, clocks off equal to the vendor; 150/150 frames, second session 30/30, rmmod + insmod + 30/30, 0 oops. tx-isp-t32.ko code unchanged.
+## 2026-11-14: user OK for two T33 safety bounds
+
+- docs/BEYOND_VENDOR.md: IQ bin append data bounds (records inside the file, max 8 LSC tables) and the bounded default IQ bin path copy are now "user OK 2026-11-14". No code change.
+
+## 2026-11-14: T33 LSC table after the IQ bin switch built at the block's own gain and CT (openimp #537; QEMU only, planned)
+
+- `tx-isp-t33.ko`: the LSC block rebuilt at `SET_TIZIANO_PAR` (`t33_sw_tone`, vendor `tisp_lsc_switch_para`) used the shared AE gain and AWB CT of the other blocks (QEMU: gain 0, CT 4174 K), so the DMA table differed from the vendor's from the first word. The vendor takes the block's own gain (info + 0x14) and CT (info + 8), which move only through `tisp_lsc_tgain_update` / `tisp_lsc_ct_update`; both are skipped by the top bypass bit 0x08 on PRJ008, so they stay at the init values (65536, 5000 K). Same now. Evidence: QEMU `-M ingenic-t33` with the stock cv2005 bin, used table (10080 bytes) sum 46e8b5b1 / xor e3a4b859 equal to the vendor `tx-isp-t33.ko` at the same point and mid-run. Not tested on a camera.
+
 ## 2026-11-14: T32 MSCA done address masked like the vendor (cross-SoC review of the T33 silicon findings, openimp #529; host only, planned)
 
 - `tx-isp-t32.ko`: `t32_hw_msca_pop_done` drops the low three bits of the Y / UV done address (`T32_MSCA_DONE_ADDR`, new `tx_isp_t32_msca_done.h`) as the vendor `tisp_msca_addr_fifo_read` does (`and v0, v0, -8` on both words). Until now only the T33 build masked (#508: the T33L returns flag bits there, every done after the first was unmatched); the vendor modules of T23, T40, T41 and T33 mask the same way and our T23 / T40 / T41 code already did. The T33 build is unchanged.
@@ -68,6 +76,13 @@ marked otherwise. Release tags `vYYYY.MM.DD[-rcN]` are set on the `aperto` branc
 - `tx-isp-t33.ko`: the bin switch no longer stores the BCSH list (`t33_bcsh_switch_para` = state only, returns 0); the new section reaches the list with the next EV / CT update, as in the vendor. `tisp_bcsh_ev_update` ported completely: BV mode (`sec[0x4c0]`: the AE event's brightness words against st + 0x10 / + 0x14), the signed 64-bit EV hysteresis, `calc_para_refresh(1)` (brightness / contrast / saturation part only; the hue part and the tail keep their old values, before: mode 0). `t33_ev_refresh` takes the event's fourth word.
 - New binary oracle block `bcshlist` (`tools/ko_emu/diff_t33_bcshlist.py`, make target `t33_binoracle_bcshlist`): per case the vendor `tisp_bcsh_switch_para` (must write no slot, not touch the refresh flag or bcshInfo) and two or three `tisp_bcsh_ev_update` / `tisp_bcsh_ct_update` with the list DMA idle or busy (`tisp_bcsh_irq_frame_down` for the deferred write) against ours; block, section, "rebuilt" and the accumulated list compared after every step. 2000 cases, 14 / 14 mutants. `make -C tests check` green, `tx-isp-t32.ko` code unchanged.
 - QEMU -M ingenic-t33 A/B vs the vendor: night list 18 equal (54 / 54 words, before 22 off); day list 18 (day -> night -> day) equal to one vendor run (54 / 54) and 7 words a few LSB from the other (EV at the dump; the two vendor runs differ from each other the same way); 0 oops in the day and the night run.
+
+## 2026-11-14: T33 port loop batch 4: bin path ioctls, module-control side effects (openimp #99; host + QEMU, planned)
+
+- Harness `tools/ko_emu/t33_binoracle.py`: `nest:N:OFF=[SPEC]` pointer-chain arguments (functions that dereference pointers stored in an argument), `CALLS ... !ARG:LEN[:OFF=V..]` (a callee such as `private_copy_from_user` fills the buffer, same bytes on both sides), `q:` nested blocks with byte constraints (`@OFF=N/B=V1,V2`).
+- Block `bin` (`tx_isp_get_default_bin_path`, `tx_isp_set_default_bin_path`, `tx_isp_switch_bin`; failed all four models before the harness change) passes with one Sonnet attempt; block `mcside` (`tisp_lce_top_change_state`, `tisp_mdns_start`) passes.
+- T33 only (T32 module code unchanged): ioctls `0xc004542a` / `0xc004542b` (default bin path set / get) keep and echo the 4 x 4 path records like the vendor (the path copy is bounded to the 128-byte field, the vendor `sprintf` can run past it); module control: a changed bit 12 runs `tisp_mdns_start` before and the MDNS trigger after the TOP bypass word, changed bits 5 / 11 run `tisp_lce_top_change_state`.
+- Not changed: the `*_switch_para` ports and attr wrappers stay unwired on purpose (the driver's forced gain refresh already writes the same words and is checked against the vendor night lists; replacing it risks the verified day / night path), `tx_isp_switch_bin` (control 0xa5) still returns the stub result (`tisp_switch_bin` = the SET_TIZIANO_PAR path), `tisp_bin_append_data_parse` wiring is with the LDC / LSC mesh work.
 
 ## 2026-11-14: T33 port loop batch 3: ioctl-class blocks, module control, LDC ioctls (openimp #99; host + QEMU, planned)
 

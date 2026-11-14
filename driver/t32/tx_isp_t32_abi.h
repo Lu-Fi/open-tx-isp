@@ -51,6 +51,8 @@
 #define T32_IOC_LDC_ONLINE_PROBE	0xc00454b9U	/* RW 48 B: online LDC LUT memory (T33 tx_isp_ldc_online_probe; T32: 0) */
 #define T32_IOC_LDC_ONLINE_INIT		0xc00454baU	/* W 48 B (T32 24 B): core 0x5000006, tx_ldc_online_init */
 #define T32_IOC_LDC_ONLINE_PAR		0xc00454bbU	/* RW 88 B: core 0x5000008, tx_ldc_get_online_param (T32: 0) */
+#define T32_IOC_SET_BIN_PATH		0xc004542aU	/* RW 136 B {idx, sel, path[128]}: tx_isp_set_default_bin_path (T33 only) */
+#define T32_IOC_GET_BIN_PATH		0xc004542bU	/* RW 136 B: tx_isp_get_default_bin_path (T33 only) */
 #define T32_IOC_LDC_BYPASS_STATE	0xc00454bcU	/* W 8 B {idx, state}: core 0x5000009, tisp_ldc_set_bypass_state (T33 only) */
 #define T32_IOC_LDC_REFLESH_LUT		0xc00454bdU	/* W 12 B {idx, base, offset}: core 0x500000a, tisp_online_ldc_reflesh_lut (T33 only) */
 #define T32_IOC_SNAP_RAW		0xc004548eU	/* W 24 B {vinum, count, type, mode, size, paddr}: IMP_FrameSource_SnapRaw_Start */
