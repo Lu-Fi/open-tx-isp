@@ -4,6 +4,11 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD[-rcN]` are set on the `aperto` branch, the same tag in open-tx-isp and OpenIMP: RC1 `v2026.10.11-rc1`, RC2 `v2026.10.25-rc2`, RC3 `v2026.11.07-rc3` (2026-11-07). Gate SoCs of RC3 and Release 1: T10, T20, T21, T23, T30, T31, T40, T41 (T32/T33 planned, QEMU only); release notes: [docs/releases/ in OpenIMP](https://github.com/Lu-Fi/openimp/blob/next/docs/releases/README.md). Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-11-14: T10/T20 firmware de-lift batch 2: FSM entry points on a named FSM header (openimp #539; host + T10 cam, planned)
+
+- `driver/t20/tx_isp_t20_firmware.c`: the 43 `*_request_interrupt`, `*_fsm_process_event` and `*_fsm_process_state` functions of the Apical FSMs use `struct t20_fsm_hdr` (new `driver/t20/tx_isp_t20_fsm.h`: owning ISP context, state, pending interrupt mask) and named parameters instead of `arg1[1]` / `arg1[2]` word indices and register names.
+- Proof: the whole T10 and T20 firmware objects compile to identical MIPS code (439/439 functions, switch-table numbering normalised), `tests/t20_fw` delift oracle identical, `make -C tests check` 616/0; T10 cam runtime ko swap: 499 frames, 0 decode errors, 0 oops. Written by the API port loop (claude-sonnet-5-5, 3 rounds), reviewed here.
+
 ## 2026-11-14: T10/T20 firmware de-lift batch 1: the system table as the SDK `system_tab` struct (openimp #539, #541)
 
 - `driver/t20/tx_isp_t20_firmware.c` (shared by `tx-isp-t10.ko` and `tx-isp-t20.ko`): `stab` is declared with the Ingenic SDK `system_tab` layout (`include/apical-isp/apical.h`, size/offset static asserts) instead of `unsigned char stab[60]`; all 230 raw byte / offset accesses (`stab[N]`, `*(uintW_t *)(stab + N)`, the `struct stab_t` b0..b58 view, `stab_base` locals) are named fields, and the 51 `system_*` API accessors take named parameters and `offsetof(system_tab, <field>)`. Dead `#if 0` lifted bodies stay out of the inventory.

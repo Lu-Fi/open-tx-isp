@@ -59,6 +59,7 @@
 #include "../include/tx_isp/tx_isp_math.h"
 #include "../include/tx_isp/tx_isp_modulation.h"
 #include "tx_isp_t20_ae_max.h"
+#include "tx_isp_t20_fsm.h"
 
 #ifndef __regtrace_stringify
 #define __regtrace_stringify_1(x) #x
@@ -14542,24 +14543,44 @@ int32_t sensor_fsm_clear(void *arg1)
  * outer+4 -> interrupt nesting state.  T21/T23/T31 use the same
  * disable/update/enable lifecycle, so keep it collapsed in one helper. */
 static __always_inline int32_t
-t20_fsm_request_interrupt(int32_t *fsm, int32_t mask)
+t20_fsm_request_interrupt(int32_t *fsm_ptr, int32_t mask)
 {
-	uint8_t *isp = (uint8_t *)(uintptr_t)fsm[0];
+	struct {
+		void *isp;
+		int32_t state;
+		int32_t pending_irq;
+	} *fsm = (void *)fsm_ptr;
+	uint8_t *isp = (uint8_t *)fsm->isp;
 	uint8_t *fw = *(uint8_t **)(isp + 4);
 	int32_t nested = *(int32_t *)(fw + 4);
 
 	if (nested == 0)
 		system_hw_interrupts_disable();
-	fsm[2] |= mask;
+	fsm->pending_irq |= mask;
 	if (nested != 0)
 		return nested;
 	return system_hw_interrupts_enable();
 }
 
-/* WHOLE_DRIVER_CANDIDATE fn_0000000000027328 origin=model_output original=sensor_request_interrupt */
-static int32_t sensor_request_interrupt(int32_t *arg1, int32_t arg2)
+#ifndef TX_ISP_T20_FSM_H
+#define TX_ISP_T20_FSM_H
+/* Common header of every T20 Apical firmware FSM object. */
+struct t20_fsm_hdr {
+	void *isp;		/* 0x00: owning apical ISP context */
+	int32_t state;		/* 0x04: current state */
+	int32_t pending_irq;	/* 0x08: pending interrupt mask */
+};
+
+static inline struct t20_fsm_hdr *t20_hdr(void *p)
 {
-	return t20_fsm_request_interrupt(arg1, arg2);
+	return (struct t20_fsm_hdr *)p;
+}
+#endif
+
+/* WHOLE_DRIVER_CANDIDATE fn_0000000000027328 origin=model_output original=sensor_request_interrupt */
+static int32_t sensor_request_interrupt(int32_t *fsm, int32_t mask)
+{
+	return t20_fsm_request_interrupt(fsm, mask);
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000273ac origin=model_output original=sensor_fsm_switch_state */
@@ -14624,10 +14645,10 @@ uint32_t sensor_fsm_switch_state(int32_t *arg1, int32_t arg2)
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000027540 origin=model_output original=sensor_fsm_process_state */
-uint32_t sensor_fsm_process_state(int32_t *arg1)
+uint32_t sensor_fsm_process_state(int32_t *fsm_ptr)
 {
-    struct sensor_fsm *fsm = (struct sensor_fsm *)arg1;
-    int32_t state = arg1[1];
+    struct sensor_fsm *fsm = (struct sensor_fsm *)fsm_ptr;
+    int32_t state = t20_hdr(fsm_ptr)->state;
     void (*switch_fn)(struct sensor_fsm *, int32_t) = sensor_fsm_switch_state;
     int32_t new_state;
 
@@ -14672,29 +14693,30 @@ uint32_t sensor_fsm_process_state(int32_t *arg1)
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000027604 origin=model_output original=sensor_fsm_process_event */
-int32_t sensor_fsm_process_event(int32_t *arg1, int32_t arg2)
+int32_t sensor_fsm_process_event(int32_t *fsm_ptr, int32_t event)
 {
-	int32_t *s0 = arg1;
+	struct t20_fsm_hdr *fsm = t20_hdr(fsm_ptr);
+	struct sensor_fsm *sfsm = (struct sensor_fsm *)fsm_ptr;
 	int32_t state;
 	int32_t next;
 
-	if (arg2 == 11) {
-		state = arg1[1];
+	if (event == 11) {
+		state = fsm->state;
 		if (state == 1) {
 			sensor_load_vars();
 			next = 2;
 			goto tail;
 		} else if (state == 2) {
-			s0[53] -= 1;
+			sfsm->field_d4 -= 1;
 			next = 3;
 			goto tail;
 		} else {
 			return 0;
 		}
-	} else if ((uint32_t)arg2 < 12u) {
-		if (arg2 != 3)
+	} else if ((uint32_t)event < 12u) {
+		if (event != 3)
 			return 0;
-		state = arg1[1];
+		state = fsm->state;
 		if (state == 1) {
 			APICAL_WRITE_32(0x130, APICAL_READ_32(0x130) & 0xfffffff8);
 			next = 4;
@@ -14702,8 +14724,8 @@ int32_t sensor_fsm_process_event(int32_t *arg1, int32_t arg2)
 		} else {
 			return 0;
 		}
-	} else if (arg2 == 14) {
-		state = arg1[1];
+	} else if (event == 14) {
+		state = fsm->state;
 		if (state == 1) {
 			next = 3;
 			goto tail;
@@ -14711,9 +14733,9 @@ int32_t sensor_fsm_process_event(int32_t *arg1, int32_t arg2)
 			return 0;
 		}
 	} else {
-		if (arg2 != 17)
+		if (event != 17)
 			return 0;
-		state = arg1[1];
+		state = fsm->state;
 		if (state == 1) {
 			next = 5;
 			goto tail;
@@ -14723,8 +14745,8 @@ int32_t sensor_fsm_process_event(int32_t *arg1, int32_t arg2)
 	}
 
 tail:
-	sensor_fsm_switch_state(s0, next);
-	sensor_fsm_process_state(s0);
+	sensor_fsm_switch_state(fsm_ptr, next);
+	sensor_fsm_process_state(fsm_ptr);
 	return 1;
 }
 
@@ -14799,9 +14821,9 @@ void* cmos_fsm_clear(uintptr_t a0)
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000277d8 origin=model_output original=cmos_request_interrupt */
-int32_t cmos_request_interrupt(int32_t *arg1, int32_t arg2)
+int32_t cmos_request_interrupt(int32_t *fsm, int32_t mask)
 {
-	return t20_fsm_request_interrupt(arg1, arg2);
+	return t20_fsm_request_interrupt(fsm, mask);
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000002785c origin=model_output original=cmos_fsm_switch_state */
@@ -14847,13 +14869,14 @@ int cmos_fsm_switch_state(int32_t *arg1, int32_t arg2)
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000279e0 origin=model_output original=cmos_fsm_process_state */
-int32_t cmos_fsm_process_state(int32_t *arg1)
+int32_t cmos_fsm_process_state(int32_t *fsm_ptr)
 {
+	struct t20_fsm_hdr *fsm = t20_hdr(fsm_ptr);
 	int32_t state;
 	int32_t next_state;
 
 	for (;;) {
-		state = arg1[1];
+		state = fsm->state;
 		switch (state) {
 		case 2:
 			next_state = 0;
@@ -14865,7 +14888,7 @@ int32_t cmos_fsm_process_state(int32_t *arg1)
 			next_state = 5;
 			break;
 		case 5:
-			cmos_update_exposure_history(arg1);
+			cmos_update_exposure_history(fsm_ptr);
 			next_state = 1;
 			break;
 		case 7:
@@ -14878,22 +14901,24 @@ int32_t cmos_fsm_process_state(int32_t *arg1)
 			return 0;
 		}
 
-		cmos_fsm_switch_state(arg1, next_state);
+		cmos_fsm_switch_state(fsm_ptr, next_state);
 	}
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000027aa0 origin=model_output original=cmos_fsm_process_event */
-int32_t cmos_fsm_process_event(int32_t *fsm, int32_t event)
+int32_t cmos_fsm_process_event(int32_t *fsm_ptr, int32_t event)
 {
+	struct t20_fsm_hdr *fsm = t20_hdr(fsm_ptr);
+
 	if ((uint32_t)(event - 2) >= 0xf)
 		return 0;
 
 	switch (event) {
 	case 2:
-		if (fsm[1] != 1)
+		if (fsm->state != 1)
 			return 0;
-		cmos_fsm_switch_state(fsm, 8);
-		cmos_fsm_process_state(fsm);
+		cmos_fsm_switch_state(fsm_ptr, 8);
+		cmos_fsm_process_state(fsm_ptr);
 		return 1;
 	case 3:
 	case 4:
@@ -14907,32 +14932,32 @@ int32_t cmos_fsm_process_event(int32_t *fsm, int32_t event)
 	case 0xe:
 		return 0;
 	case 5:
-		if (fsm[1] != 1)
+		if (fsm->state != 1)
 			return 0;
-		cmos_request_interrupt(fsm, 0x80);
+		cmos_request_interrupt(fsm_ptr, 0x80);
 		{
-			int32_t *dev = *fsm;
+			int32_t *dev = *fsm_ptr;
 			*(uint8_t *)((uintptr_t)dev + 0xea) += 1;
 		}
-		cmos_fsm_process_state(fsm);
+		cmos_fsm_process_state(fsm_ptr);
 		return 1;
 	case 8:
-		if (fsm[1] != 1)
+		if (fsm->state != 1)
 			return 0;
-		cmos_fsm_switch_state(fsm, 7);
-		cmos_fsm_process_state(fsm);
+		cmos_fsm_switch_state(fsm_ptr, 7);
+		cmos_fsm_process_state(fsm_ptr);
 		return 1;
 	case 0xf:
-		if (fsm[1] != 1)
+		if (fsm->state != 1)
 			return 0;
-		cmos_fsm_switch_state(fsm, 0);
-		cmos_fsm_process_state(fsm);
+		cmos_fsm_switch_state(fsm_ptr, 0);
+		cmos_fsm_process_state(fsm_ptr);
 		return 1;
 	case 0x10:
-		if (fsm[1] != 0)
+		if (fsm->state != 0)
 			return 0;
-		cmos_fsm_switch_state(fsm, 7);
-		cmos_fsm_process_state(fsm);
+		cmos_fsm_switch_state(fsm_ptr, 7);
+		cmos_fsm_process_state(fsm_ptr);
 		return 1;
 	default:
 		return 0;
@@ -14945,15 +14970,16 @@ int defect_pixel_fsm_clear(void) {
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000027bc8 origin=model_output original=defect_pixel_request_interrupt */
-static int32_t defect_pixel_request_interrupt(int32_t *arg1, int32_t arg2)
+static int32_t defect_pixel_request_interrupt(int32_t *fsm_ptr, int32_t mask)
 {
-    int32_t *p = *(int32_t **)(arg1 + 1);
+    struct t20_fsm_hdr *fsm = t20_hdr(fsm_ptr);
+    int32_t *p = *(int32_t **)(fsm_ptr + 1);
     int32_t result = *(int32_t *)(p + 1);
 
     if (result == 0)
         system_hw_interrupts_disable();
 
-    arg1[2] |= arg2;
+    fsm->pending_irq |= mask;
 
     if (result != 0)
         return result;
@@ -14979,7 +15005,7 @@ int defect_pixel_fsm_switch_state(int32_t *fsm, int32_t new_state)
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000027c8c origin=model_output original=defect_pixel_fsm_process_state */
 void defect_pixel_fsm_process_state(int32_t *fsm)
 {
-	int32_t state = fsm[1];
+	int32_t state = t20_hdr(fsm)->state;
 
 	while (1) {
 		if (state == 0) {
@@ -14994,31 +15020,32 @@ void defect_pixel_fsm_process_state(int32_t *fsm)
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000027cfc origin=model_output original=defect_pixel_fsm_process_event */
-int32_t defect_pixel_fsm_process_event(int32_t *fsm, int32_t event)
+int32_t defect_pixel_fsm_process_event(int32_t *fsm_ptr, int32_t event)
 {
+	struct t20_fsm_hdr *fsm = t20_hdr(fsm_ptr);
 	int32_t state;
 
 	if (event == 0xf) {
-		state = fsm[1];
+		state = fsm->state;
 		if (state == 2) {
-			((void **)fsm)[1] = 1;
-			defect_pixel_fsm_process_state(fsm);
+			((void **)fsm_ptr)[1] = (void *)1;
+			defect_pixel_fsm_process_state(fsm_ptr);
 			return 1;
 		}
 		return 0;
 	} else if (event == 0x10) {
-		state = fsm[1];
+		state = fsm->state;
 		if (state == 1) {
-			((void **)fsm)[1] = 2;
-			defect_pixel_fsm_process_state(fsm);
+			((void **)fsm_ptr)[1] = (void *)2;
+			defect_pixel_fsm_process_state(fsm_ptr);
 			return 1;
 		}
 		return 0;
 	} else if (event == 0xb) {
-		state = fsm[1];
+		state = fsm->state;
 		if (state == 2) {
-			defect_pixel_fsm_switch_state(fsm, 3);
-			defect_pixel_fsm_process_state(fsm);
+			defect_pixel_fsm_switch_state(fsm_ptr, 3);
+			defect_pixel_fsm_process_state(fsm_ptr);
 			return 1;
 		}
 	}
@@ -15040,9 +15067,9 @@ int32_t AE_fsm_clear(void *arg1)
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000027df0 origin=model_output original=AE_request_interrupt */
-int32_t AE_request_interrupt(int32_t *arg1, int32_t arg2)
+int32_t AE_request_interrupt(int32_t *fsm, int32_t mask)
 {
-	return t20_fsm_request_interrupt(arg1, arg2);
+	return t20_fsm_request_interrupt(fsm, mask);
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000027e74 origin=model_output original=AE_fsm_switch_state */
@@ -15077,9 +15104,9 @@ int32_t AE_fsm_switch_state(int32_t *arg1, int32_t arg2)
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000027f60 origin=model_output original=AE_fsm_process_state */
-int32_t AE_fsm_process_state(int32_t *arg1)
+int32_t AE_fsm_process_state(int32_t *fsm)
 {
-    int32_t state = arg1[1];
+    int32_t state = t20_hdr(fsm)->state;
     int32_t (*switch_fn)(int32_t *, int32_t) = AE_fsm_switch_state;
 
     while (1) {
@@ -15092,34 +15119,34 @@ int32_t AE_fsm_process_state(int32_t *arg1)
                 return 5;
             state = 1;
         }
-        switch_fn(arg1, state);
+        switch_fn(fsm, state);
     }
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000027fdc origin=model_output original=AE_fsm_process_event */
-int32_t AE_fsm_process_event(int32_t *arg1, int32_t arg2)
+int32_t AE_fsm_process_event(int32_t *fsm_ptr, int32_t event)
 {
-	int32_t state;
+	struct t20_fsm_hdr *fsm = t20_hdr(fsm_ptr);
 	int32_t new_state;
 
-	if (arg2 == 0xf) {
-		if (arg1[1] != 2)
+	if (event == 0xf) {
+		if (fsm->state != 2)
 			return 0;
 		new_state = 1;
-	} else if (arg2 == 0x10) {
-		if (arg1[1] != 1)
+	} else if (event == 0x10) {
+		if (fsm->state != 1)
 			return 0;
 		new_state = 2;
 	} else {
-		if (arg2 != 1)
+		if (event != 1)
 			return 0;
-		if (arg1[1] != 2)
+		if (fsm->state != 2)
 			return 0;
 		new_state = 4;
 	}
 
-	AE_fsm_switch_state(arg1, new_state);
-	AE_fsm_process_state(arg1);
+	AE_fsm_switch_state(fsm_ptr, new_state);
+	AE_fsm_process_state(fsm_ptr);
 	return 1;
 }
 
@@ -15229,9 +15256,9 @@ int32_t AWB_fsm_clear(uintptr_t a0)
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000028184 origin=model_output original=AWB_request_interrupt */
-int32_t AWB_request_interrupt(int32_t *arg1, int32_t arg2)
+int32_t AWB_request_interrupt(int32_t *fsm, int32_t mask)
 {
-	return t20_fsm_request_interrupt(arg1, arg2);
+	return t20_fsm_request_interrupt(fsm, mask);
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000028208 origin=model_output original=AWB_fsm_switch_state */
@@ -15285,65 +15312,64 @@ int32_t AWB_fsm_switch_state(int32_t *arg1, int32_t arg2)
  * to 1. The recovered version did one step with a wrong successor table
  * (4 -> 10), so awb_normalise never ran from the per-frame chain.
  */
-int32_t AWB_fsm_process_state(int32_t *arg1)
+int32_t AWB_fsm_process_state(int32_t *fsm_ptr)
 {
 	static const int8_t next_state[11] = {
 		1, -1, -1, 5, 3, 9, 7, 8, -1, 10, 6,
 	};
-	int32_t state = arg1[1];
+	int32_t state = t20_hdr(fsm_ptr)->state;
 
 	while ((uint32_t)state < 11u && next_state[state] >= 0) {
 		state = next_state[state];
-		AWB_fsm_switch_state(arg1, state);
+		AWB_fsm_switch_state(fsm_ptr, state);
 	}
 	return 0;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000002840c origin=model_output original=AWB_fsm_process_event */
-int32_t AWB_fsm_process_event(int32_t *arg1, int32_t arg2)
+int32_t AWB_fsm_process_event(int32_t *fsm_ptr, int32_t event)
 {
+	struct t20_fsm_hdr *fsm = t20_hdr(fsm_ptr);
 	int32_t result;
 
-	if ((uint32_t)arg2 < 20)
-		t20_awb_ev[arg2]++;
+	if ((uint32_t)event < 20)
+		t20_awb_ev[event]++;
 
-	if (arg2 == 0xb) {
+	if (event == 0xb) {
 		result = 0;
-		if (arg1[1] == 8) {
-			arg1 = arg1;
-			arg2 = 0xb;
-			AWB_fsm_switch_state(arg1, arg2);
-			AWB_fsm_process_state(arg1);
+		if (fsm->state == 8) {
+			event = 0xb;
+			AWB_fsm_switch_state(fsm_ptr, event);
+			AWB_fsm_process_state(fsm_ptr);
 			return 1;
 		}
 		return 0;
-	} else if ((unsigned int)arg2 < 0xc) {
-		if (arg2 != 4)
+	} else if ((unsigned int)event < 0xc) {
+		if (event != 4)
 			return 0;
 		result = 0;
-		if (arg1[1] == 0xb) {
-			AWB_fsm_switch_state(arg1, arg2);
-			AWB_fsm_process_state(arg1);
+		if (fsm->state == 0xb) {
+			AWB_fsm_switch_state(fsm_ptr, event);
+			AWB_fsm_process_state(fsm_ptr);
 			return 1;
 		}
 		return 0;
-	} else if (arg2 == 0xf) {
+	} else if (event == 0xf) {
 		result = 0;
-		if ((unsigned int)(arg1[1] - 2) < 0xa) {
-			((void **)arg1)[1] = 1;
-			AWB_fsm_process_state(arg1);
+		if ((unsigned int)(fsm->state - 2) < 0xa) {
+			((void **)fsm_ptr)[1] = (void *)1;
+			AWB_fsm_process_state(fsm_ptr);
 			return 1;
 		}
 		return 0;
 	} else {
 		result = 0;
-		if (arg2 == 0x10) {
-			if (arg1[1] != 1)
+		if (event == 0x10) {
+			if (fsm->state != 1)
 				return 0;
-			arg1 = arg1;
-			arg2 = 0xb;
-			AWB_fsm_switch_state(arg1, arg2);
-			AWB_fsm_process_state(arg1);
+			event = 0xb;
+			AWB_fsm_switch_state(fsm_ptr, event);
+			AWB_fsm_process_state(fsm_ptr);
 			return 1;
 		}
 		return 0;
@@ -15368,9 +15394,9 @@ int32_t color_matrix_fsm_clear(void *arg1)
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000028518 origin=model_output original=color_matrix_request_interrupt */
-int32_t color_matrix_request_interrupt(int32_t *arg1, int32_t arg2)
+int32_t color_matrix_request_interrupt(int32_t *fsm, int32_t mask)
 {
-	return t20_fsm_request_interrupt(arg1, arg2);
+	return t20_fsm_request_interrupt(fsm, mask);
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000002859c origin=model_output original=color_matrix_fsm_switch_state */
@@ -15392,10 +15418,10 @@ int color_matrix_fsm_switch_state(int32_t *arg1, int32_t arg2)
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000285f4 origin=model_output original=color_matrix_fsm_process_state */
-void color_matrix_fsm_process_state(int32_t *arg1)
+void color_matrix_fsm_process_state(int32_t *fsm_ptr)
 {
-	volatile int32_t state = arg1[1];
-	int32_t *fsm = arg1;
+	volatile int32_t state = t20_hdr(fsm_ptr)->state;
+	int32_t *fsm = fsm_ptr;
 	int32_t limit = 3;
 
 	while (1) {
@@ -15411,27 +15437,28 @@ void color_matrix_fsm_process_state(int32_t *arg1)
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000028664 origin=model_output original=color_matrix_fsm_process_event */
-int32_t color_matrix_fsm_process_event(int32_t *fsm, int32_t event)
+int32_t color_matrix_fsm_process_event(int32_t *fsm_ptr, int32_t event)
 {
+	struct t20_fsm_hdr *fsm = t20_hdr(fsm_ptr);
 	int32_t state;
 	int32_t next_state;
 
 	if (event == 0xf) {
-		state = fsm[1];
+		state = fsm->state;
 		if (state == 2) {
-			((void **)fsm)[1] = 1;
-			color_matrix_fsm_process_state(fsm);
+			((void **)fsm_ptr)[1] = (void *)1;
+			color_matrix_fsm_process_state(fsm_ptr);
 			return 1;
 		}
 		return 0;
 	}
 
 	if (event == 0x10) {
-		state = fsm[1];
+		state = fsm->state;
 		if (state == 1) {
 			next_state = 2;
-			color_matrix_fsm_switch_state(fsm, next_state);
-			color_matrix_fsm_process_state(fsm);
+			color_matrix_fsm_switch_state(fsm_ptr, next_state);
+			color_matrix_fsm_process_state(fsm_ptr);
 			return 1;
 		}
 		return 0;
@@ -15440,11 +15467,11 @@ int32_t color_matrix_fsm_process_event(int32_t *fsm, int32_t event)
 	if (event != 0xb)
 		return 0;
 
-	state = fsm[1];
+	state = fsm->state;
 	if (state == 2) {
 		next_state = 3;
-		color_matrix_fsm_switch_state(fsm, next_state);
-		color_matrix_fsm_process_state(fsm);
+		color_matrix_fsm_switch_state(fsm_ptr, next_state);
+		color_matrix_fsm_process_state(fsm_ptr);
 		return 1;
 	}
 
@@ -15469,9 +15496,9 @@ uint32_t iridix_fsm_clear(void *arg1)
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000028768 origin=model_output original=iridix_request_interrupt */
-int32_t iridix_request_interrupt(int32_t *arg1, int32_t arg2)
+int32_t iridix_request_interrupt(int32_t *fsm, int32_t mask)
 {
-	return t20_fsm_request_interrupt(arg1, arg2);
+	return t20_fsm_request_interrupt(fsm, mask);
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000287ec origin=model_output original=iridix_fsm_switch_state */
@@ -15498,9 +15525,9 @@ void iridix_fsm_switch_state(int32_t *arg1, int32_t arg2)
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000002882c origin=model_output original=iridix_fsm_process_state */
-void iridix_fsm_process_state(int32_t *arg1)
+void iridix_fsm_process_state(int32_t *fsm)
 {
-	int32_t state = arg1[1];
+	int32_t state = t20_hdr(fsm)->state;
 
 	for (;;) {
 		if (state == 0)
@@ -15510,41 +15537,42 @@ void iridix_fsm_process_state(int32_t *arg1)
 		else
 			state = 2;
 
-		iridix_fsm_switch_state(arg1, state);
+		iridix_fsm_switch_state(fsm, state);
 	}
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000002889c origin=model_output original=iridix_fsm_process_event */
-int32_t iridix_fsm_process_event(int32_t *fsm, int32_t event)
+int32_t iridix_fsm_process_event(int32_t *fsm_ptr, int32_t event)
 {
+	struct t20_fsm_hdr *fsm = t20_hdr(fsm_ptr);
 	int32_t state;
 	int32_t ret = 0;
 
 	if (event == 0x10) {
-		state = fsm[1];
+		state = fsm->state;
 		if (state == 1) {
-			((void **)fsm)[1] = 2;
-			iridix_fsm_process_state(fsm);
+			((void **)fsm_ptr)[1] = (void *)2;
+			iridix_fsm_process_state(fsm_ptr);
 			return 1;
 		}
 		return 0;
 	}
 
 	if (event == 0x13) {
-		state = fsm[1];
+		state = fsm->state;
 		if (state == 2) {
-			iridix_fsm_switch_state(fsm, 3);
-			iridix_fsm_process_state(fsm);
+			iridix_fsm_switch_state(fsm_ptr, 3);
+			iridix_fsm_process_state(fsm_ptr);
 			return 1;
 		}
 		return 0;
 	}
 
 	if (event == 0xf) {
-		state = fsm[1];
+		state = fsm->state;
 		if (state == 2) {
-			((void **)fsm)[1] = 1;
-			iridix_fsm_process_state(fsm);
+			((void **)fsm_ptr)[1] = (void *)1;
+			iridix_fsm_process_state(fsm_ptr);
 			return 1;
 		}
 	}
@@ -15570,9 +15598,9 @@ int32_t noise_reduction_fsm_clear(void *arg1)
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000028958 origin=model_output original=noise_reduction_request_interrupt */
-static int32_t noise_reduction_request_interrupt(int32_t *arg1, int32_t arg2)
+static int32_t noise_reduction_request_interrupt(int32_t *fsm, int32_t mask)
 {
-	return t20_fsm_request_interrupt(arg1, arg2);
+	return t20_fsm_request_interrupt(fsm, mask);
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000289dc origin=model_output original=noise_reduction_fsm_switch_state */
@@ -15596,12 +15624,12 @@ int32_t noise_reduction_fsm_switch_state(void *arg1, int32_t arg2)
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000028a1c origin=model_output original=noise_reduction_fsm_process_state */
-int32_t noise_reduction_fsm_process_state(void *arg1)
+int32_t noise_reduction_fsm_process_state(void *fsm_ptr)
 {
-    int32_t *p = (int32_t *)arg1;
-    if (p[1] != 2)
+    struct t20_fsm_hdr *fsm = t20_hdr(fsm_ptr);
+    if (fsm->state != 2)
         return 2;
-    return noise_reduction_fsm_switch_state(arg1, 0);
+    return noise_reduction_fsm_switch_state(fsm_ptr, 0);
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000028a40 origin=model_output original=noise_reduction_fsm_process_event */
@@ -15611,30 +15639,31 @@ int32_t noise_reduction_fsm_process_state(void *arg1)
  * the frame-end update, event 16 never initialised the FSM and
  * switch_state was called without its state argument.
  */
-int32_t noise_reduction_fsm_process_event(uintptr_t a0, uint32_t a1)
+int32_t noise_reduction_fsm_process_event(uintptr_t fsm_addr, uint32_t event)
 {
-	int32_t *fsm = (int32_t *)a0;
+	int32_t *fsm_ptr = (int32_t *)fsm_addr;
+	struct t20_fsm_hdr *fsm = t20_hdr(fsm_ptr);
 
-	if (a1 == 15) {
+	if (event == 15) {
 		/* sensor reconfiguration: back to idle */
-		if (fsm[1] != 1)
+		if (fsm->state != 1)
 			return 0;
-		fsm[1] = 0;
-	} else if (a1 == 16) {
+		fsm->state = 0;
+	} else if (event == 16) {
 		/* sensor running: initialise */
-		if (fsm[1] != 0)
+		if (fsm->state != 0)
 			return 0;
-		noise_reduction_fsm_switch_state(fsm, 1);
-	} else if (a1 == 11) {
+		noise_reduction_fsm_switch_state(fsm_ptr, 1);
+	} else if (event == 11) {
 		/* frame end: update */
-		if (fsm[1] != 1)
+		if (fsm->state != 1)
 			return 0;
-		noise_reduction_update((struct tx_isp_t20_nr_state *)fsm);
-		noise_reduction_fsm_switch_state(fsm, 1);
+		noise_reduction_update((struct tx_isp_t20_nr_state *)fsm_ptr);
+		noise_reduction_fsm_switch_state(fsm_ptr, 1);
 	} else {
 		return 0;
 	}
-	noise_reduction_fsm_process_state(fsm);
+	noise_reduction_fsm_process_state(fsm_ptr);
 	return 1;
 }
 
@@ -15681,9 +15710,9 @@ int32_t sharpening_fsm_clear(uintptr_t a0)
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000028b64 origin=model_output original=sharpening_request_interrupt */
-static int32_t sharpening_request_interrupt(int32_t *arg1, int32_t arg2)
+static int32_t sharpening_request_interrupt(int32_t *fsm, int32_t mask)
 {
-	return t20_fsm_request_interrupt(arg1, arg2);
+	return t20_fsm_request_interrupt(fsm, mask);
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000028be8 origin=model_output original=sharpening_fsm_switch_state */
@@ -15716,9 +15745,9 @@ int32_t sharpening_fsm_switch_state(int32_t *arg1, int32_t arg2)
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000028c7c origin=model_output original=sharpening_fsm_process_state */
-void sharpening_fsm_process_state(int32_t *arg1)
+void sharpening_fsm_process_state(int32_t *fsm)
 {
-	volatile int32_t state = arg1[1];
+	volatile int32_t state = t20_hdr(fsm)->state;
 
 	for (;;) {
 		if (state == 0) {
@@ -15728,39 +15757,40 @@ void sharpening_fsm_process_state(int32_t *arg1)
 				return;
 			state = 2;
 		}
-		sharpening_fsm_switch_state(arg1, state);
+		sharpening_fsm_switch_state(fsm, state);
 	}
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000028ce8 origin=model_output original=sharpening_fsm_process_event */
-int32_t sharpening_fsm_process_event(int32_t *fsm, int32_t event)
+int32_t sharpening_fsm_process_event(int32_t *fsm_ptr, int32_t event)
 {
+	struct t20_fsm_hdr *fsm = t20_hdr(fsm_ptr);
 	int32_t next_state;
 
 	if (event == 15) {
-		if (fsm[1] != 2)
+		if (fsm->state != 2)
 			return 0;
 		next_state = 1;
 	} else if (event < 16) {
 		if (event != 11)
 			return 0;
-		if (fsm[1] != 2)
+		if (fsm->state != 2)
 			return 0;
 		next_state = 3;
 	} else if (event == 16) {
-		if (fsm[1] != 1)
+		if (fsm->state != 1)
 			return 0;
 		next_state = 2;
 	} else {
 		if (event != 20)
 			return 0;
-		if (fsm[1] != 2)
+		if (fsm->state != 2)
 			return 0;
 		next_state = 4;
 	}
 
-	sharpening_fsm_switch_state(fsm, next_state);
-	sharpening_fsm_process_state(fsm);
+	sharpening_fsm_switch_state(fsm_ptr, next_state);
+	sharpening_fsm_process_state(fsm_ptr);
 	return 1;
 }
 
@@ -15772,9 +15802,9 @@ int32_t flash_fsm_clear(void *arg1)
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000028dd8 origin=model_output original=flash_request_interrupt */
-static int32_t flash_request_interrupt(int32_t *arg1, int32_t arg2)
+static int32_t flash_request_interrupt(int32_t *fsm, int32_t mask)
 {
-	return t20_fsm_request_interrupt(arg1, arg2);
+	return t20_fsm_request_interrupt(fsm, mask);
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000028e5c origin=model_output original=flash_fsm_switch_state */
@@ -15798,9 +15828,9 @@ void flash_fsm_switch_state(int32_t *arg1, int32_t arg2)
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000028e9c origin=model_output original=flash_fsm_process_state */
-void flash_fsm_process_state(int32_t *arg1)
+void flash_fsm_process_state(int32_t *fsm)
 {
-	volatile int32_t state = arg1[1];
+	volatile int32_t state = t20_hdr(fsm)->state;
 
 	while (1) {
 		if (state == 0)
@@ -15810,37 +15840,37 @@ void flash_fsm_process_state(int32_t *arg1)
 		else
 			state = 1;
 
-		flash_fsm_switch_state(arg1, state);
+		flash_fsm_switch_state(fsm, state);
 	}
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000028f0c origin=model_output original=flash_fsm_process_event */
-int32_t flash_fsm_process_event(int32_t *fsm, int32_t event)
+int32_t flash_fsm_process_event(int32_t *fsm_ptr, int32_t event)
 {
+	struct t20_fsm_hdr *fsm = t20_hdr(fsm_ptr);
 	int32_t state;
-	int32_t ret;
 
 	if (event == 9) {
-		state = fsm[1];
+		state = fsm->state;
 		if (state == 3) {
-			((void **)fsm)[1] = 1;
-			flash_fsm_process_state(fsm);
+			((void **)fsm_ptr)[1] = (void *)1;
+			flash_fsm_process_state(fsm_ptr);
 			return 1;
 		}
 		return 0;
 	} else if (event == 10) {
-		state = fsm[1];
+		state = fsm->state;
 		if (state == 1) {
-			((void **)fsm)[1] = 3;
-			flash_fsm_process_state(fsm);
+			((void **)fsm_ptr)[1] = (void *)3;
+			flash_fsm_process_state(fsm_ptr);
 			return 1;
 		}
 		return 0;
 	} else if (event == 8) {
-		state = fsm[1];
+		state = fsm->state;
 		if (state == 1) {
-			flash_fsm_switch_state(fsm, 2);
-			flash_fsm_process_state(fsm);
+			flash_fsm_switch_state(fsm_ptr, 2);
+			flash_fsm_process_state(fsm_ptr);
 			return 1;
 		}
 		return 0;
@@ -15877,9 +15907,9 @@ int32_t crop_fsm_clear(void)
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000028fc8 origin=model_output original=crop_request_interrupt */
-int32_t crop_request_interrupt(int32_t *arg1, int32_t arg2)
+int32_t crop_request_interrupt(int32_t *fsm, int32_t mask)
 {
-	return t20_fsm_request_interrupt(arg1, arg2);
+	return t20_fsm_request_interrupt(fsm, mask);
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000002904c origin=model_output original=crop_fsm_switch_state */
@@ -15896,48 +15926,50 @@ int32_t crop_fsm_switch_state(int32_t *arg1, int32_t arg2)
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000029078 origin=model_output original=crop_fsm_process_state */
-int32_t crop_fsm_process_state(int32_t *arg1)
+int32_t crop_fsm_process_state(int32_t *fsm)
 {
-	if (arg1[1] != 4)
+	if (t20_hdr(fsm)->state != 4)
 		return 4;
-	return crop_fsm_switch_state(arg1, 3);
+	return crop_fsm_switch_state(fsm, 3);
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000002909c origin=model_output original=crop_fsm_process_event */
-int32_t crop_fsm_process_event(int32_t *fsm, int32_t event)
+int32_t crop_fsm_process_event(int32_t *fsm_ptr, int32_t event)
 {
+	struct t20_fsm_hdr *fsm = t20_hdr(fsm_ptr);
+
 	if (event == 7) {
-		if (fsm[1] == 2) {
-			((void **)fsm)[1] = 1;
-			crop_fsm_process_state(fsm);
+		if (fsm->state == 2) {
+			((void **)fsm_ptr)[1] = (void *)1;
+			crop_fsm_process_state(fsm_ptr);
 			return 1;
 		}
 		return 0;
 	} else if (event < 8) {
 		if (event != 6)
 			return 0;
-		if (fsm[1] == 1) {
-			((void **)fsm)[1] = 2;
-			crop_fsm_process_state(fsm);
+		if (fsm->state == 1) {
+			((void **)fsm_ptr)[1] = (void *)2;
+			crop_fsm_process_state(fsm_ptr);
 			return 1;
 		}
 		return 0;
 	} else if (event == 0xf) {
-		if (fsm[1] < 3) {
-			((void **)fsm)[1] = 3;
-			crop_fsm_process_state(fsm);
+		if (fsm->state < 3) {
+			((void **)fsm_ptr)[1] = (void *)3;
+			crop_fsm_process_state(fsm_ptr);
 			return 1;
 		}
 		return 0;
 	} else {
 		if (event != 0x10)
 			return 0;
-		if (fsm[1] == 3) {
-			crop_initialize(fsm);
-			crop_resolution_changed(fsm);
-			if (fsm[1] != 2)
-				((void **)fsm)[1] = 2;
-			crop_fsm_process_state(fsm);
+		if (fsm->state == 3) {
+			crop_initialize(fsm_ptr);
+			crop_resolution_changed(fsm_ptr);
+			if (fsm->state != 2)
+				((void **)fsm_ptr)[1] = (void *)2;
+			crop_fsm_process_state(fsm_ptr);
 			return 1;
 		}
 		return 0;
@@ -15975,9 +16007,9 @@ int32_t general_fsm_clear(uintptr_t a0)
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000291d4 origin=model_output original=general_request_interrupt */
-int32_t general_request_interrupt(int32_t *arg1, int32_t arg2)
+int32_t general_request_interrupt(int32_t *fsm, int32_t mask)
 {
-	return t20_fsm_request_interrupt(arg1, arg2);
+	return t20_fsm_request_interrupt(fsm, mask);
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000029258 origin=model_output original=general_fsm_switch_state */
@@ -15995,22 +16027,22 @@ void general_fsm_switch_state(int32_t *arg1, int32_t arg2)
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000029284 origin=model_output original=general_fsm_process_state */
-int32_t general_fsm_process_state(int32_t *arg1)
+int32_t general_fsm_process_state(int32_t *fsm)
 {
-	int32_t result = arg1[1];
+	int32_t result = t20_hdr(fsm)->state;
 
 	if (result != 0)
 		return result;
 
-	general_fsm_switch_state(arg1, 1);
+	general_fsm_switch_state(fsm, 1);
 	return 0;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000292a4 origin=fragment_seed original=general_fsm_process_event */
-int32_t general_fsm_process_event(int32_t *arg1, int32_t arg2)
+int32_t general_fsm_process_event(int32_t *fsm, int32_t event)
 {
-	(void)arg1;
-	(void)arg2;
+	(void)fsm;
+	(void)event;
 	return 0;
 }
 
@@ -16041,9 +16073,9 @@ int32_t dis_fsm_clear(uintptr_t a0)
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000292d4 origin=model_output original=dis_request_interrupt */
-int32_t dis_request_interrupt(int32_t *arg1, int32_t arg2)
+int32_t dis_request_interrupt(int32_t *fsm, int32_t mask)
 {
-	return t20_fsm_request_interrupt(arg1, arg2);
+	return t20_fsm_request_interrupt(fsm, mask);
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000029358 origin=model_output original=dis_fsm_switch_state */
@@ -16063,7 +16095,7 @@ void dis_fsm_switch_state(int32_t *fsm, int32_t new_state)
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000029398 origin=model_output original=dis_fsm_process_state */
 void dis_fsm_process_state(int32_t *fsm)
 {
-	int32_t state = fsm[1];
+	int32_t state = t20_hdr(fsm)->state;
 
 	for (;;) {
 		if (state == 0)
@@ -16078,26 +16110,28 @@ void dis_fsm_process_state(int32_t *fsm)
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000029408 origin=model_output original=dis_fsm_process_event */
-int32_t dis_fsm_process_event(int32_t *fsm, int32_t event)
+int32_t dis_fsm_process_event(int32_t *fsm_ptr, int32_t event)
 {
+	struct t20_fsm_hdr *fsm = t20_hdr(fsm_ptr);
+
 	if (event == 0xf) {
-		if (fsm[1] == 2) {
-			((void **)fsm)[1] = 1;
-			dis_fsm_process_state(fsm);
+		if (fsm->state == 2) {
+			((void **)fsm_ptr)[1] = (void *)1;
+			dis_fsm_process_state(fsm_ptr);
 			return 1;
 		}
 		return 0;
 	} else if (event == 0x10) {
-		if (fsm[1] == 1) {
-			((void **)fsm)[1] = 2;
-			dis_fsm_process_state(fsm);
+		if (fsm->state == 1) {
+			((void **)fsm_ptr)[1] = (void *)2;
+			dis_fsm_process_state(fsm_ptr);
 			return 1;
 		}
 		return 0;
 	} else if (event == 0xd) {
-		if (fsm[1] == 2) {
-			dis_fsm_switch_state(fsm, 4);
-			dis_fsm_process_state(fsm);
+		if (fsm->state == 2) {
+			dis_fsm_switch_state(fsm_ptr, 4);
+			dis_fsm_process_state(fsm_ptr);
 			return 1;
 		}
 	}
@@ -16120,9 +16154,9 @@ int32_t matrix_yuv_fsm_clear(void *arg1)
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000294e8 origin=model_output original=matrix_yuv_request_interrupt */
-int32_t matrix_yuv_request_interrupt(int32_t *arg1, int32_t arg2)
+int32_t matrix_yuv_request_interrupt(int32_t *fsm, int32_t mask)
 {
-	return t20_fsm_request_interrupt(arg1, arg2);
+	return t20_fsm_request_interrupt(fsm, mask);
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000002956c origin=model_output original=matrix_yuv_fsm_switch_state */
@@ -16148,9 +16182,9 @@ int32_t matrix_yuv_fsm_switch_state(int32_t *arg1, int32_t arg2)
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000295dc origin=model_output original=matrix_yuv_fsm_process_state */
-void matrix_yuv_fsm_process_state(int32_t *arg1)
+void matrix_yuv_fsm_process_state(int32_t *fsm)
 {
-	int32_t state = arg1[1];
+	int32_t state = t20_hdr(fsm)->state;
 
 	for (;;) {
 		if (state == 0)
@@ -16160,31 +16194,31 @@ void matrix_yuv_fsm_process_state(int32_t *arg1)
 		else
 			state = 2;
 
-		matrix_yuv_fsm_switch_state(arg1, state);
+		matrix_yuv_fsm_switch_state(fsm, state);
 	}
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000002964c origin=model_output original=matrix_yuv_fsm_process_event */
-int32_t matrix_yuv_fsm_process_event(int32_t *fsm, int32_t event)
+int32_t matrix_yuv_fsm_process_event(int32_t *fsm_ptr, int32_t event)
 {
+	struct t20_fsm_hdr *fsm = t20_hdr(fsm_ptr);
 	int32_t state;
-	int32_t ret;
 
 	if (event == 0xf) {
-		state = fsm[1];
+		state = fsm->state;
 		if (state == 2) {
-			((void **)fsm)[1] = 1;
-			matrix_yuv_fsm_process_state(fsm);
+			((void **)fsm_ptr)[1] = (void *)1;
+			matrix_yuv_fsm_process_state(fsm_ptr);
 			return 1;
 		}
 		return 0;
 	}
 
 	if (event == 0x10) {
-		state = fsm[1];
+		state = fsm->state;
 		if (state == 1) {
-			matrix_yuv_fsm_switch_state(fsm, 2);
-			matrix_yuv_fsm_process_state(fsm);
+			matrix_yuv_fsm_switch_state(fsm_ptr, 2);
+			matrix_yuv_fsm_process_state(fsm_ptr);
 			return 1;
 		}
 		return 0;
@@ -16193,10 +16227,10 @@ int32_t matrix_yuv_fsm_process_event(int32_t *fsm, int32_t event)
 	if (event != 0xb)
 		return 0;
 
-	state = fsm[1];
+	state = fsm->state;
 	if (state == 2) {
-		((void **)fsm)[1] = 3;
-		matrix_yuv_fsm_process_state(fsm);
+		((void **)fsm_ptr)[1] = (void *)3;
+		matrix_yuv_fsm_process_state(fsm_ptr);
 		return 1;
 	}
 
