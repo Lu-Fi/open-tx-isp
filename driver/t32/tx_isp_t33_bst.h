@@ -179,75 +179,49 @@ static void t33_bst_fd(unsigned int b)
 /*
  * CSCCR day / night (openimp #507): lib_tisp_set_csccr from SET_TIZIANO_PAR
  * (update_csccr) and tisp_csccr_t33_frame_done_interrupt (system irq 57,
- * block fd-csccr).  Night: tisp_csccr_set_night now (UV clip slot 7 = 0).
- * Day: the next frame done runs tisp_mdns_dn_params_api2 (the MDNS UV
- * limit word, slot 0xb8, without its limits) and tisp_csccr_set_day (slot
- * 7 = 0x7f0180), the one after tisp_mdns_dn_params_api (the limits back).
- * The MDNS info bytes 0x140c / 0x1410 / 0x1414 are the bytes 0 / 1 / 2 of
- * the word the MDNS list was built with (t33_bst_mdns_uv).
+ * block fd-csccr), with the vendor's glue (tx_isp_t33_dnglue.h, block
+ * dnglue).  The MDNS UV limit bytes come from the MDNS block state
+ * (t33_mdns_v = mdnsInfo[0], bytes 0x140c / 0x1410 / 0x1414) like the vendor.
  */
 #define T33_CSCCR_BIT		25	/* system irq 57 */
-#define T33_MDNS_UV_SLOT	0xb8
 static u8 t33_csccr_refresh;			/* tispCsccrRefresh */
 static u32 t33_csccr_cnt[1], t33_csccr_cur[1] = { ~0U }, t33_csccr_cur2[1] = { ~0U };	/* frameCount, curFrame(2) */
-static u32 t33_bst_mdns_uv;			/* MDNS slot 0xb8 as built (tisp_mdns_init) */
+static u8 t33_dn_uv_limit[1], t33_dn_init_finish[1] = { 1 }, t33_dn_start_night[1];	/* uvLimitFlag, ... */
 u32 t33_csccr_fd_runs;
 
-static void t33_csccr_wr(u32 ch, u32 uv)
-{
-	tisp_reg_write_t33(ch, T33_MOD_CSCCR, 7, uv);
-	tisp_reg_write_t33(ch, T33_MOD_CSCCR, 1, 3);
-	t33_csccr_refresh = 1;
-}
+#include "tx_isp_t33_dnglue.h"
+
+static const struct t33_dn_state t33_dn_st = {
+	&t33_bst_cfg_mode, &t33_csccr_refresh, &t33_bst_cfg_mode, &t33_bst_refresh_mdns, t33_dn_uv_limit,
+	t33_dn_init_finish, t33_dn_start_night, (u8 *)t33_bst_initpar, t33_csccr_cnt, t33_csccr_cur, t33_csccr_cur2,
+};
 
 static void tisp_csccr_set_day(u32 ch)
 {
-	t33_csccr_wr(ch, 0x7f0180);
+	t33_csccr_set_day(&t33_dn_st, ch);
 }
 
 static void tisp_mdns_dn_params_api2(u32 ch)
 {
-	tisp_reg_write_t33(ch, T33_MOD_MDNS, T33_MDNS_UV_SLOT, t33_bst_mdns_uv & 0xff);
-	t33_bst_refresh_mdns = 1;
+	t33_mdns_dn_api2(&t33_dn_st, ch, (const u8 *)t33_mdns_v);
 }
 
 static void tisp_mdns_dn_params_api(u32 ch)
 {
-	tisp_reg_write_t33(ch, T33_MOD_MDNS, T33_MDNS_UV_SLOT, t33_bst_mdns_uv & 0xffffff);
-	t33_bst_refresh_mdns = 1;
+	t33_mdns_dn_api(&t33_dn_st, ch, (const u8 *)t33_mdns_v);
 }
 
 #include "tx_isp_t33_fd_csccr.h"
 
-/* a slot word of a built module list (0 when not built) */
-static u32 t33_bst_rd(u32 mod, u32 reg)
-{
-	const u32 *l;
-
-	if (mod >= T33_MODULES || !(t33_mod_built & (1ULL << mod)) || !t33_mod_page[mod])
-		return 0;
-	l = (const u32 *)CKSEG1ADDR(virt_to_phys((void *)t33_mod_page[mod]));
-	return reg + 1 < l[0] && reg + 1 < T33_SLOT_WORDS ? l[reg + 1] : 0;
-}
-
 /* lib_tisp_set_csccr with ispInitFinish (the ISP streams): night 0 day, 1 night */
 void t33_set_csccr(u32 ch, u32 night)
 {
-	u8 *par = (u8 *)t33_bst_initpar;
 	unsigned long flags;
 
-	if (ch || night > 1)
+	if (ch)
 		return;
 	local_irq_save(flags);
-	par[T33_INITPAR_DAY_FLAG] = (u8)night;
-	if (!night) {
-		if (t33_csccr_cur2[0] == ~0U)	/* no UV limit write pending: the list holds the built word */
-			t33_bst_mdns_uv = t33_bst_rd(T33_MOD_MDNS, T33_MDNS_UV_SLOT);
-		t33_csccr_cur[0] = (t33_csccr_cnt[0] + 1) & 0xffffff;
-		t33_csccr_cur2[0] = (t33_csccr_cnt[0] + 2) & 0xffffff;
-	} else {
-		t33_csccr_wr(0, 0);	/* tisp_csccr_set_night */
-	}
+	t33_lib_set_csccr(&t33_dn_st, ch, night);
 	local_irq_restore(flags);
 }
 

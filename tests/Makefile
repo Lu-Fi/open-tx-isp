@@ -1539,10 +1539,10 @@ t33_binoracle_ctup:
 t33_binoracle_gammaev:
 	./t33_binoracle/run.sh gammaev
 
-# The port-loop T33 binary-oracle blocks (openimp #99): intp, math, rcfg1..10, msca-api1..4, top, ldc, irq, fd-*
+# The port-loop T33 binary-oracle blocks (openimp #99): intp, math, rcfg1..10, msca-api1..4, top, ldc, irq, fd-*, dnglue
 # (tests/t33_binoracle/<block>.conf; SKIP without T33_OEM_KO / T33_CC).  Other blocks have their own targets above.
 t33_binoracle_blocks:
-	@for c in t33_binoracle/*.conf; do b=$$(basename $$c .conf); case $$b in intp|math|rcfg*|msca-api*|top|ldc|irq|fd-*) ./t33_binoracle/run.sh $$b || exit 1;; esac; done
+	@for c in t33_binoracle/*.conf; do b=$$(basename $$c .conf); case $$b in intp|math|rcfg*|msca-api*|top|ldc|irq|fd-*|dnglue) ./t33_binoracle/run.sh $$b || exit 1;; esac; done
 
 # T40 CCM leaf converters vs the OEM instructions (Unicorn, needs T40_OEM_KO, else SKIP)
 t40_ccm_conv_host:
