@@ -3077,6 +3077,42 @@ int t32_hw_input_setup(const void *attr, u32 w, u32 h)
 	return 0;
 }
 
+#ifdef TX_ISP_T33
+/*
+ * T33: the vendor's mipi_phy_stream_on (tx_isp_t33_mipi.h, oracle block mipiphy), single mode, the sensor on CSI
+ * host 0 (t32_csi_cfg_from_attr takes no other): host 0 pulsed at every stream-on, lanes, D-PHY 0 and the five
+ * settle words from get_settle_time; the D-PHY word 0x80 and the lane words 0x128 + n * 0x80 keep their reset values.
+ */
+static void t33_mipi_host(unsigned int ctl, unsigned int reg, unsigned int val)
+{
+	if (!ctl)
+		writel(val, csi_base + reg);
+}
+
+static void t33_mipi_phy(unsigned int reg, unsigned int val)
+{
+	writel(val, dphy_base + reg);
+}
+
+static void t33_mipi_sleep(void)
+{
+	msleep(1);
+}
+
+static void t33_mipi_log(int what, unsigned int val)
+{
+	isp_printf(what >= T33_MIPI_LOG_SETTLE0 ? 0 : 2, "tx-isp-t33: mipi_phy_stream_on: message %d (%u)\n", what, val);
+}
+
+static const struct t33_mipi_ops t33_mipi_ops = { t33_mipi_host, t33_mipi_phy, t33_mipi_sleep, t33_mipi_log };
+
+static void t32_csi_start(void)
+{
+	const struct t33_mipi_sensor s = { T32_DBUS_MIPI, csi_cfg.clk, 0, (unsigned char)(csi_cfg.lanes_m1 + 1) };
+
+	t33_mipi_phy_stream_on(&t33_mipi_ops, 1, 2, 0, &s);
+}
+#else
 static void t32_csi_start(void)
 {
 	int i;
@@ -3103,6 +3139,7 @@ static void t32_csi_start(void)
 	for (i = 0; i < 5; i++)
 		writel(csi_cfg.settle, dphy_base + 0x160 + i * 0x80);
 }
+#endif
 
 static void t32_csi_stop(void)
 {

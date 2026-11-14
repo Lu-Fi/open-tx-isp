@@ -197,6 +197,9 @@ struct t32_csi_cfg {
 	u32 phy_80;		/* phy 0x80 */
 	u32 phy_lane;		/* phy 0x128 + n * 0x80 */
 	u32 settle;		/* phy 0x160 + n * 0x80 */
+#ifdef TX_ISP_T33
+	int clk;		/* the sensor's MIPI clock (Mbps), for mipi_phy_stream_on */
+#endif
 };
 
 static inline u32 t32_csi_settle(u32 clk_mbps)
@@ -223,7 +226,10 @@ static inline int t32_csi_cfg_from_attr(const void *attr, struct t32_csi_cfg *c)
 	 * streams): D-PHY 0x80 = 0x9f, lane words 0x128 + n * 0x80 = 0xf (the
 	 * data lanes read back 0xe).  With the T32 values 0x1f / 0x3f the CSI
 	 * host saw its data lanes stay in stop state (0x14 = 0x3f0, vendor
-	 * 0x3c0) and no frame reached the ISP (openimp #393).
+	 * 0x3c0) and no frame reached the ISP (openimp #393).  These are the
+	 * reset values: the vendor's mipi_phy_stream_on writes neither for a
+	 * sensor on CSI host 0, and neither does t32_csi_start on the T33
+	 * (tx_isp_t33_mipi.h); kept here as the expected read-back.
 	 */
 	c->phy_80 = 0x9f;
 	c->phy_lane = 0xf;
@@ -233,7 +239,8 @@ static inline int t32_csi_cfg_from_attr(const void *attr, struct t32_csi_cfg *c)
 #endif
 #ifdef TX_ISP_T33
 	/* mipi_phy_stream_on: get_settle_time's table (tx_isp_t33_mipi.h, oracle block mipi) */
-	c->settle = t33_settle_time((int)t32_attr_u32(attr, T32_ATTR_MIPI_CLK));
+	c->clk = (int)t32_attr_u32(attr, T32_ATTR_MIPI_CLK);
+	c->settle = t33_settle_time(c->clk);
 #else
 	c->settle = t32_csi_settle(t32_attr_u32(attr, T32_ATTR_MIPI_CLK));
 #endif
