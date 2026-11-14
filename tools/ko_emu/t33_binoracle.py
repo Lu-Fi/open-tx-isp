@@ -35,6 +35,12 @@ SPEC: one function per line (from the block's .conf, FUNCS=):
                                 them, every call is recorded as (name, first NARGS of $a0..$a3; default 4) and returns RET (default 0; R1,R2,.. cycles through the values, by case number and call index, identical on both sides); @ARG:LEN (repeatable) records the LEN bytes argument ARG points to instead of the pointer value; the call
                                 sequences are compared like the buffers.  Use it for callees that are ported elsewhere
                                 or need hardware (register access, rcfg trigger, printk).
+        nest:N:OFF=[SPEC]:OFF=V1,V2..   pointer chains (OFF=V..: word values as in st): N random bytes whose LE u32 at each OFF points at the block SPEC
+                                describes (buf / out / st / nest again, in brackets); every block of the chain is
+                                compared after the call (functions that dereference a pointer stored in an argument)
+  CALLS ... !ARG:LEN[:OFF=V1,V2..]   (after the NAME item, repeatable) the callee FILLS the LEN bytes ARG points to with
+                                deterministic pseudo-random bytes (the LE u32 at each OFF one of the values), the same
+                                on both sides: copy_from_user style callees whose result the code under test reads
   VEC VENDOR V1 V2 ...          (line) fixed values for the scalar arguments of VENDOR (pointer arguments
                                 generated as usual), run before the random cases
   More than four argument words go to the stack (o32).
@@ -102,10 +108,15 @@ def parse(path):
                                                   (w.split(':')[0], int(w.split(':')[1], 0), [int(x, 0) for x in w.split(':')[2].split(',')]) for w in t[4:]]))
         elif t[0] == 'CALLS':
             for x in t[1:]:
+                x, *fills = x.split('!')
                 n, _, rv = x.partition('=')
                 n, *deref = n.split('@')
                 n, _, na = n.partition(':')
-                calls[n] = ([int(v, 0) for v in rv.split(',')] if rv else [0], int(na) if na else 4, [tuple(int(v, 0) for v in d.split(':')) for d in deref])
+                fl = []
+                for f in fills:
+                    q = f.split(':')
+                    fl.append((int(q[0], 0), int(q[1], 0), [(int(o.split('=')[0], 0), [int(v, 0) for v in o.split('=')[1].split(',')]) for o in q[2:]]))
+                calls[n] = ([int(v, 0) for v in rv.split(',')] if rv else [0], int(na) if na else 4, [tuple(int(v, 0) for v in d.split(':')) for d in deref], fl)
         elif t[0] == 'VEC':
             vec.setdefault(t[1], []).append([int(x, 0) for x in t[2:]])
         else:
@@ -162,6 +173,44 @@ def is_ptr(a):
     return a.split(':')[0] in ('buf', 'out', 'kn', 's32s', 'st')
 
 
+def split_top(s, sep):
+    """split s at sep outside of [...]"""
+    out, d, cur = [], 0, ''
+    for ch in s:
+        if ch == '[':
+            d += 1
+        elif ch == ']':
+            d -= 1
+        if ch == sep and d == 0:
+            out.append(cur); cur = ''
+        else:
+            cur += ch
+    out.append(cur)
+    return out
+
+
+def nest_tree(g, spec, case):
+    """nest:N:OFF=[SPEC]:OFF=[SPEC] -> (bytes, [(off, tree)]); any other kind -> (bytes, [])"""
+    if not spec.startswith('nest:'):
+        return g.buf(spec, case), []
+    f = split_top(spec[5:], ':')
+    b = bytearray(g.buf('buf:' + f[0], case)); subs = []
+    for x in f[1:]:
+        off, _, child = x.partition('=')
+        if child.startswith('['):
+            subs.append((int(off, 0), nest_tree(g, child[1:-1], case)))
+        else:                                   # OFF=V1,V2: the LE u32 at OFF is one of the values
+            o = int(off, 0); b[o:o + 4] = struct.pack('<I', g.r.choice([int(v, 0) for v in child.split(',')]) & M32)
+    return bytes(b), subs
+
+
+def fill_bytes(case, idx, ln, offs):
+    r = random.Random('fill:%d:%d' % (case, idx)); b = bytearray(r.getrandbits(8) for _ in range(ln))
+    for o, vals in offs:
+        b[o:o + 4] = struct.pack('<I', r.choice(vals) & M32)[:max(0, ln - o)]
+    return bytes(b)
+
+
 def info_block(r, size, lim=''):
     """random block state words: full 32 bit, small (< 2^8), medium (< 2^12) or edge values (so that equal /
     neighbouring words and the usual limits are frequent), chosen per case; lim 'W<M,..'"""
@@ -198,6 +247,14 @@ def run_one(e, fn, args, gl_init, gl_syms, gl_ptrs=(), vendor=False):
                 e.write(e.addr(sym), struct.pack('<I', ad)); words.append(0)
             else:
                 words.append(ad)
+        elif k == 'n':
+            def put(tree):
+                data, subs = tree; data = bytearray(data); kids = []
+                for off, st in subs:
+                    ca = put(st); data[off:off + 4] = struct.pack('<I', ca)
+                ad = e.alloc(len(data) + 16, bytes(data) + bytes(16)); ptrs.append((ad, len(data)))
+                return ad
+            words.append(put(v))
         elif k == 'p':
             ad = e.alloc(max(len(v), 4) + 16, v + bytes(16)); ptrs.append((ad, len(v))); words.append(ad)
         elif k == 'v64':
@@ -242,7 +299,7 @@ def main():
         for i, n in enumerate(fnames):          # fn: callbacks at one fixed address in the stub page on both sides
             emu.fnaddr = getattr(emu, 'fnaddr', {}); emu.fnaddr[n] = 0x70000f00 + 0x10 * i; emu.stubname[emu.fnaddr[n]] = n
     for emu, side in ((oem, 'vendor'), (our, 'ours')):
-        for n, (rv, na, dr) in calls.items():
+        for n, (rv, na, dr, fl) in calls.items():
             if n in fnames:
                 pass
             elif n not in emu.symaddr and n not in emu.stubs:
@@ -251,7 +308,14 @@ def main():
                 print('t33_binoracle: CALLS %s not found on the %s side' % (n, side)); return 2
             if n in emu.symaddr and n not in emu.stubs:      # a function of the module: trap its entry
                 ad = emu.symaddr[n]; emu.stubname[ad] = n
-            emu.hle[n] = (lambda nm, r, k, d: lambda e: (calllog.append((nm,) + tuple('*' if i in [x for x, _ in d] else _r(e, i) for i in range(k)) + tuple(bytes(e.read(_r(e, i), ln)).hex() for i, ln in d)), r[(caseno[0] + len(calllog)) % len(r)])[1])(n, rv, na, dr)
+            def mk(nm, r, k, d, fl):
+                def h(e):
+                    calllog.append((nm,) + tuple('*' if i in [x for x, _ in d] else _r(e, i) for i in range(k)) + tuple(bytes(e.read(_r(e, i), ln)).hex() for i, ln in d))
+                    for fa, fln, fo in fl:
+                        e.write(_r(e, fa), fill_bytes(caseno[0], len(calllog), fln, fo))
+                    return r[(caseno[0] + len(calllog)) % len(r)]
+                return h
+            emu.hle[n] = mk(n, rv, na, dr, fl)
     for v, o, sz, _w in gl:
         if v not in oem.symaddr or o not in our.symaddr:
             print('t33_binoracle: global %s / %s missing' % (v, o)); return 2
@@ -273,6 +337,8 @@ def main():
                     args.append(('i', (sym, info_block(rnd, int(sz, 0), lim))))
                 elif t.startswith('fn:'):
                     args.append(('v', 0x70000f00 + 0x10 * fnames.index(t[3:])))
+                elif t.startswith('nest:'):
+                    args.append(('n', nest_tree(g, t, case)))
                 elif is_ptr(t):
                     args.append(('p', g.buf(t, case)))
                 else:
@@ -320,7 +386,7 @@ def main():
                 continue
             nf += 1; bad += 1
             if nf <= 5:
-                shown = ['%#x' % v if k in ('v', 'v64') else '<%d B>' % len(v if k == 'p' else v[1][0]) for k, v in args]
+                shown = ['%#x' % v if k in ('v', 'v64') else '<%d B>' % len(v if k == 'p' else (v[0] if k == 'n' else v[1][0])) for k, v in args]
                 print('MISMATCH %s(%s): %s' % (vfn, ', '.join(shown), diff))
         print('%s: %d cases, %d mismatches' % (vfn, a.n + len(fixed), nf))
     print('t33_binoracle: %d cases, %d mismatches' % (total, bad))
