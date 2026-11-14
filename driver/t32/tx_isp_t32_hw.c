@@ -85,6 +85,7 @@ static void t33_lcepf_ev(u32 lo, u32 hi, u32 bv);
 #include "tx_isp_t32_rdnstab.h"
 #ifdef TX_ISP_T33
 #include "tx_isp_t33_ldc.h"
+#include "tx_isp_t33_append.h"
 #include "tx_isp_t33_rcfg1.h"
 #include "tx_isp_t33_rcfg2.h"
 #include "tx_isp_t33_rcfg3.h"
@@ -624,6 +625,94 @@ static void __maybe_unused t33_mod_set_tmpl(unsigned int id, const struct t33_tc
 /* LSC mesh table, read by the core by DMA from the address in 0x5078 */
 static unsigned long t33_lsc_pages;
 #define T33_LSC_ORDER	get_order(T33_LSC_LUT_BYTES)
+#ifdef TX_ISP_T33
+/*
+ * IQ bin append data (tisp_bin_append_data_parse, tx_isp_t33_append.h), parsed with every bin (tisp_bin_data_parse:
+ * load and day / night refresh): the LDC parameters for lib_tisp_ldc_get_par, and LSC tables behind the payload.
+ * With appended tables the LSC block reads a copy of section 7 (count, lists) and the table buffer instead of
+ * the bin.  One channel.
+ */
+static u8 t33_app_ldc_exist[4], t33_app_ldc_par[T33_LDC_PAR_BYTES];
+static u8 t33_app_lsc_sec[T33_LSC_SEC_BYTES];
+static struct t33_app_lsc t33_app_lsc;
+static u32 t33_app_lsc_n;	/* appended tables; 0: the bin's section and payload */
+
+static int t33_app_grow(struct t33_app_lsc *l, u32 need)
+{
+	u8 *n = vzalloc(need);
+
+	if (!n)
+		return -ENOMEM;
+	vfree(l->lut);	/* the payload is copied in after the parse */
+	l->lut = n;
+	return 0;
+}
+
+static void t33_app_log(int what, u32 val)
+{
+	static const char fn[] = "tisp_bin_append_data_parse";
+
+	if (what == T33_APP_LOG_NULL)
+		isp_printf(2, "[ISP][%s, %d]: append data is null or size is %d beacuse of size < sizeof(tisp_append_par_t)!!!\n",
+			   fn, 913, val);
+	else if (what == T33_APP_LOG_LSC0)
+		isp_printf(1, "[%s %d]: LSC mesh lut size = %d!!!\n", fn, 946, val);
+	else if (what == T33_APP_LOG_LDCSZ)
+		isp_printf(1, "[%s %d]: LDC par size=%d is invalid!!!\n", "tisp_ldc_get_extra_par", 391, val);
+	else
+		isp_printf(1, "[ISP][%s, %d]: append type %d is not supported!!!\n", fn, 982, val);
+}
+
+static const struct t33_app_ops t33_app_ops = { t33_app_grow, t33_app_log };
+
+static void t33_bin_append(const u8 *bin, u32 bytes)
+{
+	u32 app = t33_bin_append_off(bin, bytes), off, len = 0, pay = 0;
+	struct t33_app_lsc *l = &t33_app_lsc;
+
+	t33_ldc_reset_par(t33_app_ldc_exist, 0);	/* tisp_ldc_reset_par_state */
+	t33_app_lsc_n = 0;
+	if (!app || app >= bytes)	/* no append data: "Bin file data parse successed" */
+		return;
+	off = t32_iq_section(bin, bytes, T33_SEC_LSC, &len);
+	l->sec = NULL;
+	if (off && len == T33_LSC_SEC_BYTES) {
+		pay = t32_iq_payload(bin + off, bytes - off, T33_SEC_LSC);
+		if (off + len + pay <= bytes) {
+			memcpy(t33_app_lsc_sec, bin + off, len);
+			l->sec = t33_app_lsc_sec;
+			l->size16 = pay;
+		}
+	}
+	t33_bin_append_parse(0, bin + app, bytes - app, t33_app_ldc_exist, t33_app_ldc_par, l, &t33_app_ops);
+	if (l->sec && l->lut && l->sec[T33_APP_LSC_CNT] > bin[off + T33_APP_LSC_CNT] && pay <= l->cap) {
+		memcpy(l->lut, bin + off + len, pay);
+		t33_app_lsc_n = l->sec[T33_APP_LSC_CNT] - bin[off + T33_APP_LSC_CNT];
+	}
+}
+
+/* the LSC section and its tables: the bin's, or the copy with the appended tables */
+static const u8 *t33_lsc_src(const u8 *bin, u32 bytes, u32 off, u32 len, const u8 **tab, u32 *tabbytes)
+{
+	if (t33_app_lsc_n) {
+		*tab = t33_app_lsc.lut;
+		*tabbytes = t33_app_lsc.cap;
+		return t33_app_lsc_sec;
+	}
+	*tab = bin + off + len;
+	*tabbytes = t32_iq_payload(bin + off, bytes - off, T33_SEC_LSC);
+	return bin + off;
+}
+
+/* lib_tisp_ldc_get_par: the 80 LDC parameter bytes of the bin's append data, -1 without */
+int t33_bin_ldc_par(u32 ch, u8 *par)
+{
+	if ((ch & 0xff) || !t33_app_ldc_exist[0])
+		return -1;
+	memcpy(par, t33_app_ldc_par, T33_LDC_PAR_BYTES);
+	return 0;
+}
+#endif
 /* defog statistics area (four 2 KiB parts, 0xa210..0xa21c), written by the core */
 static unsigned long t33_defog_pages;
 static u8 t33_defog_sec[T33_DEFOG_SEC_BYTES];
@@ -663,6 +752,9 @@ static void t33_mod_free(void)
 	t33_awbc_detach();
 	t33_aec_detach();
 	t33_lcepf_free();	/* before its buffers */
+	vfree(t33_app_lsc.lut);
+	memset(&t33_app_lsc, 0, sizeof(t33_app_lsc));
+	t33_app_lsc_n = 0;
 #endif
 
 	if (t33_lsc_pages)
@@ -2230,6 +2322,7 @@ static void t33_tisp_init(const u8 *bin, u32 bytes)
 {
 	u32 off, len, code, width, height;
 
+	t33_bin_append(bin, bytes);
 	t33_gref_reset();
 	t33_tisp_init_ae(bin, bytes);
 	t33_tisp_init_awb(bin, bytes);
@@ -2349,15 +2442,15 @@ static void t33_tisp_init(const u8 *bin, u32 bytes)
 	t33_tisp_init_mdns(bin, bytes);
 	off = t32_iq_section(bin, bytes, T33_SEC_LSC, &len);
 	if (off && len == T33_LSC_SEC_BYTES && !t32_core_sensor_size(&width, &height)) {
-		u32 *buf = t33_mod_buf(T33_MOD_LSC);
+		u32 *buf = t33_mod_buf(T33_MOD_LSC), tb;
+		const u8 *tab, *sec = t33_lsc_src(bin, bytes, off, len, &tab, &tb);
 
 		if (!t33_lsc_pages)
 			t33_lsc_pages = t32_dma_zpages(T33_LSC_ORDER);
 		/* CT 5000 K as the CCM; the table written uncached */
 		if (buf && t33_lsc_pages)
 			t33_mod_done(T33_MOD_LSC,
-				     t33_lsc_init(bin + off, bin + off + len,
-						  t32_iq_payload(bin + off, bytes - off, T33_SEC_LSC), height, width,
+				     t33_lsc_init(sec, tab, tb, height, width,
 						  T33_INIT_GAIN, T33_CCM_INIT_CT, t33_lsc_v, &t33_lsc_m,
 						  (u8 *)CKSEG1ADDR(virt_to_phys((void *)t33_lsc_pages)),
 						  (u32)virt_to_phys((void *)t33_lsc_pages), buf, T33_SLOT_WORDS));
@@ -2445,13 +2538,15 @@ static noinline_for_stack void t33_sw_tone(const u8 *bin, u32 bytes, u32 width, 
 					   u32 hi)
 {
 	unsigned long long ev = (unsigned long long)hi << 32 | lo;
-	u32 off, len;
+	u32 off, len, tb;
 
 	/* tisp_lsc_switch_para: interp_by_tgain / _by_ct (forced), write_reg */
 	if (T33_SW_SEC(LSC) && t33_lsc_pages) {
+		const u8 *tab, *sec = t33_lsc_src(bin, bytes, off, len, &tab, &tb);
+
 		T33_SW_TMP();
 		t33_gr_commit(T33_MOD_LSC,
-			      t33_lsc_init(bin + off, bin + off + len, t32_iq_payload(bin + off, bytes - off, T33_SEC_LSC),
+			      t33_lsc_init(sec, tab, tb,
 					   height, width, gain, ct, t33_lsc_v, &t33_lsc_m,
 					   (u8 *)CKSEG1ADDR(virt_to_phys((void *)t33_lsc_pages)),
 					   (u32)virt_to_phys((void *)t33_lsc_pages), t33_gr_tmp, T33_SLOT_WORDS));
@@ -2577,6 +2672,7 @@ void t33_refresh_para(u32 mode)
 	}
 	lo = t33_sw_ev_lo;
 	hi = t33_sw_ev_hi;
+	t33_bin_append(bin, bytes);	/* tisp_bin_data_parse */
 	t33_sw_top(bin, bytes, width, height, bayer);
 	/* tisp_blc_switch_para: interp_by_tgain at the current gain, write_reg */
 	if (T33_SW_SEC(BLC) && bayer >= 0)
