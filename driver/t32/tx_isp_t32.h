@@ -4,6 +4,15 @@
 #define TX_ISP_T32_H
 
 #include <linux/types.h>
+#include <linux/compiler.h>
+
+/* Linux 3.10 (T32-2.1.0-3.10.14 vendor tree) predates READ_ONCE/WRITE_ONCE. */
+#ifndef READ_ONCE
+#define READ_ONCE(x)		ACCESS_ONCE(x)
+#endif
+#ifndef WRITE_ONCE
+#define WRITE_ONCE(x, val)	(ACCESS_ONCE(x) = (val))
+#endif
 
 struct i2c_driver;
 struct platform_device;
