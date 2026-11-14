@@ -10,6 +10,7 @@ marked otherwise. Release tags `vYYYY.MM.DD[-rcN]` are set on the `aperto` branc
 - Wired (T33 only, bit-exact): the LCE/LSF 11-point interpolation helpers (`t33_intp_u16`, `t33_intp_u8`) now call the proven `tisp_ev/bv_intp_*` ports of `tx_isp_t33_intp2.h`. All other new ports are proven, not wired: they work on the vendor block-state layout (stMscaAttr, rdnsInfo, tmoInfo, ...) that our driver replaces with its own state structs (state layer, #504/#507).
 - Not covered by an oracle: the NULL-kmalloc branch of `tisp_awb_malloc_info` (the vendor writes through the first allocation unchecked and oopses; block awbm uses non-NULL allocations).
 - `tx-isp-t32.ko` code identical.
+
 ## 2026-11-14: T31 AE max analog / ISP digital gain from the IQ bin like the vendor (openimp #551; host, device check planned)
 
 - `driver/t31/tx_isp_tuning.c`: the decompile names `data_c46b0` / `data_c46bc` are fields of the vendor AE control object (`tisp_ae_ctrls[5]` max analog gain, `[8]` max ISP digital gain; vendor `tisp_g_ev_attr` 0x637dc reads ctrls +20 / +32). Ours kept them as separate statics with fixed defaults (85x analog, 1x ISP digital) that only SetMaxAgain / SetMaxIspDgain changed, while `tiziano_ae_init_exp_th` filled ctrls[5] / [8] from the bin's `ae_exp_th` like the vendor (0x53d90). The AE solver, the ISP dgain clamp, isp-m0 and GetMaxAgain / GetMaxDgain now read the control object, so the limits come from the IQ bin (T31L device check: vendor isp-m0 MAX SENSOR analog gain 160, MAX ISP digital gain 81; ours showed 205 / 0 and settled at EV 23k vs 28k).
