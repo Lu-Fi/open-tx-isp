@@ -26,6 +26,13 @@ marked otherwise. Release tags `vYYYY.MM.DD[-rcN]` are set on the `aperto` branc
 
 - `docs/BEYOND_VENDOR.md`: new row 'Kernel module smaller than the vendor module' (T21, T23, T30, T31; numbers from OpenIMP `docs/SIZE.md`). Docs only.
 
+## 2026-11-14: T33 port loop batch 2: MSCA API blocks, frame-drop ioctl runs the proven port (openimp #99; planned, QEMU stream + apitest only)
+
+- Blocks `msca-api5` (`tisp_msca_t33_api_set_autozoom`, `..._set_mirr_flip`, `..._get_mask_out_cfg`) and `msca-api6` (`tisp_msca_t33_addr_fifo_read` / `_write`, `tisp_msca_t33_channel_attr_set`) pass the vendor-instruction oracle (all mutants detected); with them 70 T33-only functions of the port loop are oracle-proven.
+- T33 only: `SET/GET_FRAME_DROP` (`t32_frame_drop_set/get`, tx_isp_t32_core.c) now run `tx_isp_t33_msca_api3.h` (the register writes are the same, `0xf0120 / 0xf0124 + n * 0x100`); the T32 module code is unchanged (disassembly identical). QEMU `-M ingenic-t33`: stream sample 150/150 frames, apitest (sys, fs, enc, osd, ivs, isp, cases) equal to the vendor module (ours 267 pass / 28 fail vs 266 / 29), 0 oops.
+- The other port-loop blocks (frame-done handlers, rcfg inits, int8 interpolators, TOP / LDC state helpers) have no call site in this driver yet: they act on the vendor's per-block info structs (`ydnsInfo`, `stTopPar`, ...), which the open driver does not keep (it builds the module lists from the IQ bin). They need the block-state layer of the para-update / switch_para work first.
+- `docs/BEYOND_VENDOR.md`: LDC bypass state ignores a channel index >= 4 (the vendor overwrites its return address from index 12), user OK 2026-11-14.
+
 ## 2026-11-14: T33 port loop, batch 1: 27 binary-oracle blocks, 64 more T33-only functions (openimp #99; planned, host only)
 
 - API port loop (DeepSeek, Claude Sonnet / Opus), every result judged by the vendor `tx-isp-t33.ko` instructions in Unicorn (`tests/t33_binoracle/<block>.conf`, `run.sh <block>`, default 2000 cases per function plus one-token mutants, all detected): `intp` (`tisp_ev_intp_int8_t`, `tisp_bv_intp_int8_t`, `tisp_simple_intp_uint16_t`), `math` (`fixpoint_sqrt`, two `lib_tisp_*` thunks), `rcfg1`..`rcfg10` (the 28 `tisp_rcfg_*_reg_init` module-attribute table fillers), `msca-api1`..`4` (13 MSCA API helpers), `top` (3), `ldc` (3), `irq` (BLC / defog / CLM frame-done), `fd-cdns|csccr|dmsc|dpc|rdns|sdns|ydns|ysp` (the T33 frame-done handlers, one block each). New headers `driver/t32/tx_isp_t33_{intp,math,rcfg1..10,msca_api1..4,top,ldcpar,irq,fd_*}.h` (not yet wired into the driver, host-proven ports).
