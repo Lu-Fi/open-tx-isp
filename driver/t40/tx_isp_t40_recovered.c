@@ -10118,7 +10118,7 @@ module_param_named(gib_lit_final_gain, regtrace_gib_lit_final_gain, uint, 0644);
 module_param_named(enable_ysp, regtrace_enable_ysp, bool, 0644);
 module_param_named(ysp_init_ret, regtrace_ysp_init_ret, int, 0444);
 module_param_named(t40_ysp_on, regtrace_t40_ysp_on, bool, 0644);
-MODULE_PARM_DESC(t40_ysp_on, "1 lets the bin gates enable YSP (sharpening) despite t40_force_bypass bit 17; active only after a successful init (default 0)");
+MODULE_PARM_DESC(t40_ysp_on, "1 lets the bin gates enable YSP (sharpening) despite t40_force_bypass bit 17; active only after a successful init (default 1)");
 module_param_named(ysp_refresh_count, regtrace_ysp_refresh_count, uint, 0444);
 module_param_named(ysp_refresh_blocked, regtrace_ysp_refresh_blocked, uint, 0444);
 module_param_named(enable_ccm, regtrace_enable_ccm, bool, 0644);
