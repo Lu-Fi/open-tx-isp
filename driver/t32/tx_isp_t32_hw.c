@@ -1266,65 +1266,33 @@ void t33_tmo_oneshot(u32 op)
 }
 
 /*
- * tisp_s_module_control / tisp_g_module_control (oracle-proven tx_isp_t33_top.h, block top): the module control
- * word is the TOP bypass word (bit set = module bypassed), low 22 bits the user's.  Open (not ported, #99): the
- * vendor's side effects of a changed bit 12 (tisp_mdns_start before, tisp_mdns_t33_reg_trig after) and of
- * changed bits 5 / 11 (tisp_lce_top_change_state).
+ * tisp_s_module_control / tisp_g_module_control (oracle-proven tx_isp_t33_top.h, block top; the side effects
+ * tx_isp_t33_mcside.h, block mcside): the module control word is the TOP bypass word (bit set = module bypassed),
+ * low 22 bits the user's.  A changed bit 12 starts MDNS before the new word (tisp_mdns_start) and triggers it after
+ * (tisp_mdns_t33_reg_trig); changed bits 5 / 11 (0x820) switch the LCE curve source (tisp_lce_top_change_state).
  */
-/*
- * LDC ioctls of ldc_core_ops_ioctl (T33): the HLDC bypass state (tisp_ldc_set_bypass_state ->
- * tisp_top_ldc_bypass_refresh) and the LUT refresh (tisp_online_ldc_reflesh_lut), as the oracle-proven ports
- * tx_isp_t33_ldcpar.h (block ldc) and tx_isp_t33_aeldc.h (block aeldc).  The vendor's module data objects used by
- * the aeldc port are these shims (ldcCfgMode: slot indexes like the other blocks; stIspInitPar word 226 = 1).
- */
-u8 ldcCfgMode = 1;
-extern u8 stIspInitPar[4032] __attribute__((alias("t33_st_isp_init_par_mode")));
-u32 g_ae_contexts[4];
-static int t33_ldc_sysw(u32 reg, u32 val)
+#include "tx_isp_t33_mcside.h"
+
+static u8 t33_mdns_started;	/* g_mdnsStart */
+static struct t33_lce_pf *t33_lcepf;	/* the LCE block (defined below, with the LCE / LSF code) */
+
+static void t33_lce_curve_default_cb(u32 ch)
 {
-	isp_wr(reg, val);
-	return 0;
-}
-#define system_reg_write t33_ldc_sysw
-#define normal_ae_dn_par_refresh t33_ldc_unused_ae_dn
-#include "tx_isp_t33_aeldc.h"
-#include "tx_isp_t33_ldcpar.h"
-#undef system_reg_write
-#undef normal_ae_dn_par_refresh
-
-/* tisp_top_ldc_bypass_refresh: LDC bypass bit (0x800000) of the TOP bypass word from block[idx], TOP list rerun */
-static void t33_ldc_bypass_refresh(u32 idx, const u8 *blk)
-{
-	u32 sel = ipcCfgMode ? 1 : 64, v;
-
-	idx &= 0xff;
-	v = tisp_reg_read_t33(idx, 33, sel);
-	v = blk[idx] == 1 ? v & ~0x800000U : v | 0x800000U;
-	tisp_reg_write_t33(idx, 33, sel, v);
-	tispTopRefresh = tisp_rcfg_get_dma_state(33) ? 2 : 1;
-}
-
-/* IOC 0xc00454bc: {idx, state}; vendor core command 0x5000009 */
-void t33_ldc_set_bypass_state(u32 idx, u32 state)
-{
-	u8 blk[4];
-
-	if (t33_ldc_bypass_buf(blk, idx, state) >= 4)
-		return;		/* the vendor writes past its block here (BEYOND_VENDOR row) */
-	t33_ldc_bypass_refresh(idx & 0xff, blk);
-}
-
-/* IOC 0xc00454bd: {idx, base, offset}; vendor core command 0x500000a */
-int t33_ldc_reflesh_lut(u32 idx, u32 addr)
-{
-	return t33_online_ldc_refresh(idx, addr);
+	if (t33_lcepf)
+		t33_lcepf_curve_default(t33_lcepf);
 }
 
 void t33_module_control_set(u32 ch, u32 v)
 {
-	u32 cur = t33_top_get_bypass(ch);
+	u32 cur = t33_top_get_bypass(ch), chg = v ^ cur;
 
+	if (chg & 0x1000)
+		t33_mdns_start(ch, t33_bst_cfg_mode, &t33_mdns_started);
+	if (chg & 0x820)
+		t33_lce_top_change_state(t33_lce_sec, ch, t33_lce_curve_default_cb);
 	t33_top_set_bypass(ch, (v & 0x3fffffU) | (cur & 0xffc00000U));
+	if (chg & 0x1000)	/* tisp_mdns_t33_reg_trig: mdnsInit is the pending first frame (t33_first_fe) */
+		t33_mdns_reg_trig(ch, t33_bst_cfg_mode, t33_first_fe, &t33_bst_refresh_mdns);
 }
 
 u32 t33_module_control_get(u32 ch)

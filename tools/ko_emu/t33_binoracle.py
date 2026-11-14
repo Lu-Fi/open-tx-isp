@@ -355,7 +355,7 @@ def main():
                             if x.startswith('b'):
                                 b, vv = x[1:].split('='); pd[int(b, 0)] = rnd.choice([int(v, 0) for v in vv.split(',')]) & 0xff
                             elif x.startswith('@'):
-                                o2, n2 = x[1:].split('=')
+                                o2, _, n2 = x[1:].partition('=')
                                 n2, *nb = n2.split('/')
                                 d2 = rnd.randbytes(int(n2[:-1], 0)) if n2.endswith('f') else bytes(rnd.getrandbits(8) for _ in range(int(n2, 0)))
                                 if nb:
