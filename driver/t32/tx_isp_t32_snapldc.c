@@ -783,6 +783,32 @@ int t32_snapldc_init(void)
 	return 0;
 }
 
+#ifdef TX_ISP_T33
+/* ldc_core_ops_ioctl cmds 0x5000009 / 0x500000a: tx-isp-t33.ko's handlers (tx_isp_t32_hw.c holds the TOP / LDC list side) */
+void t33_ldc_set_bypass_state(u32 idx, u32 state);
+int t33_ldc_reflesh_lut(u32 idx, u32 addr);
+
+long t32_ldc_ctl_ioctl(unsigned int cmd, unsigned long arg, u32 ldc_mode)
+{
+	u32 b[3];
+	int bypass = cmd == T32_IOC_LDC_BYPASS_STATE;
+
+	if (ldc_mode == 1)	/* offline LDC: the vendor handler does nothing */
+		return 0;
+	if (copy_from_user(b, (void __user *)arg, bypass ? 8 : 12)) {
+		isp_printf(2, "[ %s:%d ] copy from user error\n", bypass ? "tx_ldc_set_hldc_bypass_state" : "tx_ldc_online_reflesh_lut",
+			   bypass ? 140 : 159);
+		isp_printf(2, "[ %s:%d ] Failed to ioctl!\n", "ldc_core_ops_ioctl", 207);
+		return -EFAULT;
+	}
+	if (bypass)
+		t33_ldc_set_bypass_state(b[0] & 0xff, b[1]);
+	else
+		return t33_ldc_reflesh_lut(b[0] & 0xff, b[1] + b[2]);
+	return 0;
+}
+#endif
+
 void t32_snapldc_exit(void)
 {
 	if (ldc_misc_ok)

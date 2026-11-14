@@ -227,6 +227,7 @@ int t32_snapldc_init(void);
 void t32_snapldc_exit(void);
 long t32_snap_ioctl(unsigned int cmd, unsigned long arg);
 long t32_ldc_online_ioctl(unsigned int cmd, unsigned long arg, u32 ldc_mode);
+long t32_ldc_ctl_ioctl(unsigned int cmd, unsigned long arg, u32 ldc_mode);	/* T33: LDC bypass state / LUT refresh (snapldc.c) */
 void t32_snap_isp_irq(u32 sta2, u32 sta3);
 void t32_snap_vic_irq(u32 ch, u32 s, u32 s2);
 void t32_snapldc_show(struct seq_file *m);

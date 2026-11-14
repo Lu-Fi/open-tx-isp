@@ -30,8 +30,7 @@ extern void private_vfree(void *p);
 #ifndef __KERNEL__
 #include <string.h>
 #else
-extern void *memcpy(void *d, const void *s, unsigned long n);
-extern void *memmove(void *d, const void *s, unsigned long n);
+#include <linux/string.h>
 #endif
 
 /* module data objects (vendor symbols) */
