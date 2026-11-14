@@ -79,10 +79,18 @@ int tisp_rcfg_get_dma_state(u32 mod)
 	return (isp_rd(mod < 32 ? T33_RCFG_TRIG : T33_RCFG_TRIG_HI) >> (mod & 31)) & 1;
 }
 
-/* tisp_rcfg_module_cfg_trig: start the module's list (its table word is set at stream-on) */
+/*
+ * tisp_rcfg_module_cfg_trig (tx_isp_t33_rcfgcore.h): the module's table word from its record, then
+ * its start bit; returns the 0x22014 read as the vendor.  A list that is not the registered one
+ * (none yet): only the start bit, its table word is set at stream-on.
+ */
 int tisp_rcfg_module_cfg_trig(u32 ch, u32 mod)
 {
 	mod &= 0xff;
+	if (t33_rc_ok(mod)) {
+		t33_rcfg_runs++;
+		return (int)t33_rcfg_module_cfg_trig(&t33_rcc, 0, mod);
+	}
 	wmb();
 	isp_wr(mod < 32 ? T33_RCFG_TRIG : T33_RCFG_TRIG_HI, 1U << (mod & 31));
 	t33_rcfg_runs++;
