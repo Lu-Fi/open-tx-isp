@@ -145,7 +145,8 @@ static inline void t33_bcsh_ev(u8 *st, const u8 *sec, unsigned long long ev)
 				if (d > 0) {
 					u32 n = sec[0x4c0] ? tp - x : x - tp;
 
-					f = (u32)t32_tp_div64((unsigned long long)n * 0x1000 + (u32)(d >> 1),
+					/* vendor: the distance sign-extended (s32) before the Q12 scale (only reachable with d > 0, n < 2^31) */
+					f = (u32)t32_tp_div64((unsigned long long)((long long)(int)n * 0x1000 + (d >> 1)),
 							      (unsigned long long)d);
 				}
 			}
@@ -259,20 +260,52 @@ static inline void t33_bcsh_ev(u8 *st, const u8 *sec, unsigned long long ev)
 #undef SIB
 }
 
-/* tisp_bcsh_interp_by_ct (forced) into cp + 0xb8; lut: the knots (payload) */
+/*
+ * tisp_bcsh_interp_by_ct (forced) into cp + 0xb8 (st + 0xe8); lut: the knots (payload, 10 s32 each).
+ * The API matrix (st + 0x1d4, st + 0x1d0 on) wins unless sec[0x4a3] == 1 or (0x4a3, 0x4a4) = (0, <= 1); the
+ * CT segment (2k on knot k, 2k + 1 between k and k + 1, with the hysteresis sec + 0x8c) is kept in st + 0x24.
+ * Mode sec[0x4a2]: 0 unit matrix, 1 the knots, 2 the matrix at sec + 0x68, else the old one; then into
+ * st + 0x15c and, with sec[0x4a6] == 1, into st + 0x1d4.
+ */
 static inline void t33_bcsh_ct(u8 *st, const u8 *sec, const u8 *lut, int ct)
 {
-	u8 *cp = st + 0x30;
-	int n = sec[0x4bf], i, k, m[9];
+	u8 *dst = st + 0xe8;
+	int n = sec[0x4bf], i, j, k, seg = 0, m;
 	const u8 *src = NULL;
 
 #define KCT(i)	t33_s32(lut + 40 * (i))
 #define HY(i)	((int)t32_tp_le16(sec + 0x8c + 2 * (i)))
+	if (sec[0x4a3] != 1 && (sec[0x4a3] != 0 || sec[0x4a4] > 1) && st[0x1d0]) {
+		memcpy(dst, st + 0x1d4, 0x24);
+		memcpy(st + 0x15c, dst, 0x24);
+		return;
+	}
+	if (HY(0) + KCT(0) < ct) {
+		if (KCT(n - 1) - HY(n - 1) <= ct) {
+			seg = (n - 1) * 2;
+		} else {
+			seg = n;
+			for (i = 1; i < n; i++) {
+				if (ct < KCT(i) - HY(i)) {
+					if (HY(i - 1) + KCT(i - 1) < ct) {
+						seg = (i - 1) * 2 + 1;
+						break;
+					}
+				} else if (ct <= KCT(i) + HY(i)) {
+					seg = i * 2;
+					break;
+				}
+			}
+		}
+	}
 	t32_bcsh_p32(st, 0x20, (u32)ct);
+	t32_bcsh_p32(st, 0x24, (u32)seg);
 	switch (sec[0x4a2]) {
 	case 0:
-		for (i = 0; i < 9; i++)
-			m[i] = (i % 4) ? 0 : 0x400;
+		memset(dst, 0, 0x24);
+		t32_bcsh_p32(dst, 0, 0x400);
+		t32_bcsh_p32(dst, 0x10, 0x400);
+		t32_bcsh_p32(dst, 0x20, 0x400);
 		break;
 	case 1:
 		if (n == 1 || ct <= KCT(0)) {
@@ -283,44 +316,38 @@ static inline void t33_bcsh_ct(u8 *st, const u8 *sec, const u8 *lut, int ct)
 			for (i = 1; i < n; i++) {
 				if (ct > KCT(i))
 					continue;
-				if (ct <= KCT(i - 1) + HY(i - 1)) {
-					src = lut + 40 * (i - 1) + 4;
+				j = i - 1;
+				if (ct <= KCT(j) + HY(j)) {
+					src = lut + 40 * j + 4;
 				} else if (ct < KCT(i) - HY(i)) {
-					int d = KCT(i) - KCT(i - 1) - HY(i) - HY(i - 1), nn = ct - KCT(i - 1) - HY(i - 1);
+					int d = KCT(i) - KCT(j) - HY(i) - HY(j), nn = ct - KCT(j) - HY(j);
 
 					for (k = 0; k < 9; k++) {
-						int s = (d - nn) * t33_s32(lut + 40 * (i - 1) + 4 + 4 * k) +
+						int v = (d - nn) * t33_s32(lut + 40 * j + 4 + 4 * k) +
 							nn * t33_s32(lut + 40 * i + 4 + 4 * k);
-						int r = s < 1 ? -(d >> 1) : d >> 1;
+						int r = v < 1 ? -(d >> 1) : d >> 1;
 
-						m[k] = t32_bcsh_clip((s + r) / d, -0x2000, 0x1fff);
+						m = (v + r) / d;
+						t32_bcsh_p32(dst, 4 * k, (u32)(m < -0x2000 ? -0x2000 : m > 0x1fff ? 0x1fff : m));
 					}
 				} else {
 					src = lut + 40 * i + 4;
 				}
 				break;
 			}
-			if (i == n)
-				return;
 		}
 		break;
 	case 2:
 		src = sec + 0x68;
 		break;
-	default:
-		return;
 	}
 #undef KCT
 #undef HY
 	if (src)
-		for (k = 0; k < 9; k++)
-			m[k] = t33_s32(src + 4 * k);
-	for (k = 0; k < 9; k++) {
-		t32_bcsh_p32(cp, 0xb8 + 4 * k, (u32)m[k]);
-		t32_bcsh_p32(st, 0x15c + 4 * k, (u32)m[k]);
-		if (sec[0x4a6] == 1)
-			t32_bcsh_p32(st, 0x1d4 + 4 * k, (u32)m[k]);
-	}
+		memcpy(dst, src, 0x24);
+	memcpy(st + 0x15c, dst, 0x24);
+	if (sec[0x4a6] == 1)
+		memcpy(st + 0x1d4, dst, 0x24);
 }
 
 /* tisp_bcsh_calc_para_refresh(0) */
@@ -330,6 +357,9 @@ static inline void t33_bcsh_calc(u8 *st, const u8 *sec)
 	int m[9], m1[9], m2[9], mat[9], hm[9], in[3], o[3], d, v, p, i;
 	u32 x[9], y[9], ox[9], oy[9], u7, hue;
 
+	if (st[0x2b] == 1)	/* the API RGB offset (tisp_bcsh_api_set_offset_rgb: st + 0x254) wins */
+		for (i = 0; i < 3; i++)
+			t32_bcsh_p16(cp, 2 * (0x81 + i), t32_tp_le16(st + 0x254 + 2 * i));
 	for (i = 0; i < 9; i++)
 		m[i] = t32_bcsh_s32(ap, 0x30 + 4 * i);
 	for (i = 0; i < 3; i++)
@@ -544,6 +574,34 @@ T33_BCSH_FN t33_bcsh_init(u8 *sec, const u8 *lut, u32 lutbytes, const u8 *csc, i
 	t33_bcsh_calc(st, sec);
 	t33_bcsh_store(st, sec, l);
 	return len;
+}
+
+/*
+ * tisp_bcsh_switch_para (day / night bin switch, openimp #507): sec is the
+ * new section 19 (the vendor points bcsh_para at the new tparamsP section:
+ * the flags tisp_bcsh_init clears stay as the bin has them), then
+ * tisp_bcsh_get_new_para into st + 0x25c, interp_by_ev (forced) at the EV
+ * kept in st + 8 / + 0xc, interp_by_ct (forced) at the CT kept in st + 0x20
+ * and calc_para_refresh(0); the block state is kept.  The list words come
+ * from t33_bcsh_store (t33_bcsh_switch_para).
+ */
+static inline void t33_bcsh_switch_state(u8 *sec, const u8 *lut, u8 *st)
+{
+	unsigned long long ev = (unsigned long long)t33_le32(st + 0xc) << 32 | t33_le32(st + 8);
+
+	t33_bcsh_new_para(sec, st + 0x25c);
+	t33_bcsh_ev(st, sec, ev);
+	/* interp_by_ev keeps the words it ran at: EV mode st + 8 / + 0xc, BV mode st + 0x10 / + 0x14 */
+	t32_bcsh_p32(st, sec[0x4c0] ? 0x10 : 8, (u32)ev);
+	t32_bcsh_p32(st, sec[0x4c0] ? 0x14 : 0xc, (u32)(ev >> 32));
+	t33_bcsh_ct(st, sec, lut, (int)t33_le32(st + 0x20));
+	t33_bcsh_calc(st, sec);
+}
+
+static inline void t33_bcsh_switch_para(u8 *sec, const u8 *lut, u8 *st, u32 *l)
+{
+	t33_bcsh_switch_state(sec, lut, st);
+	t33_bcsh_store(st, sec, l);
 }
 
 /*

@@ -1855,8 +1855,7 @@ static void t33_tisp_init(const u8 *bin, u32 bytes)
  * tmo, dmsc, gamma, ccm, clm, bcsh, ysp, mdns, ydns, sdns, cdns, defog,
  * lce, rdns, af, csccr; the gain blocks (dpc, dmsc, ysp, mdns, ydns,
  * sdns, cdns, rdns) come from one forced t33_tgain_refresh after blc.
- * Not rebuilt (open, #504): BCSH (its switch: the init
- * builder resets the block state, the night list differs), the AWB list 29 / AWB and AE algorithm
+ * Not rebuilt (open, #507): the AWB list 29 / AWB and AE algorithm
  * parameters (tisp_awb_dn_params_refresh, the AE context), the AE list 30
  * (the five AE registers of the AE switch), the night byte 0x1f of
  * tparamsP and the TOP direct writes.
@@ -1958,10 +1957,10 @@ static noinline_for_stack void t33_sw_tone(const u8 *bin, u32 bytes, u32 width, 
 	}
 }
 
-/* clm */
+/* clm, bcsh */
 static noinline_for_stack void t33_sw_color(const u8 *bin, u32 bytes)
 {
-	u32 off, len, coff, clen;
+	u32 off, len, coff, clen, *buf;
 
 	coff = t32_iq_section(bin, bytes, T32_IQ_SEC_CSC, &clen);
 	/* tisp_clm_switch_para: ct_interp (forced) at the block's last CT (clm_info word 0x18), calc_para_refresh, write_reg */
@@ -1971,6 +1970,13 @@ static noinline_for_stack void t33_sw_color(const u8 *bin, u32 bytes)
 		t33_gr_commit(T33_MOD_CLM, t33_clm_init(bin + off, bin + off + len,
 							t32_iq_payload(bin + off, bytes - off, T33_SEC_CLM), bin + coff,
 							t33_clm_ct_last, t33_gr_tmp, T33_SLOT_WORDS));
+	}
+	/* tisp_bcsh_switch_para: get_new_para, interp_by_ev / _by_ct at the block's EV / CT, calc_para_refresh (block bcshsw) */
+	if (T33_SW_SEC(BCSH) && (t33_mod_built & (1ULL << T33_MOD_BCSH)) && (buf = t33_mod_buf(T33_MOD_BCSH))) {
+		memcpy(t33_gr_tmp, buf, T33_SLOT_WORDS * 4);
+		memcpy(t33_bcsh_sec, bin + off, sizeof(t33_bcsh_sec));
+		t33_bcsh_switch_para(t33_bcsh_sec, bin + off + len, t33_bcsh_st, t33_gr_tmp);
+		t33_gr_commit(T33_MOD_BCSH, 1);
 	}
 }
 
