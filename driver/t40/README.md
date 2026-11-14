@@ -308,7 +308,7 @@ Block bisect (each run one boot, metrics only, media discarded):
   parameter pointer) right after `SetISPRunningMode(night)` returned -1;
   antiflicker is now a no-op unless `t40_allow_antiflick=1` (open item: no
   50 Hz antiflicker on T40 until the recovered `tisp_s_antiflick` is fixed).
-- t2: the next the streamer call, `tx_isp_sensor_g_attr` (IMP_ISP_Tuning_GetSensorAttr),
+- t2: the next streamer call, `tx_isp_sensor_g_attr` (IMP_ISP_Tuning_GetSensorAttr),
   oopsed on the empty core sensor slot; d3544601 answers it from the bound
   sensor's attribute and video state.
 - WLAN failure of the agg38-fw/hybrid image (host-side diff): the user
@@ -323,7 +323,10 @@ Block bisect (each run one boot, metrics only, media discarded):
   second stream start after a 4K run panicked.  Cause: the seed laid NV12
   buffers out as width*ALIGN(height,16); OpenIMP and the vendor use
   width*height*3/2, so 1080p frames overran their buffers by 8 lines.
-  989e7424 makes the vendor layout the default (`t40_nv12_height_align=1`).
+  989e7424 made the vendor layout the default (`t40_nv12_height_align=1`).
+  Since 2026-10-18 the default is 0 = auto: 16-line alignment when the queued
+  buffer holds it, otherwise width*height (`tx_isp_t40_recovered.c:9046`); a
+  non-zero value forces that alignment.
 - t7 the streamer with the layout fix still died with SIGBUS right after
   "framesource 0 enabled".  kmsg showed the real cause: the second frame
   channel (video1 640x360) enabled the core IRQ with irq index 1 (= the
@@ -336,22 +339,22 @@ Block bisect (each run one boot, metrics only, media discarded):
   "framesource 0 enabled", now SIGSEGV pc=libimp VBMGetFrame+0xd4.
   Resolved via the crash maps + LD_TRACE: the crashing libimp is
   `/lib/libimp.so` = the **Ingenic vendor** library of the hybrid image
-  (strings "IMP-ISP", "Ingenic High Pass Filter"), not OpenIMP.  All the streamer
+  (strings "IMP-ISP", "Ingenic High Pass Filter"), not OpenIMP.  All streamer
   runs t1-t8 therefore ran vendor libimp against the open driver; its
   VBMGetFrame builds the frame pointer from an index the open DQBUF does
   not fill the vendor way -> wild pointer (t7 si_addr=0, t8 0x62dbef84).
   devtest always used OpenIMP (`LD_LIBRARY_PATH=/tmp/otx/lib`), which is
-  why it streams.  p5-the streamer.sh now uploads lib2/libimp.so (OpenIMP
+  why it streams.  p5-streamer.sh now uploads lib2/libimp.so (OpenIMP
   t40-prod, frame gate) and starts the streamer with LD_LIBRARY_PATH=/tmp/otx/lib.
   For the open image: libimp must be OpenIMP (thingino-isp-open), the
   vendor ingenic-lib libimp cannot sit on the open driver.
-- t9: the restored master image's /usr/bin/the streamer is the vendor flavour
+- t9: the restored master image's /usr/bin/<streamer> is the vendor flavour
   (USE_OPENIMP=0) and refuses the OpenIMP libimp ("libimp mismatch", exit
-  78).  Built an OpenIMP-flavour the streamer from the image's own the streamer source
-  (buildroot the streamer-custom copy, same USE_* set, USE_OPENIMP=1, linked
-  against lib2/libimp.so): t40prod/bin-the streamer-oimp-t40; p5-the streamer.sh
-  uploads it to /tmp/otx/the streamer.  Nothing in the streamer was changed.
-- t9b (f03d0700, OpenIMP libimp + OpenIMP the streamer, fs_keepalive=1):
+  78).  Built an OpenIMP-flavour streamer from the image's own streamer source
+  (buildroot streamer-custom copy, same USE_* set, USE_OPENIMP=1, linked
+  against lib2/libimp.so): t40prod/bin-streamer-oimp-t40; p5-streamer.sh
+  uploads it to /tmp/otx/streamer.  Nothing in the streamer was changed.
+- t9b (f03d0700, OpenIMP libimp + OpenIMP-flavour streamer, fs_keepalive=1):
   framesource 0 (1920x1080 scaled) and 1 (640x360) both enabled, RTSP/HTTP
   up, local snapshot.jpg HTTP 200 (~44 kB), VIC IRQ exactly 20/s, the streamer
   RSS flat at ~3.4 MB, no kernel messages, 30 min clean (see
@@ -372,7 +375,7 @@ Block bisect (each run one boot, metrics only, media discarded):
   YSP register writes while top40 bit 17 still gates the block (no kmsg
   at all in r22a/r24a, which fits a hang, not an oops).  Check the vendor
   order top40 -> ysp regs before enabling again.
-- Second-start test (t40prod/p7-restart.sh, OpenIMP the streamer, keepalive=1):
+- Second-start test (t40prod/p7-restart.sh, OpenIMP-flavour streamer, keepalive=1):
   the streamer stop/start cycles die at a random cycle (c1: 3rd, c2: 5th, c3:
   2nd); the panic notifier (7c9f03a2) never fired, the watchdog reset the
   camera -> a hang, not an oops.  The flight recorder (fd83f4b7, 32 marks
@@ -424,7 +427,7 @@ module built against the Eufy 4.4.94 tree, `tests/check_ko_symbols.sh` OK):
         t40_generic_profile=1 sensor_full_width_override=3840 \
         sensor_full_height_override=2160 skip_tisp_deinit=1
     insmod sensor_sc830ai_t40.ko
-    # streamer: OpenIMP libimp (lib2/libimp.so) + OpenIMP-flavour the streamer
+    # streamer: OpenIMP libimp (lib2/libimp.so) + OpenIMP-flavour streamer
     # (USE_OPENIMP=1); the Ingenic vendor libimp cannot sit on this driver.
 
 - 4K and scaled 1080p/720p/360p frames, 20 fps, both frame channels (the streamer
@@ -699,7 +702,7 @@ defog lift could not have worked (its init calls `tisp_defog_main_interrupt_stat
 LCE the black level sits higher and the contrast is compressed, which is exactly the day/night gap measured against the
 vendor (`audit/ab-t41/COMPARE.md`, open184d).
 
-- `t40_defog_on`, `t40_lce_on`, `t40_dpc_on` (default 0, need `t40_gates_oem_offset=1`): literal OEM chains generated by
+- `t40_defog_on`, `t40_lce_on`, `t40_dpc_on` (default 1 now, the default was 0 when they were added; need `t40_gates_oem_offset=1`, default 1): literal OEM chains generated by
   `tools/gen_t40_defog_lit.py`, `gen_t40_lce_lit.py`, `gen_t40_dpc_lit.py` from the Eufy production module (function
   sizes identical with the 1.3.1 `libt40-firmware.a`), same scheme as the ADR chain (`tx_isp_t40_adr_lit.inc`): private
   OEM objects with the OEM `.data` initial bytes, one emulated MIPS stack per entry context, every `jalr` through a

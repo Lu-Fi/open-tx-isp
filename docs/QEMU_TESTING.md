@@ -1,6 +1,6 @@
 # Testing the kernel modules in QEMU
 
-The `ingenic-txx` branch of [gtxaspec/qemu](https://github.com/gtxaspec/qemu) models the Ingenic T-series SoCs (machines `ingenic-t10`, `-t20`, `-t21`, `-t23`, `-t31`, `-t40`, `-t41`). A camera flash image boots unchanged, so the modules of this repository can be loaded, unloaded and exercised without a camera. It is a crash-test bench, not a picture-quality bench.
+The `ingenic-txx` branch of [gtxaspec/qemu](https://github.com/gtxaspec/qemu) models the Ingenic T-series SoCs (machines `ingenic-t10`, `-t20`, `-t21`, `-t23`, `-t30`, `-t31`, `-t32`, `-t33`, `-t40`, `-t41`). A camera flash image boots unchanged, so the modules of this repository can be loaded, unloaded and exercised without a camera. It is a crash-test bench, not a picture-quality bench.
 
 ## Setup
 
@@ -10,7 +10,7 @@ The `ingenic-txx` branch of [gtxaspec/qemu](https://github.com/gtxaspec/qemu) mo
 - To get a shell without the root password, set `debug=1` in the copy's U-Boot environment (the thingino inittab then runs `/bin/sh`).
 - A reload test is a loop of: stop the streamer, `rmmod` the sensor and ISP modules, `insmod` them again, start the streamer, look for oopses and for lines such as `irq N: nobody cared`.
 
-## What works per SoC (agg43 images, 2026-10-24)
+## What works per SoC (agg43 images, 2026-10-24; T30, T32 and T33 added below)
 
 | SoC | Machine, RAM, sensor model | Boots to shell | ISP and sensor probe | Streamer starts | Reload cycles |
 |---|---|---|---|---|---|
@@ -21,6 +21,9 @@ The `ingenic-txx` branch of [gtxaspec/qemu](https://github.com/gtxaspec/qemu) mo
 | T31 | `ingenic-t31`, 128 MB, sc2336 on i2c0 | yes | yes (1080p + 360p) | yes | no oops; same IRQ message before the fix |
 | T40 | `ingenic-t40`, 256 MB or more (the old 512 MB boot failure is fixed upstream), sc830ai on i2c1 | yes | yes | crashed in the ISR before the slot-index fix | first `rmmod` oopsed (fixed, see the T40 reload entry in the changelog) |
 | T41 | `ingenic-t41`, 64 MB, gc5603 on i2c0 | yes, `eth0` present | yes | yes | 10 clean |
+| T30 | `ingenic-t30`, sc4236 on i2c0 | yes | yes | yes | regression programs in `tests/t30_qemu/` (see its README); the T30 module also runs on a camera, QEMU is a crash test |
+| T32 | `ingenic-t32` (kernel 4.4.94, vendor libimp 2.2.0), cv8001 sensor module | yes | yes | vendor libimp and OpenIMP calls | QEMU only, no T32 camera (see `driver/t32/README.md`) |
+| T33 | `ingenic-t33` (t33l, cv2005, vendor T33 kernel 3.10) | yes | yes | vendor libimp 2.0.2.1 and OpenIMP calls | QEMU only, no T33 camera (see `driver/t33/README.md`) |
 
 ## Limits of the model
 

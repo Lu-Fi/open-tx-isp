@@ -51,7 +51,7 @@ every `t32_*_oracle` then prints `SKIP (reference C not in next ...)` and exits 
 `check-oracles`); `t32_tmotab_check` and `t32_rdnstab_check` skip the same way when commit 2e2e06bc is not in the repository.
 Run the T32 oracles on `claude/t32-ds-batch`.
 
-Reference = Matt Davis' mechanical MIPS-to-C recovery of the vendor T32 module (opensensor/open-tx-isp PR #15, branch
+Reference = the upstream mechanical MIPS-to-C recovery of the vendor T32 module (opensensor/open-tx-isp PR #15, branch
 `t32/recovered-baseline` 2e2e06bc), the needed functions copied unchanged into `t32_oracle/ref/` by `t32_oracle/import_ref.sh`
 (provenance header). They build for the host with `ref_compat.h` + `env.c` (non-PIE, all memory below 4 GiB, o32-shaped stubs; memcpy
 and __ashrdi3 renamed by objcopy). `t32_oracle/run.sh <name>` builds `<name>.c` with `<name>.conf` (REFS, HDR, MUTATIONS), compares
@@ -168,3 +168,20 @@ same T30 source, `TX_ISP_T30_OS=n` (-O0) and the default `TX_ISP_T30_OS=y` (-Os)
    `_Bool`/`u8` arguments, `kmalloc` constant folding, step limits); a new one fails. Single thread, no IRQ interleaving.
 
 The vendor comparison of the same YUV sequence is the `matrix_yuv` case of `t30_lift_oracle` (in `check`).
+
+## T30 vendor-module checks in `make check` (inputs)
+
+All of them print `SKIP` and exit 0 when an input is missing (a failure under `T40_ORACLE_STRICT=1`).
+
+- `t30_lift_oracle` (`t30_lift_oracle.sh`, `tools/ko_emu/diff_t30_lift.py`): our `driver/t30/tx_isp_t30_recovered.o` against the vendor
+  module, both in Unicorn. Inputs: `T30_OEM_KO=<vendor tx-isp-t30.ko 4ea12e1f>`, a T30 build (`SOC=t30 ./build_local.sh`; the
+  object defaults to `driver/t30/tx_isp_t30_recovered.o`, override with `T30_OPEN_O`), `python3 -m pip install unicorn pyelftools`.
+  `N` (default 200) is the number of random inputs per case.
+- `t30_core_slake_oracle`: needs `T30_OEM_KO` and a built open module (`T30_OPEN_KO`, default `driver/t30/tx-isp-t30.ko`).
+- `check_t30_temper.sh`: compares against the SDK system table in `T30_SDK_DIR` (default `external/ingenic-sdk/common/isp/t30`,
+  needs the submodule), else that part is skipped.
+
+## T31 defog bank (`t31_defog_bank_host`)
+
+The static checks always run; the Unicorn part needs `T31_OEM_KO=<vendor tx-isp-t31.ko>` and `T31_TUNING_BINS=<directory with T31
+sensor tuning bins>`, else it prints `SKIP`.

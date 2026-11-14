@@ -83,7 +83,7 @@ The OEM tuning manifest shows that several subsystems still rely on synthetic, z
 
 Based on `OEM_TUNING_BLOB_MANIFEST.md`, the biggest remaining data-quality gaps are:
 
-1. ~~**AE tables**~~ — RESOLVED: ae0_ev_list and _lum_list now loaded from tuning binary; ae0_tune2 reimplemented with OEM-exact EV-domain convergence, EV FIFO, and histogram-based brightness feedback (data_9a2ec). See `docs/AE_CONVERGENCE_ARCHITECTURE.md`.
+1. ~~**AE tables**~~ — RESOLVED: ae0_ev_list and _lum_list now loaded from tuning binary; ae0_tune2 reimplemented with OEM-exact EV-domain convergence, EV FIFO, and histogram-based brightness feedback (data_9a2ec).
 2. **ADR/WDR tone-mapping tables**
 3. **BCSH / CCM / WB tables**
 4. **MDNS / RDNS / SDNS banks**

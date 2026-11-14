@@ -142,7 +142,7 @@ the frame buffer, stalled every MSCA output for good. Since the front crop
 window stays locked in the channel records, the stall outlived the session
 and only a reboot helped (imgfx crop batch on vorne). Such geometries are
 now refused with -EINVAL (beyond stock). Counter: `msca_geom_rejects`.
-Details: `docs/MSCA_GEOMETRY.md`.
+Details: `driver/t23/docs/MSCA_GEOMETRY.md`.
 
 ## Output/channel restart hang
 
@@ -261,7 +261,7 @@ Without the FIFO rearm, the cold-start snapshot 503 (stale FIFO entries,
   (`qbuf_cache_inv`).
 
 Details, counters and the remaining exposure:
-`docs/STREAMOFF_DRAIN_WAIT.md`. The section below describes the earlier
+`driver/t23/docs/STREAMOFF_DRAIN_WAIT.md`. The section below describes the earlier
 default set (history).
 
 ### The fix (defaults until 2026-10-05)

@@ -209,8 +209,10 @@ have to come back together (`tisp_event_init` caller + queue path in
   behind an early `return` (the ISR wrappers no longer zero 18 resp. 35
   unused stack slots). Module sections text/data/bss 662551 / 49088 /
   36624 -> 565047 / 49088 / 36624 (vendor 257384 / 56688 / 34676). The
-  rest is `-O0` code generation: `TX_ISP_T30_OS=y` builds at `-Os` (text
-  243959, below the vendor) but is untested; a `-Os` build warns at 47
+  rest is `-O0` code generation. Since 2026-11-13 (#274, #487) `TX_ISP_T30_OS=y`
+  (recovered unit at `-Os`, text 243959, below the vendor) is the default and
+  device-tested (see the later items below and the changelog); the following
+  records the state before that: a `-Os` build warned at 47
   places that may rely on `-O0` (14 maybe-uninitialised locals, 25
   out-of-bounds accesses, 3 missing returns, one returned stack address,
   a 4.4 KB stack frame in `awb_calc_avg_weighted_gr_gb_mesh`). Needs those

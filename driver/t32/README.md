@@ -440,3 +440,7 @@ against a thingino T32 kernel 4.4.94 tree. Host tests:
 | `bringup_target` | 64 | its target mean histogram bin (0..255) |
 | `t32_ported_paths` | 1 | 1 every wired per-frame block on its ported path, 0 all on the old path, else mask: bit 1+n = block n (0 DMSC, 1 YSP, 2 CDNS, 3 YDNS, 4 SDNS, 5 MDNS, 6 DPC, 7 GIB, 8 RDNS, 9 AE, 10 LSC, 11 LCE (with the block interrupts 8 / 30), 12 TMO (with the block interrupts 9 / 31), 13 AWB, 16 AF (bit 17, interrupt 6), 17 GSM (bit 18, interrupts 7 / 63), 18 LSC ct mesh (bit 19, interrupt 36, with 10 and 14); RDNS off = not programmed at all, as before) |
 | `tisp_tgain` | 0x10000 | total gain for the per-frame refresh until the vendor AE runs (test aid) |
+| `ldc_irq` | 46 | Linux IRQ of the LDC / isp-m1 (INTC 38), read-only (`tx_isp_t32_snapldc.c:89`) |
+| `t32_isposd_trace` | 0 (`0644`) | 1 = log every ISP OSD request and every MSCA OSD commit (`tx_isp_t32_isposd.c:64`) |
+
+All parameters except `print_level`, `listen_timeout_ms`, `lsc_ct`, `bringup_*`, `t32_trace`, `t32_ported_paths`, `tisp_tgain` and `t32_isposd_trace` (`0644`) are read-only (`0444`); the vendor glue names (`clk_name`, `isp_clk*`, `isp_cache_line`, `isp_ch0_pre_dequeue_time`, `atlas_open`, `zeratul_open`, ...) are accepted so that the vendor glue module line loads (read-only, no effect on the driver behaviour). The T33 module (`tx-isp-t33.ko`) reports `PRJ008` as `driver_soc`; see `driver/t33/README.md`.

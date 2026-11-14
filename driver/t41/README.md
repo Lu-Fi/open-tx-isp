@@ -8,6 +8,17 @@ Current T41 status (fully open from a flashed image, reload verified): see the
 status table in the repository `README.md`. The recovery-grade wording below
 describes the code quality, not the feature status.
 
+This file is a dated log: a default named in an entry is the default of that
+date. Current defaults in `tx_isp_t41_recovered.c` (the source is the
+authority): `t41_vendor_ae=1`, `t41_clm=1`, `t41_tone_trigger=1`,
+`t41_msca_cfg_update=2`, `t41_msca_stop_disable=1`,
+`t41_msca_fifo_ctrl_after_live_qbuf=1`, `t41_af=0`, `isp_bypass_graph=0`,
+`isp_memopt=1`, `t41_raw_ring=1`, `t41_raw_disable_ms=1000`. Parameters that
+are marked "bring-up" in the source (for example `t41_native_awb`,
+`t41_safe_ae_controller`, `t41_tmo_frames`) exist only in a module built with
+`TX_ISP_T41_BRINGUP_PARAMS=y`; a default build keeps their defaults and does not
+accept them on the module line.
+
 This directory contains the recovered T41 TX-ISP driver baseline for the Wyze
 Cam v4 T41NQ/OS04D10 Linux 4.4.94 target. It was generated from the OEM
 `tx-isp-t41.ko` whose SHA-256 is
@@ -505,7 +516,7 @@ run if any `tx_isp*` module is already loaded and reboots the camera after
 every experiment; use the one-shot init hook when the stock boot sequence
 cannot safely unload its active module.
 
-## Vendor AE (`t41_vendor_ae=1`, default 0)
+## Vendor AE (`t41_vendor_ae=1`, default since 2026-10-19)
 
 `t41_vendor_ae=1` (load time) runs the OEM AE chain per frame instead of the
 safe AE controller: `tisp_ae_calc_process` and its 62 callees (weight mean,

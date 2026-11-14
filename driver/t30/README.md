@@ -1,5 +1,16 @@
 # Ingenic T30 ISP Recovery
 
+Current state (2026-11-14): T30 is a gate SoC of RC3 and Release 1, device-tested
+on the T30X lab camera (SC4236); the status row is in the repository `README.md`
+and the history in `CHANGELOG.md`. The "Validation boundary" section below is the
+earlier (August 2026) state of the recovery and is kept for the record. Since
+2026-11-13 the module is built at `-Os` by default (`TX_ISP_T30_OS=y`, #274;
+`TX_ISP_T30_OS=n` builds the `-O0` reference used by `tests/t30_optdiff` and for
+bisecting an `-Os`-only fault; see `docs/SIZE.md` and `tests/README.oracles.md`).
+Checks without a camera: `make -C tests check` (`t30_*` host tests and the
+`t30_lift_oracle` against the vendor module, which needs `T30_OEM_KO`) and the QEMU
+programs in `tests/t30_qemu/`.
+
 This directory contains the first rebuildable T30 TX-ISP recovery baseline for
 the Jooan F2T T30X/SC4236 Linux 3.10.14 target. It was reconstructed from the
 OEM `tx-isp-t30.ko` with SHA-256
@@ -197,6 +208,7 @@ statistics/IRQ execution, processed output, and active AE allocation—not OEM
 motion/flicker parity or production stability. Controlled 50/60 Hz tests must
 verify integration/gain traces and banding before that claim is upgraded.
 
-The deliberately unoptimized recovery build still has substantial text
-expansion. Future refactoring should continue replacing raw-layout accesses
+The recovery build of that time was deliberately unoptimized and had substantial
+text expansion (the default build is now `-Os`, about the size of the vendor module,
+see `docs/SIZE.md`). Future refactoring should continue replacing raw-layout accesses
 with reviewed types and coherent SDK-backed subsystems.
