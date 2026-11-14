@@ -111,14 +111,13 @@ u32 tisp_reg_read_t33(u32 ch, u32 mod, u32 reg)
 
 /* TOP helpers (block top): tisp_top_get_bypass reads the TOP list's bypass slot (ipcCfgMode 1: slot 1) */
 u8 ipcCfgMode = 1;
-u8 tispTopRefresh;
 static u32 t33_top_par_blk[11];			/* stTopPar[0]: 44 bytes, the 32 bypass bytes at +12 (tisp_top_set_bypass) */
 u32 *stTopPar[256] = { t33_top_par_blk };
-extern bool t33_top_sw_set(void);
 
 /*
  * tisp_top_reg_cfg for the bypass state only: the 32 bypass bytes of stTopPar[id] become the TOP list's bypass
- * word and the TOP list runs at the next frame end (tispTopRefresh).  The other TOP words stay as the IQ bin /
+ * word; the caller's tispTopRefresh (1 = idle: the list runs at the next null-down / frame end, 2 = it runs).  The
+ * other TOP words stay as the IQ bin /
  * the last bin switch built them.
  */
 void tisp_top_reg_cfg(u32 id)
@@ -131,7 +130,6 @@ void tisp_top_reg_cfg(u32 id)
 	for (k = 0; k < 32; k++)
 		byp |= (u32)(p[12 + k] & 1) << k;
 	tisp_reg_write_t33(id, 33, ipcCfgMode ? 1 : 64, byp);
-	t33_top_sw_set();
 }
 #include "tx_isp_t33_top.h"
 

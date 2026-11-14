@@ -1120,7 +1120,7 @@ static void t33_gamma_state(const u8 *sec, const u8 *tab, u32 tabbytes, int clea
 	}
 }
 static u32 t33_tmo_v[T33_TMO_WORDS], t33_mdns_v[T33_MDNS_WORDS];
-bool t33_top_sw_set(void) { return t33_top_sw = true; }
+#define tispTopRefresh t33_top_refresh	/* the vendor name of the TOP refresh state (tx_isp_t33_top.h) */
 #include "tx_isp_t33_bst.h"
 #include "tx_isp_t33_tmo1s.h"
 
@@ -1210,7 +1210,6 @@ static void t33_ldc_bypass_refresh(u32 idx, const u8 *blk)
 	v = blk[idx] == 1 ? v & ~0x800000U : v | 0x800000U;
 	tisp_reg_write_t33(idx, 33, sel, v);
 	tispTopRefresh = tisp_rcfg_get_dma_state(33) ? 2 : 1;
-	t33_top_sw = true;
 }
 
 /* IOC 0xc00454bc: {idx, state}; vendor core command 0x5000009 */
