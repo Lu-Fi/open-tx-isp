@@ -43,7 +43,7 @@ static inline int t33_msca_set_frame_drop(const struct t33_msca_io *io, u32 init
 	if (p[0] == 1) {
 		drop = in[4];
 		if (drop >= 32U) {
-			io->print(1, "msca frame drop out of range\n");
+			io->print(1, "FPS over 32 in the numerator or denominator!!! Setup failed!!!\n");
 			return -1;
 		}
 		val = p[2];

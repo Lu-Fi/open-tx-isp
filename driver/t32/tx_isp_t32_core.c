@@ -518,6 +518,35 @@ static long t32_sensor_s_register(struct t32_vi *vi, unsigned long arg)
 #define T32_FD_BLOCK	40
 #define T32_FD_OUTPUTS	3
 
+#ifdef TX_ISP_T33
+/* T33: the oracle-proven vendor port (tx_isp_t33_msca_api3.h, tests/t33_binoracle/msca-api3.conf) runs per output */
+#include "tx_isp_t33_msca_api3.h"
+
+static u32 t33_fd_rd(u32 a) { return t32_hw_rd(a); }
+static void t33_fd_wr(u32 a, u32 v) { t32_hw_wr(a, v); }
+static int t33_fd_print(int lvl, const char *fmt, ...)
+{
+	isp_printf(lvl, "%s", fmt);
+	return 0;
+}
+
+static const struct t33_msca_io t33_fd_io = { .sys_rd = t33_fd_rd, .sys_wr = t33_fd_wr, .print = t33_fd_print };
+
+static long t32_frame_drop_set(unsigned long arg)
+{
+	u32 b[T32_FD_BLOCK / 4];
+	long r = 0;
+	int k;
+
+	if (copy_from_user(b, (void __user *)arg, sizeof(b))) {
+		isp_printf(2, "[ %s:%d ] copy from user error\n", "tx_isp_set_frame_drop", 0x775);
+		return -EFAULT;
+	}
+	for (k = 0; k < T32_FD_OUTPUTS; k++)
+		r = t33_msca_set_frame_drop(&t33_fd_io, 1, k, (const u8 *)&b[1 + 3 * k]);
+	return r;
+}
+#else
 static long t32_frame_drop_set(unsigned long arg)
 {
 	u32 b[T32_FD_BLOCK / 4];
@@ -546,6 +575,7 @@ static long t32_frame_drop_set(unsigned long arg)
 	}
 	return r;
 }
+#endif
 
 static long t32_frame_drop_get(unsigned long arg)
 {
@@ -556,6 +586,10 @@ static long t32_frame_drop_get(unsigned long arg)
 		isp_printf(2, "[ %s:%d ] copy from user error\n", "tx_isp_get_frame_drop", 0x7a6);
 		return -EFAULT;
 	}
+#ifdef TX_ISP_T33
+	for (k = 0; k < T32_FD_OUTPUTS; k++)
+		t33_msca_get_frame_drop(&t33_fd_io, 1, 0, k, (u8 *)&b[1 + 3 * k]);
+#else
 	for (k = 0; k < T32_FD_OUTPUTS; k++) {
 		u32 *e = &b[1 + 3 * k];
 
@@ -563,6 +597,7 @@ static long t32_frame_drop_get(unsigned long arg)
 		e[2] = t32_hw_rd(T32_MSCA_FDROP_MASK(k));
 		e[0] = 1;
 	}
+#endif
 	if (copy_to_user((void __user *)arg, b, sizeof(b))) {
 		isp_printf(2, "[ %s:%d ] copy to user error\n", "tx_isp_get_frame_drop", 0x7b5);
 		return -EFAULT;
