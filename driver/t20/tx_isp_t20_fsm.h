@@ -222,7 +222,11 @@ struct t20_fsm_awb {
 	uint32_t word_0c;
 	uint16_t field_10;
 	uint8_t field_12;
-	uint8_t pad_13[13];
+	uint8_t pad_13[5];
+	uint16_t field_18;
+	uint16_t field_1a;
+	uint8_t light_source;		/* 0x1c */
+	uint8_t pad_1d[3];
 	uint32_t field_20;
 	uint32_t field_24;
 	uint8_t pad_28[8];
@@ -230,16 +234,17 @@ struct t20_fsm_awb {
 	uint32_t field_34;
 	uint32_t field_38;
 	uint32_t field_3c;
-	uint8_t pad_40[1824];
+	uint32_t field_40;
+	uint8_t pad_44[1820];
 	int32_t wb_log2[4];		/* 0x760: output gains, log2 */
 	uint16_t field_770;
 	uint16_t field_772;
 	uint16_t field_774;
 	uint16_t field_776;
 	uint32_t field_778;
-	uint8_t field_77c;
-	uint8_t pad_77d;
-	uint8_t field_77e;
+	uint8_t field_77c;		/* last reported light source */
+	uint8_t light_source_cand;	/* 0x77d: candidate light source */
+	uint8_t field_77e;		/* hold counter */
 	uint8_t pad_77f[5];
 	uint32_t field_784;
 	uint32_t field_788;
@@ -262,7 +267,9 @@ struct t20_fsm_color_matrix {
 	uint8_t field_60;
 	uint8_t field_61;
 	uint8_t pad_62[0x4c];
-	uint8_t field_ae;
+	uint8_t field_ae;		/* manual matrix enable */
+	uint8_t pad_af;
+	uint16_t manual_matrix[9];	/* 0xb0 */
 };
 
 struct t20_fsm_iridix {
@@ -305,7 +312,9 @@ struct t20_fsm_flash {
 
 struct t20_fsm_general {
 	struct t20_fsm_hdr hdr;
-	uint8_t pad_0c[12];
+	uint8_t pad_0c[6];
+	uint16_t scene_mode;		/* 0x12 */
+	uint8_t pad_14[4];
 	uint32_t field_18;
 	uint16_t field_1c;
 	uint16_t field_1e;
@@ -511,6 +520,18 @@ T20_CTX_AT(flash, 0x147c);
 T20_CTX_AT(crop, 0x14a0);
 T20_CTX_AT(general, 0x14e8);
 T20_CTX_AT(general.wdr_mode, 0x1524);
+T20_CTX_AT(general.scene_mode, 0x14fa);
+T20_CTX_AT(color_matrix.field_5c, 0xf44);
+T20_CTX_AT(color_matrix.field_ae, 0xf96);
+T20_CTX_AT(color_matrix.manual_matrix, 0xf98);
+T20_CTX_AT(sharpening.field_20, 0x1034);
+T20_CTX_AT(sensor.ctrl.param.total.height, 0x50);
+T20_CTX_AT(cmos.isp_dgain_log2, 0x2d4);
+T20_CTX_AT(awb.field_18, 0x760);
+T20_CTX_AT(awb.light_source, 0x764);
+T20_CTX_AT(awb.field_40, 0x788);
+T20_CTX_AT(awb.light_source_cand, 0xec5);
+T20_CTX_AT(awb.field_798, 0xee0);
 T20_CTX_AT(dis, 0x152c);
 T20_CTX_AT(matrix_yuv, 0x2d74);
 T20_CTX_AT(event_queue, 0x2ea4);

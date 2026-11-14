@@ -3950,143 +3950,96 @@ int32_t i2c_io_read_sample(int32_t *bus, uint32_t addr, char sample_size)
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000017b60 origin=fragment_seed original=i2c_io_write_sample */
 int32_t i2c_io_write_sample(uintptr_t bus, uint32_t addr, uint32_t data, uint32_t size)
 {
-    /* OEM 0x17200: 8-byte address+data buffer at sp+16 (written
-     * through &buf below; a single word overflowed into the
-     * neighbouring stack slots, which only stayed harmless at -O0) */
-    uint32_t buf[2] = { 0, 0 };
-    uint32_t saved_s0 = 0;
-    uint32_t saved_s1 = 0;
-    uint32_t saved_s2 = 0;
-    uint32_t saved_ra = 0;
-    uint32_t ra = 0;
-    uintptr_t *ctrl = 0;
-    uintptr_t *bus_ptr = 0;
-    uint32_t *total_len = 0;
-    uint32_t buf_base = 0;
-    uintptr_t addr_len = 0;
-    uint32_t flags = 0;
+	/* OEM 0x17200: 8-byte address+data buffer at sp+16 (written
+	 * through &buf below; a single word overflowed into the
+	 * neighbouring stack slots, which only stayed harmless at -O0) */
+	uint32_t buf[2] = { 0, 0 };
+	uint32_t saved_ctrl = 0;
+	uint32_t saved_bus_ptr = 0;
+	uint32_t saved_total_len = 0;
+	uint32_t saved_return = 0;
+	uint32_t return_addr = 0;
+	uintptr_t *ctrl = 0;
+	uintptr_t *bus_ptr = 0;
+	uint32_t *total_len = 0;
+	uint32_t buf_base = 0;
+	uintptr_t addr_len = 0;
+	uint32_t flags = 0;
 
-    /* fragment 0: MemoryAccess */
-    flags = *(uint32_t *)((char *)bus + 0);
-    saved_s1 = bus_ptr;
-    saved_s0 = ctrl;
-    bus_ptr = bus;
-    ctrl = *(uint32_t *)((char *)bus + 12);
-    bus = flags & 4096;
-    saved_ra = ra;
-    saved_s2 = total_len;
-    size = size & 255;
+	flags = *(uint32_t *)((char *)bus + 0);
+	saved_bus_ptr = bus_ptr;
+	saved_ctrl = ctrl;
+	bus_ptr = bus;
+	ctrl = *(uint32_t *)((char *)bus + 12);
+	bus = flags & 4096;
+	saved_return = return_addr;
+	saved_total_len = total_len;
+	size = size & 255;
 
-    /* fragment 1: Branch */
-    addr_len = 0;
-    if (bus != 0) { goto i2c_io_write_sample0x6c; }
+	/* register address bytes, LSB first (none when flag 0x1000 is set) */
+	addr_len = 0;
+	do {
+		if (bus != 0)
+			break;
 
-    /* fragment 2: Arithmetic */
-    bus = flags & 16;
+		bus = flags & 16;
+		addr_len = 2;
+		do {
+			if (bus != 0)
+				break;
+			flags = flags & 32;
+			addr_len = 4;
+			bus = 1;
+			if (flags == 0)
+				addr_len = bus;
+		} while (0);
 
-    /* fragment 3: Branch */
-    addr_len = 2;
-    if (bus != 0) { goto i2c_io_write_sample0x4c; }
+		flags = 0;
+		buf_base = (uintptr_t)&buf;
+		do {
+			bus = buf_base + flags;
+			flags = flags + 1;
+			*(uint8_t *)((char *)bus + 0) = addr;
+			bus = flags < addr_len;
+			addr = addr >> 8;
+		} while (bus != 0);
+	} while (0);
 
-    /* fragment 4: Arithmetic */
-    flags = flags & 32;
-    addr_len = 4;
-    bus = 1;
-    if (flags == 0) { addr_len = bus; }
+	/* the data bytes are never copied: the recovered copy loop is
+	 * unreachable and the build keeps it that way */
+	bus = (uintptr_t)&buf;
+	flags = 0;
+	addr = bus + addr_len;
+	bus = flags & 255;
+	bus = addr + flags;
+	total_len = addr_len + size;
 
-i2c_io_write_sample0x4c:
-    /* fragment 5: Arithmetic */
-    flags = 0;
-    buf_base = (uintptr_t)&buf;
+	do {
+		if (ctrl == 0)
+			break;
+		addr_len = *(uint32_t *)((char *)ctrl + 4);
+		int ctrl_has_lock = addr_len != 0;
+		addr_len = (uintptr_t)&I2C_write;
+		if (ctrl_has_lock)
+			break;
+		addr_len = (uintptr_t)((uintptr_t (*)(uintptr_t))(uintptr_t)system_hw_interrupts_disable)(bus);
+	} while (0);
+	addr_len = (uintptr_t)&I2C_write;
 
-i2c_io_write_sample0x54:
-    /* fragment 6: Arithmetic */
-    bus = buf_base + flags;
-    flags = flags + 1;
+	addr_len = (uintptr_t)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)I2C_write)(*(uint8_t *)((char *)(bus_ptr) + 4), &buf, total_len);
 
-    /* fragment 7: MemoryAccess */
-    *(uint8_t *)((char *)bus + 0) = addr;
-    bus = flags < addr_len;
+	do {
+		if (ctrl == 0)
+			break;
+		addr_len = *(uint32_t *)((char *)ctrl + 4);
+		total_len = saved_total_len;
+		if (addr_len != 0)
+			return 0;
+		addr_len = (uintptr_t)((uintptr_t (*)(uintptr_t))(uintptr_t)system_hw_interrupts_enable)(bus);
+		return (int32_t)addr_len;
+	} while (0);
 
-    /* fragment 8: Branch */
-    addr = addr >> 8;
-    if (bus != 0) { goto i2c_io_write_sample0x54; }
-
-i2c_io_write_sample0x6c:
-    /* fragment 9: Arithmetic */
-    bus = (uintptr_t)&buf;
-    flags = 0;
-
-    /* fragment 10: Branch */
-    addr = bus + addr_len;
-    goto i2c_io_write_sample0x88;
-
-    /* fragment 11: MemoryAccess */
-    *(uint8_t *)((char *)bus + 0) = data;
-    flags = flags + 1;
-    data = data >> 8;
-
-i2c_io_write_sample0x88:
-    /* fragment 12: Arithmetic */
-    bus = flags & 255;
-
-    /* fragment 13: Unknown */
-    /* unmatched fragment 13 (Unknown): no deterministic matcher for Unknown */
-    /* asm: 17bec:	54e4fffb 	bnel	a3,a0,17bdc <i2c_io_write_sample+0x7c> */
-
-    /* fragment 14: Arithmetic */
-    bus = addr + flags;
-
-    /* fragment 15: Branch */
-    total_len = addr_len + size;
-    if (ctrl == 0) { goto i2c_io_write_sample0xb8; }
-
-    /* fragment 16: MemoryAccess */
-    addr_len = *(uint32_t *)((char *)ctrl + 4);
-
-    /* fragment 17: Branch */
-    int ctrl_has_lock = addr_len != 0;
-    addr_len = (uintptr_t)&I2C_write;
-    if (ctrl_has_lock) { goto i2c_io_write_sample0xbc; }
-
-    /* fragment 18: CallSetup */
-    addr_len = (uintptr_t)((uintptr_t (*)(uintptr_t))(uintptr_t)system_hw_interrupts_disable)(bus); /* jalr target resolved by relocation */
-
-i2c_io_write_sample0xb8:
-    /* fragment 19: CallSetup */
-    addr_len = (uintptr_t)&I2C_write;
-
-i2c_io_write_sample0xbc:
-    /* fragment 20: CallSetup */
-    addr_len = (uintptr_t)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)I2C_write)(*(uint8_t *)((char *)(bus_ptr) + 4), &buf, total_len); /* jalr target resolved by relocation */
-
-    /* fragment 21: Branch */
-    if (ctrl == 0) { goto i2c_io_write_sample0xf8; }
-
-    /* fragment 22: MemoryAccess */
-    addr_len = *(uint32_t *)((char *)ctrl + 4);
-
-    /* fragment 23: Branch */
-    total_len = saved_s2;
-    if (addr_len != 0) { goto i2c_io_write_sample0xfc; }
-
-    /* fragment 24: CallSetup */
-    addr_len = (uintptr_t)((uintptr_t (*)(uintptr_t))(uintptr_t)system_hw_interrupts_enable)(bus); /* jalr target resolved by relocation */
-
-    /* fragment 25: Epilogue */
-    /* function epilogue: restore registers and return */
-    return (int32_t)addr_len;
-
-i2c_io_write_sample0xf8:
-    /* fragment 26: Epilogue */
-    /* function epilogue: restore registers and return */
-    return (int32_t)addr_len;
-
-i2c_io_write_sample0xfc:
-    /* fragment 27: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    return 0;
+	return (int32_t)addr_len;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000017c6c origin=model_output original=apical_sbus_i2c_init */
@@ -4296,10 +4249,16 @@ spi_io_write_sample0x1b4:
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000017e74 origin=model_output original=spi_io_read_sample */
 int32_t spi_io_read_sample(uint32_t *bus, uint32_t addr, char size)
 {
-	uint32_t status = *bus;
-	uint32_t *irq_ctrl = (uint32_t *)((char *)bus + 12);
+	struct t20_sbus *sbus = (struct t20_sbus *)bus;
+	uint32_t status = sbus->mask;
+	/*
+	 * Address of the p_control slot (not its value); the "lock" word
+	 * tested below is therefore the word after it.  Kept as compiled.
+	 */
+	uint32_t *irq_ctrl = (uint32_t *)((char *)bus +
+					  __builtin_offsetof(struct t20_sbus, p_control));
 	uint32_t sample_size = (uint32_t)size & 0xff;
-	uint32_t shift = *(uint8_t *)((char *)bus + 4);
+	uint32_t shift = sbus->device;
 	uint32_t bit_mask = 1u << shift;
 	uint32_t cmd;
 	uint32_t result;
@@ -4313,94 +4272,90 @@ int32_t spi_io_read_sample(uint32_t *bus, uint32_t addr, char size)
 		cmd = addr;
 
 	if (status & 0x2000) {
-		if (status & 8)
-			goto check_size;
-		if ((status & 0x410) == 0x410) {
-			cmd |= 0x8000;
-			goto check_size;
-		}
-		cmd |= 0x80;
-		if ((status & 0x410) ^ 0x10 == 0)
-			cmd |= 0x8000;
+		do {
+			if (status & 8)
+				continue;
+			if ((status & 0x410) == 0x410) {
+				cmd |= 0x8000;
+				continue;
+			}
+			cmd |= 0x80;
+			/* as recovered: XOR binds weaker than == */
+			if ((status & 0x410) ^ (0x10 == 0))
+				cmd |= 0x8000;
+		} while (0);
 	}
 
-check_size:
-	if (sample_size == 4) {
-		if (status & 8)
-			goto do_rw48;
-		if (status & 0x10)
-			goto do_rw48;
-		if (status & 0x20)
-			goto do_rw48;
-		result = 0;
-		goto epilogue;
-	}
-
-	if (status & 0x10000) {
-		if ((status & 3) == 0) {
-			result = -1;
-			goto epilogue;
+	/* every path leaves this block with the raw result set */
+	do {
+		if (sample_size == 4) {
+			if ((status & 8) || (status & 0x10) || (status & 0x20)) {
+				if (irq_ctrl && *(irq_ctrl + 1) == 0)
+					system_hw_interrupts_disable();
+				data = spi_rw48();
+				result = 0;
+				if (irq_ctrl && *(irq_ctrl + 1) == 0)
+					system_hw_interrupts_enable();
+				result = data;
+				continue;
+			}
+			result = 0;
+			continue;
 		}
-		cmd = ~(cmd & 0xffff);
-		if (status & 0x4000)
-			cmd = ~cmd;
-		if (status & 0x10) {
+
+		if (status & 0x10000) {
+			if ((status & 3) == 0) {
+				result = -1;
+				continue;
+			}
+			cmd = ~(cmd & 0xffff);
+			if (status & 0x4000)
+				cmd = ~cmd;
+			if (status & 0x10) {
+				if (irq_ctrl && *(irq_ctrl + 1) == 0)
+					system_hw_interrupts_disable();
+				data = spi_rw32();
+				cmd = data >> 16;
+				if (irq_ctrl && *(irq_ctrl + 1) == 0)
+					system_hw_interrupts_enable();
+				result = cmd;
+				continue;
+			}
+			if ((status & 8) == 0) {
+				result = -1;
+				continue;
+			}
 			if (irq_ctrl && *(irq_ctrl + 1) == 0)
 				system_hw_interrupts_disable();
 			data = spi_rw32();
 			cmd = data >> 16;
-			goto common_epilogue;
+			if (irq_ctrl && *(irq_ctrl + 1) == 0)
+				system_hw_interrupts_enable();
+			result = cmd;
+			continue;
 		}
-		if ((status & 8) == 0) {
-			result = -1;
-			goto epilogue;
-		}
+
 		if (irq_ctrl && *(irq_ctrl + 1) == 0)
 			system_hw_interrupts_disable();
-		data = spi_rw32();
-		cmd = data >> 16;
+		data = spi_rw48();
+		result = 0;
 		if (irq_ctrl && *(irq_ctrl + 1) == 0)
 			system_hw_interrupts_enable();
-		result = cmd;
-		goto epilogue;
-	}
+		result = data;
+		continue;
+	} while (0);
 
-	if (irq_ctrl && *(irq_ctrl + 1) == 0)
-		system_hw_interrupts_disable();
-	data = spi_rw48();
-	result = 0;
-	if (irq_ctrl && *(irq_ctrl + 1) == 0)
-		system_hw_interrupts_enable();
-	result = data;
-	goto epilogue;
+	do {
+		if (result == -1)
+			continue;
+		if (sample_size == 1)
+			result &= 0xffff;
+		else if (sample_size == 2)
+			result &= 0xff;
+		else if (sample_size ^ (2 == 0))	/* as recovered */
+			result = 0;
+	} while (0);
 
-do_rw48:
-	if (irq_ctrl && *(irq_ctrl + 1) == 0)
-		system_hw_interrupts_disable();
-	data = spi_rw48();
-	result = 0;
-	if (irq_ctrl && *(irq_ctrl + 1) == 0)
-		system_hw_interrupts_enable();
-	result = data;
-	goto epilogue;
-
-common_epilogue:
-	if (irq_ctrl && *(irq_ctrl + 1) == 0)
-		system_hw_interrupts_enable();
-	result = cmd;
-	goto epilogue;
-
-epilogue:
-	if (result == -1)
-		goto final_return;
-	if (sample_size == 1)
-		result &= 0xffff;
-	else if (sample_size == 2)
-		result &= 0xff;
-	else if (sample_size ^ 2 == 0)
-		result = 0;
-
-final_return:
 	return (int32_t)result;
 }
 
@@ -8786,43 +8741,52 @@ int32_t buffer_data_type(int32_t unused_ctx, int32_t value, char direction, uint
 /* WHOLE_DRIVER_CANDIDATE fn_000000000001e520 origin=model_output original=apical_api_calibration */
 int32_t apical_api_calibration(uint32_t cal_id, uint32_t direction, void *data, uint32_t length, int32_t *result_out)
 {
+/*
+ * An empty "continue": carries GCC's not-taken branch hint of the vendor
+ * jump that stood here, so the build keeps the vendor block layout.
+ */
+#define T20_JUMP_HINT() do { continue; } while (0)
 	uint32_t idx = cal_id & 0xff;
 	uint32_t mode = direction & 0xff;
 	uint32_t result = 5;
+	uint32_t api2frm;
 	uint32_t fw_base;
-	uint32_t fw_val;
-	uint32_t api_base;
-	uint32_t sensor_idx;
+	uint32_t isp_index;
 	uint32_t fw_ctx;
-	uint32_t wdr_ptr;
+	uint32_t owner;
+	uint32_t sensor_idx;
 	uint32_t cmp_val;
 	uint32_t cmp2;
 
+/* Address of a member of the ISP context selected by fw_ctx. */
+#define CAL_CTX(member) (fw_ctx + (__builtin_offsetof(struct t20_fw_outer, isp) + \
+				   __builtin_offsetof(struct t20_isp_ctx, member)))
+/* WDR mode of the context that owns the general FSM. */
+#define CAL_WDR_MODE() (*(uint8_t *)(owner + \
+				     __builtin_offsetof(struct t20_isp_ctx, general.wdr_mode)))
+
 	*result_out = 0;
-	api_base = (uint32_t)(uintptr_t)GET_API2FRM_IDX();
+	api2frm = (uint32_t)(uintptr_t)GET_API2FRM_IDX();
 	fw_base = (uint32_t)(uintptr_t)apical_get_fw();
-	fw_val = *(uint32_t *)(uintptr_t)fw_base;
+	isp_index = *(uint32_t *)(uintptr_t)fw_base;	/* fw->isp_index */
 
 	if (mode >= 2) {
 		*result_out = 1;
 		return 5;
 	}
 
-	if (idx >= 0x8c) {
+	if (idx >= 0x8c)
 		return 5;
-	}
 
-	sensor_idx = (int16_t)(*(uint16_t *)(api_base + (idx << 1)));
+	sensor_idx = (int16_t)(*(uint16_t *)(api2frm + (idx << 1)));
 	/* The table marks unmapped ids with 0xffff; sensor_idx is the
 	 * sign-extended halfword, so compare the halfword. */
-	if ((uint16_t)sensor_idx == 0xffff) {
+	if ((uint16_t)sensor_idx == 0xffff)
 		return 5;
-	}
 
 	result = apical_sensor_calibration_update(sensor_idx, mode, data, length, result_out);
-	if (mode != 0) {
+	if (mode != 0)
 		return result;
-	}
 
 	/*
 	 * The stock T20 binary uses a 0x2fb8-byte firmware-context stride:
@@ -8833,97 +8797,113 @@ int32_t apical_api_calibration(uint32_t cal_id, uint32_t direction, void *data, 
 	 * calibration_rghigh_lut_max.  That happened to survive some load layouts,
 	 * but made the first calibration IRQ walk far beyond the firmware context.
 	 */
-	fw_ctx = fw_base + fw_val * 0x2fb8;
+	fw_ctx = fw_base + isp_index * sizeof(struct t20_isp_ctx);
 
 	/* general_fsm.p_fsm_mgr (fw_ctx + 0x18 + 0x14e8) is only set by
 	 * apical_isp_init().  The stock code dereferences it unconditionally;
 	 * a calibration that arrives while the context is not initialised (or
 	 * is being re-initialised) must fail instead of oopsing at 0x1524. */
-	if (fw_val != 0 || *(uint32_t *)(fw_ctx + 0x1500) == 0) {
+	if (isp_index != 0 || *(uint32_t *)CAL_CTX(general.hdr.isp) == 0) {
 		*result_out = 1;
 		return 5;
 	}
 
-	if (sensor_idx < 0x1e) {
-		if (sensor_idx < 0x1a) {
-			if (sensor_idx >= 0xf) {
-				if (sensor_idx < 0x11) {
-					result = 0;
-					return result;
-				}
-				if (sensor_idx < 0x14) {
-					wdr_ptr = *(uint32_t *)(fw_ctx + 0x1500);
-					apical_switch_wdr_mode(*(uint8_t *)(wdr_ptr + 0x1524));
+	/*
+	 * One pass over the id ranges.  "break" leaves the switch for the
+	 * WDR bound check (cmp2 = 2 or 3: re-apply when cmp_val <= cmp2),
+	 * "continue" leaves the loop for the colour-matrix id check
+	 * (cmp2 = the one id that needs the CCM refresh).
+	 */
+	do {
+		switch (0) {
+		default:
+			if (sensor_idx < 0x1e) {
+				if (sensor_idx < 0x1a) {
+					if (sensor_idx >= 0xf) {
+						if (sensor_idx < 0x11) {
+							result = 0;
+							return result;
+						}
+						if (sensor_idx < 0x14) {
+							owner = *(uint32_t *)CAL_CTX(general.hdr.isp);
+							apical_switch_wdr_mode(CAL_WDR_MODE());
+							return 0;
+						}
+						cmp_val = sensor_idx - 0x16;
+						cmp2 = 2;
+						T20_JUMP_HINT();
+						break;
+					}
+					if (sensor_idx >= 0xb) {
+						owner = *(uint32_t *)CAL_CTX(general.hdr.isp);
+						apical_switch_wdr_mode(CAL_WDR_MODE());
+						return 0;
+					}
+					if (sensor_idx <= 0) {
+						result = 0;
+						return result;
+					}
+					cmp_val = sensor_idx - 6;
+					if (sensor_idx >= 5) {
+						cmp2 = 3;
+						T20_JUMP_HINT();
+						break;
+					}
+					owner = *(uint32_t *)CAL_CTX(general.hdr.isp);
+					apical_switch_wdr_mode(CAL_WDR_MODE());
 					return 0;
 				}
-				cmp_val = sensor_idx - 0x16;
-				cmp2 = 2;
-				goto cmp_check;
-			}
-			if (sensor_idx >= 0xb) {
-				wdr_ptr = *(uint32_t *)(fw_ctx + 0x1500);
-				apical_switch_wdr_mode(*(uint8_t *)(wdr_ptr + 0x1524));
+				owner = *(uint32_t *)CAL_CTX(general.hdr.isp);
+				apical_switch_wdr_mode(CAL_WDR_MODE());
 				return 0;
 			}
-			if (sensor_idx <= 0) {
-				result = 0;
+
+			if (sensor_idx < 0xdd) {
+				if (sensor_idx >= 0xdb) {
+					color_matrix_change_CCMs((int32_t *)CAL_CTX(color_matrix));
+					return 0;
+				}
+				if (sensor_idx != 0xcf) {
+					cmp2 = 0xd5;
+					if (sensor_idx >= 0xd0)
+						continue;
+					cmp_val = sensor_idx - 0x1f;
+					cmp2 = 3;
+					T20_JUMP_HINT();
+					break;
+				}
+				iridix_initialize((int32_t *)CAL_CTX(iridix));
+				return 0;
+			} else if (sensor_idx == 0xf2) {
+				color_matrix_change_CCMs((int32_t *)CAL_CTX(color_matrix));
+				return 0;
+			} else {
+				cmp2 = 0xed;
+				if (sensor_idx != 0x10c)
+					continue;
+				result = 5;
+				if (defect_pixel_table_write(data, _GET_LEN(0x10c)) == 0)
+					return 0;
 				return result;
 			}
-			cmp_val = sensor_idx - 6;
-			if (sensor_idx >= 5)
-				goto set_cmp3;
-			wdr_ptr = *(uint32_t *)(fw_ctx + 0x1500);
-			apical_switch_wdr_mode(*(uint8_t *)(wdr_ptr + 0x1524));
-			return 0;
 		}
-		wdr_ptr = *(uint32_t *)(fw_ctx + 0x1500);
-		apical_switch_wdr_mode(*(uint8_t *)(wdr_ptr + 0x1524));
-		return 0;
-	}
 
-	if (sensor_idx < 0xdd) {
-		if (sensor_idx >= 0xdb) {
-			color_matrix_change_CCMs((int32_t *)(fw_ctx + 0xf00));
+		/* WDR bound check */
+		if (cmp2 < cmp_val)
 			return 0;
-		}
-		if (sensor_idx != 0xcf) {
-			cmp2 = 0xd5;
-			if (sensor_idx >= 0xd0)
-				goto check_ed;
-			cmp_val = sensor_idx - 0x1f;
-			goto set_cmp3;
-		}
-		iridix_initialize((int32_t *)(fw_ctx + 0xfec));
+		owner = *(uint32_t *)CAL_CTX(general.hdr.isp);
+		apical_switch_wdr_mode(CAL_WDR_MODE());
 		return 0;
-	} else if (sensor_idx == 0xf2) {
-		color_matrix_change_CCMs((int32_t *)(fw_ctx + 0xf00));
-		return 0;
-	} else {
-		cmp2 = 0xed;
-		if (sensor_idx != 0x10c)
-			goto check_ed;
-		result = 5;
-		if (defect_pixel_table_write(data, _GET_LEN(0x10c)) == 0)
-			return 0;
-		return result;
-	}
+	} while (0);
 
-set_cmp3:
-	cmp2 = 3;
-cmp_check:
-	if (cmp2 < cmp_val) {
+	/* colour-matrix id check */
+	if (sensor_idx != cmp2)
 		return 0;
-	}
-	wdr_ptr = *(uint32_t *)(fw_ctx + 0x1500);
-	apical_switch_wdr_mode(*(uint8_t *)(wdr_ptr + 0x1524));
+	color_matrix_change_CCMs((int32_t *)CAL_CTX(color_matrix));
 	return 0;
-
-check_ed:
-	if (sensor_idx != cmp2) {
-		return 0;
-	}
-	color_matrix_change_CCMs((int32_t *)(fw_ctx + 0xf00));
-	return 0;
+#undef CAL_WDR_MODE
+#undef CAL_CTX
+#undef T20_JUMP_HINT
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000001e760 origin=model_output original=cmos_store_frame_exposure_set */
@@ -14344,49 +14324,46 @@ uint32_t sensor_fsm_switch_state(int32_t *fsm_ptr, int32_t new_state)
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000027540 origin=model_output original=sensor_fsm_process_state */
 uint32_t sensor_fsm_process_state(int32_t *fsm_ptr)
 {
-    struct sensor_fsm *fsm = (struct sensor_fsm *)fsm_ptr;
-    int32_t state = t20_hdr(fsm_ptr)->state;
-    void (*switch_fn)(struct sensor_fsm *, int32_t) = sensor_fsm_switch_state;
-    int32_t new_state;
+	struct sensor_fsm *fsm = (struct sensor_fsm *)fsm_ptr;
+	int32_t state = t20_hdr(fsm_ptr)->state;
+	void (*switch_fn)(struct sensor_fsm *, int32_t) = sensor_fsm_switch_state;
+	int32_t new_state;
 
-    for (;;) {
-        int32_t idx = state - 1;
+	for (;;) {
+		int32_t idx = state - 1;
 
-        if ((uint32_t)idx >= 6u)
-            return 0;
+		if ((uint32_t)idx >= 6u)
+			return 0;
 
-        switch (idx) {
-        case 0:
-            state = 0;
-            if (fsm->field_d8 == 0)
-                break;
-            new_state = 6;
-            goto do_switch;
-        case 1:
-        case 4:
-            new_state = 1;
-            goto do_switch;
-        case 2:
-            if (fsm->field_d4 != 0)
-                return fsm->field_d4;
-            new_state = 1;
-            goto do_switch;
-        case 3:
-            new_state = 5;
-            goto do_switch;
-        case 5:
-            if (fsm->field_d8 == 0) {
-                new_state = 1;
-                goto do_switch;
-            }
-            break;
-        }
-        continue;
+		switch (idx) {
+		case 0:
+			state = 0;
+			if (fsm->field_d8 == 0)
+				continue;
+			new_state = 6;
+			break;
+		case 1:
+		case 4:
+			new_state = 1;
+			break;
+		case 2:
+			if (fsm->field_d4 != 0)
+				return fsm->field_d4;
+			new_state = 1;
+			break;
+		case 3:
+			new_state = 5;
+			break;
+		case 5:
+			if (fsm->field_d8 != 0)
+				continue;
+			new_state = 1;
+			break;
+		}
 
-    do_switch:
-        switch_fn(fsm, new_state);
-        state = new_state;
-    }
+		switch_fn(fsm, new_state);
+		state = new_state;
+	}
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000027604 origin=model_output original=sensor_fsm_process_event */
@@ -14397,51 +14374,53 @@ int32_t sensor_fsm_process_event(int32_t *fsm_ptr, int32_t event)
 	int32_t state;
 	int32_t next;
 
-	if (event == 11) {
-		state = fsm->state;
-		if (state == 1) {
-			sensor_load_vars();
-			next = 2;
-			goto tail;
-		} else if (state == 2) {
-			sfsm->field_d4 -= 1;
-			next = 3;
-			goto tail;
+	/* every handled event leaves the loop with the next state set */
+	do {
+		if (event == 11) {
+			state = fsm->state;
+			if (state == 1) {
+				sensor_load_vars();
+				next = 2;
+				continue;
+			} else if (state == 2) {
+				sfsm->field_d4 -= 1;
+				next = 3;
+				continue;
+			} else {
+				return 0;
+			}
+		} else if ((uint32_t)event < 12u) {
+			if (event != 3)
+				return 0;
+			state = fsm->state;
+			if (state == 1) {
+				APICAL_WRITE_32(0x130, APICAL_READ_32(0x130) & 0xfffffff8);
+				next = 4;
+				continue;
+			} else {
+				return 0;
+			}
+		} else if (event == 14) {
+			state = fsm->state;
+			if (state == 1) {
+				next = 3;
+				continue;
+			} else {
+				return 0;
+			}
 		} else {
-			return 0;
+			if (event != 17)
+				return 0;
+			state = fsm->state;
+			if (state == 1) {
+				next = 5;
+				continue;
+			} else {
+				return 0;
+			}
 		}
-	} else if ((uint32_t)event < 12u) {
-		if (event != 3)
-			return 0;
-		state = fsm->state;
-		if (state == 1) {
-			APICAL_WRITE_32(0x130, APICAL_READ_32(0x130) & 0xfffffff8);
-			next = 4;
-			goto tail;
-		} else {
-			return 0;
-		}
-	} else if (event == 14) {
-		state = fsm->state;
-		if (state == 1) {
-			next = 3;
-			goto tail;
-		} else {
-			return 0;
-		}
-	} else {
-		if (event != 17)
-			return 0;
-		state = fsm->state;
-		if (state == 1) {
-			next = 5;
-			goto tail;
-		} else {
-			return 0;
-		}
-	}
+	} while (0);
 
-tail:
 	sensor_fsm_switch_state(fsm_ptr, next);
 	sensor_fsm_process_state(fsm_ptr);
 	return 1;
@@ -17829,22 +17808,25 @@ int32_t awb_coeffs_write(void)
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000002ca1c origin=model_output original=awb_init */
-uint32_t awb_init(void *awb)
+uint32_t awb_init(void *awb_fsm)
 {
-	uint16_t *p18 = (uint16_t *)((char *)awb + 0x18);
-	uint16_t *p1a = (uint16_t *)((char *)awb + 0x1a);
-	uint32_t *p40 = (uint32_t *)((char *)awb + 0x40);
-	uint32_t *p760 = (uint32_t *)((char *)awb + 0x760);
-	uint32_t *p764 = (uint32_t *)((char *)awb + 0x764);
-	uint32_t *p768 = (uint32_t *)((char *)awb + 0x768);
-	uint32_t *p76c = (uint32_t *)((char *)awb + 0x76c);
-	uint32_t *p784 = (uint32_t *)((char *)awb + 0x784);
-	uint32_t *p788 = (uint32_t *)((char *)awb + 0x788);
-	uint16_t *p78c = (uint16_t *)((char *)awb + 0x78c);
-	uint16_t *p78e = (uint16_t *)((char *)awb + 0x78e);
-	uint16_t *p790 = (uint16_t *)((char *)awb + 0x790);
-	uint16_t *p792 = (uint16_t *)((char *)awb + 0x792);
-	uint16_t *p10 = (uint16_t *)((char *)awb + 0x10);
+#define AWB_FIELD(type, field) \
+	((type *)((char *)awb_fsm + __builtin_offsetof(struct t20_fsm_awb, field)))
+	uint16_t *gain_18 = AWB_FIELD(uint16_t, field_18);
+	uint16_t *gain_1a = AWB_FIELD(uint16_t, field_1a);
+	uint32_t *scale_40 = AWB_FIELD(uint32_t, field_40);
+	uint32_t *wb_log2_0 = AWB_FIELD(uint32_t, wb_log2[0]);
+	uint32_t *wb_log2_1 = AWB_FIELD(uint32_t, wb_log2[1]);
+	uint32_t *wb_log2_2 = AWB_FIELD(uint32_t, wb_log2[2]);
+	uint32_t *wb_log2_3 = AWB_FIELD(uint32_t, wb_log2[3]);
+	uint32_t *inv_cct_first = AWB_FIELD(uint32_t, field_784);
+	uint32_t *inv_cct_last = AWB_FIELD(uint32_t, field_788);
+	uint16_t *inv_rg_first = AWB_FIELD(uint16_t, field_78c);
+	uint16_t *inv_bg_first = AWB_FIELD(uint16_t, field_78e);
+	uint16_t *inv_rg_last = AWB_FIELD(uint16_t, field_790);
+	uint16_t *inv_bg_last = AWB_FIELD(uint16_t, field_792);
+	uint16_t *field_10 = AWB_FIELD(uint16_t, field_10);
+#undef AWB_FIELD
 	uint32_t cal_val;
 	uint32_t cal_val2;
 	uint32_t *lut_ptr;
@@ -17853,95 +17835,95 @@ uint32_t awb_init(void *awb)
 	uint32_t val;
 	uint32_t result;
 
-	*p18 = 0x100;
-	*p1a = 0x100;
+	*gain_18 = 0x100;
+	*gain_1a = 0x100;
 	APICAL_READ_32(0x870);
 	APICAL_READ_32(0x870);
-	*p760 = 0;
-	*p764 = 0;
-	*p768 = 0;
-	*p76c = 0;
+	*wb_log2_0 = 0;
+	*wb_log2_1 = 0;
+	*wb_log2_2 = 0;
+	*wb_log2_3 = 0;
 	/* OEM reads 0x40008 here (vendor 0x2c104), not a data symbol. */
 	cal_val = APICAL_READ_32(0x40008);
 	cal_val2 = APICAL_READ_32(0x40008);
 
-	if (*p10 == 0) {
-		*p40 = 0;
+	if (*field_10 == 0) {
+		*scale_40 = 0;
 	} else {
-		uint32_t base_val = *p10;
+		uint32_t base_val = *field_10;
 		uint32_t denom_val = base_val * 0xa;
 		uint32_t product = (cal_val2 >> 0x10) * (cal_val & 0xffff);
-		*p40 = product / denom_val;
+		*scale_40 = product / denom_val;
 	}
 
+	/* every LUT end point must be non-zero before it is inverted */
 	lut_ptr = _GET_USHORT_PTR(0xeb);
 	result = *(uint16_t *)lut_ptr;
 	if (result == 0)
-		goto out;
+		return result;
 
 	lut_ptr = _GET_USHORT_PTR(0xeb);
 	lut_len = _GET_LEN(0xeb);
 	lut_end = (uintptr_t)lut_ptr + ((lut_len - 1) << 1);
 	result = *(uint16_t *)lut_end;
 	if (result == 0)
-		goto out;
+		return result;
 
 	lut_ptr = _GET_USHORT_PTR(0xe0);
 	result = *(uint16_t *)lut_ptr;
 	if (result == 0)
-		goto out;
+		return result;
 
 	lut_ptr = _GET_USHORT_PTR(0xe4);
 	result = *(uint16_t *)lut_ptr;
 	if (result == 0)
-		goto out;
+		return result;
 
 	lut_ptr = _GET_USHORT_PTR(0xe0);
 	lut_len = _GET_LEN(0xe0);
 	lut_end = (uintptr_t)lut_ptr + ((lut_len - 1) << 1);
 	result = *(uint16_t *)lut_end;
 	if (result == 0)
-		goto out;
+		return result;
 
 	lut_ptr = _GET_USHORT_PTR(0xe4);
 	lut_len = _GET_LEN(0xe4);
 	lut_end = (uintptr_t)lut_ptr + ((lut_len - 1) << 1);
 	result = *(uint16_t *)lut_end;
 	if (result == 0)
-		goto out;
+		return result;
 
 	lut_ptr = _GET_USHORT_PTR(0xeb);
 	lut_len = _GET_LEN(0xeb);
 	lut_end = (uintptr_t)lut_ptr + ((lut_len - 1) << 1);
 	val = *(uint16_t *)lut_end;
-	*p788 = 0xf4240 / val;
+	*inv_cct_last = 0xf4240 / val;
 
 	lut_ptr = _GET_USHORT_PTR(0xeb);
 	val = *(uint16_t *)lut_ptr;
-	*p784 = 0xf4240 / val;
+	*inv_cct_first = 0xf4240 / val;
 
 	lut_ptr = _GET_USHORT_PTR(0xe0);
 	val = *(uint16_t *)lut_ptr;
-	*p78c = (uint16_t)(0xffff / val);
+	*inv_rg_first = (uint16_t)(0xffff / val);
 
 	lut_ptr = _GET_USHORT_PTR(0xe4);
 	val = *(uint16_t *)lut_ptr;
-	*p78e = (uint16_t)(0xffff / val);
+	*inv_bg_first = (uint16_t)(0xffff / val);
 
 	lut_ptr = _GET_USHORT_PTR(0xe0);
 	lut_len = _GET_LEN(0xe0);
 	lut_end = (uintptr_t)lut_ptr + ((lut_len - 1) << 1);
 	val = *(uint16_t *)lut_end;
-	*p790 = (uint16_t)(0xffff / val);
+	*inv_rg_last = (uint16_t)(0xffff / val);
 
 	lut_ptr = _GET_USHORT_PTR(0xe4);
 	lut_len = _GET_LEN(0xe4);
 	lut_end = (uintptr_t)lut_ptr + ((lut_len - 1) << 1);
 	val = *(uint16_t *)lut_end;
-	*p792 = (uint16_t)(0xffff / val);
+	*inv_bg_last = (uint16_t)(0xffff / val);
 	result = val;
 
-out:
 	return result;
 }
 
@@ -19058,102 +19040,102 @@ int32_t awb_detect_light_source(void *fsm)
 /* WHOLE_DRIVER_CANDIDATE fn_000000000002e4a0 origin=model_output original=awb_process_light_source */
 int32_t awb_process_light_source(int32_t *awb_fsm)
 {
-    int32_t *isp = *(int32_t **)awb_fsm;
-    int32_t stat_sum = *(int32_t *)((char *)isp + 0x2cc);
-    int32_t stat_part = *(int32_t *)((char *)isp + 0x2d0);
-    int32_t unused_fsm_addr = (int32_t)awb_fsm;
-    stat_sum += stat_part;
-    stat_part = *(int32_t *)((char *)isp + 0x2d4);
-    stat_sum += stat_part;
-    int32_t *threshold_ptr = _GET_USHORT_PTR(265);
-    uint16_t threshold = *(uint16_t *)threshold_ptr;
-    uint8_t light_src = *(uint8_t *)((char *)awb_fsm + 0x1c);
-    int32_t sum_shifted = (int32_t)stat_sum >> 16;
-    int32_t is_bright = (sum_shifted < (int32_t)threshold) ^ 1;
-    int32_t result;
-    int32_t max_count = *(int32_t *)((char *)awb_fsm + 0x798);
-    uint8_t new_counter = 0;
-    uint8_t indoor_val = 0;
+#define AWB(type, field) \
+	(*(type *)((char *)awb_fsm + __builtin_offsetof(struct t20_fsm_awb, field)))
+#define CTX(type, field) \
+	(*(type *)((char *)isp + __builtin_offsetof(struct t20_isp_ctx, field)))
+	int32_t *isp = *(int32_t **)awb_fsm;	/* awb->hdr.isp */
+	int32_t gain_log2 = CTX(int32_t, cmos.sensor_again_log2);
+	int32_t gain_part = CTX(int32_t, cmos.sensor_dgain_log2);
+	gain_log2 += gain_part;
+	gain_part = CTX(int32_t, cmos.isp_dgain_log2);
+	gain_log2 += gain_part;
+	int32_t *threshold_ptr = _GET_USHORT_PTR(265);
+	uint16_t threshold = *(uint16_t *)threshold_ptr;
+	uint8_t light_src = AWB(uint8_t, light_source);
+	int32_t gain_shifted = (int32_t)gain_log2 >> 16;
+	int32_t is_bright = (gain_shifted < (int32_t)threshold) ^ 1;
+	int32_t result;
+	int32_t hold_frames = AWB(int32_t, field_798);
+	uint8_t new_counter = 0;
+	uint8_t indoor_val = 0;
 
-    if (light_src < 0x3d) {
-        uint8_t cur_val = *(uint8_t *)((char *)awb_fsm + 0x77d);
-        uint8_t prev_val = *(uint8_t *)((char *)awb_fsm + 0x77c);
+	if (light_src < 0x3d) {
+		uint8_t cur_val = AWB(uint8_t, light_source_cand);
+		uint8_t prev_val = AWB(uint8_t, field_77c);
 
-        if (cur_val != prev_val) {
-            *(uint8_t *)((char *)awb_fsm + 0x77e) = 0;
-            result = cur_val;
-            goto epilogue;
-        }
+		if (cur_val != prev_val) {
+			AWB(uint8_t, field_77e) = 0;
+			result = cur_val;
+		} else {
+			uint8_t applied_src = CTX(uint8_t, color_matrix.field_5c);
+			uint8_t applied_indoor;
+			uint8_t counter;
 
-        uint8_t applied_src = *(uint8_t *)((char *)isp + 0xf44);
-        uint8_t applied_indoor;
-        uint8_t counter;
+			/* a "break" keeps the applied source: nothing to count */
+			do {
+				if (applied_src != cur_val) {
+					counter = AWB(uint8_t, field_77e);
+				} else {
+					applied_indoor = CTX(uint8_t, color_matrix.field_5e);
+					if (is_bright == 0) {
+						if (applied_indoor == 0) {
+							counter = AWB(uint8_t, field_77e);
+						} else {
+							result = cur_val;
+							break;
+						}
+					} else {
+						if (applied_indoor != 0) {
+							counter = AWB(uint8_t, field_77e);
+						} else {
+							result = cur_val;
+							break;
+						}
+					}
+				}
 
-        if (applied_src != cur_val) {
-            counter = *(uint8_t *)((char *)awb_fsm + 0x77e);
-            goto shared_counter;
-        }
+				new_counter = (uint8_t)(counter + 1);
+				AWB(uint8_t, field_77e) = new_counter;
 
-        applied_indoor = *(uint8_t *)((char *)isp + 0xf46);
-        if (is_bright == 0) {
-            if (applied_indoor == 0) {
-                counter = *(uint8_t *)((char *)awb_fsm + 0x77e);
-                goto shared_counter;
-            }
-            result = cur_val;
-            goto epilogue;
-        } else {
-            if (applied_indoor != 0) {
-                counter = *(uint8_t *)((char *)awb_fsm + 0x77e);
-                goto shared_counter;
-            }
-            result = cur_val;
-            goto epilogue;
-        }
+				if ((uint32_t)new_counter < (uint32_t)hold_frames) {
+					result = AWB(uint8_t, light_source_cand);
+				} else {
+					CTX(uint8_t, color_matrix.field_5d) = CTX(uint8_t, color_matrix.field_5c);
+					CTX(uint8_t, color_matrix.field_5c) = AWB(uint8_t, light_source_cand);
+					CTX(uint8_t, color_matrix.field_5f) = CTX(uint8_t, color_matrix.field_5e);
+					if (is_bright == 0)
+						indoor_val = AWB(uint8_t, light_source_cand);
+					CTX(uint8_t, color_matrix.field_5e) = indoor_val;
+					CTX(uint8_t, color_matrix.field_60) = (uint8_t)(AWB(int32_t, field_79c));
+					CTX(uint8_t, color_matrix.field_61) = (uint8_t)(AWB(int32_t, field_79c));
+					result = AWB(uint8_t, light_source_cand);
+				}
+			} while (0);
+		}
+	} else {
+		/* firmware 0x262c: the hold counter counts up here as well */
+		new_counter = (uint8_t)(AWB(uint8_t, field_77e) + 1);
+		AWB(uint8_t, field_77e) = new_counter;
 
-    shared_counter:
-        new_counter = (uint8_t)(counter + 1);
-        *(uint8_t *)((char *)awb_fsm + 0x77e) = new_counter;
+		if ((uint32_t)new_counter < (uint32_t)hold_frames) {
+			result = AWB(uint8_t, light_source_cand);
+		} else {
+			CTX(uint8_t, color_matrix.field_5d) = CTX(uint8_t, color_matrix.field_5c);
+			CTX(uint8_t, color_matrix.field_5c) = AWB(uint8_t, light_source_cand);
+			CTX(uint8_t, color_matrix.field_5f) = CTX(uint8_t, color_matrix.field_5e);
+			if (is_bright == 0)
+				indoor_val = AWB(uint8_t, light_source_cand);
+			CTX(uint8_t, color_matrix.field_5e) = indoor_val;
+			CTX(uint8_t, color_matrix.field_61) = (uint8_t)(AWB(int32_t, field_79c));
+			result = AWB(uint8_t, light_source_cand);
+		}
+	}
 
-        if ((uint32_t)new_counter < (uint32_t)max_count) {
-            result = *(uint8_t *)((char *)awb_fsm + 0x77d);
-            goto epilogue;
-        }
-
-        *(uint8_t *)((char *)isp + 0xf45) = *(uint8_t *)((char *)isp + 0xf44);
-        *(uint8_t *)((char *)isp + 0xf44) = *(uint8_t *)((char *)awb_fsm + 0x77d);
-        *(uint8_t *)((char *)isp + 0xf47) = *(uint8_t *)((char *)isp + 0xf46);
-        if (is_bright == 0)
-            indoor_val = *(uint8_t *)((char *)awb_fsm + 0x77d);
-        *(uint8_t *)((char *)isp + 0xf46) = indoor_val;
-        *(uint8_t *)((char *)isp + 0xf48) = (uint8_t)(*(int32_t *)((char *)awb_fsm + 0x79c));
-        *(uint8_t *)((char *)isp + 0xf49) = (uint8_t)(*(int32_t *)((char *)awb_fsm + 0x79c));
-        result = *(uint8_t *)((char *)awb_fsm + 0x77d);
-        goto epilogue;
-    } else {
-        /* firmware 0x262c: the hold counter counts up here as well */
-        new_counter = (uint8_t)(*(uint8_t *)((char *)awb_fsm + 0x77e) + 1);
-        *(uint8_t *)((char *)awb_fsm + 0x77e) = new_counter;
-
-        if ((uint32_t)new_counter < (uint32_t)max_count) {
-            result = *(uint8_t *)((char *)awb_fsm + 0x77d);
-            goto epilogue;
-        }
-
-        *(uint8_t *)((char *)isp + 0xf45) = *(uint8_t *)((char *)isp + 0xf44);
-        *(uint8_t *)((char *)isp + 0xf44) = *(uint8_t *)((char *)awb_fsm + 0x77d);
-        *(uint8_t *)((char *)isp + 0xf47) = *(uint8_t *)((char *)isp + 0xf46);
-        if (is_bright == 0)
-            indoor_val = *(uint8_t *)((char *)awb_fsm + 0x77d);
-        *(uint8_t *)((char *)isp + 0xf46) = indoor_val;
-        *(uint8_t *)((char *)isp + 0xf49) = (uint8_t)(*(int32_t *)((char *)awb_fsm + 0x79c));
-        result = *(uint8_t *)((char *)awb_fsm + 0x77d);
-        goto epilogue;
-    }
-
-epilogue:
-    *(uint8_t *)((char *)awb_fsm + 0x77c) = (uint8_t)result;
-    return result;
+	AWB(uint8_t, field_77c) = (uint8_t)result;
+	return result;
+#undef CTX
+#undef AWB
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000002e5fc origin=model_output original=awb_update */
@@ -20021,22 +20003,18 @@ uint32_t histogramspace_to_gamma_space(int32_t value)
 	uint32_t result;
 
 	len = _GET_LEN(11);
-	if (len == 0)
-		goto fallback;
+	if (len != 0) {
+		len_minus_1 = len - 1;
+		if ((uint32_t)len_minus_1 < 257) {
+			divisor = 256 / len_minus_1;
+			if (divisor != 0) {
+				quotient = value / (int32_t)(divisor & 0xff);
+				result = (uint32_t)quotient & 0xffff;
+				return result;
+			}
+		}
+	}
 
-	len_minus_1 = len - 1;
-	if ((uint32_t)len_minus_1 >= 257)
-		goto fallback;
-
-	divisor = 256 / len_minus_1;
-	if (divisor == 0)
-		goto fallback;
-
-	quotient = value / (int32_t)(divisor & 0xff);
-	result = (uint32_t)quotient & 0xffff;
-	return result;
-
-fallback:
 	len = _GET_LEN(11);
 	len_minus_1 = len - 1;
 	if ((uint32_t)len_minus_1 < 257)
