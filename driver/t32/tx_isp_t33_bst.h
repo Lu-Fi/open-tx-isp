@@ -79,10 +79,18 @@ int tisp_rcfg_get_dma_state(u32 mod)
 	return (isp_rd(mod < 32 ? T33_RCFG_TRIG : T33_RCFG_TRIG_HI) >> (mod & 31)) & 1;
 }
 
-/* tisp_rcfg_module_cfg_trig: start the module's list (its table word is set at stream-on) */
+/*
+ * tisp_rcfg_module_cfg_trig (tx_isp_t33_rcfgcore.h): the module's table word from its record, then
+ * its start bit; returns the 0x22014 read as the vendor.  A list that is not the registered one
+ * (none yet): only the start bit, its table word is set at stream-on.
+ */
 int tisp_rcfg_module_cfg_trig(u32 ch, u32 mod)
 {
 	mod &= 0xff;
+	if (t33_rc_ok(mod)) {
+		t33_rcfg_runs++;
+		return (int)t33_rcfg_module_cfg_trig(&t33_rcc, 0, mod);
+	}
 	wmb();
 	isp_wr(mod < 32 ? T33_RCFG_TRIG : T33_RCFG_TRIG_HI, 1U << (mod & 31));
 	t33_rcfg_runs++;
@@ -103,6 +111,26 @@ u32 tisp_reg_read_t33(u32 ch, u32 mod, u32 reg)
 
 /* TOP helpers (block top): tisp_top_get_bypass reads the TOP list's bypass slot (ipcCfgMode 1: slot 1) */
 u8 ipcCfgMode = 1;
+static u32 t33_top_par_blk[11];			/* stTopPar[0]: 44 bytes, the 32 bypass bytes at +12 (tisp_top_set_bypass) */
+u32 *stTopPar[256] = { t33_top_par_blk };
+
+/*
+ * tisp_top_reg_cfg for the bypass state only: the 32 bypass bytes of stTopPar[id] become the TOP list's bypass
+ * word; the caller's tispTopRefresh (1 = idle: the list runs at the next null-down / frame end, 2 = it runs).  The
+ * other TOP words stay as the IQ bin /
+ * the last bin switch built them.
+ */
+void tisp_top_reg_cfg(u32 id)
+{
+	const u8 *p = (const u8 *)stTopPar[id & 0xff];
+	u32 byp = 0, k;
+
+	if (!p)
+		return;
+	for (k = 0; k < 32; k++)
+		byp |= (u32)(p[12 + k] & 1) << k;
+	tisp_reg_write_t33(id, 33, ipcCfgMode ? 1 : 64, byp);
+}
 #include "tx_isp_t33_top.h"
 
 /* tisp_mdns_decode_reg_write (from the YSP frame done): par = yspInfo + 1068 */

@@ -95,6 +95,7 @@ static void t33_lcepf_ev(u32 lo, u32 hi, u32 bv);
 #include "tx_isp_t33_rcfg8.h"
 #include "tx_isp_t33_rcfg9.h"
 #include "tx_isp_t33_rcfg10.h"
+#include "tx_isp_t33_rcfgcore.h"
 #endif
 
 static void t32_bringup_ae_kick(void);
@@ -372,12 +373,20 @@ u32 t33_rcfg_runs, t33_rcfg_timeouts;
 /* a module's list page, uncached (the core reads it by DMA); NULL without memory */
 void t33_osd_list_rebuilt(void);	/* tx_isp_t33_osd.c */
 
+#ifdef TX_ISP_T33
+static void t33_rc_register(unsigned int id);	/* tisp_rcfg_module_register (below) */
+#endif
+
 static u32 *t33_mod_buf(unsigned int id)
 {
 	if (id >= T33_MODULES)
 		return NULL;
 	if (!t33_mod_page[id])
+#ifdef TX_ISP_T33
+		t33_rc_register(id);
+#else
 		t33_mod_page[id] = t32_dma_zpages(0);
+#endif
 	if (!t33_mod_page[id]) {
 		isp_printf(2, "tx-isp-t33: no memory for register list %u\n", id);
 		return NULL;
@@ -451,6 +460,124 @@ static void t33_rinit_apply(unsigned int id)
 		if (t33_rinit_e[k])
 			l[k] = t33_rinit_e[k];
 	t33_rinit_ok++;
+}
+
+/*
+ * The vendor's register-list core (tx_isp_t33_rcfgcore.h, oracle block rcfgcore) on channel 0:
+ * tisp_rcfg_module_register allocates a module's list when it is first built (the vendor: at the
+ * block's init) and writes its reg_init skeleton, tisp_rcfg_module_release frees it at the ISP exit,
+ * tisp_rcfg_module_cfg_trig (tx_isp_t33_bst.h, the LCE / LSF interrupt lists) and
+ * tisp_rcfg_t33_write_all_reg (stream-on) set the table words from the module records and start
+ * the lists.  The list pages are one zeroed page each (>= the vendor's word count), written uncached:
+ * the vendor's cache write-backs are barriers here.  Ids the vendor has no list for keep a plain page.
+ */
+static u8 t33_rc_attr[T33_RC_CH_BYTES] __aligned(4);	/* stModuleAttr, channel 0 */
+static u16 t33_rc_regnum[4];				/* tispRcfgRegNum */
+static u16 t33_tmo_reg_num;				/* tisp_t33_tmo_rcfg_reg_num (TMO one-shot below) */
+static u32 *t33_rc_bufinfo[2];				/* rcfg_buf_info: table (uncached), its DMA address */
+static u32 **t33_rc_bufinfo_p = t33_rc_bufinfo;
+u32 t33_rcfg_module;					/* RcfgModule (tisp_get_rcfg_module) */
+static u32 t33_rc_trig_cnt[4];
+static u8 t33_rc_refresh;
+static unsigned int t33_rc_cur_id;
+u32 t33_rc_errors;
+
+static void *t33_rc_alloc(u32 n)
+{
+	return n <= PAGE_SIZE ? (void *)t32_dma_zpages(0) : NULL;
+}
+
+static void t33_rc_zero(void *p, u32 n)
+{
+	memset((void *)CKSEG1ADDR(virt_to_phys(p)), 0, n);
+}
+
+static void t33_rc_free(void *p)
+{
+	free_page((unsigned long)p);
+}
+
+static void t33_rc_sync(void *p, u32 n)
+{
+	wmb();
+}
+
+static void t33_rc_wr(u32 reg, u32 val)
+{
+	isp_wr(reg, val);
+}
+
+static u32 t33_rc_rd(u32 reg)
+{
+	return isp_rd(reg);
+}
+
+static void t33_rc_log(int level, u32 id)
+{
+	if (level == 0)
+		return;
+	t33_rc_errors++;
+	isp_printf(2, "tx-isp-t33: rcfg module %u: %s\n", id,
+		   level == -1 ? "register error" : level == -2 ? "list address not 8-byte aligned" : "no memory");
+}
+
+/* the vendor's reg_init(ch, list) of the module being registered: its skeleton into the (uncached) list */
+static u32 t33_rc_rinit_cb(u32 ch, u32 *list)
+{
+	unsigned int i;
+
+	for (i = 0; i < ARRAY_SIZE(t33_rinit_tab); i++)
+		if (t33_rinit_tab[i].mod == t33_rc_cur_id)
+			return t33_rinit_tab[i].fn((u32 *)CKSEG1ADDR(virt_to_phys(list)));
+	return 0;
+}
+
+static const struct t33_rcfgc t33_rcc = {
+	.attr = t33_rc_attr, .regnum = t33_rc_regnum, .tmo_num = &t33_tmo_reg_num,
+	.initpar = (const u8 *)t33_st_isp_init_par_mode, .buf_info = &t33_rc_bufinfo_p, .module = &t33_rcfg_module,
+	.trig_cnt = t33_rc_trig_cnt, .refresh = &t33_rc_refresh, .alloc = t33_rc_alloc, .zero = t33_rc_zero,
+	.free = t33_rc_free, .sync = t33_rc_sync, .wr = t33_rc_wr, .rd = t33_rc_rd, .log = t33_rc_log,
+};
+
+static u32 t33_rc_vaddr(unsigned int id)
+{
+	return id < 64 ? *t33_rc_w(&t33_rcc, 0, id, T33_RC_VADDR) : 0;
+}
+
+/* the module's list is the registered one and the table exists: the vendor's cfg_trig / write_all apply */
+static bool t33_rc_ok(unsigned int id)
+{
+	return t33_rc_bufinfo[0] && id < T33_MODULES && t33_mod_page[id] && t33_rc_vaddr(id) == (u32)t33_mod_page[id];
+}
+
+static void t33_rc_register(unsigned int id)
+{
+	u32 r;
+
+	t33_rc_cur_id = id;
+	r = t33_rcfg_module_register(&t33_rcc, 0, id, (u32)(unsigned long)t33_rc_rinit_cb);
+	if (!r)
+		t33_mod_page[id] = t33_rc_vaddr(id);
+	else if (r == T33_RC_ERR_ID)
+		t33_mod_page[id] = t32_dma_zpages(0);	/* a list of ours the vendor does not have */
+}
+
+/* tisp_rcfg_t33_write_all_reg at stream-on: every list of the vendor's set must be registered */
+static bool t33_rc_write_all(void)
+{
+	static const u8 extra[3] = { 30, 23, 33 };
+	unsigned int i;
+
+	for (i = 0; i < sizeof(t33_rc_all); i++)
+		if (!t33_rc_ok(t33_rc_all[i]))
+			return false;
+	for (i = 0; i < 3; i++)
+		if (!t33_rc_ok(extra[i]))
+			return false;
+	if (t33_st_isp_init_par_mode[11] & 0xff && !t33_rc_ok(T33_MOD_LDC))
+		return false;
+	t33_rcfg_write_all_reg(&t33_rcc, 0);
+	return true;
 }
 #endif
 
@@ -575,6 +702,11 @@ static void t33_mod_free(void)
 	t33_awb_stat_pages = 0;
 
 	for (i = 0; i < T33_MODULES; i++) {
+#ifdef TX_ISP_T33
+		if (t33_mod_page[i] && t33_rc_vaddr(i) == (u32)t33_mod_page[i])
+			t33_rcfg_module_release(&t33_rcc, 0, i);	/* tisp_rcfg_module_release */
+		else
+#endif
 		if (t33_mod_page[i])
 			free_page(t33_mod_page[i]);
 		t33_mod_page[i] = 0;
@@ -586,14 +718,30 @@ static void t33_mod_free(void)
 #endif
 }
 
+#ifdef TX_ISP_T33
+/*
+ * The vendor tisp_rcfg_t33_reset_reg_cfg (oracle-proven port tx_isp_t33_rcfgmisc.h, block rcfgmisc) runs here:
+ * its module data objects become these statics (rcfg_buf_info[0] + 4 holds the list table address).
+ */
+static void system_reg_write(u32 reg, u32 val) { isp_wr(reg, val); }
+static u32 t33_rcfg_buf[2];
+static u8 *rcfg_buf_info[1] = { (u8 *)t33_rcfg_buf };
+#include "tx_isp_t33_rcfgmisc.h"
+#endif
+
 /* tisp_rcfg_init: table, control and masks; at the core init */
 static void t33_rcfg_core_init(void)
 {
 	isp_wr(T33_RCFG_MODE, 0);
+#ifdef TX_ISP_T33
+	t33_rcfg_buf[1] = rcfg_pa;
+	t33_rcfg_reset_reg_cfg();	/* tisp_rcfg_t33_reset_reg_cfg: table, control, masks */
+#else
 	isp_wr(T33_RCFG_TABLE, rcfg_pa);
 	isp_wr(T33_RCFG_CTRL, 1);
 	isp_wr(T33_RCFG_MASK0, 0xffffffff);
 	isp_wr(T33_RCFG_MASK1, 0xffffffff);
+#endif
 }
 
 /* lists the vendor's tisp_rcfg_t33_write_all_reg does not start (LSF 37: LCE irq only) */
@@ -616,6 +764,14 @@ static void t33_rcfg_write_all(void)
 
 	if (!rcfg_pages || !t33_mod_built)
 		return;
+#ifdef TX_ISP_T33
+	if (t33_rc_write_all()) {	/* the vendor's order and start mask (RcfgModule), then list 33 */
+		lo = t33_rcfg_module;
+		hi = 1U << (T33_MOD_TOP - 32);
+		goto wait;
+	}
+	t33_rc_errors++;		/* a list of the vendor's set is missing: start the built ones */
+#endif
 	memset(table, 0, T32_RCFG_TABLE_WORDS * 4);
 	for (i = 0; i < T33_MODULES; i++) {
 		if (!(t33_mod_built & (1ULL << i)) || (T33_NOT_AT_STREAMON & (1ULL << i)))
@@ -631,6 +787,9 @@ static void t33_rcfg_write_all(void)
 		isp_wr(T33_RCFG_TRIG, lo);
 	if (hi)
 		isp_wr(T33_RCFG_TRIG_HI, hi);
+#ifdef TX_ISP_T33
+wait:
+#endif
 	for (i = 0; i < 1000; i++) {
 		if (!isp_rd(T33_RCFG_TRIG) && !isp_rd(T33_RCFG_TRIG_HI))
 			break;
@@ -961,6 +1120,7 @@ static void t33_gamma_state(const u8 *sec, const u8 *tab, u32 tabbytes, int clea
 	}
 }
 static u32 t33_tmo_v[T33_TMO_WORDS], t33_mdns_v[T33_MDNS_WORDS];
+#define tispTopRefresh t33_top_refresh	/* the vendor name of the TOP refresh state (tx_isp_t33_top.h) */
 #include "tx_isp_t33_bst.h"
 #include "tx_isp_t33_tmo1s.h"
 
@@ -975,7 +1135,7 @@ static u32 t33_tmo_v[T33_TMO_WORDS], t33_mdns_v[T33_MDNS_WORDS];
  * V-ram paths of the header are not reached in this driver (info = NULL).
  */
 static u8 t33_tmo_aov_tik, t33_tmo_mulsensor;
-static u16 t33_tmo_reg_num = T33_TMO1S_LIST_SHORT;
+static u16 t33_tmo_reg_num = T33_TMO1S_LIST_SHORT;	/* declared with the rcfg core */
 static u32 t33_tmo1s_runs[3];
 
 static u32 *t33_tmo1s_list(u32 ch)
@@ -1012,6 +1172,74 @@ void t33_tmo_oneshot(u32 op)
 	local_irq_restore(flags);
 	t33_tmo1s_runs[op > 2 ? 2 : op]++;
 }
+
+/*
+ * tisp_s_module_control / tisp_g_module_control (oracle-proven tx_isp_t33_top.h, block top): the module control
+ * word is the TOP bypass word (bit set = module bypassed), low 22 bits the user's.  Open (not ported, #99): the
+ * vendor's side effects of a changed bit 12 (tisp_mdns_start before, tisp_mdns_t33_reg_trig after) and of
+ * changed bits 5 / 11 (tisp_lce_top_change_state).
+ */
+/*
+ * LDC ioctls of ldc_core_ops_ioctl (T33): the HLDC bypass state (tisp_ldc_set_bypass_state ->
+ * tisp_top_ldc_bypass_refresh) and the LUT refresh (tisp_online_ldc_reflesh_lut), as the oracle-proven ports
+ * tx_isp_t33_ldcpar.h (block ldc) and tx_isp_t33_aeldc.h (block aeldc).  The vendor's module data objects used by
+ * the aeldc port are these shims (ldcCfgMode: slot indexes like the other blocks; stIspInitPar word 226 = 1).
+ */
+u8 ldcCfgMode = 1;
+extern u8 stIspInitPar[4032] __attribute__((alias("t33_st_isp_init_par_mode")));
+u32 g_ae_contexts[4];
+static int t33_ldc_sysw(u32 reg, u32 val)
+{
+	isp_wr(reg, val);
+	return 0;
+}
+#define system_reg_write t33_ldc_sysw
+#define normal_ae_dn_par_refresh t33_ldc_unused_ae_dn
+#include "tx_isp_t33_aeldc.h"
+#include "tx_isp_t33_ldcpar.h"
+#undef system_reg_write
+#undef normal_ae_dn_par_refresh
+
+/* tisp_top_ldc_bypass_refresh: LDC bypass bit (0x800000) of the TOP bypass word from block[idx], TOP list rerun */
+static void t33_ldc_bypass_refresh(u32 idx, const u8 *blk)
+{
+	u32 sel = ipcCfgMode ? 1 : 64, v;
+
+	idx &= 0xff;
+	v = tisp_reg_read_t33(idx, 33, sel);
+	v = blk[idx] == 1 ? v & ~0x800000U : v | 0x800000U;
+	tisp_reg_write_t33(idx, 33, sel, v);
+	tispTopRefresh = tisp_rcfg_get_dma_state(33) ? 2 : 1;
+}
+
+/* IOC 0xc00454bc: {idx, state}; vendor core command 0x5000009 */
+void t33_ldc_set_bypass_state(u32 idx, u32 state)
+{
+	u8 blk[4];
+
+	if (t33_ldc_bypass_buf(blk, idx, state) >= 4)
+		return;		/* the vendor writes past its block here (BEYOND_VENDOR row) */
+	t33_ldc_bypass_refresh(idx & 0xff, blk);
+}
+
+/* IOC 0xc00454bd: {idx, base, offset}; vendor core command 0x500000a */
+int t33_ldc_reflesh_lut(u32 idx, u32 addr)
+{
+	return t33_online_ldc_refresh(idx, addr);
+}
+
+void t33_module_control_set(u32 ch, u32 v)
+{
+	u32 cur = t33_top_get_bypass(ch);
+
+	t33_top_set_bypass(ch, (v & 0x3fffffU) | (cur & 0xffc00000U));
+}
+
+u32 t33_module_control_get(u32 ch)
+{
+	return t33_top_get_bypass(ch) & 0x3fffffU;
+}
+
 #define T33_INIT_EV	0xffffffffU	/* the vendor's EV before the first AE run */
 
 #define T33_MOD_VB(blk, BLK, v)								\
@@ -1869,6 +2097,11 @@ static void t33_rcfg_trig_list(unsigned int id)
 
 	if (!rcfg_pages || !t33_lcepf_list(id))
 		return;
+	if (t33_rc_ok(id)) {
+		t33_rcfg_module_cfg_trig(&t33_rcc, 0, id);	/* tisp_rcfg_module_cfg_trig */
+		t33_rcfg_runs++;
+		return;
+	}
 	table[id] = virt_to_phys((void *)t33_mod_page[id]);
 	wmb();
 	isp_wr(id < 32 ? T33_RCFG_TRIG : T33_RCFG_TRIG_HI, 1U << (id & 31));
@@ -2814,6 +3047,8 @@ void t32_hw_stream_on(void)
 
 			if (ln)
 				t33_mod_set_tmpl(T33_MOD_LDC, T33_TMPL(ldc_tmpl), lw, (int)ln);
+			/* stIspInitPar byte 0x2c = LDC on: tisp_rcfg_t33_write_all_reg starts list 25 */
+			t33_st_isp_init_par_mode[11] = (t33_st_isp_init_par_mode[11] & ~0xffU) | (ln ? 1 : 0);
 			t32_ldc_stream_on();
 		}
 #endif
@@ -3158,6 +3393,10 @@ int t32_hw_init(void)
 		goto err;
 	}
 	rcfg_pa = virt_to_phys((void *)rcfg_pages);
+#ifdef TX_ISP_T33
+	t33_rc_bufinfo[0] = (u32 *)CKSEG1ADDR(rcfg_pa);
+	t33_rc_bufinfo[1] = (u32 *)(unsigned long)rcfg_pa;
+#endif
 	/*
 	 * Nothing latched from an earlier load may fire before we are ready.
 	 * T33: the ISP clock is still off here and the vendor module does not

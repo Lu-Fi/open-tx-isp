@@ -941,6 +941,12 @@ static long t32_isp_ioctl(struct file *file, unsigned int cmd, unsigned long arg
 	case T32_IOC_LDC_ONLINE_PAR:
 		ret = t32_ldc_online_ioctl(cmd, arg, core.ldc_mode);
 		break;
+#ifdef TX_ISP_T33
+	case T32_IOC_LDC_BYPASS_STATE:
+	case T32_IOC_LDC_REFLESH_LUT:
+		ret = t32_ldc_ctl_ioctl(cmd, arg, core.ldc_mode);
+		break;
+#endif
 	case T32_IOC_SET_PM_CTRL:
 	case T32_IOC_GET_PM_CTRL:
 		/* vendor tx-isp-t33.ko (QEMU, openimp #54): 0, the user block {mode,

@@ -266,15 +266,27 @@ int t32_tx_os_tisp_get_wdr_output_mode(u32 ch, void *buf)
 	return 0;
 }
 
+#ifdef TX_ISP_T33
+void t33_module_control_set(u32 ch, u32 v);	/* tx_isp_t32_hw.c: the TOP bypass word (block top) */
+u32 t33_module_control_get(u32 ch);
+#endif
 /* tisp_s_module_control: the low 22 bits of the top enable word are the user's */
 int t32_tx_os_tisp_s_module_control(u32 ch, u32 v)
 {
+#ifdef TX_ISP_T33
+	t33_module_control_set(ch, v);
+	return 0;
+#endif
 	t32_tc[ch].module_ctl = (t32_tc[ch].module_ctl & ~0x3fffffU) | (v & 0x3fffffU);
 	return 0;
 }
 
 int t32_tx_os_tisp_g_module_control(u32 ch, void *buf)
 {
+#ifdef TX_ISP_T33
+	*(u32 *)buf = t33_module_control_get(ch);
+	return 0;
+#endif
 	*(u32 *)buf = t32_tc[ch].module_ctl;
 	return 0;
 }

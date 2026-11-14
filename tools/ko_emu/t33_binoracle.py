@@ -19,6 +19,8 @@ SPEC: one function per line (from the block's .conf, FUNCS=):
         st:N:OFF=V1,V2:OFF=V..  like buf:N, but the LE u32 at each byte OFF is one of the listed values (struct flags,
                                 sizes, modes; V may be hex), so the interesting branches are taken
         out:N                   pointer to N zero bytes, compared after the call
+        fn:NAME                 a code address (the same on both sides) that runs the CALLS entry NAME: callbacks the
+                                function under test stores or calls through a pointer (e.g. a reg_init)
         kn:N:MAX                pointer to N ascending LE u32 in [0, MAX] (repeats allowed), compared
         s32s:N:LO:HI            pointer to N LE s32 in [LO, HI], compared
         info:VSYM:SIZE          a block state of SIZE bytes (random words: full, below 2^8, below 2^12 or edge values):
@@ -46,7 +48,8 @@ SPEC: one function per line (from the block's .conf, FUNCS=):
                                 point at parameter blocks
                                 q:OFF:N[:z][:bB=V1,V2..][:@O2=N2]..  (several allowed): like p:, z = zero bytes instead
                                 of random (large list pages); bB=..: byte B of the block one of the values (flags);
-                                @O2=N2: the LE u32 at byte O2 of the block points to N2 random bytes (nested, compared)
+                                @O2=N2: the LE u32 at byte O2 of the block points to N2 random bytes (nested, compared);
+                                @O2=N2f: the same from one randbytes call (fast, for large blocks such as a register window)
 Exit 0 = all cases equal, 1 = mismatch (first 5 printed), 2 = setup error.
 Nothing of the vendor module is stored here; point it at your own copy.
 """
@@ -234,9 +237,15 @@ def main():
     except Exception as ex:  # noqa: BLE001
         print('t33_binoracle: setup error: %s' % ex); return 2
     from unicorn.mips_const import UC_MIPS_REG_A0 as A0
+    fnames = sorted({t[3:] for _f in fns for t in _f[3] if t.startswith('fn:')})
+    for emu in (oem, our):
+        for i, n in enumerate(fnames):          # fn: callbacks at one fixed address in the stub page on both sides
+            emu.fnaddr = getattr(emu, 'fnaddr', {}); emu.fnaddr[n] = 0x70000f00 + 0x10 * i; emu.stubname[emu.fnaddr[n]] = n
     for emu, side in ((oem, 'vendor'), (our, 'ours')):
         for n, (rv, na, dr) in calls.items():
-            if n not in emu.symaddr and n not in emu.stubs:
+            if n in fnames:
+                pass
+            elif n not in emu.symaddr and n not in emu.stubs:
                 if side == 'ours' and n in emu.stubs:
                     continue
                 print('t33_binoracle: CALLS %s not found on the %s side' % (n, side)); return 2
@@ -262,6 +271,8 @@ def main():
                     if sym not in oem.symaddr:
                         print('t33_binoracle: %s missing' % sym); return 2
                     args.append(('i', (sym, info_block(rnd, int(sz, 0), lim))))
+                elif t.startswith('fn:'):
+                    args.append(('v', 0x70000f00 + 0x10 * fnames.index(t[3:])))
                 elif is_ptr(t):
                     args.append(('p', g.buf(t, case)))
                 else:
@@ -278,7 +289,8 @@ def main():
                             if x.startswith('b'):
                                 b, vv = x[1:].split('='); pd[int(b, 0)] = rnd.choice([int(v, 0) for v in vv.split(',')]) & 0xff
                             elif x.startswith('@'):
-                                o2, n2 = x[1:].split('='); sub.append((int(o2, 0), bytes(rnd.getrandbits(8) for _ in range(int(n2, 0)))))
+                                o2, n2 = x[1:].split('=')
+                                sub.append((int(o2, 0), rnd.randbytes(int(n2[:-1], 0)) if n2.endswith('f') else bytes(rnd.getrandbits(8) for _ in range(int(n2, 0)))))
                         gpv.append((vs, off, bytes(pd), sub)); gpo.append((os_, off, bytes(pd), sub))
                         continue
                     if kind == 'p':
