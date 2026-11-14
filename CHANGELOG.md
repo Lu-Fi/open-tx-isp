@@ -4,6 +4,10 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD[-rcN]` are set on the `aperto` branch, the same tag in open-tx-isp and OpenIMP: RC1 `v2026.10.11-rc1`, RC2 `v2026.10.25-rc2`, RC3 `v2026.11.07-rc3` (2026-11-07). Gate SoCs of RC3 and Release 1: T10, T20, T21, T23, T30, T31, T40, T41 (T32/T33 planned, QEMU only); release notes: [docs/releases/ in OpenIMP](https://github.com/Lu-Fi/openimp/blob/next/docs/releases/README.md). Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-11-14: docs: SnapRaw-while-online-LDC row approved (openimp #491, #480)
+
+- `docs/BEYOND_VENDOR.md`: the T33 RAW snapshot refused while online LDC is on stays (user OK 2026-11-14). Docs only.
+
 ## 2026-11-14: T40 antiflicker ladder kept mains-locked (openimp #494; beyond vendor, user OK)
 
 - The open AE keeps 10 ms integration rungs from the running mode (vts x fps); the vendor uses a stale 15 fps (7.5 ms rungs, ceiling 2025). Documented in docs/BEYOND_VENDOR.md; no code change.
