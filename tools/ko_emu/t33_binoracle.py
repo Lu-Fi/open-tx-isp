@@ -16,6 +16,8 @@ SPEC: one function per line (from the block's .conf, FUNCS=):
         sq:MAX                  n * n + n + d (d = -1, 0, 1) up to MAX: the rounding edges of square roots
         u64 | u64:BITS          64-bit value in an even register pair (o32), up to BITS bits
         buf:N                   pointer to N random bytes, compared after the call
+        st:N:OFF=V1,V2:OFF=V..  like buf:N, but the LE u32 at each byte OFF is one of the listed values (struct flags,
+                                sizes, modes; V may be hex), so the interesting branches are taken
         out:N                   pointer to N zero bytes, compared after the call
         kn:N:MAX                pointer to N ascending LE u32 in [0, MAX] (repeats allowed), compared
         s32s:N:LO:HI            pointer to N LE s32 in [LO, HI], compared
@@ -24,11 +26,22 @@ SPEC: one function per line (from the block's .conf, FUNCS=):
                                 (e.g. mdnsInfo), ours gets the block's address; the block is compared after the call.
         info:VSYM:SIZE:W<M,..   the same with block word W (hex index) below M (e.g. table indices the vendor
                                 takes from 8-bit IQ fields and does not mask)
+  CALLS NAME[:NARGS][@ARG:LEN]..[=RET] ...        (line) functions the code under test calls (vendor: a function of the module or a kernel
+                                import; ours: an `extern` declaration in the wrapper with the SAME name): neither side runs
+                                them, every call is recorded as (name, first NARGS of $a0..$a3; default 4) and returns RET (default 0; R1,R2,.. cycles through the values, by case number and call index, identical on both sides); @ARG:LEN (repeatable) records the LEN bytes argument ARG points to instead of the pointer value; the call
+                                sequences are compared like the buffers.  Use it for callees that are ported elsewhere
+                                or need hardware (register access, rcfg trigger, printk).
   VEC VENDOR V1 V2 ...          (line) fixed values for the scalar arguments of VENDOR (pointer arguments
                                 generated as usual), run before the random cases
   More than four argument words go to the stack (o32).
-  GLOBAL VSYM OSYM SIZE         (line) a module global of SIZE bytes: same random content before every call
-                                on both sides, compared after
+  GLOBAL VSYM OSYM SIZE [w:OFF:V1,V2,..] [p:OFF:N]
+                                (line) a module global of SIZE bytes: same random content before every call
+                                on both sides, compared after.  Optional w:OFF:V1,V2,.. (several allowed): the LE
+                                u32 at byte OFF is one of V1,V2,.. (random choice) instead of random, so mode
+                                words / flags take their meaningful values.  p:OFF:N (several allowed): the LE u32 at
+                                byte OFF is a pointer to N random bytes (allocated per case, same address on both
+                                sides, compared after the call like the pointer arguments): for info structs that
+                                point at parameter blocks
 Exit 0 = all cases equal, 1 = mismatch (first 5 printed), 2 = setup error.
 Nothing of the vendor module is stored here; point it at your own copy.
 """
@@ -61,14 +74,26 @@ KERNEL_HLE = {
 EDGE32 = [0, 1, 2, 3, 0x7fffffff, 0x80000000, 0xffffffff, 0xfffffffe, 0x100, 0x1000, 0x10000]
 
 
+calls = {}   # CALLS: name -> (return values, nargs, derefs)
+caseno = [0]
+calllog = []
+
+
 def parse(path):
     fns, gl, vec = [], [], {}
+    calls.clear()
     for ln in open(path):
         t = ln.split('#', 1)[0].split()
         if not t:
             continue
         if t[0] == 'GLOBAL':
-            gl.append((t[1], t[2], int(t[3], 0)))
+            gl.append((t[1], t[2], int(t[3], 0), [(w.split(':')[0], int(w.split(':')[1], 0), [int(x, 0) for x in w.split(':')[2].split(',')]) for w in t[4:]]))
+        elif t[0] == 'CALLS':
+            for x in t[1:]:
+                n, _, rv = x.partition('=')
+                n, *deref = n.split('@')
+                n, _, na = n.partition(':')
+                calls[n] = ([int(v, 0) for v in rv.split(',')] if rv else [0], int(na) if na else 4, [tuple(int(v, 0) for v in d.split(':')) for d in deref])
         elif t[0] == 'VEC':
             vec.setdefault(t[1], []).append([int(x, 0) for x in t[2:]])
         else:
@@ -103,6 +128,12 @@ class Gen:
         if p[0] in ('buf', 'out'):
             n = int(p[1], 0)
             return bytes(n) if p[0] == 'out' else bytes(r.getrandbits(8) for _ in range(n))
+        if p[0] == 'st':     # st:N:OFF=V1,V2:OFF=V..   N random bytes, the LE u32 at each OFF one of the listed values
+            n = int(p[1], 0); b = bytearray(r.getrandbits(8) for _ in range(n))
+            for f in p[2:]:
+                off, vals = f.split('=')
+                b[int(off, 0):int(off, 0) + 4] = struct.pack('<I', r.choice([int(x, 0) for x in vals.split(',')]) & M32)[:max(0, n - int(off, 0))]
+            return bytes(b[:n])
         if p[0] == 'kn':
             n, mx = int(p[1], 0), int(p[2], 0)
             v = sorted(r.randint(0, mx) for _ in range(n))
@@ -116,7 +147,7 @@ class Gen:
 
 
 def is_ptr(a):
-    return a.split(':')[0] in ('buf', 'out', 'kn', 's32s')
+    return a.split(':')[0] in ('buf', 'out', 'kn', 's32s', 'st')
 
 
 def info_block(r, size, lim=''):
@@ -134,10 +165,10 @@ def info_block(r, size, lim=''):
     return struct.pack('<%dI' % n, *w) + bytes(size - 4 * n)
 
 
-def run_one(e, fn, args, gl_init, gl_syms, vendor=False):
+def run_one(e, fn, args, gl_init, gl_syms, gl_ptrs=(), vendor=False):
     """args: list of ('v', int) / ('v64', int) / ('p', bytes) / ('i', (vsym, bytes)); returns (v0, v1, [buffers],
     [globals], stop)"""
-    e.heap_reset(); words = []; ptrs = []
+    e.heap_reset(); words = []; ptrs = []; del calllog[:]
     for k, v in args:
         if k == 'i':
             sym, blk = v
@@ -156,10 +187,13 @@ def run_one(e, fn, args, gl_init, gl_syms, vendor=False):
             words.append(v & M32)
     for (sym, size), data in zip(gl_syms, gl_init):
         e.write(e.addr(sym), data)
+    for sym, off, data in gl_ptrs:
+        ad = e.alloc(len(data) + 16, data + bytes(16)); ptrs.append((ad, len(data)))
+        e.write(e.addr(sym) + off, struct.pack('<I', ad))
     r = e.call(fn, *words[:4], stack_args=words[4:])
     bufs = [e.read(a, n + 16) for a, n in ptrs]
     gls = [e.read(e.addr(sym), size) for sym, size in gl_syms]
-    return r.v0, r.v1, bufs, gls, r.stop
+    return r.v0, r.v1, bufs, gls, r.stop, list(calllog)
 
 
 def ret_of(ret, v0, v1):
@@ -176,7 +210,17 @@ def main():
         oem = KoEmu(a.oem, hle=KERNEL_HLE, max_insns=20_000_000); our = KoEmu(a.our, hle=KERNEL_HLE, max_insns=20_000_000)
     except Exception as ex:  # noqa: BLE001
         print('t33_binoracle: setup error: %s' % ex); return 2
-    for v, o, sz in gl:
+    from unicorn.mips_const import UC_MIPS_REG_A0 as A0
+    for emu, side in ((oem, 'vendor'), (our, 'ours')):
+        for n, (rv, na, dr) in calls.items():
+            if n not in emu.symaddr and n not in emu.stubs:
+                if side == 'ours' and n in emu.stubs:
+                    continue
+                print('t33_binoracle: CALLS %s not found on the %s side' % (n, side)); return 2
+            if n in emu.symaddr and n not in emu.stubs:      # a function of the module: trap its entry
+                ad = emu.symaddr[n]; emu.stubname[ad] = n
+            emu.hle[n] = (lambda nm, r, k, d: lambda e: (calllog.append((nm,) + tuple('*' if i in [x for x, _ in d] else _r(e, i) for i in range(k)) + tuple(bytes(e.read(_r(e, i), ln)).hex() for i, ln in d)), r[(caseno[0] + len(calllog)) % len(r)])[1])(n, rv, na, dr)
+    for v, o, sz, _w in gl:
         if v not in oem.symaddr or o not in our.symaddr:
             print('t33_binoracle: global %s / %s missing' % (v, o)); return 2
     bad = 0; total = 0
@@ -200,9 +244,18 @@ def main():
                 else:
                     v = fv.pop(0) if fv else g.value(t, case - len(fixed))
                     args.append(('v64' if t.startswith('u64') else 'v', v))
-            gi = [bytes(rnd.getrandbits(8) for _ in range(sz)) for _, _, sz in gl]
-            ro = run_one(oem, vfn, args, gi, [(v, sz) for v, _, sz in gl], vendor=True)
-            ru = run_one(our, ofn, args, gi, [(o, sz) for _, o, sz in gl])
+            caseno[0] = case; gi = []; gpv = []; gpo = []
+            for (vs, os_, sz, ws) in gl:
+                gb = bytearray(rnd.getrandbits(8) for _ in range(sz))
+                for kind, off, vals in ws:
+                    if kind == 'p':
+                        pd = bytes(rnd.getrandbits(8) for _ in range(vals[0])); gpv.append((vs, off, pd)); gpo.append((os_, off, pd))
+                        continue
+                    gb[off:off + 4] = struct.pack('<I', rnd.choice(vals) & M32)[:max(0, sz - off)]
+                    del gb[sz:]
+                gi.append(bytes(gb))
+            ro = run_one(oem, vfn, args, gi, [(v, sz) for v, _, sz, _w in gl], gpv, vendor=True)
+            ru = run_one(our, ofn, args, gi, [(o, sz) for _, o, sz, _w in gl], gpo)
             total += 1
             if ro[4] or ru[4]:
                 diff = 'stopped: vendor %s, ours %s' % (ro[4], ru[4])
@@ -212,6 +265,9 @@ def main():
                 i = next(k for k in range(len(ro[2])) if ro[2][k] != ru[2][k])
                 j = next(k for k in range(len(ro[2][i])) if ro[2][i][k] != ru[2][i][k])
                 diff = 'pointer arg %d byte +%#x vendor %02x ours %02x' % (i, j, ro[2][i][j], ru[2][i][j])
+            elif ro[5] != ru[5]:
+                diff = 'calls vendor %s ours %s' % (['%s(%s)' % (c[0], ','.join(('%#x' % x) if isinstance(x, int) else x for x in c[1:])) for c in ro[5]],
+                                                    ['%s(%s)' % (c[0], ','.join(('%#x' % x) if isinstance(x, int) else x for x in c[1:])) for c in ru[5]])
             elif ro[3] != ru[3]:
                 i = next(k for k in range(len(ro[3])) if ro[3][k] != ru[3][k])
                 diff = 'global %s differs' % gl[i][0]
