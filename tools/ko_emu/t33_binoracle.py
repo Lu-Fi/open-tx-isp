@@ -54,7 +54,7 @@ SPEC: one function per line (from the block's .conf, FUNCS=):
                                 point at parameter blocks
                                 q:OFF:N[:z][:bB=V1,V2..][:@O2=N2]..  (several allowed): like p:, z = zero bytes instead
                                 of random (large list pages); bB=..: byte B of the block one of the values (flags);
-                                @O2=N2: the LE u32 at byte O2 of the block points to N2 random bytes (nested, compared);
+                                @O2=N2[/B=V1,V2..]: the LE u32 at byte O2 of the block points to N2 random bytes (nested, compared; /B=..: byte B of the nested block one of the values);
                                 @O2=N2f: the same from one randbytes call (fast, for large blocks such as a register window)
 Exit 0 = all cases equal, 1 = mismatch (first 5 printed), 2 = setup error.
 Nothing of the vendor module is stored here; point it at your own copy.
@@ -356,7 +356,14 @@ def main():
                                 b, vv = x[1:].split('='); pd[int(b, 0)] = rnd.choice([int(v, 0) for v in vv.split(',')]) & 0xff
                             elif x.startswith('@'):
                                 o2, n2 = x[1:].split('=')
-                                sub.append((int(o2, 0), rnd.randbytes(int(n2[:-1], 0)) if n2.endswith('f') else bytes(rnd.getrandbits(8) for _ in range(int(n2, 0)))))
+                                n2, *nb = n2.split('/')
+                                d2 = rnd.randbytes(int(n2[:-1], 0)) if n2.endswith('f') else bytes(rnd.getrandbits(8) for _ in range(int(n2, 0)))
+                                if nb:
+                                    d2 = bytearray(d2)
+                                    for y in nb:
+                                        bb, vv = y.split('='); d2[int(bb, 0)] = rnd.choice([int(v, 0) for v in vv.split(',')]) & 0xff
+                                    d2 = bytes(d2)
+                                sub.append((int(o2, 0), d2))
                         gpv.append((vs, off, bytes(pd), sub)); gpo.append((os_, off, bytes(pd), sub))
                         continue
                     if kind == 'p':
