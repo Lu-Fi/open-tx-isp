@@ -4,6 +4,10 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD[-rcN]` are set on the `aperto` branch, the same tag in open-tx-isp and OpenIMP: RC1 `v2026.10.11-rc1`, RC2 `v2026.10.25-rc2`, RC3 `v2026.11.07-rc3` (2026-11-07). Gate SoCs of RC3 and Release 1: T10, T20, T21, T23, T30, T31, T40, T41 (T32/T33 planned, QEMU only); release notes: [docs/releases/ in OpenIMP](https://github.com/Lu-Fi/openimp/blob/next/docs/releases/README.md). Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-11-14: user OK for two T33 safety bounds
+
+- docs/BEYOND_VENDOR.md: IQ bin append data bounds (records inside the file, max 8 LSC tables) and the bounded default IQ bin path copy are now "user OK 2026-11-14". No code change.
+
 ## 2026-11-14: T33 LSC table after the IQ bin switch built at the block's own gain and CT (openimp #537; QEMU only, planned)
 
 - `tx-isp-t33.ko`: the LSC block rebuilt at `SET_TIZIANO_PAR` (`t33_sw_tone`, vendor `tisp_lsc_switch_para`) used the shared AE gain and AWB CT of the other blocks (QEMU: gain 0, CT 4174 K), so the DMA table differed from the vendor's from the first word. The vendor takes the block's own gain (info + 0x14) and CT (info + 8), which move only through `tisp_lsc_tgain_update` / `tisp_lsc_ct_update`; both are skipped by the top bypass bit 0x08 on PRJ008, so they stay at the init values (65536, 5000 K). Same now. Evidence: QEMU `-M ingenic-t33` with the stock cv2005 bin, used table (10080 bytes) sum 46e8b5b1 / xor e3a4b859 equal to the vendor `tx-isp-t33.ko` at the same point and mid-run. Not tested on a camera.
