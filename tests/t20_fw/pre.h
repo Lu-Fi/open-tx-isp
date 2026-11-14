@@ -44,6 +44,7 @@ void sema_init(struct semaphore *sem, int val);
 /* the firmware includes this in its kernel-tree block (#267) */
 #include <stdint.h>
 #include "../../driver/t20/tx_isp_t20_ae_max.h"
+#include "../../driver/t20/tx_isp_t20_fsm.h"
 /* module_param() takes the variable's address in the kernel build, so -Os
  * must not drop the (otherwise write-only) statistics variables here either */
 #define module_param(name, type, perm) \
