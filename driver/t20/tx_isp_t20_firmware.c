@@ -5989,43 +5989,16 @@ int32_t selftest_api_revision(int32_t arg1, int32_t arg2, char arg3, int32_t *ar
 /* WHOLE_DRIVER_CANDIDATE fn_000000000001a404 origin=fragment_seed original=selftest_calibration_revision */
 int32_t selftest_calibration_revision(uint32_t a0, uint32_t a1, uint32_t a2, uintptr_t a3)
 {
-    uint32_t ra = 0;
-    uintptr_t v0 = 0;
-    uint32_t v1 = 0;
+	uint32_t *result = (uint32_t *)a3;
 
-    /* fragment 0: Arithmetic */
-    a2 = a2 & 255;
-    v1 = 1;
+	*result = 0;
+	if ((a2 & 255) == 1) {
+		uint32_t date = *(uint16_t *)&sensor_calibration_date;
+		uint32_t no = *(uint8_t *)&sensor_no;
 
-    /* fragment 1: MemoryAccess */
-    *(uint32_t *)((char *)a3 + 0) = 0;
-
-    /* fragment 2: Branch */
-    v0 = 2;
-    if (a2 != v1) { goto selftest_calibration_revision0x38; }
-
-    /* fragment 3: Arithmetic */
-    v0 = (uintptr_t)&sensor_calibration_date;
-
-    /* fragment 4: MemoryAccess */
-    v1 = *(uint16_t *)((char *)((char *)&sensor_calibration_date));
-    v0 = (uintptr_t)&sensor_no;
-    v0 = *(uint8_t *)((char *)((char *)&sensor_no));
-    v1 = v1 << 8;
-    v0 = v0 << 24;
-    v0 = v1 | v0;
-    *(uint32_t *)((char *)a3 + 0) = v0;
-    v0 = 0;
-
-selftest_calibration_revision0x38:
-    /* fragment 5: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    /* fragment 6: Unknown */
-    /* unmatched fragment 6 (Unknown): no deterministic matcher for Unknown */
-    /* asm: 1a440:	00000000 	nop */
-
-    return 0;
+		*result = (date << 8) | (no << 24);
+	}
+	return 0;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000001a444 origin=model_output original=isp_system_state */
@@ -8917,46 +8890,19 @@ exposure_log20x28:
 /* WHOLE_DRIVER_CANDIDATE fn_000000000001e298 origin=fragment_seed original=gain_log2 */
 int32_t gain_log2(uintptr_t a0, uint32_t a1, uint32_t a2, uintptr_t a3)
 {
-    uint32_t ra = 0;
-    uintptr_t v0 = 0;
-    uint32_t v1 = 0;
+	struct t20_isp_ctx *ctx = (struct t20_isp_ctx *)a0;
+	uint32_t *result = (uint32_t *)a3;
 
-    /* fragment 0: Arithmetic */
-    a2 = a2 & 255;
+	*result = 0;
+	if ((a2 & 255) == 1) {
+		uint32_t again = ctx->cmos.sensor_again_log2;
+		uint32_t dgain = ctx->cmos.sensor_dgain_log2;
+		uint32_t sum = again + dgain;
 
-    /* fragment 1: MemoryAccess */
-    *(uint32_t *)((char *)a3 + 0) = 0;
-
-    /* fragment 2: Branch */
-    v0 = 3;
-    if (a2 == 0) { goto gain_log20x40; }
-
-    /* fragment 3: Arithmetic */
-    v0 = 1;
-
-    /* fragment 4: Branch */
-    if (a2 != v0) { goto gain_log20x40; }
-
-    /* fragment 5: MemoryAccess */
-    v1 = *(uint32_t *)((char *)a0 + 716);
-    v0 = *(uint32_t *)((char *)a0 + 720);
-    v0 = v1 + v0;
-    v1 = *(uint32_t *)((char *)a0 + 724);
-    v0 = v0 + v1;
-    v0 = v0 + 32767;
-    v0 = (int32_t)v0 >> 16;
-    *(uint32_t *)((char *)a3 + 0) = v0;
-    v0 = 0;
-
-gain_log20x40:
-    /* fragment 6: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    /* fragment 7: Unknown */
-    /* unmatched fragment 7 (Unknown): no deterministic matcher for Unknown */
-    /* asm: 1e2dc:	00000000 	nop */
-
-    return 0;
+		sum += ctx->cmos.isp_dgain_log2;
+		*result = (int32_t)(sum + 32767) >> 16;
+	}
+	return 0;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000001e2e0 origin=one_off_repair original=apical_api_read_buffer */
@@ -13382,7 +13328,7 @@ int32_t matrix_yuv_update(void *arg1)
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000024fa8 origin=fragment_seed original=matrix_yuv_initialize */
 int32_t matrix_yuv_initialize(uintptr_t a0)
 {
-	uint8_t *dst = (uint8_t *)a0;
+	struct t20_matrix_yuv_regs *regs = (struct t20_matrix_yuv_regs *)a0;
 	uint16_t matrix[12];
 	unsigned int i;
 	int32_t result = 0;
@@ -13391,26 +13337,28 @@ int32_t matrix_yuv_initialize(uintptr_t a0)
 	 * seed used by the working T30/T21 lineage. */
 	memcpy(matrix, t20_matrix_yuv_src, sizeof(matrix));
 
-	dst[0xa2] = 0x80;
-	dst[0xa3] = 0x80;
-	dst[0xa4] = 0x80;
-	*(uint16_t *)(dst + 0xa0) = 0xb4;
-	dst[0xa5] = 0x40;
-	dst[0xa7] = 0x40;
-	dst[0xa6] = 0x40;
-	*(uint16_t *)(dst + 0xf6) = 0x4f;
+	regs->strength[0] = 0x80;
+	regs->strength[1] = 0x80;
+	regs->strength[2] = 0x80;
+	regs->field_a0 = 0xb4;
+	regs->field_a5 = 0x40;
+	regs->field_a7 = 0x40;
+	regs->field_a6 = 0x40;
+	regs->field_f6 = 0x4f;
 
-	for (i = 0; i < ARRAY_SIZE(matrix); i++, dst += 2) {
+	/* "regs" advances by one coefficient (2 bytes) per iteration. */
+	for (i = 0; i < ARRAY_SIZE(matrix); i++,
+	     regs = (struct t20_matrix_yuv_regs *)((uint8_t *)regs + 2)) {
 		uint32_t value = matrix[i];
 
-		*(uint16_t *)(dst + 0x88) = direct_to_complement(value);
-		*(uint16_t *)(dst + 0x40) = direct_to_complement(value);
-		*(uint16_t *)(dst + 0x28) = direct_to_complement(value);
-		*(uint16_t *)(dst + 0x58) = direct_to_complement(value);
-		*(uint16_t *)(dst + 0xaa) = direct_to_complement(value);
-		*(uint16_t *)(dst + 0xc4) = direct_to_complement(value);
+		regs->coef_88[0] = direct_to_complement(value);
+		regs->coef_40[0] = direct_to_complement(value);
+		regs->coef_28[0] = direct_to_complement(value);
+		regs->coef_58[0] = direct_to_complement(value);
+		regs->coef_aa[0] = direct_to_complement(value);
+		regs->coef_c4[0] = direct_to_complement(value);
 		result = direct_to_complement(value);
-		*(uint16_t *)(dst + 0xde) = result;
+		regs->coef_de[0] = result;
 	}
 
 	return result;
@@ -16141,65 +16089,23 @@ void *mem_write_u16(uint8_t *arg1, int16_t arg2)
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000297ac origin=fragment_seed original=mem_write_u32 */
 void* mem_write_u32(uintptr_t a0, uint32_t a1)
 {
-    uint32_t ra = 0;
-    uintptr_t v0 = 0;
-    uint32_t v1 = 0;
+	/* OEM behaviour kept: aligned address writes nothing; 2 writes a
+	 * halfword; 1 and 3 write a byte, a halfword at +1 and a byte at +3. */
+	uintptr_t sel = a0 & 3;
+	int is_two = sel == 2;
+	int is_three = sel == 3;
+	int is_one = sel == 1;
 
-    /* fragment 0: Arithmetic */
-    v0 = a0 & 3;
-    v1 = 2;
-
-    /* fragment 1: Branch */
-    int _bc_v0_1 = v0 == v1;
-    v1 = 3;
-    if (_bc_v0_1) { goto mem_write_u320x28; }
-
-    /* fragment 2: Branch */
-    int _bc_v0_2 = v0 == v1;
-    v1 = 1;
-    if (_bc_v0_2) { goto mem_write_u320x38; }
-
-    /* fragment 3: Branch */
-    int _bc_v0_3 = v0 == v1;
-    v0 = a1 >> 8;
-    if (_bc_v0_3) { goto mem_write_u320x3c; }
-
-    /* fragment 4: Epilogue */
-    /* function epilogue: restore registers and return */
-    return (void*)v0;
-
-    /* fragment 5: MemoryAccess */
-    *(uint32_t *)((char *)a0 + 0) = a1;
-
-mem_write_u320x28:
-    /* fragment 6: MemoryAccess */
-    *(uint16_t *)((char *)a0 + 0) = a1;
-    a1 = a1 >> 16;
-
-    /* fragment 7: Epilogue */
-    /* function epilogue: restore registers and return */
-    return (void*)v0;
-
-    /* fragment 8: MemoryAccess */
-    *(uint16_t *)((char *)a0 + 2) = a1;
-
-mem_write_u320x38:
-    /* fragment 9: Arithmetic */
-    v0 = a1 >> 8;
-
-mem_write_u320x3c:
-    /* fragment 10: MemoryAccess */
-    *(uint8_t *)((char *)a0 + 0) = a1;
-    a1 = a1 >> 24;
-    *(uint16_t *)((char *)a0 + 1) = v0;
-
-    /* fragment 11: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    /* fragment 12: MemoryAccess */
-    *(uint8_t *)((char *)a0 + 3) = a1;
-
-    return (void*)v0;
+	if (is_two) {
+		*(uint16_t *)((char *)a0 + 0) = a1;
+		return (void *)sel;
+	}
+	if (is_three || is_one) {
+		*(uint8_t *)((char *)a0 + 0) = a1;
+		*(uint16_t *)((char *)a0 + 1) = a1 >> 8;
+		*(uint8_t *)((char *)a0 + 3) = a1 >> 24;
+	}
+	return (void *)(uintptr_t)(a1 >> 8);
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000297fc origin=model_output original=apical_sbus_read_u8 */
@@ -16438,130 +16344,44 @@ done:
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000029d5c origin=fragment_seed original=apical_sbus_read_data_u32 */
 static int32_t apical_sbus_read_data_u32(uintptr_t a0, uint32_t a1, uintptr_t a2, uint32_t a3)
 {
-    uint32_t *local_10 = 0;
-    uint32_t local_14 = 0;
-    uint32_t local_18 = 0;
-    uint32_t local_1c = 0;
-    uint32_t local_20 = 0;
-    uint32_t local_24 = 0;
-    uint32_t local_28 = 0;
-    uint32_t local_2c = 0;
-    uint32_t local_30 = 0;
-    uint32_t local_34 = 0;
-    uint32_t ra = 0;
-    uint32_t *s0 = 0;
-    uint32_t *s1 = 0;
-    uint32_t *s2 = 0;
-    uint32_t *s3 = 0;
-    uint32_t s4 = 0;
-    uint32_t s5 = 0;
-    uint32_t s6 = 0;
-    uint32_t s7 = 0;
-    uint32_t s8 = 0;
-    uintptr_t v0 = 0;
-    uintptr_t v1 = 0;
+	uintptr_t sbus = a0;
+	uint32_t addr = a1;
+	uintptr_t buf = a2;
+	uint32_t count = a3;
+	uint32_t mask = *(uint32_t *)((char *)sbus + 0);
+	uint32_t step;
+	uint32_t i = 0;
 
-    /* fragment 0: MemoryAccess */
-    v0 = *(uint32_t *)((char *)a0 + 0);
-    v1 = v0 & 128;
-    local_24 = s5;
-    local_20 = s4;
-    local_1c = s3;
-    local_14 = s1;
-    local_10 = s0;
-    local_34 = ra;
-    local_30 = s8;
-    local_2c = s7;
-    local_28 = s6;
-    local_18 = s2;
-    s3 = a0;
-    s0 = a1;
-    s4 = a2;
-    s5 = a3;
+	if (mask & 128)
+		step = 1;
+	else if (mask & 64)
+		step = 2;
+	else
+		step = 4;
 
-    /* fragment 1: Branch */
-    s1 = 1;
-    if (v1 != 0) { goto apical_sbus_read_data_u320x5c; }
+	if ((buf & 3) == 0) {
+		/* OEM calls through a one-argument pointer here. */
+		uintptr_t (*read1)(uintptr_t) =
+			(uintptr_t (*)(uintptr_t))(uintptr_t)apical_sbus_read_u32;
 
-    /* fragment 2: Arithmetic */
-    v0 = v0 & 64;
-    s1 = 2;
-    v1 = 4;
-    if (v0 == 0) { s1 = v1; }
+		while (i < count) {
+			uintptr_t value = read1(sbus);
 
-apical_sbus_read_data_u320x5c:
-    /* fragment 3: Arithmetic */
-    v0 = s4 & 3;
+			((uint32_t *)buf)[i] = value;
+			addr += step;
+			i++;
+		}
+	} else {
+		while (i < count) {
+			uintptr_t value =
+				((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)apical_sbus_read_u32)(sbus, addr);
 
-    /* fragment 4: Branch */
-    s2 = 0;
-    if (v0 != 0) { goto apical_sbus_read_data_u320x9c; }
-
-    /* fragment 5: Branch */
-    s6 = (uintptr_t)&apical_sbus_read_u32;
-    goto apical_sbus_read_data_u320xdc;
-
-apical_sbus_read_data_u320x70:
-    /* fragment 6: CallSetup */
-    v0 = (uintptr_t)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)apical_sbus_read_u32)(s3, s0); /* jalr target resolved by relocation */
-
-    /* fragment 7: CallSetup */
-    v0 = (uintptr_t)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)mem_write_u32)(s7, v0); /* jalr target resolved by relocation */
-
-    /* fragment 8: Arithmetic */
-    s0 = (uintptr_t)s0 + (uintptr_t)s1;
-
-    /* fragment 9: Branch */
-    s2 = s2 + 1;
-    goto apical_sbus_read_data_u320xa4;
-
-apical_sbus_read_data_u320x9c:
-    /* fragment 10: Arithmetic */
-    s8 = (uintptr_t)&apical_sbus_read_u32;
-    s6 = (uintptr_t)&mem_write_u32;
-
-apical_sbus_read_data_u320xa4:
-    /* fragment 11: Arithmetic */
-    s7 = (uintptr_t)s2 << 2;
-    v0 = s2 < s5;
-
-    /* fragment 12: Branch */
-    s7 = s4 + s7;
-    if (v0 != 0) { goto apical_sbus_read_data_u320x70; }
-
-    /* fragment 13: Branch */
-    goto apical_sbus_read_data_u320xec;
-
-apical_sbus_read_data_u320xbc:
-    /* fragment 14: CallSetup */
-    v0 = (uintptr_t)((uintptr_t (*)(uintptr_t))(uintptr_t)apical_sbus_read_u32)(s3); /* jalr target resolved by relocation */
-
-    /* fragment 15: Arithmetic */
-    v1 = (uintptr_t)s2 << 2;
-    v1 = s4 + v1;
-
-    /* fragment 16: MemoryAccess */
-    *(uint32_t *)((char *)v1 + 0) = v0;
-    s0 = (uintptr_t)s0 + (uintptr_t)s1;
-    s2 = s2 + 1;
-
-apical_sbus_read_data_u320xdc:
-    /* fragment 17: Arithmetic */
-    v0 = s2 < s5;
-
-    /* fragment 18: Branch */
-    a1 = s0;
-    if (v0 != 0) { goto apical_sbus_read_data_u320xbc; }
-
-    /* fragment 19: Epilogue */
-    /* function epilogue: restore registers and return */
-    return (int32_t)v0;
-
-apical_sbus_read_data_u320xec:
-    /* fragment 20: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    return 0;
+			mem_write_u32(buf + (i << 2), value);
+			addr += step;
+			i++;
+		}
+	}
+	return 0;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000029e74 origin=model_output original=apical_sbus_write_u8 */
@@ -18217,46 +18037,27 @@ int32_t ae_calculate_exposure(int32_t *arg1)
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000002be50 origin=fragment_seed original=ae_exposure_correction */
-int32_t ae_exposure_correction(uintptr_t a0, uint32_t a1)
+int32_t ae_exposure_correction(uintptr_t fsm_addr, uint32_t scale)
 {
-    uint32_t local_14 = 0;
-    uint32_t local_18 = 0;
-    uint32_t local_1c = 0;
-    uint32_t ra = 0;
-    uintptr_t *s0 = 0;
-    uint32_t *s1 = 0;
-    uintptr_t v0 = 0;
-    uint32_t v1 = 0;
+	struct t20_fsm_ae *ae = (struct t20_fsm_ae *)fsm_addr;
+	struct t20_isp_ctx *ctx = ae->hdr.isp;
+	uint32_t weight = scale;
+	uintptr_t table;
+	uintptr_t carry;
+	uint32_t lo, hi;
 
-    /* fragment 0: Prologue */
-    /* function prologue: stack frame and callee-saved register setup */
-
-    /* fragment 1: CallSetup */
-    s1 = a1;
-    s0 = a0;
-    v0 = (uintptr_t)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)_GET_HDR_TABLE_INDEX)(146, *(uint8_t *)((char *)(*(uint32_t *)((char *)(a0) + 0)) + 5412)); /* jalr target resolved by relocation */
-
-    /* fragment 2: CallSetup */
-    v0 = (uintptr_t)((uintptr_t (*)(uintptr_t))(uintptr_t)_GET_UINT_PTR)(v0); /* jalr target resolved by relocation */
-
-    /* fragment 3: MemoryAccess */
-    a1 = *(uint32_t *)((char *)v0 + 0);
-    v0 = *(uint32_t *)((char *)s0 + 24);
-    a0 = (uintptr_t)s1 * a1;
-    v1 = *(uint32_t *)((char *)s0 + 28);
-    a1 = a0 + v0;
-    ra = local_1c;
-    v0 = a1 < v0;
-    v0 = v0 + v1;
-    s1 = local_18;
-    *(uint32_t *)((char *)s0 + 24) = a1;
-    *(uint32_t *)((char *)s0 + 28) = v0;
-    s0 = local_14;
-
-    /* fragment 4: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    return 0;
+	/* fsm_addr/scale are reused as scratch (OEM register reuse). */
+	table = _GET_UINT_PTR(_GET_HDR_TABLE_INDEX(146, ctx->general.wdr_mode));
+	scale = *(uint32_t *)table;
+	lo = ae->exposure_correction_lo;
+	fsm_addr = weight * scale;
+	hi = ae->exposure_correction_hi;
+	scale = fsm_addr + lo;
+	carry = scale < lo;
+	carry = carry + hi;
+	ae->exposure_correction_lo = scale;
+	ae->exposure_correction_hi = carry;
+	return 0;
 }
 
 /*
@@ -21389,87 +21190,22 @@ int32_t flash_processing(int32_t *arg1)
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000030300 origin=fragment_seed original=dis_initialize */
 static int32_t __attribute__((unused)) dis_initialize_recovered_broken(uintptr_t a0)
 {
-    uint32_t *local_10 = 0;
-    uint32_t local_24 = 0;
-    uint32_t local_28 = 0;
-    uint32_t local_2c = 0;
-    uint32_t local_30 = 0;
-    uint32_t local_34 = 0;
-    uint32_t local_4c = 0;
-    uint32_t local_50 = 0;
-    uint32_t local_54 = 0;
-    uint32_t a1 = 0;
-    uintptr_t a2 = 0;
-    uint32_t *a3 = 0;
-    uint32_t ra = 0;
-    uintptr_t *s0 = 0;
-    uint32_t *s1 = 0;
-    uintptr_t v0 = 0;
-    uintptr_t v1 = 0;
+	struct t20_fsm_dis *dis = (struct t20_fsm_dis *)a0;
+	int32_t settings[3];
+	uintptr_t settings_addr = a0 + 16;
 
-    /* fragment 0: Prologue */
-    /* function prologue: stack frame and callee-saved register setup */
+	dis_get_default_settings(settings);
+	settings[1] = 1;
 
-    /* fragment 1: CallSetup */
-    s0 = a0;
-    v0 = (uintptr_t)((uintptr_t (*)(uintptr_t))(uintptr_t)dis_get_default_settings)(&local_28); /* jalr target resolved by relocation */
+	if (((int32_t (*)(uintptr_t))(uintptr_t)dis_open)(settings_addr) == 0) {
+		uint32_t ctrl = (uint32_t)APICAL_READ_32(0x20170);
 
-    /* fragment 2: Arithmetic */
-    v0 = 1;
-
-    /* fragment 3: StackAccess */
-    local_24 = v0;
-    a0 = s0 + 16;
-    v0 = 0;
-
-    /* fragment 4: Branch */
-    a1 = (uintptr_t)&local_10;
-    goto dis_initialize0x50;
-
-dis_initialize0x3c:
-    /* fragment 5: Arithmetic */
-    a2 = a3 + v0;
-
-    /* fragment 6: MemoryAccess */
-    a2 = *(uint8_t *)((char *)a2 + 0);
-    v1 = a1 + v0;
-    *(uint8_t *)((char *)v1 + 0) = a2;
-    v0 = v0 + 1;
-
-dis_initialize0x50:
-    /* fragment 7: Arithmetic */
-    v1 = v0 < 20;
-
-    /* fragment 8: Branch */
-    a3 = (uint32_t *)&local_34;
-    if (v1 != 0) { goto dis_initialize0x3c; }
-
-    /* fragment 9: CallSetup */
-    v0 = (uintptr_t)((uintptr_t (*)(uintptr_t))(uintptr_t)dis_open)(a0); /* jalr target resolved by relocation */
-
-    /* fragment 10: Branch */
-    if (v0 != 0) { goto dis_initialize0xd8; }
-
-    /* fragment 11: CallSetup */
-    s1 = 131072;
-    v0 = (uintptr_t)((uintptr_t (*)(uintptr_t))(uintptr_t)APICAL_READ_32)(131072 + 368); /* jalr target resolved by relocation */
-
-    /* fragment 12: CallSetup */
-    v0 = (uintptr_t)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)APICAL_WRITE_32)((uintptr_t)s1 | 368, (v0 & (4294836224 | 65535)) | 65536); /* jalr target resolved by relocation */
-
-    /* fragment 13: CallSetup */
-    *(uint32_t *)((char *)s0 + 12) = 96;
-    v0 = (uintptr_t)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)dis_request_interrupt)(s0, 96); /* jalr target resolved by relocation */
-
-    /* fragment 14: MemoryAccess */
-    *(uint32_t *)((char *)s0 + 6208) = 0;
-    ra = local_54;
-
-dis_initialize0xd8:
-    /* fragment 15: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    return 0;
+		APICAL_WRITE_32(0x20170, (ctrl & 0xfffeffffu) | 0x10000);
+		dis->word_0c = 96;
+		dis_request_interrupt((int32_t *)dis, 96);
+		dis->field_1840 = 0;
+	}
+	return 0;
 }
 
 int32_t dis_initialize(uintptr_t a0)

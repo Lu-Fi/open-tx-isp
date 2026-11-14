@@ -195,7 +195,14 @@ struct t20_fsm_cmos {
 struct t20_fsm_ae {
 	struct t20_fsm_hdr hdr;
 	uint32_t word_0c;
-	uint8_t clear_10[0x18];
+	union {
+		uint8_t clear_10[0x18];
+		struct {
+			uint8_t pad_10[8];
+			uint32_t exposure_correction_lo;	/* 0x18 */
+			uint32_t exposure_correction_hi;	/* 0x1c */
+		};
+	};
 	uint32_t field_28;
 	uint32_t field_2c;
 	uint32_t hist[256];		/* 0x30: full histogram */
@@ -309,7 +316,7 @@ struct t20_fsm_general {
 
 struct t20_fsm_dis {
 	struct t20_fsm_hdr hdr;
-	uint8_t pad_0c[4];
+	uint32_t word_0c;
 	uint32_t field_10;
 	uint32_t field_14;
 	uint32_t field_18;
@@ -317,6 +324,8 @@ struct t20_fsm_dis {
 	uint32_t field_20;
 	uint32_t field_24;
 	uint32_t field_28;
+	uint8_t pad_2c[0x1814];
+	uint32_t field_1840;
 };
 
 struct t20_fsm_crop {
@@ -334,6 +343,28 @@ struct t20_fsm_matrix_yuv {
 	uint8_t field_c2;
 	uint8_t pad_c3[0x19];
 	uint8_t field_dc;
+};
+
+/* Coefficient/gain view of the matrix_yuv FSM written by matrix_yuv_initialize. */
+struct __attribute__((packed, aligned(2))) t20_matrix_yuv_regs {
+	uint8_t pad_00[0x28];
+	uint16_t coef_28[12];
+	uint16_t coef_40[12];
+	uint16_t coef_58[12];
+	uint8_t pad_70[0x18];
+	uint16_t coef_88[12];
+	uint16_t field_a0;
+	uint8_t strength[3];		/* 0xa2 */
+	uint8_t field_a5;
+	uint8_t field_a6;
+	uint8_t field_a7;
+	uint8_t pad_a8[2];
+	uint16_t coef_aa[12];
+	uint8_t pad_c2[2];
+	uint16_t coef_c4[12];
+	uint8_t pad_dc[2];
+	uint16_t coef_de[12];
+	uint16_t field_f6;
 };
 
 struct t20_fsm_defect_pixel {
