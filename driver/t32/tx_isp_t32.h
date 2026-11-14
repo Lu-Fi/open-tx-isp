@@ -272,6 +272,7 @@ void t33_evq_get(void);
 void t33_tgain_refresh(u32 gain);	/* tx_isp_t32_hw.c: event 4 block refreshes */
 void t33_ev_refresh(u32 lo, u32 hi, u32 bv);
 void t33_ct_refresh(u32 ct);
+void t33_refresh_para(u32 mode);	/* tx_isp_t32_hw.c: IQ bin switch (lib_tisp_refresh_para, #504) */
 void t33_evq_free(void);
 int t32_core_sensor_ae_src(const u8 **video_in, const u8 **attr);
 u32 t32_core_sensor_alloc_again(u32 log2_q16, u32 *reg);

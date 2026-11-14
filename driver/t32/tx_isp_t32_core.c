@@ -419,6 +419,11 @@ static int t32_set_tiziano_par(const struct t32_tiziano_par *par)
 	w = (const u32 *)CKSEG1ADDR(pa);
 	isp_printf(0, "tx-isp-t32: IQ parameters at pa %#x: %08x %08x %08x %08x \n",
 		   pa, w[0], w[1], w[2], w[3]);
+#ifdef TX_ISP_T33
+	/* lib_tisp_refresh_para: a bin handed over while the ISP runs (ispInitFinish) is switched to (#504) */
+	if (par->vinum == 0 && core.vi[0].streaming)
+		t33_refresh_para(par->night & 0xff);
+#endif
 	return 0;
 }
 
