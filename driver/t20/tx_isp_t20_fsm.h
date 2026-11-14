@@ -196,7 +196,13 @@ struct t20_fsm_ae {
 	struct t20_fsm_hdr hdr;
 	uint32_t word_0c;
 	union {
-		uint8_t clear_10[0x18];
+		union {
+		uint8_t clear_10[0x18];		/* zeroed by AE_fsm_clear */
+		struct {
+			int32_t target_log2;	/* 0x10: ae_calculate_target */
+			uint32_t exposure_log2;	/* 0x14 */
+		};
+	};
 		struct {
 			uint8_t pad_10[8];
 			uint32_t exposure_correction_lo;	/* 0x18 */
@@ -378,14 +384,10 @@ struct t20_fsm_noise_reduction {
 	struct t20_fsm_hdr hdr;		/* body: struct tx_isp_t20_nr_state */
 };
 
-/* Outer firmware object; the ISP context below lives in it at +0x18. */
-struct t20_fw_outer {
-	uint32_t pad_00;
-	uint32_t irq_locked;		/* 0x04: caller already holds the IRQ lock */
-};
+struct t20_fw_outer;
 
 /*
- * The Apical ISP context ("fsm manager", 0x2fd0 bytes): every FSM object
+ * The Apical ISP context ("fsm manager", 0x2fb8 bytes): every FSM object
  * at the place where the OEM apical_isp_init() (0x269d0) sets it up.  Each
  * FSM's hdr.isp points back at this context.
  */
@@ -412,8 +414,27 @@ struct t20_isp_ctx {
 	T20_CTX_FSM(t20_fsm_matrix_yuv, matrix_yuv, 0x130);	/* 0x2d74 */
 	uint8_t event_queue[0x10];				/* 0x2ea4: loop buffer */
 	uint8_t event_queue_data[0x100];			/* 0x2eb4 */
-	uint8_t pad_2fb4[0x1c];
+	uint8_t pad_2fb4[4];
 };
+
+/*
+ * The firmware object (apical_get_fw(), 0x2fd0 bytes with one ISP): a
+ * 0x18-byte head and the ISP contexts; isp[n].fw points back at it.
+ */
+struct t20_fw_outer {
+	uint32_t isp_index;		/* 0x00: context the command API uses */
+	uint32_t irq_locked;		/* 0x04: caller already holds the IRQ lock */
+	uint32_t word_08;
+	void *event_sem;		/* 0x0c */
+	uint8_t pad_10[2];
+	uint8_t hflip;			/* 0x12 */
+	uint8_t pad_13;
+	uint8_t vflip;			/* 0x14 */
+	uint8_t pad_15[3];
+	struct t20_isp_ctx isp[1];	/* 0x18 */
+};
+_Static_assert(__builtin_offsetof(struct t20_fw_outer, isp) == 0x18, "t20_fw_outer.isp");
+_Static_assert(sizeof(struct t20_fw_outer) == 0x2fd0, "t20_fw_outer size");
 
 #define T20_CTX_AT(member, offset) \
 	_Static_assert(__builtin_offsetof(struct t20_isp_ctx, member) == (offset), \
@@ -456,7 +477,7 @@ T20_CTX_AT(dis, 0x152c);
 T20_CTX_AT(matrix_yuv, 0x2d74);
 T20_CTX_AT(event_queue, 0x2ea4);
 T20_CTX_AT(event_queue_data, 0x2eb4);
-_Static_assert(sizeof(struct t20_isp_ctx) == 0x2fd0, "t20_isp_ctx size");
+_Static_assert(sizeof(struct t20_isp_ctx) == 0x2fb8, "t20_isp_ctx size");
 
 /* Ring entry "frame" steps after the newest one (negative = older). */
 void *cmos_get_frame_exposure_set(void *cmos, int32_t frame);

@@ -16,6 +16,12 @@ marked otherwise. Release tags `vYYYY.MM.DD[-rcN]` are set on the `aperto` branc
 ## 2026-11-14: docs: three T31 beyond-vendor rows (user OK 2026-11-14; openimp #532, #533)
 
 - `docs/BEYOND_VENDOR.md`: span 1 for a zero-width CCM / BCSH interpolation segment (vendor divides by zero), the BCSH EV / CT fallback from the tuning state before the first event, and the `wdr_ready` check before `tisp_wdr_ev_update`. Docs only.
+## 2026-11-14: T10/T20 firmware de-lift: API status codes of exposure_log2 / selftest_isp_interface as the vendor, histogram reader, ROI windows, AWB mesh on named structs (openimp #539; host, T10 cam run pending)
+
+- Fix (vendor-equal): `exposure_log2` (API 6/0x80) and `selftest_isp_interface` (API 0/2) returned status 0 for every call because the fragment recovery dropped the result register. Now as the vendor: `exposure_log2` SET -> 3, unknown direction -> 1, GET -> 0 (compiled code identical to the vendor 0x1da98, 12 instructions); `selftest_isp_interface` not GET -> 2, register 0x10 pattern test failed -> 5, else 0 (vendor 0x18ed0). `apical_command` changes only through the inlined callees.
+- `driver/t20/tx_isp_t20_fsm.h`: `struct t20_fw_outer` is the whole firmware object (selected ISP index, IRQ lock flag, event semaphore, hflip / vflip, ISP contexts at +0x18); `struct t20_isp_ctx` is 0x2fb8 bytes (the 0x2fd0 of the first version included the 0x18-byte head); AE `target_log2` / `exposure_log2`.
+- Readable C, no behaviour change: `ae_read_full_histogram_data`, `ae_calculate_target`, `ae_roi_part_1`, `awb_roi_part_2`, `apical_command` (context = `&fw->isp[fw->isp_index]`), `get_exp`, `AWB_mesh`, `AWB_mesh_LUT`, `mesh_AWB_getKnownSourceLight_weight_LUT`.
+- Proof: T10 and T20 firmware objects 433 of 439 functions identical. Differing: the two fixed functions (+ `.part.0`) and `apical_command` (inlines them; with the old callee bodies it differs only in the order of two additions), `ae_calculate_target` (operands of two `addu` swapped), `ae_read_full_histogram_data` (same loops, other constant folding / register choice, 64 instead of 63 instructions). `tests/t20_fw` delift oracle identical (all scenarios), vdiff against the vendor `tx-isp-t10.ko` 0 differing, `make -C tests check` green, mutant caught.
 
 ## 2026-11-14: T31 interpolation helpers and tiziano_bcsh_update vendor-equal, oracle-proven (openimp #533; host only, device check planned)
 
