@@ -4,6 +4,10 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD[-rcN]` are set on the `aperto` branch, the same tag in open-tx-isp and OpenIMP: RC1 `v2026.10.11-rc1`, RC2 `v2026.10.25-rc2`, RC3 `v2026.11.07-rc3` (2026-11-07). Gate SoCs of RC3 and Release 1: T10, T20, T21, T23, T30, T31, T40, T41 (T32/T33 planned, QEMU only); release notes: [docs/releases/ in OpenIMP](https://github.com/Lu-Fi/openimp/blob/next/docs/releases/README.md). Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-11-14: user OK for seven earlier beyond-vendor behaviours
+
+- docs/BEYOND_VENDOR.md: T21 brightness, T21 AWB hysteresis/IR freeze, T21 open rollback, T21 MDNS guard, CSC presets and front crop, scene/colour effects, T10/T20 anti-fog/DPC/mesh/sinter-temper ratio now "user OK 2026-11-14". No code change.
+
 ## 2026-11-14: docs: T10/T20 DRC row approved, t40_ysp_on parameter text
 
 - `docs/BEYOND_VENDOR.md`: the T10/T20 DRC strength part (auto Iridix strength) is user OK 2026-11-14, kept; the other parts of that row and seven more rows stay "to confirm". `MODULE_PARM_DESC(t40_ysp_on)` said default 0, the code default is 1 (true): text only.
