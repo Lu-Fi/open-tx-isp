@@ -267,18 +267,20 @@ static inline void t33_bcsh_ev(u8 *st, const u8 *sec, unsigned long long ev)
  * Mode sec[0x4a2]: 0 unit matrix, 1 the knots, 2 the matrix at sec + 0x68, else the old one; then into
  * st + 0x15c and, with sec[0x4a6] == 1, into st + 0x1d4.
  */
-static inline void t33_bcsh_ct(u8 *st, const u8 *sec, const u8 *lut, int ct)
+static inline int t33_bcsh_ct_interp(u8 *st, const u8 *sec, const u8 *lut, int ct, int force)
 {
 	u8 *dst = st + 0xe8;
-	int n = sec[0x4bf], i, j, k, seg = 0, m;
+	int n = sec[0x4bf], i, j, k, seg = 0, m, d;
 	const u8 *src = NULL;
 
 #define KCT(i)	t33_s32(lut + 40 * (i))
 #define HY(i)	((int)t32_tp_le16(sec + 0x8c + 2 * (i)))
 	if (sec[0x4a3] != 1 && (sec[0x4a3] != 0 || sec[0x4a4] > 1) && st[0x1d0]) {
+		if (!force)
+			return 1;
 		memcpy(dst, st + 0x1d4, 0x24);
 		memcpy(st + 0x15c, dst, 0x24);
-		return;
+		return 0;
 	}
 	if (HY(0) + KCT(0) < ct) {
 		if (KCT(n - 1) - HY(n - 1) <= ct) {
@@ -297,6 +299,14 @@ static inline void t33_bcsh_ct(u8 *st, const u8 *sec, const u8 *lut, int ct)
 				}
 			}
 		}
+	}
+	/* not forced (tisp_bcsh_ct_update): keep the old words in an even segment or within the hysteresis sec + 0xac */
+	if (!force) {
+		if ((u32)seg == t33_le32(st + 0x24) && !(seg & 1))
+			return 1;
+		d = ct - (int)t33_le32(st + 0x20);
+		if ((d < 0 ? -d : d) <= (int)t32_tp_le16(sec + 0xac))
+			return 1;
 	}
 	t32_bcsh_p32(st, 0x20, (u32)ct);
 	t32_bcsh_p32(st, 0x24, (u32)seg);
@@ -348,14 +358,42 @@ static inline void t33_bcsh_ct(u8 *st, const u8 *sec, const u8 *lut, int ct)
 	memcpy(st + 0x15c, dst, 0x24);
 	if (sec[0x4a6] == 1)
 		memcpy(st + 0x1d4, dst, 0x24);
+	return 0;
+}
+
+static inline void t33_bcsh_ct(u8 *st, const u8 *sec, const u8 *lut, int ct)
+{
+	t33_bcsh_ct_interp(st, sec, lut, ct, 1);
+}
+
+/* tisp_bcsh_calc_para_refresh(2): the hue part only (hue byte cp + 0xb6, tisp_bcsh_adjust_hue into cp + 0xdc) */
+static inline void t33_bcsh_hue(u8 *st, const u8 *sec)
+{
+	u8 *cp = st + 0x30, *ap = st + 0x1cc;
+	int m1[9], m2[9], mat[9], hm[9], i;
+	u32 hue;
+
+	if (sec[0x4a8] == 1 || (sec[0x4a8] == 0 && sec[0x4a9] != 2))
+		hue = sec[0x4a7] ? sec[0x4ac] : 0x80;
+	else
+		hue = ap[3];
+	cp[0xb6] = (u8)hue;
+	for (i = 0; i < 9; i++) {
+		m1[i] = t32_bcsh_s32(ap, 0x30 + 4 * i);
+		m2[i] = t32_bcsh_s32(ap, 0x5c + 4 * i);
+		mat[i] = t32_bcsh_s32(cp, 0xb8 + 4 * i);
+	}
+	t32_bcsh_hue(hue, mat, m1, m2, hm);
+	for (i = 0; i < 9; i++)
+		t32_bcsh_p32(cp, 0xdc + 4 * i, (u32)hm[i]);
 }
 
 /* tisp_bcsh_calc_para_refresh(0) */
 static inline void t33_bcsh_calc(u8 *st, const u8 *sec)
 {
 	u8 *cp = st + 0x30, *ap = st + 0x1cc;
-	int m[9], m1[9], m2[9], mat[9], hm[9], in[3], o[3], d, v, p, i;
-	u32 x[9], y[9], ox[9], oy[9], u7, hue;
+	int m[9], in[3], o[3], d, v, p, i;
+	u32 x[9], y[9], ox[9], oy[9], u7;
 
 	if (st[0x2b] == 1)	/* the API RGB offset (tisp_bcsh_api_set_offset_rgb: st + 0x254) wins */
 		for (i = 0; i < 3; i++)
@@ -425,20 +463,7 @@ static inline void t33_bcsh_calc(u8 *st, const u8 *sec)
 		}
 		t32_bcsh_p16(cp, 2 * (p + 9), t32_bcsh_clip(v, 0, 0x7fff));
 	}
-	/* hue */
-	if (sec[0x4a8] == 1 || (sec[0x4a8] == 0 && sec[0x4a9] != 2))
-		hue = sec[0x4a7] ? sec[0x4ac] : 0x80;
-	else
-		hue = ap[3];
-	cp[0xb6] = (u8)hue;
-	for (i = 0; i < 9; i++) {
-		m1[i] = t32_bcsh_s32(ap, 0x30 + 4 * i);
-		m2[i] = t32_bcsh_s32(ap, 0x5c + 4 * i);
-		mat[i] = t32_bcsh_s32(cp, 0xb8 + 4 * i);
-	}
-	t32_bcsh_hue(hue, mat, m1, m2, hm);
-	for (i = 0; i < 9; i++)
-		t32_bcsh_p32(cp, 0xdc + 4 * i, (u32)hm[i]);
+	t33_bcsh_hue(st, sec);
 	d = (int)t32_tp_le16(sec + 0xe0) - (int)t32_tp_le16(sec + 0xde);
 	t32_bcsh_p16(cp, 6, t32_bcsh_clip(d > 0 ? ((d >> 1) + 0x1000) / d : 0, 0, 0x3ff));
 	/* RGB offsets */
@@ -614,6 +639,25 @@ static inline void t33_bcsh_switch_para(u8 *sec, const u8 *lut, u8 *st, u32 *l)
  * vendor's mode 1 skips the hue / saturation parts, which the EV does not
  * change).  Returns 1 when the words were rebuilt.
  */
+/*
+ * tisp_bcsh_ct_update (AWB event 11 through tisp_ct_update, when the top
+ * bypass bit 0x4000 is clear): tisp_bcsh_interp_by_ct (not forced) at ct,
+ * the frame counter st + 0x29, then on a new matrix
+ * tisp_bcsh_calc_para_refresh(2) (the hue part), params_transform and the
+ * slot stores into l.  Returns 1 when the words were rebuilt.
+ */
+static inline int t33_bcsh_ct_update(u8 *st, const u8 *sec, const u8 *lut, int ct, u32 *l)
+{
+	int r = t33_bcsh_ct_interp(st, sec, lut, ct, 0);
+
+	st[0x29] = st[0x29] == 0xff ? 0 : st[0x29] + 1;
+	if (r)
+		return 0;
+	t33_bcsh_hue(st, sec);
+	t33_bcsh_store(st, sec, l);
+	return 1;
+}
+
 static inline int t33_bcsh_ev_update(u8 *st, const u8 *sec, u32 lo, u32 hi, u32 *l)
 {
 	unsigned long long n, o, d;

@@ -102,6 +102,49 @@ static inline int t33_clm_ct(const u8 *sec, const u8 *lut, u32 lutbytes, int ct,
 	return 0;
 }
 
+/* the knot segment of tisp_clm_ct_interp: 2k on knot k, 2k + 1 between k and k + 1, n outside */
+static inline int t33_clm_seg(const u8 *sec, const u8 *lut, int ct)
+{
+	int n = sec[0x3b], i;
+
+#define KCT(k)	((int)(s16)t32_tp_le16(lut + (k) * T33_CLM_KNOT16))
+#define HY(k)	((int)t32_tp_le16(sec + 0x1a + 2 * (k)))
+	if (n < 1 || !(KCT(0) + HY(0) < ct) || !(ct < KCT(n - 1) - HY(n - 1)))
+		return KCT(0) + HY(0) < ct ? n : 0;
+	for (i = 1; i < n; i++) {
+		if (ct < KCT(i) - HY(i)) {
+			if (KCT(i - 1) + HY(i - 1) < ct)
+				return (2 * (i - 1) + 1) & 0xff;
+		} else if (ct <= KCT(i) + HY(i)) {
+			return (2 * i) & 0xff;
+		}
+	}
+	return n;
+#undef KCT
+#undef HY
+}
+
+/*
+ * tisp_clm_ct_interp not forced (tisp_clm_ct_update): keep the old tables
+ * (return 1) when the CT stays in the kept even segment *seg or within the
+ * hysteresis hy (clm_info u16 + 0x898) of the kept CT *last (clm_info word
+ * 0x18, the distance taken unsigned as the vendor); else keep ct and its
+ * segment and return 0 (the caller interpolates, t33_clm_ct, and writes).
+ */
+static inline int t33_clm_ct_gate(const u8 *sec, const u8 *lut, int ct, u32 *last, u8 *seg, u32 hy)
+{
+	int s = t33_clm_seg(sec, lut, ct);
+	u32 d = (u32)ct <= *last ? *last - (u32)ct : (u32)ct - *last;
+
+	if (*seg == (u8)s && !(s & 1))
+		return 1;
+	if ((int)d <= (int)hy)
+		return 1;
+	*last = (u32)ct;
+	*seg = (u8)s;
+	return 0;
+}
+
 /* tisp_round_int64(x, 6), then the absolute value */
 static inline u32 t33_clm_r6(int x)
 {

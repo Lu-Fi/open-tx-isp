@@ -1320,7 +1320,10 @@ static noinline_for_stack void t33_tisp_init_awb(const u8 *bin, u32 bytes)
  */
 #define T33_GAIN_THR	0x100U
 static u32 t33_gr_last[T33_MODULES], t33_gr_ev = T33_INIT_EV;
-static int t33_clm_ct_last = T33_CCM_INIT_CT, t33_clm_seg_last = -1;	/* tisp_clm_ct_interp state */
+static u32 t33_clm_ct_last = T33_CCM_INIT_CT;	/* tisp_clm_ct_interp state */
+static int t33_clm_seg_last = -1;
+static u8 t33_clm_seg_b;
+static int t33_ct_last[2];	/* tisp_ct_update: the vendor's ct_last of channel 0 */
 static DEFINE_MUTEX(t33_gr_lock);
 static u32 *t33_gr_tmp;
 u32 t33_gr_runs[T33_MODULES];
@@ -1343,6 +1346,7 @@ static void t33_gref_reset(void)
 	t33_gr_ev = T33_INIT_EV;
 	t33_clm_ct_last = T33_CCM_INIT_CT;
 	t33_clm_seg_last = -1;
+	t33_ct_last[0] = t33_ct_last[1] = 0;
 	t33_bst_reset();
 }
 
@@ -1565,42 +1569,12 @@ void t33_ev_refresh(u32 lo, u32 hi, u32 bv)
  */
 static u32 t33_ccm_save[T33_CCM_WORDS];
 
-/* the knot segment of tisp_clm_ct_interp: 2k on knot k, 2k + 1 between k and k + 1 */
-static int t33_clm_seg(const u8 *sec, const u8 *lut, int ct)
+/* tisp_ccm_ct_update */
+static void t33_ctup_ccm(const u8 *bin, u32 bytes, u32 ct)
 {
-	int n = sec[0x3b], i;
+	u32 off, len, *buf;
+	int d;
 
-#define KCT(k)	((int)(s16)t32_tp_le16(lut + (k) * T33_CLM_KNOT16))
-#define HY(k)	((int)t32_tp_le16(sec + 0x1a + 2 * (k)))
-	if (n < 1 || !(KCT(0) + HY(0) < ct) || !(ct < KCT(n - 1) - HY(n - 1)))
-		return KCT(0) + HY(0) < ct ? n : 0;
-	for (i = 1; i < n; i++) {
-		if (ct < KCT(i) - HY(i)) {
-			if (KCT(i - 1) + HY(i - 1) < ct)
-				return (2 * (i - 1) + 1) & 0xff;
-		} else if (ct <= KCT(i) + HY(i)) {
-			return (2 * i) & 0xff;
-		}
-	}
-	return n;
-#undef KCT
-#undef HY
-}
-
-void t33_ct_refresh(u32 ct)
-{
-	const u8 *bin;
-	u32 bytes, off, len, coff, clen, *buf;
-	int seg, d;
-
-	ACCESS_ONCE(t33_sw_ct) = ct;
-	if (t32_core_iq_bin(&bin, &bytes))
-		return;
-	mutex_lock(&t33_gr_lock);
-	if (!t33_gr_tmp)
-		t33_gr_tmp = kmalloc(T33_SLOT_WORDS * 4, GFP_KERNEL);
-	if (!t33_gr_tmp)
-		goto out;
 	off = t32_iq_section(bin, bytes, T33_SEC_CCM, &len);
 	if (off && len == T33_CCM_SEC_BYTES && (t33_mod_built & (1ULL << T33_MOD_CCM)) &&
 	    (buf = t33_mod_buf(T33_MOD_CCM))) {
@@ -1615,25 +1589,77 @@ void t33_ct_refresh(u32 ct)
 		/* no calc_para_refresh here: write_reg stores the unchanged matrix words; tispCcmRefresh */
 		t33_gr_rerun(T33_MOD_CCM);
 	}
+}
+
+/* tisp_bcsh_ct_update (block bcshct): interp_by_ct not forced, calc_para_refresh(2), the slot stores */
+static void t33_ctup_bcsh(const u8 *bin, u32 bytes, u32 ct)
+{
+	u32 off, len, *buf;
+
+	off = t32_iq_section(bin, bytes, T33_SEC_BCSH, &len);
+	if (off && len == T33_BCSH_SEC_BYTES && (t33_mod_built & (1ULL << T33_MOD_BCSH)) &&
+	    (buf = t33_mod_buf(T33_MOD_BCSH))) {
+		memcpy(t33_gr_tmp, buf, T33_SLOT_WORDS * 4);
+		if (t33_bcsh_ct_update(t33_bcsh_st, t33_bcsh_sec, bin + off + len, (int)ct, t33_gr_tmp))
+			t33_gr_commit(T33_MOD_BCSH, 1);
+	}
+}
+
+/* tisp_clm_ct_update (block clmct): tisp_clm_ct_interp not forced (hysteresis 1), then write_reg */
+static void t33_ctup_clm(const u8 *bin, u32 bytes, u32 ct)
+{
+	u32 off, len, coff, clen;
+
 	off = t32_iq_section(bin, bytes, T33_SEC_CLM, &len);
 	coff = t32_iq_section(bin, bytes, T32_IQ_SEC_CSC, &clen);
 	if (off && len == T33_CLM_SEC_BYTES && coff && clen == T32_CSC_BYTES) {
 		const u8 *sec = bin + off, *lut = bin + off + len;
 		u32 lb = t32_iq_payload(sec, bytes - off, T33_SEC_CLM);
 
-		seg = t33_clm_seg(sec, lut, (int)ct);
-		d = (int)ct - t33_clm_ct_last;
 		if (t33_clm_seg_last < 0)
-			t33_clm_seg_last = t33_clm_seg(sec, lut, t33_clm_ct_last);
-		if (!((seg == t33_clm_seg_last && !(seg & 1)) || (d < 0 ? -d : d) <= 1)) {
-			t33_clm_ct_last = (int)ct;
-			t33_clm_seg_last = seg;
+			t33_clm_seg_last = t33_clm_seg(sec, lut, (int)t33_clm_ct_last);
+		t33_clm_seg_b = (u8)t33_clm_seg_last;
+		if (!t33_clm_ct_gate(sec, lut, (int)ct, &t33_clm_ct_last, &t33_clm_seg_b, 1)) {
+			t33_clm_seg_last = t33_clm_seg_b;
 			memset(t33_gr_tmp, 0, T33_SLOT_WORDS * 4);
 			t33_gr_commit(T33_MOD_CLM, t33_clm_init(sec, lut, lb, bin + coff, (int)ct, t33_gr_tmp,
 								T33_SLOT_WORDS));
 		}
 	}
-out:
+}
+
+static const u8 *t33_ctup_bin;
+static u32 t33_ctup_bytes;
+
+#define T33_CTUP_HOOKS
+#define T33_CTUP_BYPASS(ch)		t33_top_byp
+#define T33_CTUP_CCM(ch, x, ct, c2)	t33_ctup_ccm(t33_ctup_bin, t33_ctup_bytes, (u32)(ct))
+#define T33_CTUP_LSC(ch, x, ct, c2)	do { } while (0)	/* LSC CT update not ported (words unchanged on PRJ008) */
+#define T33_CTUP_BCSH(ch, x, ct, c2)	t33_ctup_bcsh(t33_ctup_bin, t33_ctup_bytes, (u32)(ct))
+#define T33_CTUP_CLM(ch, x, ct, c2)	t33_ctup_clm(t33_ctup_bin, t33_ctup_bytes, (u32)(ct))
+#include "tx_isp_t33_ctup.h"
+
+/*
+ * tisp_ct_update (AWB event 11, block ctup): each CT update runs only when
+ * its top bypass bit is clear (CCM 0x80, LSC 8, BCSH 0x4000, CLM 0x8000;
+ * PRJ008 day and night 0x00e4c098 skip all four, openimp #507).
+ */
+void t33_ct_refresh(u32 ct)
+{
+	const u8 *bin;
+	u32 bytes;
+
+	ACCESS_ONCE(t33_sw_ct) = ct;
+	if (t32_core_iq_bin(&bin, &bytes))
+		return;
+	mutex_lock(&t33_gr_lock);
+	if (!t33_gr_tmp)
+		t33_gr_tmp = kmalloc(T33_SLOT_WORDS * 4, GFP_KERNEL);
+	if (t33_gr_tmp) {
+		t33_ctup_bin = bin;
+		t33_ctup_bytes = bytes;
+		t33_ct_update(0, 0, (int)ct, 0, t33_ct_last);
+	}
 	mutex_unlock(&t33_gr_lock);
 }
 

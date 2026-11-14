@@ -422,8 +422,12 @@ static int t32_set_tiziano_par(const struct t32_tiziano_par *par)
 		   pa, w[0], w[1], w[2], w[3]);
 #ifdef TX_ISP_T33
 	/* lib_tisp_refresh_para: a bin handed over while the ISP runs (ispInitFinish) is switched to (#504) */
-	if (par->vinum == 0 && core.vi[0].streaming)
+	if (par->vinum == 0 && core.vi[0].streaming) {
 		t33_refresh_para(par->night & 0xff);
+		/* then lib_tisp_set_csccr(vinum, night) when the request asks for it (CSCCR UV clip, #507) */
+		if (par->update_csccr)
+			t33_set_csccr(par->vinum, par->night & 0xff);
+	}
 #endif
 	return 0;
 }
