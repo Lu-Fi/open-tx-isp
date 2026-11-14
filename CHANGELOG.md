@@ -4,6 +4,12 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD[-rcN]` are set on the `aperto` branch, the same tag in open-tx-isp and OpenIMP: RC1 `v2026.10.11-rc1`, RC2 `v2026.10.25-rc2`, RC3 `v2026.11.07-rc3` (2026-11-07). Gate SoCs of RC3 and Release 1: T10, T20, T21, T23, T30, T31, T40, T41 (T32/T33 planned, QEMU only); release notes: [docs/releases/ in OpenIMP](https://github.com/Lu-Fi/openimp/blob/next/docs/releases/README.md). Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-11-14: T33 wiring group 3: DMSC / YSP switch_para run the proven vendor ports (openimp #99, #504; host + QEMU)
+
+- `lib_tisp_refresh_para` now calls `tisp_dmsc_switch_para` (`tx_isp_t33_swdmsc.h`) and `tisp_ysp_switch_para` (`tx_isp_t33_swysp.h`) through `tx_isp_t33_swglue.h`; only MDNS is still rebuilt by the forced gain refresh. Glue: dmscInfo words 670..672 (section, gain, sharpness 0x80 = the vendor init value; the T33 path has no ratio API), yspInfo words 543 / 544 and `ysp_paramsP` (section copy), `tisp_dmsc_bin_par_update` / `func_dmsc_para_update` / `tisp_ysp_bin_data_refresh` / `tisp_ysp_reg_data_refresh` = the init helpers, `tisp_ratio` = `t32_dmsc_ratio`, `tisp_mdns_decode_reg_write` = the bst decode.
+- `tx_isp_t33_swysp.h`: `struct t33_swysp_ops`, `t33_swysp_p6` / `_q4` (name clashes with the frame-done port).
+- Proof: QEMU -M ingenic-t33 day + night: lists 9 / 14 equal to the fresh vendor run; all other lists equal to group 2 except BCSH list 18 EV words (a few LSB; list 18 differs between vendor runs too, AE timing) and CCM list 10 (1-3 LSB, CT timing). rmmod / insmod ok, 0 oops; oracle blocks sw-dmsc / sw-ysp pass; `tx-isp-t32.ko` code identical; make check passes.
+
 ## 2026-11-14: T33 wiring group 2: CDNS / RDNS switch_para and the RDNS EV update run the proven vendor ports (openimp #99, #504; host + QEMU)
 
 - `lib_tisp_refresh_para` now also calls `tisp_cdns_switch_para` (`tx_isp_t33_swcdns.h`) and `tisp_rdns_switch_para` (`tx_isp_t33_swrdns.h`, vendor order after LCE) through `tx_isp_t33_swglue.h`; the forced gain refresh no longer rebuilds lists 21 / 3. Glue: cdnsInfo bytes 432 / 436 and rdnsInfo words 208..210 (section, gain, EV) kept by the par refresh and init, `func_rdns_bin_para_update` / `func_rdns_para_update` (with the BLC / DG list reads) / `func_cdns_para_update` = the proven rdnspar helpers.

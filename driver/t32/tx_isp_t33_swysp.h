@@ -14,7 +14,7 @@
 #define T33_YSP_SEC	0x907c
 #define T33_YSP_SEC_LEN	2724
 
-struct t33_ysp_ops {
+struct t33_swysp_ops {
 	void (*copy)(void *dst, const void *src, u32 n);
 	void (*bin_refresh)(u32 ch);
 	void (*reg_refresh)(u32 ch);
@@ -58,12 +58,12 @@ static inline void t33_ysp_interp(u32 *v, const u8 *s, u32 gain)
 		t33_ysp_put(v, s, i, f, 1903 + 11 * k, 748 + 4 * k, 0);
 }
 
-static inline u32 t33_ysp_p6(u32 lo, u32 b8, u32 b16, u32 b24)
+static inline u32 t33_swysp_p6(u32 lo, u32 b8, u32 b16, u32 b24)
 {
 	return (lo & 0x3f) | ((b8 & 0x3f) << 8) | ((b16 & 0x3f) << 16) | ((b24 & 0x3f) << 24);
 }
 
-static inline u32 t33_ysp_q4(u32 b0, u32 w8, u32 b16, u32 w24)
+static inline u32 t33_swysp_q4(u32 b0, u32 w8, u32 b16, u32 w24)
 {
 	return (b0 & 0xff) | ((w8 << 8) & 0xffff) | ((b16 & 0xff) << 16) | (w24 << 24);
 }
@@ -71,9 +71,9 @@ static inline u32 t33_ysp_q4(u32 b0, u32 w8, u32 b16, u32 w24)
 #define R(o)	(v[(o) >> 2])
 #define W(slot, reg, val) \
 	o->reg_write(ch, 14, mode ? (slot) : 0x10000 + (reg), (val))
-#define P6(a, b, c, d)	t33_ysp_p6(R(a), R(b), R(c), R(d))
-#define Q4(a, b, c, d)	t33_ysp_q4(R(a), R(b), R(c), R(d))
-#define R3(a, b, c)	t33_ysp_q4(R(a), R(b), R(c), 0)
+#define P6(a, b, c, d)	t33_swysp_p6(R(a), R(b), R(c), R(d))
+#define Q4(a, b, c, d)	t33_swysp_q4(R(a), R(b), R(c), R(d))
+#define R3(a, b, c)	t33_swysp_q4(R(a), R(b), R(c), 0)
 #define V6	(((R(1080) & 1) << 16) | ((R(1084) & 0x1ff) << 20) | (R(1076) & 0xff))
 #define V10	(((R(1108) & 0x7f) << 8) | ((R(1112) & 3) << 16) | (R(1100) & 0x7f))
 #define V18	((R(1196) & 0xff) | ((R(1200) << 8) & 0xffff) | ((R(1204) & 3) << 24))
@@ -83,7 +83,7 @@ static inline u32 t33_ysp_q4(u32 b0, u32 w8, u32 b16, u32 w24)
  * tisp_ysp_switch_para: v = yspInfo[ch] (word array), tp = tparamsP[ch], params = ysp_paramsP[ch],
  * mode = yspCfgMode, refresh = tispYspRefresh.  Returns 0.
  */
-static inline int t33_ysp_switch_para(const struct t33_ysp_ops *o, u32 ch, u8 *tp, u8 *params, u32 *v,
+static inline int t33_ysp_switch_para(const struct t33_swysp_ops *o, u32 ch, u8 *tp, u8 *params, u32 *v,
 				      u32 mode, u8 *refresh)
 {
 	const u8 *sec = tp + T33_YSP_SEC;

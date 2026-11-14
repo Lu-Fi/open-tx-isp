@@ -25,7 +25,7 @@ static int w_dma(u32 id) { return tisp_rcfg_get_dma_state(id); }
 static void w_write(u32 ch, u32 id, u32 slot, u32 val) { tisp_reg_write_t33(ch, id, slot, val); }
 static void w_mdns(u32 ch, u32 *info) { tisp_mdns_decode_reg_write(ch, info); }
 
-static const struct t33_ysp_ops ops = { w_copy, w_bin, w_reg, w_dma, w_write, w_mdns };
+static const struct t33_swysp_ops ops = { w_copy, w_bin, w_reg, w_dma, w_write, w_mdns };
 
 int bo_tisp_ysp_switch_para(u32 ch, u32 *info)
 {

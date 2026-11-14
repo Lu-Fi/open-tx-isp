@@ -42,7 +42,7 @@ static u32 *sdnsInfo[4] = { t33_sdns_inf }, *ydnsInfo[4] = { t33_ydns_inf }, *dp
 static u32 *rdnsInfo[4] = { t33_rdns_v };
 static u32 *tparamsP[4];
 static const u8 *t33_swg_dpc_sec;		/* tisp_dpc_bin_para_update's section (tparamsP + dpc offset) */
-u32 t33_swg_runs[6];				/* switch_para calls: sdns, ydns, dpc, cdns, rdns; rdns ev updates */
+u32 t33_swg_runs[8];				/* switch_para calls: sdns, ydns, dpc, cdns, rdns, rdns ev, dmsc, ysp */
 
 static inline u32 tisp_simple_intp_uint8_t(int idx, u32 frac, const u8 *tab)
 {
@@ -154,6 +154,89 @@ static void t33_swg_cdns_para(u32 ch)
 #include "tx_isp_t33_swcdns.h"
 #include "tx_isp_t33_swrdns.h"
 #include "tx_isp_t33_rdnsEv.h"
+#include "tx_isp_t33_swdmsc.h"
+#include "tx_isp_t33_swysp.h"
+
+/* ---- dmsc / ysp switch_para (ops-struct ports) ---- */
+#define T33_TP_OFF_DMSC		17900U		/* tparamsP + this = DMSC section */
+#define T33_DMSC_SEC_WORD	670		/* dmscInfo: section, gain, sharpness (byte 2688, 0x80 = 1.0) */
+#define T33_DMSC_GAIN_WORD	671
+#define T33_DMSC_SHARP_WORD	672
+#define T33_YSP_SEC_WORD	(2172 / 4)	/* yspInfo: section, gain */
+#define T33_YSP_GAIN_WORD	(2176 / 4)
+
+static u8 t33_swg_ysp_par[T33_YSP_SEC_LEN];	/* ysp_paramsP[0]: the section copy */
+
+static u32 t33_swg_i8(u32 i, u32 f, const u8 *t)
+{
+	return t32_tp_intp_u8(i, f, t);
+}
+
+static u32 t33_swg_i16(u32 i, u32 f, const u8 *t)
+{
+	return t32_tp_intp_u16(i, f, t);
+}
+
+static u32 t33_swg_dma_u(u32 mod)
+{
+	return (u32)tisp_rcfg_get_dma_state(mod);
+}
+
+static int t33_swg_dma_i(u32 mod)
+{
+	return tisp_rcfg_get_dma_state(mod);
+}
+
+/* tisp_dmsc_bin_par_update: the bin bytes of the section at dmscInfo word 670 */
+static void t33_swg_dmsc_bin(u32 ch)
+{
+	(void)ch;
+	t33_vb_bin(t33_dmsc_v, t33_swg_ptr(t33_dmsc_v[T33_DMSC_SEC_WORD]), t33_dmsc_bin, ARRAY_SIZE(t33_dmsc_bin));
+}
+
+/* func_dmsc_para_update: the copies, then the derived words (as tisp_dmsc_init) */
+static void t33_swg_dmsc_para(u32 ch)
+{
+	(void)ch;
+	t33_vb_copy(t33_dmsc_v, t33_dmsc_copy, ARRAY_SIZE(t33_dmsc_copy));
+	t33_dmsc_para(t33_dmsc_v);
+}
+
+static u32 t33_swg_ratio(u32 r, u32 v, u32 limit)
+{
+	return t32_dmsc_ratio(r, v, limit);	/* tisp_ratio */
+}
+
+static const struct t33_swdmsc_ops t33_swg_dmsc_ops = {
+	t33_swg_dmsc_bin, t33_swg_i8, t33_swg_i16, t33_swg_ratio, t33_swg_dmsc_para, t33_swg_dma_u, t33_swg_wr_v,
+};
+
+static void t33_swg_copy(void *d, const void *s, u32 n)
+{
+	memcpy(d, s, n);
+}
+
+/* tisp_ysp_bin_data_refresh: the bin bytes from ysp_paramsP */
+static void t33_swg_ysp_bin(u32 ch)
+{
+	(void)ch;
+	t33_vb_bin(t33_ysp_v, t33_swg_ysp_par, t33_ysp_bin, ARRAY_SIZE(t33_ysp_bin));
+}
+
+static void t33_swg_ysp_reg(u32 ch)
+{
+	(void)ch;
+	t33_ysp_reg_data(t33_ysp_v);	/* tisp_ysp_reg_data_refresh */
+}
+
+static void t33_swg_mdns_dec(u32 ch, u32 *info)
+{
+	t33_bst_mdns_decode(ch, (const u8 *)info);	/* tisp_mdns_decode_reg_write */
+}
+
+static const struct t33_swysp_ops t33_swg_ysp_ops = {
+	t33_swg_copy, t33_swg_ysp_bin, t33_swg_ysp_reg, t33_swg_dma_i, t33_swg_wr_v, t33_swg_mdns_dec,
+};
 
 /* the gain and section words a par refresh / init leaves in the info structs (read by the switch) */
 static inline void t33_swg_sdns_gain(const u8 *sec, u32 gain)
@@ -180,6 +263,19 @@ static inline void t33_swg_rdns_gain(const u8 *sec, u32 gain, u32 ev)
 	t33_rdns_v[T33_RDNS_SEC_WORD] = (u32)(unsigned long)sec;
 	t33_rdns_v[T33_RDNS_EV_GAIN_WORD] = gain;
 	t33_rdns_v[T33_RDNS_EV_WORD] = ev;
+}
+
+static inline void t33_swg_dmsc_gain(const u8 *sec, u32 gain)
+{
+	t33_dmsc_v[T33_DMSC_SEC_WORD] = (u32)(unsigned long)sec;
+	t33_dmsc_v[T33_DMSC_GAIN_WORD] = gain;
+	t33_dmsc_v[T33_DMSC_SHARP_WORD] = 0x80;	/* the vendor's init sharpness (no ratio API on the T33 path) */
+}
+
+static inline void t33_swg_ysp_gain(const u8 *sec, u32 gain)
+{
+	t33_ysp_v[T33_YSP_SEC_WORD] = (u32)(unsigned long)sec;
+	t33_ysp_v[T33_YSP_GAIN_WORD] = gain;
 }
 
 static inline void t33_swg_dpc_gain(const u8 *sec, u32 gain)
@@ -239,6 +335,27 @@ static u64 t33_swg_small(const u8 *bin, u32 bytes)
 		local_irq_restore(flags);
 		t33_swg_runs[3]++;
 		done |= 1ULL << T33_MOD_CDNS;
+	}
+	off = t32_iq_section(bin, bytes, T33_SEC_DMSC, &len);
+	if (off && len == T33_DMSC_SEC_BYTES && (t33_mod_built & (1ULL << T33_MOD_DMSC))) {
+		t33_bst_hold(T33_BST_DMSC);
+		local_irq_save(flags);
+		t33_dmsc_switch_para(&t33_swg_dmsc_ops, 0, t33_dmsc_v,
+				     (u32)((unsigned long)(bin + off) - T33_TP_OFF_DMSC), t33_bst_cfg_mode,
+				     &t33_bst_refresh[T33_BST_DMSC]);
+		local_irq_restore(flags);
+		t33_swg_runs[6]++;
+		done |= 1ULL << T33_MOD_DMSC;
+	}
+	off = t32_iq_section(bin, bytes, T33_SEC_YSP, &len);
+	if (off && len == T33_YSP_SEC_BYTES && (t33_mod_built & (1ULL << T33_MOD_YSP))) {
+		t33_bst_hold(T33_BST_YSP);
+		local_irq_save(flags);
+		t33_ysp_switch_para(&t33_swg_ysp_ops, 0, (u8 *)((unsigned long)(bin + off) - T33_YSP_SEC),
+				    t33_swg_ysp_par, t33_ysp_v, t33_bst_cfg_mode, &t33_bst_refresh[T33_BST_YSP]);
+		local_irq_restore(flags);
+		t33_swg_runs[7]++;
+		done |= 1ULL << T33_MOD_YSP;
 	}
 	/* the vendor order puts rdns after lce: a separate call (t33_swg_rdns) */
 	return done;
