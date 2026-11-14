@@ -161,19 +161,28 @@ static void t33_lcepf_isr30(void);
 
 static irqreturn_t t32_isp_irq(int irq, void *dev)
 {
-	u32 sta, done, msca, s3, s4, s5 = 0;
+	u32 sta, done, s2, msca, s3, s4, s5 = 0;
 
 	sta = isp_rd(T32_INT_STA);
 	done = isp_rd(T32_CHDONE_STA);
+	/*
+	 * st[2] (0x30068, acknowledged at 0x30064 when nonzero) as the vendor
+	 * lib_tisp_intp_handler: enabled at stream-on, never acknowledged here
+	 * before #393 -> on the T33 silicon an interrupt storm and
+	 * "irq 37: nobody cared" right after the first frame.
+	 */
+	s2 = isp_rd(T32_INT2_STA);
 	msca = isp_rd(T32_MSCADONE_STA);
 	s3 = isp_rd(T32_INT3_STA);
 	s4 = isp_rd(T32_INT4_STA);
 	if (T32_SOC_LIST_IRQ)
 		s5 = isp_rd(T32_INT5_STA);
-	if (!(sta | done | msca | s3 | s4 | s5))
+	if (!(sta | done | s2 | msca | s3 | s4 | s5))
 		return IRQ_NONE;
 	isp_wr(T32_INT_CLR, sta);
 	isp_wr(T32_CHDONE_CLR, done);
+	if (s2)
+		isp_wr(T32_INT2_STA - 4, s2);
 	isp_wr(T32_MSCADONE_CLR, msca);
 	isp_wr(T32_INT3_CLR, s3);
 	if (T32_SOC_LIST_IRQ)
@@ -301,6 +310,23 @@ static void t32_vic_wr(int n, u32 off, u32 v)
 
 #define T32_RCFG_LIST_WORDS	4096	/* the vendor's stream-on list: 3479 words */
 static unsigned long rcfg_pages;	/* table (256 B) + list */
+/*
+ * Zeroed pages the ISP reads or writes by DMA while the CPU uses them
+ * through KSEG1 (uncached).  __GFP_ZERO clears them through the cache: the
+ * dirty zero lines must be written back and dropped before the first
+ * uncached write, or a later eviction overwrites the register lists and
+ * tables in DDR with zeros (T33 silicon: lists did not run or ran zeros,
+ * no frames; QEMU has no cache, openimp #393).
+ */
+static unsigned long t32_dma_zpages(unsigned int order)
+{
+	unsigned long p = __get_free_pages(GFP_KERNEL | __GFP_ZERO, order);
+
+	if (p)
+		dma_cache_wback_inv(p, PAGE_SIZE << order);
+	return p;
+}
+
 static u32 rcfg_pa;
 u32 t32_rcfg_runs, t32_rcfg_timeouts, t32_rcfg_last_len;
 
@@ -320,7 +346,7 @@ static u32 *t33_mod_buf(unsigned int id)
 	if (id >= T33_MODULES)
 		return NULL;
 	if (!t33_mod_page[id])
-		t33_mod_page[id] = __get_free_page(GFP_KERNEL | __GFP_ZERO);
+		t33_mod_page[id] = t32_dma_zpages(0);
 	if (!t33_mod_page[id]) {
 		isp_printf(2, "tx-isp-t33: no memory for register list %u\n", id);
 		return NULL;
@@ -609,9 +635,9 @@ static void t32_stats_init(void)
 		return;
 	}
 	if (!ae_buf)
-		ae_buf = __get_free_pages(GFP_KERNEL | __GFP_ZERO, T32_AE_BUF_ORDER);
+		ae_buf = t32_dma_zpages(T32_AE_BUF_ORDER);
 	if (!awb_buf)
-		awb_buf = __get_free_pages(GFP_KERNEL | __GFP_ZERO, T32_AWB_BUF_ORDER);
+		awb_buf = t32_dma_zpages(T32_AWB_BUF_ORDER);
 	if (!ae_buf || !awb_buf) {
 		isp_printf(2, "tx-isp-t32: no memory for the statistics buffers\n");
 		return;
@@ -730,11 +756,11 @@ static void *t32_uncached(unsigned long buf)
 static int t32_lce_build(const u8 *sec, u32 width, u32 height)
 {
 	if (!lce_work)
-		lce_work = __get_free_pages(GFP_KERNEL | __GFP_ZERO, T32_LCE_WORK_ORDER);
+		lce_work = t32_dma_zpages(T32_LCE_WORK_ORDER);
 	if (!lce_curve)
-		lce_curve = __get_free_pages(GFP_KERNEL | __GFP_ZERO, T32_LCE_CURVE_ORDER);
+		lce_curve = t32_dma_zpages(T32_LCE_CURVE_ORDER);
 	if (!lce_hist)
-		lce_hist = __get_free_pages(GFP_KERNEL | __GFP_ZERO, T32_LCE_HIST_ORDER);
+		lce_hist = t32_dma_zpages(T32_LCE_HIST_ORDER);
 	if (!lce_work || !lce_curve || !lce_hist)
 		return -ENOMEM;
 #ifdef CONFIG_MIPS
@@ -819,7 +845,7 @@ static noinline_for_stack void t33_tisp_init_tone(const u8 *bin, u32 bytes)
 		u32 *buf = t33_mod_buf(T33_MOD_TMO), *vt, i;
 
 		if (!t33_tmo_pages)
-			t33_tmo_pages = __get_free_pages(GFP_KERNEL | __GFP_ZERO, T33_TMO_ORDER);
+			t33_tmo_pages = t32_dma_zpages(T33_TMO_ORDER);
 		if (buf && t33_tmo_pages) {
 			/* the V table uncached, then the vendor's direct writes (0x7094, V ram) */
 			vt = (u32 *)CKSEG1ADDR(virt_to_phys((void *)t33_tmo_pages));
@@ -915,9 +941,9 @@ static noinline_for_stack void t33_tisp_init_ae(const u8 *bin, u32 bytes)
 	if (!off || len < T33_AE_SEC_MIN || t32_core_sensor_size(&width, &height))
 		return;
 	if (!t33_ae_stat_pages)
-		t33_ae_stat_pages = __get_free_pages(GFP_KERNEL | __GFP_ZERO, get_order(T33_AE_STAT_BYTES));
+		t33_ae_stat_pages = t32_dma_zpages(get_order(T33_AE_STAT_BYTES));
 	if (!t33_ae_hist_pages)
-		t33_ae_hist_pages = __get_free_pages(GFP_KERNEL | __GFP_ZERO, get_order(T33_AE_HIST_BYTES));
+		t33_ae_hist_pages = t32_dma_zpages(get_order(T33_AE_HIST_BYTES));
 	/* tisp_ae_weight_mean's grid: rows 0xad2, columns 0xad6 (15 a row in the buffer) */
 	t33_ae_rows = min_t(u32, t32_tp_le16(bin + off + 0xad2), T33_AE_GRID);
 	t33_ae_cols = min_t(u32, t32_tp_le16(bin + off + 0xad6), T33_AE_GRID);
@@ -1171,7 +1197,7 @@ static noinline_for_stack void t33_tisp_init_awb(const u8 *bin, u32 bytes)
 	if (!off || len < T33_AWB_SEC_MIN || t32_core_sensor_size(&width, &height))
 		return;
 	if (!t33_awb_stat_pages)
-		t33_awb_stat_pages = __get_free_pages(GFP_KERNEL | __GFP_ZERO, get_order(T33_AWB_STAT_BYTES));
+		t33_awb_stat_pages = t32_dma_zpages(get_order(T33_AWB_STAT_BYTES));
 	buf = t33_mod_buf(T33_MOD_AWB);
 	if (buf && t33_awb_stat_pages)
 		t33_mod_done(T33_MOD_AWB, t33_awb_init(bin + off, width, height, T33_AWB_INIT_TGAIN,
@@ -1516,11 +1542,11 @@ static noinline void t33_tisp_init_lsf(const u8 *sec, u32 width, u32 height)
 	u32 *buf = t33_mod_buf(T33_MOD_LSF);
 
 	if (!t33_lsf_pages)
-		t33_lsf_pages = __get_free_pages(GFP_KERNEL | __GFP_ZERO, T33_LSF_ORDER);
+		t33_lsf_pages = t32_dma_zpages(T33_LSF_ORDER);
 	memcpy(t33_lsf_sec, sec, sizeof(t33_lsf_sec));
 	/* tisp_lce_malloc_cfg: the histogram buffer always (irq 8 stores it into slot 5) */
 	if (!t33_lsf_hist_pages) {
-		t33_lsf_hist_pages = __get_free_pages(GFP_KERNEL | __GFP_ZERO, T33_LSF_HIST_ORDER);
+		t33_lsf_hist_pages = t32_dma_zpages(T33_LSF_HIST_ORDER);
 		t33_lcepf_wbinv(t33_lsf_hist_pages, T33_LSF_HIST_BYTES);	/* read cached by irq 30 */
 	}
 	if (!buf || !t33_lsf_pages || !t33_lsf_hist_pages)
@@ -1774,7 +1800,7 @@ static void t33_tisp_init(const u8 *bin, u32 bytes)
 		u32 *buf = t33_mod_buf(T33_MOD_DEFOG);
 
 		if (!t33_defog_pages)
-			t33_defog_pages = __get_free_pages(GFP_KERNEL | __GFP_ZERO, T33_DEFOG_ORDER);
+			t33_defog_pages = t32_dma_zpages(T33_DEFOG_ORDER);
 		/* a copy: weights for another size / zoom are recomputed into it */
 		memcpy(t33_defog_sec, bin + off, sizeof(t33_defog_sec));
 		if (t33_defog_weights_needed(t33_defog_sec, width, height)) {
@@ -1794,7 +1820,7 @@ static void t33_tisp_init(const u8 *bin, u32 bytes)
 		u32 *buf = t33_mod_buf(T33_MOD_AF);
 
 		if (!t33_af_pages)
-			t33_af_pages = __get_free_pages(GFP_KERNEL | __GFP_ZERO, T33_AF_ORDER);
+			t33_af_pages = t32_dma_zpages(T33_AF_ORDER);
 		memcpy(t33_af_sec, bin + off, sizeof(t33_af_sec));
 		if (buf && t33_af_pages)
 			t33_mod_done(T33_MOD_AF, t33_af_init(t33_af_sec, width, height,
@@ -1806,9 +1832,9 @@ static void t33_tisp_init(const u8 *bin, u32 bytes)
 		u32 *buf = t33_mod_buf(T33_MOD_LCE);
 
 		if (!t33_lce_curve_pages)
-			t33_lce_curve_pages = __get_free_pages(GFP_KERNEL | __GFP_ZERO, T33_LCE_CURVE_ORDER);
+			t33_lce_curve_pages = t32_dma_zpages(T33_LCE_CURVE_ORDER);
 		if (!t33_lce_stat_pages)
-			t33_lce_stat_pages = __get_free_pages(GFP_KERNEL | __GFP_ZERO, T33_LCE_STAT_ORDER);
+			t33_lce_stat_pages = t32_dma_zpages(T33_LCE_STAT_ORDER);
 		/* EV / BV 0 as the vendor's init; the curve written uncached */
 		memcpy(t33_lce_sec, bin + off, sizeof(t33_lce_sec));
 		t33_lcepf_wbinv(t33_lce_stat_pages, T33_LCE_STAT_BYTES);	/* read cached by irq 8 */
@@ -1829,7 +1855,7 @@ static void t33_tisp_init(const u8 *bin, u32 bytes)
 		u32 *buf = t33_mod_buf(T33_MOD_LSC);
 
 		if (!t33_lsc_pages)
-			t33_lsc_pages = __get_free_pages(GFP_KERNEL | __GFP_ZERO, T33_LSC_ORDER);
+			t33_lsc_pages = t32_dma_zpages(T33_LSC_ORDER);
 		/* CT 5000 K as the CCM; the table written uncached */
 		if (buf && t33_lsc_pages)
 			t33_mod_done(T33_MOD_LSC,
@@ -2331,15 +2357,6 @@ static int csi_reset_done;
  */
 int t32_hw_input_setup(const void *attr, u32 w, u32 h)
 {
-#ifdef TX_ISP_T33
-	/* lib_tisp_init -> tisp_top_ipc_init (one sensor) */
-	isp_wr(0x1080, 0);
-	isp_wr(0x1084, 0);
-	isp_wr(0x10a0, 0xffffffff);
-	isp_wr(0x10a4, 4);
-	isp_wr(0x10c4, w * h / 6);
-	isp_wr(0x10c8, w * h / 6);
-#endif
 	struct t32_reg_seq seq;
 	u32 size = (w << 16) | h;
 	unsigned int i;
@@ -2358,7 +2375,22 @@ int t32_hw_input_setup(const void *attr, u32 w, u32 h)
 	isp_wr(T32_RDMA_IRQ_EN, 0xffffffff);
 	isp_wr(T32_RDMA_IRQ_CLR, 0xffffffff);
 	isp_wr(T32_CORE_IDLE_REQ, 1);
+	/*
+	 * lib_tisp_all_reset: wait for the idle ack (0x204 = 1) and for the core
+	 * reset (0x24 low nibble) before the next write.  On the T33 silicon the
+	 * reset takes longer than the following writes: without the waits the
+	 * RCFG table, control and masks below were reset again (0x22020 read
+	 * 0x18000000, 0x22018 0) and no register list ever ran (openimp #393).
+	 */
+	for (i = 0; i < 10000 && isp_rd(0x0204) != 1; i++)
+		udelay(1);
+	if (i == 10000)
+		isp_printf(2, "tx-isp-t32: ISP idle ack timeout\n");
 	isp_wr(0x0024, 0x40000001);
+	for (i = 0; i < 10000 && (isp_rd(0x0024) & 0xf); i++)
+		udelay(1);
+	if (i == 10000)
+		isp_printf(2, "tx-isp-t32: ISP core reset timeout\n");
 	if (T32_SOC_LIST_IRQ) {
 		isp_wr(T32_INT5_EN, 0xffffffff);
 		isp_wr(T32_INT4_EN, 0xffffffff);
@@ -2369,6 +2401,22 @@ int t32_hw_input_setup(const void *attr, u32 w, u32 h)
 	}
 	isp_wr(0x0080, size);
 	isp_wr(0x0088, 0x100);
+#ifdef TX_ISP_T33
+	/*
+	 * lib_tisp_init -> tisp_top_ipc_init (one sensor), after the core reset
+	 * as in the vendor trace.  Written before it (as here until #393) the
+	 * reset cleared 0x10a4 on the T33 silicon: the IPC start (0x1040)
+	 * stayed pending and no frame reached the core.
+	 */
+	isp_wr(0x1080, 0);
+	isp_wr(0x1084, 0);
+	isp_wr(0x10a0, 0xffffffff);
+	isp_wr(0x10a4, 4);
+	isp_wr(0x10c4, w * h / 6);
+	isp_wr(0x10c8, w * h / 6);
+	isp_wr(0x10cc, 0xffffffff);
+	isp_wr(0x10d0, 0xffffffff);
+#endif
 	t32_vic_wr(0, 0x1a8, 0x4444);
 	t32_vic_wr(1, 0x1a8, 0x4444);
 	/* interrupts off (the vendor's reset and its interrupt disable both
@@ -2385,6 +2433,19 @@ int t32_hw_input_setup(const void *attr, u32 w, u32 h)
 		isp_printf(2, "tx-isp-t32: VIC reset did not finish\n");
 	for (i = 0; i < seq.n; i++)
 		t32_vic_wr(0, seq.w[i].off, seq.w[i].val);
+#ifdef TX_ISP_T33
+	/*
+	 * After the VIC: the IPC words as the vendor 2.0.2.1 trace (0x80300,
+	 * 0x1094 / 0x1098, 0x10c4 / 0x10c8 back to 0).  On the T33 silicon the
+	 * IPC start (0x1040) stayed pending and no frame reached the core with
+	 * the init values left in 0x10c4 / 0x10c8 (openimp #393).
+	 */
+	t32_vic_wr(0, 0x300, 0);
+	isp_wr(0x1094, 0);
+	isp_wr(0x1098, 0x200000);
+	isp_wr(0x10c4, 0);
+	isp_wr(0x10c8, 0);
+#endif
 	/* MSCA input size and channel defaults (T33: list 23 carries them) */
 	if (!T32_SOC_LIST_IRQ) {
 		isp_wr(0xf0404, size);
@@ -2774,6 +2835,17 @@ int t32_hw_msca_pop_done(int ch, u32 *y, u32 *uv)
 		return -1;
 	*uv = ch_rd(ch, T32_MSCA_UV_DONE);	/* before the Y read pops */
 	*y = ch_rd(ch, T32_MSCA_Y_DONE);
+#ifdef TX_ISP_T33
+	/*
+	 * The T33 silicon returns the done address with flag bits in the low
+	 * bits (vendor streaming: Y done 0x03975001 for a buffer at
+	 * 0x03975000); the buffers are 16-byte aligned at least.  Unmasked,
+	 * every done after the first was "unmatched" and the channel ran dry
+	 * (openimp #393).
+	 */
+	*uv &= ~0xfU;
+	*y &= ~0xfU;
+#endif
 	return 0;
 }
 
@@ -2790,8 +2862,7 @@ int t32_hw_init(void)
 		ret = -ENOMEM;
 		goto err;
 	}
-	rcfg_pages = __get_free_pages(GFP_KERNEL | __GFP_ZERO,
-				      get_order((T32_RCFG_TABLE_WORDS + T32_RCFG_LIST_WORDS) * 4));
+	rcfg_pages = t32_dma_zpages(get_order((T32_RCFG_TABLE_WORDS + T32_RCFG_LIST_WORDS) * 4));
 	if (!rcfg_pages) {
 		ret = -ENOMEM;
 		goto err;

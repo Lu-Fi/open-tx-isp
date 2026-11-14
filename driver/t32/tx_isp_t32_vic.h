@@ -213,8 +213,20 @@ static inline int t32_csi_cfg_from_attr(const void *attr, struct t32_csi_cfg *c)
 		return -EINVAL;
 	c->lanes_m1 = lanes - 1;
 	c->host_100 = lanes == 4 ? 0xf : 3;
+#ifdef TX_ISP_T33
+	/*
+	 * T33 vendor module on the T33L silicon (register dump while it
+	 * streams): D-PHY 0x80 = 0x9f, lane words 0x128 + n * 0x80 = 0xf (the
+	 * data lanes read back 0xe).  With the T32 values 0x1f / 0x3f the CSI
+	 * host saw its data lanes stay in stop state (0x14 = 0x3f0, vendor
+	 * 0x3c0) and no frame reached the ISP (openimp #393).
+	 */
+	c->phy_80 = 0x9f;
+	c->phy_lane = 0xf;
+#else
 	c->phy_80 = 0x1f;
 	c->phy_lane = 0x3f;
+#endif
 	c->settle = t32_csi_settle(t32_attr_u32(attr, T32_ATTR_MIPI_CLK));
 	return 0;
 }
