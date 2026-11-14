@@ -2626,9 +2626,9 @@ static void t33_tisp_init(const u8 *bin, u32 bytes)
  * next frame end (TOP: list 33 from the frame end, LCE / LSF: lists 16 /
  * 37 from the next irq 8).  Vendor order: top, dpc, blc, ae, awb, lsc,
  * tmo, dmsc, gamma, ccm, clm, bcsh, ysp, mdns, ydns, sdns, cdns, defog,
- * lce, rdns, af, csccr; dpc, dmsc, ysp, ydns, sdns, cdns and rdns run
- * the vendor switch_para ports (tx_isp_t33_swglue.h) at their own last
- * gain / EV, mdns comes from one forced gain refresh.
+ * lce, rdns, af, csccr; dpc, dmsc, ysp, mdns, ydns, sdns, cdns and rdns
+ * run the vendor switch_para ports (tx_isp_t33_swglue.h) at their own
+ * last gain / EV.
  * Not rebuilt (open, #507): the AWB list 29 / AWB and AE algorithm
  * parameters (tisp_awb_dn_params_refresh, the AE context), the AE list 30
  * (the five AE registers of the AE switch), the night byte 0x1f of
@@ -2840,7 +2840,7 @@ void t33_refresh_para(u32 mode)
 	hi = t33_sw_ev_hi;
 	t33_bin_append(bin, bytes);	/* tisp_bin_data_parse */
 	t33_sw_top(bin, bytes, width, height, bayer);
-	/* tisp_dpc / ydns / sdns / cdns / dmsc / ysp_switch_para (tx_isp_t33_swglue.h) */
+	/* tisp_dpc / ydns / sdns / cdns / dmsc / ysp / mdns_switch_para (tx_isp_t33_swglue.h) */
 	sw = t33_swg_small(bin, bytes);
 	/* tisp_blc_switch_para: interp_by_tgain at the current gain, write_reg */
 	if (T33_SW_SEC(BLC) && bayer >= 0)
@@ -2852,8 +2852,8 @@ void t33_refresh_para(u32 mode)
 	t33_sw_lce(bin, bytes);
 	sw |= t33_swg_rdns(bin, bytes);		/* tisp_rdns_switch_para */
 	/*
-	 * the other gain block at the current gain, its gate open (mdns); the
-	 * switched ones keep their own gain and gate as in the vendor
+	 * a gain block whose section is missing at the current gain, its gate
+	 * open; the switched ones keep their own gain and gate as in the vendor
 	 */
 	for (id = 0; id < T33_MODULES; id++)
 		if (!(sw & (1ULL << id)))
@@ -2861,8 +2861,8 @@ void t33_refresh_para(u32 mode)
 	t33_sw_runs++;
 	mutex_unlock(&t33_gr_lock);
 	t33_gr_refresh(gain, sw);
-	isp_printf(0, "tx-isp-t33: IQ bin switch (mode %u): lists rebuilt at gain %#x ct %u ev %#x:%#x\n",
-		   mode, gain, ct, hi, lo);
+	isp_printf(0, "tx-isp-t33: IQ bin switch (mode %u): lists rebuilt at gain %#x ct %u ev %#x:%#x, switch_para %#llx\n",
+		   mode, gain, ct, hi, lo, (unsigned long long)sw);
 }
 #undef T33_SW_SEC
 #undef T33_SW_TMP

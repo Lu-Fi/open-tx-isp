@@ -18,6 +18,11 @@
  * - func_*_para_update / *_bin_para_update: the driver's proven par helpers
  *   (tx_isp_t33_blk.h, tx_isp_t33_dpc.h) on the info words.
  *
+ * - mdns (tx_isp_t33_swmdns.h): mdnsInfo = t33_mdns_v (word 2180 section,
+ *   2181 gain, 2190 the compression flag), the five 11-byte threshold tables
+ *   of the new section in t33_swg_mdns_g, stMemInfo without WDR, the slot
+ *   writes into list 15 and tisp_mdns_t33_reg_trig (run at the next frame).
+ *
  * Only tx_isp_t32_hw.c (TX_ISP_T33) includes this file, after tx_isp_t33_bst.h.
  */
 #ifndef TX_ISP_T33_SWGLUE_H
@@ -42,7 +47,7 @@ static u32 *sdnsInfo[4] = { t33_sdns_inf }, *ydnsInfo[4] = { t33_ydns_inf }, *dp
 static u32 *rdnsInfo[4] = { t33_rdns_v };
 static u32 *tparamsP[4];
 static const u8 *t33_swg_dpc_sec;		/* tisp_dpc_bin_para_update's section (tparamsP + dpc offset) */
-u32 t33_swg_runs[8];				/* switch_para calls: sdns, ydns, dpc, cdns, rdns, rdns ev, dmsc, ysp */
+u32 t33_swg_runs[9];				/* switch_para calls: sdns, ydns, dpc, cdns, rdns, rdns ev, dmsc, ysp, mdns */
 
 static inline u32 tisp_simple_intp_uint8_t(int idx, u32 frac, const u8 *tab)
 {
@@ -156,6 +161,7 @@ static void t33_swg_cdns_para(u32 ch)
 #include "tx_isp_t33_rdnsEv.h"
 #include "tx_isp_t33_swdmsc.h"
 #include "tx_isp_t33_swysp.h"
+#include "tx_isp_t33_swmdns.h"
 
 /* ---- dmsc / ysp switch_para (ops-struct ports) ---- */
 #define T33_TP_OFF_DMSC		17900U		/* tparamsP + this = DMSC section */
@@ -236,6 +242,35 @@ static void t33_swg_mdns_dec(u32 ch, u32 *info)
 
 static const struct t33_swysp_ops t33_swg_ysp_ops = {
 	t33_swg_copy, t33_swg_ysp_bin, t33_swg_ysp_reg, t33_swg_dma_i, t33_swg_wr_v, t33_swg_mdns_dec,
+};
+
+/* ---- mdns switch_para (ops-struct port) ---- */
+#define T33_TP_OFF_MDNS		25144U		/* tparamsP + this = MDNS section (mdnsInfo word 2180) */
+#define T33_MDNS_ZIP_WORD	2190		/* mdnsInfo byte 0x2238: reference compression on */
+
+/* global_ybsnthres, global_ypbv0stathres, global_ypbv1stathres, global_yrefweimin, global_yrefweiminadjthres */
+static u8 t33_swg_mdns_g[5][44];
+static const u8 t33_swg_stmem[76];	/* stMemInfo[0]: byte 11 (WDR) 0, the driver has no WDR */
+
+static void t33_swg_mdns_bin(u32 ch)
+{
+	(void)ch;
+	t33_vb_bin(t33_mdns_v, t33_swg_ptr(t33_mdns_v[2180]), t33_mdns_bin, ARRAY_SIZE(t33_mdns_bin));	/* tisp_mdns_binpara_update */
+}
+
+static void t33_swg_mdns_para(u32 ch)
+{
+	(void)ch;
+	t33_mdns_para(t33_mdns_v);	/* func_mdns_para_update */
+}
+
+static void t33_swg_mdns_trig(u32 ch)
+{
+	t33_mdns_reg_trig(ch, t33_bst_cfg_mode, t33_first_fe, &t33_bst_refresh_mdns);	/* tisp_mdns_t33_reg_trig */
+}
+
+static const struct t33_swmdns_ops t33_swg_mdns_ops = {
+	t33_swg_wr_v, t33_swg_mdns_bin, t33_swg_mdns_para, t33_swg_mdns_trig, t33_swg_i8, t33_swg_i16,
 };
 
 /* the gain and section words a par refresh / init leaves in the info structs (read by the switch) */
@@ -356,6 +391,19 @@ static u64 t33_swg_small(const u8 *bin, u32 bytes)
 		local_irq_restore(flags);
 		t33_swg_runs[7]++;
 		done |= 1ULL << T33_MOD_YSP;
+	}
+	off = t32_iq_section(bin, bytes, T33_SEC_MDNS, &len);
+	if (off && len == T33_MDNS_SEC_BYTES && (t33_mod_built & (1ULL << T33_MOD_MDNS)) && t33_mdns_v[0x888]) {
+		u8 *g[5] = { t33_swg_mdns_g[0], t33_swg_mdns_g[1], t33_swg_mdns_g[2], t33_swg_mdns_g[3],
+			     t33_swg_mdns_g[4] };
+
+		local_irq_save(flags);
+		t33_mdns_v[T33_MDNS_ZIP_WORD] = t32_core_memopt() / 100 - 11 < 10;
+		t33_mdns_switch_para(&t33_swg_mdns_ops, 0, t33_mdns_v, (const u8 *)((unsigned long)(bin + off) - T33_TP_OFF_MDNS),
+				     g, t33_bst_cfg_mode, t33_dn_uv_limit[0], t33_swg_stmem);
+		local_irq_restore(flags);
+		t33_swg_runs[8]++;
+		done |= 1ULL << T33_MOD_MDNS;
 	}
 	/* the vendor order puts rdns after lce: a separate call (t33_swg_rdns) */
 	return done;
