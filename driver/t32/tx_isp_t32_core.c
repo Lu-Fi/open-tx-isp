@@ -27,6 +27,7 @@
 #include <linux/seq_file.h>
 #include <linux/platform_device.h>
 #include <linux/clk.h>
+#include <linux/delay.h>
 
 #include "tx_isp_t32.h"
 #include "tx_isp_t32_abi.h"
@@ -1128,11 +1129,38 @@ int t32_core_clk_active(void)
 	return t32_clk_users != 0;
 }
 
+/*
+ * private_reset_tx_isp_module: CPM SRBC (0x100000c4) bit 21 stop request,
+ * wait for bit 20 (stopped), then pulse bit 22 (ISP soft reset).  The vendor
+ * module does it right after the clocks are on, before the first ISP
+ * register write (QEMU trace: clock on, soft reset, 0x22028).  Without it the
+ * T33 silicon never ran a register list (openimp #393).
+ */
+static void t32_isp_soft_reset(void)
+{
+	void __iomem *srbc = (void __iomem *)CKSEG1ADDR(0x100000c4);
+	int tries;
+
+	writel(readl(srbc) | (1u << 21), srbc);
+	for (tries = 500; tries; tries--) {
+		if (readl(srbc) & (1u << 20)) {
+			writel((readl(srbc) & ~(1u << 21)) | (1u << 22), srbc);
+			writel(readl(srbc) & ~(1u << 22), srbc);
+			return;
+		}
+		msleep(2);
+	}
+	writel(readl(srbc) & ~(1u << 21), srbc);
+	pr_warn("tx-isp-t32: ISP stop (SRBC bit 20) not acknowledged\n");
+}
+
 static int t32_isp_open(struct inode *inode, struct file *file)
 {
 	mutex_lock(&core.lock);
-	if (!t32_clk_users++)
+	if (!t32_clk_users++) {
 		t32_clks_activate();
+		t32_isp_soft_reset();
+	}
 	mutex_unlock(&core.lock);
 	return 0;
 }
