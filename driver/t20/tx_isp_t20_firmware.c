@@ -2057,7 +2057,7 @@ int32_t get_calibration_description(int32_t arg1);
 int32_t buffer_data_type(int32_t arg1, int32_t arg2, char arg3, uint32_t *arg4);
 int32_t apical_api_calibration(uint32_t a0, uint32_t a1, void *a2, uint32_t a3, int32_t *a4);
 int32_t cmos_store_frame_exposure_set(int32_t *arg1, int32_t *arg2);
-uint32_t _process_fps_cnt(uintptr_t a0, uint32_t a1);
+uint32_t _process_fps_cnt(uintptr_t cnt_addr, uint32_t average);
 int32_t _init_fps_cnt(int32_t *arg1);
 uint32_t cmos_get_fps(void *arg1);
 uint32_t cmos_alloc_integration_time(int32_t *arg1, int32_t arg2);
@@ -6810,18 +6810,18 @@ int32_t wdr_mode(void *arg1, int32_t arg2, char arg3, int32_t *arg4)
 int32_t histogram_lum(uintptr_t ctx_addr, uint32_t value, uint32_t direction, uintptr_t ret_addr)
 {
 	/* OEM 0x1a9a8: only GET (1) is valid (else status 1); it requests a
-	 * histogram dump (byte +1856 = 1, buffer size 0) with interrupts off
-	 * unless fw[4] is set, *ret = 0, status 0 */
-	struct t20_api_ctx *ctx = (struct t20_api_ctx *)ctx_addr;
-	struct t20_api_fw *fw = ctx->fw;
+	 * histogram dump (AE hist_request = 1, buffer size 0) with interrupts off
+	 * unless fw->irq_locked is set, *ret = 0, status 0 */
+	struct t20_isp_ctx *isp = (struct t20_isp_ctx *)ctx_addr;
+	struct t20_fw_outer *fw = isp->fw;
 
 	if ((direction & 0xff) != 1)
 		return 1;
 	if (fw->irq_locked == 0)
 		system_hw_interrupts_disable();
 	apical_api_buffer_data_size = 0;
-	ctx->hist_request = 1;
-	if (ctx->fw->irq_locked == 0)
+	isp->ae.hist_request = 1;
+	if (isp->fw->irq_locked == 0)
 		system_hw_interrupts_enable();
 	*(uint32_t *)ret_addr = 0;
 	return 0;
@@ -7039,7 +7039,7 @@ int32_t ae_roi(uintptr_t ctx_addr, uint32_t roi, uint32_t direction, uintptr_t r
 	if (direction == 0)
 		return ae_roi_part_1((void *)ctx_addr, roi, (int32_t *)ret_addr);
 	if (direction == 1) {
-		*(uint32_t *)ret_addr = ((struct t20_api_ctx *)ctx_addr)->ae_roi;
+		*(uint32_t *)ret_addr = ((struct t20_isp_ctx *)ctx_addr)->ae.roi;
 		return 0;
 	}
 	return 2;
@@ -7268,7 +7268,7 @@ int32_t awb_roi(uintptr_t ctx_addr, uint32_t roi, uint32_t direction, uintptr_t 
 	if (direction == 0)
 		return awb_roi_part_2((void *)ctx_addr, roi, (int32_t *)ret_addr);
 	if (direction == 1) {
-		*(uint32_t *)ret_addr = ((struct t20_api_ctx *)ctx_addr)->awb_roi;
+		*(uint32_t *)ret_addr = ((struct t20_isp_ctx *)ctx_addr)->awb.roi;
 		return 0;
 	}
 	return 2;
@@ -9215,18 +9215,19 @@ int32_t cmos_store_frame_exposure_set(int32_t *arg1, int32_t *arg2)
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000001e7ec origin=fragment_seed original=_process_fps_cnt */
-uint32_t _process_fps_cnt(uintptr_t a0, uint32_t a1)
+uint32_t _process_fps_cnt(uintptr_t cnt_addr, uint32_t average)
 {
 	/* OEM 0x1de8c: every path ends with last = now, flag = 0 (0x1dee4/
 	 * 0x1dee8); the recovery stored them only when the flag was set, so
 	 * the frame-period average integrated since the first frame. */
-	uint32_t *cnt = (uint32_t *)a0;
+	struct t20_fps_cnt *cnt = (struct t20_fps_cnt *)cnt_addr;
 	uint32_t now = system_timer_timestamp();
 
-	if (a1 != 0 && *(uint8_t *)((char *)cnt + 8) == 0)
-		cnt[1] = cnt[1] - cnt[0] - (cnt[1] >> 4) + now;
-	cnt[0] = now;
-	*(uint8_t *)((char *)cnt + 8) = 0;
+	if (average != 0 && cnt->skip_next == 0)
+		cnt->period_x16 = cnt->period_x16 - cnt->last_timestamp -
+			(cnt->period_x16 >> 4) + now;
+	cnt->last_timestamp = now;
+	cnt->skip_next = 0;
 	return now;
 }
 
@@ -10068,61 +10069,61 @@ uint32_t cmos_fsm_process_interrupt(int32_t *arg1, char arg2)
  * protocol here; the body below restores the complete frame-start and
  * exposure-update paths while retaining the T20 register map.
  */
-uint32_t cmos_fsm_process_interrupt(int32_t *arg1, char arg2)
+uint32_t cmos_fsm_process_interrupt(int32_t *fsm_ptr, char irq)
 {
 	uint32_t result = 7;
-	void *sensor = *(void **)arg1;
-	uint32_t interrupt = (uint32_t)(uint8_t)arg2;
+	struct t20_fsm_cmos *cmos = (struct t20_fsm_cmos *)fsm_ptr;
+	struct t20_isp_ctx *isp = cmos->hdr.isp;
+	uint32_t interrupt = (uint32_t)(uint8_t)irq;
 
 	if (interrupt == 0) {
-		uint32_t sensor_mode = *(uint8_t *)((char *)sensor + 0x1524);
-		int32_t exposure = *(int32_t *)((char *)arg1 + 0x58);
+		uint32_t wdr_mode = isp->general.wdr_mode;
+		int32_t isp_dgain = cmos->frame_update.isp_dgain;
 		uint32_t value;
-		int16_t exposure_table[4];
+		int16_t wb_gain[4];
 		int i;
 
-		value = math_exp2(exposure,
-			(sensor_mode - 1) < 2 ? 0x11 : 0x10, 8);
+		value = math_exp2(isp_dgain,
+			(wdr_mode - 1) < 2 ? 0x11 : 0x10, 8);
 		APICAL_WRITE_32(0x1a0,
 			(APICAL_READ_32(0x1a0) & 0xfffff000) | (value & 0xfff));
 
 		/*
 		 * Firmware cmos_func.c.o 0xd18..0xd8c: the AWB output gains
-		 * (AWB fsm at +0x748, gains +0x760..+0x76c) become the four
+		 * (AWB fsm wb_log2[0..3]) become the four
 		 * channel gains in that order (gain 0 -> 0x300), with 17 bits of
 		 * fraction in sensor modes 1 and 2 (16 otherwise), like the
 		 * exposure gain above. The recovered loop reversed the order
 		 * and the precision.
 		 */
 		for (i = 4; i != 0; i--) {
-			int32_t table_value = *(int32_t *)((char *)sensor +
-				0x748 + i * -4 + 0x770);
-			uint32_t mode = *(uint8_t *)((char *)sensor + 0x1524);
+			int32_t gain_log2 = isp->awb.wb_log2[4 - i];
+			uint32_t mode = isp->general.wdr_mode;
 
-			value = math_exp2(table_value,
+			value = math_exp2(gain_log2,
 				(mode - 1) < 2 ? 0x11 : 0x10, 8);
-			exposure_table[4 - i] = value >= 0x1000 ?
+			wb_gain[4 - i] = value >= 0x1000 ?
 				0xfff : (int16_t)value;
 		}
 
-		sensor_mode = *(uint8_t *)((char *)sensor + 0x1524);
+		wdr_mode = isp->general.wdr_mode;
 		/* black-level compensation in sensor modes 1..3 (firmware
 		 * 0xd90: skipped when mode - 1 > 2) */
-		if ((sensor_mode - 1) <= 2) {
-			int16_t modulation[4];
+		if ((wdr_mode - 1) <= 2) {
+			int16_t black[4];
 
-			modulation[0] = APICAL_READ_32(0x310) & 0xfff;
-			modulation[1] = APICAL_READ_32(0x314) & 0xfff;
-			modulation[2] = APICAL_READ_32(0x318) & 0xfff;
-			modulation[3] = APICAL_READ_32(0x31c) & 0xfff;
+			black[0] = APICAL_READ_32(0x310) & 0xfff;
+			black[1] = APICAL_READ_32(0x314) & 0xfff;
+			black[2] = APICAL_READ_32(0x318) & 0xfff;
+			black[3] = APICAL_READ_32(0x31c) & 0xfff;
 			for (i = 0; i != 4; i++) {
-				uint32_t divisor = 0xfff - (uint16_t)modulation[i];
+				uint32_t divisor = 0xfff - (uint16_t)black[i];
 
 				if (divisor == 0)
 					divisor = 1;
-				exposure_table[i] = (int16_t)
+				wb_gain[i] = (int16_t)
 					((0xfff00u / divisor *
-					  (uint16_t)exposure_table[i]) >> 8);
+					  (uint16_t)wb_gain[i]) >> 8);
 			}
 		}
 
@@ -10132,59 +10133,59 @@ uint32_t cmos_fsm_process_interrupt(int32_t *arg1, char arg2)
 			 * the frame-start writer instead of multiplying feedback into the
 			 * recovered OEM log-domain scratch fields a second time.
 			 */
-			exposure_table[0] = t20_simple_awb_gain_00;
-			exposure_table[1] = t20_simple_awb_gain_01;
-			exposure_table[2] = t20_simple_awb_gain_10;
-			exposure_table[3] = t20_simple_awb_gain_11;
+			wb_gain[0] = t20_simple_awb_gain_00;
+			wb_gain[1] = t20_simple_awb_gain_01;
+			wb_gain[2] = t20_simple_awb_gain_10;
+			wb_gain[3] = t20_simple_awb_gain_11;
 		}
 
 		APICAL_WRITE_32(0x300, (APICAL_READ_32(0x300) & 0xfffff000) |
-			((uint16_t)exposure_table[0] & 0xfff));
+			((uint16_t)wb_gain[0] & 0xfff));
 		APICAL_WRITE_32(0x304, (APICAL_READ_32(0x304) & 0xfffff000) |
-			((uint16_t)exposure_table[1] & 0xfff));
+			((uint16_t)wb_gain[1] & 0xfff));
 		APICAL_WRITE_32(0x308, (APICAL_READ_32(0x308) & 0xfffff000) |
-			((uint16_t)exposure_table[2] & 0xfff));
+			((uint16_t)wb_gain[2] & 0xfff));
 		APICAL_WRITE_32(0x30c, (APICAL_READ_32(0x30c) & 0xfffff000) |
-			((uint16_t)exposure_table[3] & 0xfff));
+			((uint16_t)wb_gain[3] & 0xfff));
 		if (t20_trace_events) {
 			static unsigned int wb_calls, wb_prints;
 
 			if (wb_calls++ % 64 == 0 && wb_prints++ < 40)
 			{
-				int32_t *awb = (int32_t *)((char *)sensor + 0x748);
+				struct t20_fsm_awb *awb = &isp->awb;
 
 				printk(KERN_INFO "T20AWB cmos wb=%03x/%03x/%03x/%03x mode=%u awb state=%d req=%08x pend=%08x irq4=%u ev4=%u ev11=%u ev15=%u ev16=%u sw4=%u sw7=%u sw8=%u sw11=%u sensor state=%d\n",
 				       APICAL_READ_32(0x300) & 0xfff,
 				       APICAL_READ_32(0x304) & 0xfff,
 				       APICAL_READ_32(0x308) & 0xfff,
 				       APICAL_READ_32(0x30c) & 0xfff,
-				       *(uint8_t *)((char *)sensor + 0x1524),
-				       awb[1], awb[2], awb[3], t20_awb_irq4,
+				       isp->general.wdr_mode,
+				       awb->hdr.state, awb->hdr.pending_irq,
+				       awb->word_0c, t20_awb_irq4,
 				       t20_awb_ev[4], t20_awb_ev[11], t20_awb_ev[15],
 				       t20_awb_ev[16], t20_awb_switch[4],
 				       t20_awb_switch[7], t20_awb_switch[8],
 				       t20_awb_switch[11],
-				       *(int32_t *)((char *)sensor + 0xc + 4));
+				       isp->sensor.hdr.state);
 			}
 		}
 
-		if (sensor_mode == 1 || sensor_mode == 3) {
-			int32_t field_5c = *(int32_t *)((char *)arg1 + 0x5c);
+		if (wdr_mode == 1 || wdr_mode == 3) {
+			int32_t exposure_ratio = cmos->frame_update.exposure_ratio;
 			uint32_t reg;
 
 			APICAL_WRITE_32(0x24c,
 				(APICAL_READ_32(0x24c) & 0xfffff000) |
-				(field_5c & 0xfff));
+				(exposure_ratio & 0xfff));
 			/* OEM: 0x400ac, high half replaced (vendor 0x1ed14). */
 			reg = APICAL_READ_32(0x400ac);
 			APICAL_WRITE_32(0x400ac, (reg & 0xffff) |
-				((uint32_t)(uint16_t)field_5c << 16));
+				((uint32_t)(uint16_t)exposure_ratio << 16));
 		}
 
-		value = *(int32_t *)((char *)cmos_get_frame_exposure_set(arg1, 0) +
-			0x10);
-		return _process_fps_cnt(arg1 + 0x6a,
-			!((uint32_t)*(int32_t *)((char *)sensor + 0x70) < value));
+		value = t20_cmos_frame_set(cmos, 0)->integration_time;
+		return _process_fps_cnt((uintptr_t)&cmos->fps_cnt,
+			!(isp->sensor.ctrl.param.integration_time_max < value));
 	}
 
 	if (interrupt != 7)
@@ -10192,7 +10193,7 @@ uint32_t cmos_fsm_process_interrupt(int32_t *arg1, char arg2)
 	if (t20_cmos_irq_stage == 0)
 		return result;
 
-	cmos_move_exposure_history(arg1);
+	cmos_move_exposure_history((uint32_t *)cmos);
 	/*
 	 * Compact AE queues its sensor writes through the SDK I2C bridge.  The
 	 * recovered OEM callbacks consume a separate, currently incomplete CMOS
@@ -10204,22 +10205,23 @@ uint32_t cmos_fsm_process_interrupt(int32_t *arg1, char arg2)
 	if (t20_simple_ae || t20_cmos_irq_stage == 1)
 		return result;
 	{
-		uint32_t sensor_mode = *(uint8_t *)((char *)sensor + 0x1524);
-		uint32_t exposure_index = *(uint8_t *)((char *)sensor + 0x7e);
+		struct t20_sensor_control *sensor = &isp->sensor.ctrl;
+		uint32_t wdr_mode = isp->general.wdr_mode;
+		uint32_t delay = sensor->param.integration_time_apply_delay;
 		int32_t exposure;
-		int32_t integration;
+		int32_t exposure_ratio;
 		int32_t analog_gain;
 		int32_t digital_gain;
 		int32_t isp_gain;
 		int32_t long_exposure;
-		void *sensor_context = (char *)sensor + 0x34;
+		struct t20_sbus *bus = &sensor->sbus;
 		uint32_t reg;
 
-		if (sensor_mode == 1 || sensor_mode == 3) {
-			exposure = *(int32_t *)((char *)cmos_get_frame_exposure_set(
-				arg1, exposure_index) + 0x24);
-			integration = *(int32_t *)((char *)cmos_get_frame_exposure_set(
-				arg1, 1) + 0x20);
+		if (wdr_mode == 1 || wdr_mode == 3) {
+			exposure = t20_cmos_frame_set(cmos, delay)->
+				integration_time_long;
+			exposure_ratio = t20_cmos_frame_set(cmos, 1)->
+				exposure_ratio;
 			reg = APICAL_READ_32(0x400a4);
 			if (APICAL_READ_32(0x7c) & 1)
 				reg |= (uint32_t)exposure << 16;
@@ -10228,64 +10230,60 @@ uint32_t cmos_fsm_process_interrupt(int32_t *arg1, char arg2)
 			APICAL_WRITE_32(0x400a4, reg);
 			long_exposure = exposure;
 		} else {
-			exposure = *(int32_t *)((char *)cmos_get_frame_exposure_set(
-				arg1, exposure_index) + 0x10);
-			integration = 0x40;
+			exposure = t20_cmos_frame_set(cmos, delay)->
+				integration_time;
+			exposure_ratio = 0x40;
 			reg = APICAL_READ_32(0x400a4);
 			APICAL_WRITE_32(0x400a4,
 				reg | ((uint32_t)exposure << 16));
 			long_exposure = exposure;
 		}
 
-		analog_gain = *(int32_t *)((char *)cmos_get_frame_exposure_set(
-			arg1, *(uint8_t *)((char *)sensor + 0x7f)) + 0x14);
-		digital_gain = *(int32_t *)((char *)cmos_get_frame_exposure_set(
-			arg1, *(uint8_t *)((char *)sensor + 0x80)) + 0x18);
-		isp_gain = *(int32_t *)((char *)cmos_get_frame_exposure_set(
-			arg1, 1) + 0x1c);
+		analog_gain = t20_cmos_frame_set(cmos,
+			sensor->param.analog_gain_apply_delay)->again_reg;
+		digital_gain = t20_cmos_frame_set(cmos,
+			sensor->param.digital_gain_apply_delay)->dgain_reg;
+		isp_gain = t20_cmos_frame_set(cmos, 1)->isp_dgain;
 		if (t20_trace_events && t20_cmos_trace_count++ < 12)
 			printk(KERN_INFO
 			       "T20CMOS irq7 ring=%u it=%d again=%d dgain=%d isp=%d long=%d\n",
-			       arg1[0x1a4 / 4], exposure, analog_gain,
+			       cmos->history_index, exposure, analog_gain,
 			       digital_gain, isp_gain, long_exposure);
 
 		{
-			/* OEM 0x1f2f4-0x1f304 copies sp+0x10 to CMOS+0x4c.
-			 * These six words are the sensor callback ABI, not an
-			 * arbitrary exposure tuple. */
+			/* OEM 0x1f2f4-0x1f304 copies its stack tuple to the
+			 * cmos frame_update.  These six words are the sensor
+			 * callback ABI, not an arbitrary exposure tuple. */
 			int32_t update[6] = {
 				exposure, analog_gain, digital_gain,
-				isp_gain, integration, long_exposure,
+				isp_gain, exposure_ratio, long_exposure,
 			};
-			memcpy((char *)arg1 + 0x4c, update, sizeof(update));
+			memcpy(&cmos->frame_update, update, sizeof(update));
 		}
 		if (t20_cmos_irq_stage == 2)
 			return result;
 
-		(*(void (**)(void *, void *))((char *)sensor + 0xac))(
-			sensor_context, (char *)sensor + 0x56);
+		sensor->start_changes(bus, &sensor->param.sensor_ctx);
 		if (t20_cmos_irq_stage == 3)
 			return result;
-		(*(void (**)(void *, uint32_t, void *))((char *)sensor + 0xa8))(
-			sensor_context, (uint16_t)exposure, (char *)sensor + 0x4c);
+		sensor->set_integration_time(bus, (uint16_t)exposure,
+			&sensor->param);
 		if (t20_cmos_irq_stage == 4)
 			return result;
-		(*(void (**)(void *, int32_t, void *))((char *)sensor + 0xb4))(
-			sensor_context, analog_gain, (char *)sensor + 0x56);
+		sensor->set_analog_gain(bus, analog_gain,
+			&sensor->param.sensor_ctx);
 		if (t20_cmos_irq_stage == 5)
 			return result;
-		*(int32_t *)((char *)sensor + 0xf8) =
-			*(int32_t *)((char *)arg1 + 0x1cc) >> 12;
-		*(int32_t *)((char *)sensor + 0xf4) = analog_gain;
-		sensor_update_black((int32_t *)((char *)sensor + 0xc));
+		isp->sensor.black_again_log2 = cmos->sensor_again_log2 >> 12;
+		isp->sensor.black_again_reg = analog_gain;
+		sensor_update_black((int32_t *)&isp->sensor);
 		if (t20_cmos_irq_stage == 6)
 			return result;
-		(*(void (**)(void *, int32_t, void *))((char *)sensor + 0xb8))(
-			sensor_context, digital_gain, (char *)sensor + 0x56);
+		sensor->set_digital_gain(bus, digital_gain,
+			&sensor->param.sensor_ctx);
 		if (t20_cmos_irq_stage == 7)
 			return result;
-		(*(void (**)(void *, void *))((char *)sensor + 0xb0))(
-			sensor_context, (char *)sensor + 0x56);
+		sensor->end_changes(bus, &sensor->param.sensor_ctx);
 		if (t20_cmos_irq_stage == 8)
 			return result;
 	}
@@ -10293,9 +10291,9 @@ uint32_t cmos_fsm_process_interrupt(int32_t *arg1, char arg2)
 	result = (uint32_t)stab.global_anti_flicker_frequency << 8;
 	if (stab.global_antiflicker_enable == 0)
 		result = 0;
-	if (result != *(uint16_t *)((char *)arg1 + 0x1b4)) {
-		*(uint16_t *)((char *)arg1 + 0x1b4) = (uint16_t)result;
-		return apical_isp_raise_event(*(void **)arg1, 2);
+	if (result != cmos->antiflicker_freq) {
+		cmos->antiflicker_freq = (uint16_t)result;
+		return apical_isp_raise_event(cmos->hdr.isp, 2);
 	}
 	return result;
 }
@@ -14716,17 +14714,17 @@ T20_NO_STORE_MERGE void* cmos_fsm_clear(uintptr_t a0)
 
 	fsm->field_14 = 1;
 	fsm->field_18 = 256;
-	fsm->field_1c = 131072;
+	fsm->exposure_log2 = 131072;
 	fsm->field_48 = 41;
-	fsm->field_1a4 = (uint32_t)-1;
-	fsm->field_1b4 = 12800;
+	fsm->history_index = (uint32_t)-1;
+	fsm->antiflicker_freq = 12800;
 	fsm->field_1bc = 64;
-	fsm->field_1ca = 64;
+	fsm->exposure_ratio = 64;
 	fsm->field_10 = 0;
 	fsm->field_1c4 = 0;
 	fsm->field_1c6 = 0;
 	fsm->field_1c8 = 0;
-	fsm->field_1d4 = 0;
+	fsm->isp_dgain_log2 = 0;
 	fsm->field_1d8 = 0;
 
 	/* OEM 0x26e48-0x26e58: a1 = 12 and a2 = 16 (jalr delay slot). */
@@ -14980,8 +14978,8 @@ int32_t AE_fsm_clear(void *arg1)
 	memset(fsm->clear_10, 0, sizeof(fsm->clear_10));
 	fsm->field_28 = 0x40;
 	fsm->field_2c = 0x40;
-	fsm->field_434 = 0x4040c0c0;
-	fsm->field_438 = 0;
+	fsm->roi = 0x4040c0c0;
+	fsm->hist_request = 0;
 	return 0x4040c0c0;
 }
 
@@ -15128,7 +15126,7 @@ int32_t AWB_fsm_clear(uintptr_t a0)
 	fsm->field_77c = 3;
 	fsm->field_784 = 10000;
 	fsm->field_788 = 2100;
-	fsm->field_794 = 65535;
+	fsm->roi = 65535;
 	fsm->field_798 = 15;
 	fsm->field_78c = 256;
 	fsm->field_78e = 256;
@@ -15852,7 +15850,7 @@ T20_NO_STORE_MERGE int32_t general_fsm_clear(uintptr_t fsm_addr)
 	fsm->field_1e = 0;
 	fsm->field_20 = 0;
 	fsm->field_22 = 0;
-	fsm->field_3c = 0;
+	fsm->wdr_mode = 0;
 	fsm->field_3d = 0;
 	fsm->field_3e = 0;
 	fsm->field_3f = 0;
@@ -15989,17 +15987,17 @@ int32_t dis_fsm_process_event(int32_t *fsm_ptr, int32_t event)
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000294c0 origin=model_output original=matrix_yuv_fsm_clear */
-int32_t matrix_yuv_fsm_clear(void *arg1)
+T20_NO_STORE_MERGE int32_t matrix_yuv_fsm_clear(void *fsm_ptr)
 {
-	uint8_t *p = (uint8_t *)arg1;
+	struct t20_fsm_matrix_yuv *fsm = fsm_ptr;
 
-	p[0xa2] = 0x80;
-	p[0xa3] = 0x80;
-	p[0xa4] = 0x80;
-	*(uint16_t *)(p + 0xa0) = 0;
-	p[0xa8] = 4;
-	p[0xc2] = 4;
-	p[0xdc] = 4;
+	fsm->strength[0] = 0x80;
+	fsm->strength[1] = 0x80;
+	fsm->strength[2] = 0x80;
+	fsm->field_a0 = 0;
+	fsm->field_a8 = 4;
+	fsm->field_c2 = 4;
+	fsm->field_dc = 4;
 	return 4;
 }
 
@@ -17713,29 +17711,26 @@ static void t20_compact_ae_reset(void)
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000002b5bc origin=model_output original=AE_fsm_process_interrupt */
-int32_t AE_fsm_process_interrupt(int32_t *arg1, char arg2)
+int32_t AE_fsm_process_interrupt(int32_t *fsm_ptr, char irq)
 {
+	struct t20_fsm_ae *ae = (struct t20_fsm_ae *)fsm_ptr;
 	int trace_ae = t20_trace_events && ae_irq_trace_count++ < 12;
 	uint32_t result;
 
-	if ((arg2 & 0xff) != 3)
+	if ((irq & 0xff) != 3)
 		return 3;
 
 	if (trace_ae)
 		printk(KERN_INFO "T20AE irq before ae=%p isp=%p total=%u state=%d status=%08x pending=%08x\n",
-		       arg1, (void *)(uintptr_t)arg1[0],
-		       *(uint32_t *)((char *)arg1 + 0x430), arg1[1],
-		       arg1[2], arg1[3]);
-	result = ae_read_full_histogram_data((uintptr_t)arg1);
+		       ae, ae->hdr.isp, ae->hist_total, ae->hdr.state,
+		       ae->hdr.pending_irq, ae->word_0c);
+	result = ae_read_full_histogram_data((uintptr_t)ae);
 	if (trace_ae)
 		printk(KERN_INFO "T20AE histogram result=%08x total=%u first=%u last=%u\n",
-		       result, *(uint32_t *)((char *)arg1 + 0x430),
-		       *(uint32_t *)((char *)arg1 + 0x30),
-		       *(uint32_t *)((char *)arg1 + 0x42c));
+		       result, ae->hist_total, ae->hist[0], ae->hist[255]);
 	if (t20_simple_ae) {
-		struct tx_isp_t20_nr_owner_view *owner =
-			(void *)(uintptr_t)arg1[0];
-		uint32_t total = *(uint32_t *)((char *)arg1 + 0x430);
+		struct t20_isp_ctx *isp = ae->hdr.isp;
+		uint32_t total = ae->hist_total;
 		uint32_t integration = 0;
 		uint32_t again_code = 0;
 		int32_t again_log2 = 0;
@@ -17759,7 +17754,7 @@ int32_t AE_fsm_process_interrupt(int32_t *arg1, char arg2)
 		 * leave the seeded sensor exposure unchanged.
 		 */
 		target_table = _GET_HDR_TABLE_INDEX(T20_CAL_AE_BALANCED_START,
-			owner->wdr_mode);
+			isp->general.wdr_mode);
 		if (_GET_WIDTH(target_table) == sizeof(u32) &&
 		    _GET_ROWS(target_table) * _GET_COLS(target_table) >= 7) {
 			const u32 *balanced = (void *)(uintptr_t)
@@ -17770,7 +17765,7 @@ int32_t AE_fsm_process_interrupt(int32_t *arg1, char arg2)
 				raw_target = clamp_t(u32, balanced[1], 1, 255);
 				highlight_tail = balanced[2];
 				gain_accuracy = balanced[6];
-				mean = t20_ae_metered_mean(arg1, highlight_tail);
+				mean = t20_ae_metered_mean(fsm_ptr, highlight_tail);
 			}
 		}
 
@@ -17781,7 +17776,7 @@ int32_t AE_fsm_process_interrupt(int32_t *arg1, char arg2)
 			ARRAY_SIZE(exposure_partition_int_priority) / 2);
 		if (result == 0 && raw_target && pi_coefficient && gain_accuracy)
 			target = t20_ae_corrected_target(raw_target,
-				simple_exposure_log2, owner->wdr_mode, &curve_value);
+				simple_exposure_log2, isp->general.wdr_mode, &curve_value);
 		/*
 		 * #252: the error is log2(target) - log2(mean) in Q16 like the
 		 * OEM ae_calculate_target() (ae_balanced_func.c.o 0x37c-0x820),
@@ -17812,10 +17807,11 @@ int32_t AE_fsm_process_interrupt(int32_t *arg1, char arg2)
 		}
 
 		if (result == 0) {
-			uint8_t *isp = (uint8_t *)(uintptr_t)arg1[0];
+			/* re-read like the OEM: the calls above may change it */
+			struct t20_isp_ctx *ctx = ae->hdr.isp;
 			struct tx_isp_t20_nr_state *nr =
-				(void *)((u8 *)arg1 + (0xff0 - 0x308));
-			int32_t *sharpening = (void *)(isp + 0x1014);
+				t20_fsm_sibling(ae, ae, noise_reduction);
+			struct t20_fsm_sharpening *sharpening = &ctx->sharpening;
 
 			/* openimp #285: like the OEM cmos_update_exposure_
 			 * history(), a manual time (stab.global_manual_integration_time) / analog gain
@@ -17826,17 +17822,17 @@ int32_t AE_fsm_process_interrupt(int32_t *arg1, char arg2)
 			if (!stab.global_manual_sensor_analog_gain)
 				stab.global_sensor_analog_gain = (uint8_t)clamp_t(int32_t,
 					again_log2 >> 11, 0, 255);
-			*(int32_t *)(isp + 0xf4) = again_code;
-			*(int32_t *)(isp + 0xf8) = again_log2 >> 12;
-			owner->exposure_log2 = simple_exposure_log2;
+			ctx->sensor.black_again_reg = again_code;
+			ctx->sensor.black_again_log2 = again_log2 >> 12;
+			isp->cmos.exposure_log2 = simple_exposure_log2;
 
 			/*
 			 * Publish the compact AE result through the same owner ABI used
 			 * by the OEM tuning FSM.  The NR update consumes only active IQ
 			 * tables; it has no sensor-name or device-specific branches.
 			 */
-			owner->sensor_analog_gain = again_log2;
-			owner->sensor_digital_gain = 0;
+			isp->cmos.sensor_again_log2 = again_log2;
+			isp->cmos.sensor_dgain_log2 = 0;
 			/*
 			 * #246: publish and apply the ISP digital gain like the
 			 * OEM cmos_digital_gain_update() + cmos_update_exposure_
@@ -17844,22 +17840,21 @@ int32_t AE_fsm_process_interrupt(int32_t *arg1, char arg2)
 			 * saturation gain modulation, stab.global_isp_digital_gain is what isp-m0 and
 			 * GetTotalGain report (OEM only when not manual, stab.global_manual_isp_digital_gain),
 			 * and the cmos frame-start interrupt writes register 0x1a0
-			 * (4.8) from the cmos+0x58 slot of the sensor callback
+			 * (4.8) from the frame_update.isp_dgain slot of the sensor callback
 			 * tuple (OEM cmos_func.c.o 0xcb8-0xd14; the interrupt-7
 			 * copy into that tuple is skipped in compact mode).
 			 */
-			owner->isp_digital_gain = isp_dgain_log2;
-			*(int32_t *)(isp + T20_CMOS_FSM_OFFSET +
-				T20_CMOS_FRAME_ISP_DGAIN) = isp_dgain_log2;
+			isp->cmos.isp_dgain_log2 = isp_dgain_log2;
+			ctx->cmos.frame_update.isp_dgain = isp_dgain_log2;
 			if (!stab.global_manual_isp_digital_gain)
 				stab.global_isp_digital_gain = (uint8_t)clamp_t(int32_t,
 					isp_dgain_log2 >> 11, 0, 255);
-			if (owner->wdr_mode == 0 && !owner->exposure_ratio)
-				owner->exposure_ratio = T20_EXPOSURE_RATIO_Q6_ONE;
+			if (isp->general.wdr_mode == 0 && !isp->cmos.exposure_ratio)
+				isp->cmos.exposure_ratio = T20_EXPOSURE_RATIO_Q6_ONE;
 			if (t20_simple_nr) {
 				int nr_result = 0;
 
-				nr->isp = owner;
+				nr->isp = (void *)isp;
 				if (!simple_nr_initialized) {
 					nr_result = noise_reduction_initialize(nr);
 					if (!nr_result)
@@ -17882,7 +17877,7 @@ int32_t AE_fsm_process_interrupt(int32_t *arg1, char arg2)
 			 * effect; run the same update from here instead.
 			 */
 			if (t20_simple_sharpen || tx_isp_t20_fw_parked())
-				sharpening_update(sharpening);
+				sharpening_update((int32_t *)sharpening);
 
 			/*
 			 * The quarantined event worker no longer fans AE gain changes out to
@@ -17891,37 +17886,37 @@ int32_t AE_fsm_process_interrupt(int32_t *arg1, char arg2)
 			 * frame-start IRQ owns its temporal average and hardware commit.
 			 */
 			{
-				int32_t *color = (void *)(isp + 0xee8);
-				int32_t *iridix = (void *)(isp + 0xfd4);
+				struct t20_fsm_color_matrix *color = &ctx->color_matrix;
+				struct t20_fsm_iridix *iridix = &ctx->iridix;
 				int iridix_result;
 
 				if (tx_isp_t20_fw_parked() && !t20_ccm_awb_updates) {
 					/* OEM: color_matrix_update() per event 11;
 					 * includes mesh_shading_modulate_strength() */
-					color_matrix_update(color);
+					color_matrix_update((int32_t *)color);
 					t20_ccm_frame_updates++;
 				} else if (tuning_feedback) {
-					mesh_shading_modulate_strength(color);
+					mesh_shading_modulate_strength((int32_t *)color);
 				}
 				t20_ccm_awb_updates = 0;
 				if (!simple_iridix_initialized) {
-					iridix_initialize(iridix);
+					iridix_initialize((int32_t *)iridix);
 					simple_iridix_initialized = true;
 				}
 				/* Fresh AE histograms own the target; frame-start owns its EMA. */
-				iridix_result = iridix_update(iridix);
+				iridix_result = iridix_update((int32_t *)iridix);
 				if (t20_trace_events && tuning_feedback &&
 				    iq_trace_count++ < 16)
 					printk(KERN_INFO
 					       "T20IQ gain=%u exposure=%d lsc=%u iridix=%u target=%u state=%d event=%d\n",
-					       (owner->sensor_analog_gain +
-						owner->sensor_digital_gain +
-						owner->isp_digital_gain) >> 8,
-					       owner->exposure_log2,
+					       (isp->cmos.sensor_again_log2 +
+						isp->cmos.sensor_dgain_log2 +
+						isp->cmos.isp_dgain_log2) >> 8,
+					       isp->cmos.exposure_log2,
 					       APICAL_READ_32(0x39c) & 0xffff,
 					       APICAL_READ_32(0x3c4) & 0xff,
-					       *(u16 *)((u8 *)iridix + 0x10) >> 8,
-					       iridix[1], iridix_result);
+					       iridix->field_10 >> 8,
+					       iridix->hdr.state, iridix_result);
 			}
 		}
 		if (t20_trace_events && simple_trace_count++ < 32)
@@ -17949,10 +17944,10 @@ int32_t AE_fsm_process_interrupt(int32_t *arg1, char arg2)
 				t20_awb_stable_ae_frames = 0;
 			}
 		}
-		return AE_request_interrupt(arg1, 1 << 3);
+		return AE_request_interrupt(fsm_ptr, 1 << 3);
 	}
 
-	result = apical_isp_raise_event((void *)(uintptr_t)arg1[0], 1);
+	result = apical_isp_raise_event(ae->hdr.isp, 1);
 	if (trace_ae)
 		printk(KERN_INFO "T20AE irq raised result=%08x\n", result);
 	return result;
