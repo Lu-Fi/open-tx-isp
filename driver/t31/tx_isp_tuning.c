@@ -858,17 +858,14 @@ static uint32_t bcsh_HDP[3] = { 0x0000, 0x0018, 0x0058 }; /* OEM: 0x9a894 */
 static uint32_t bcsh_HBP[3] = { 0x0000, 0x0320, 0x0360 }; /* OEM: 0x9a888 */
 static uint32_t bcsh_HLSP[3] = { 0x0000, 0x0008, 0x0018 }; /* OEM: 0x9a87c */
 static uint32_t bcsh_Sthres[3] = { 0x0000, 0x000a, 0x002a }; /* OEM: 0x9a870 */
-static uint32_t bcsh_C[5] = { 0x0000, 0x0010, 0x0344, 0x0008, 0x034c }; /* OEM: 0x9a7a8 */
+static uint32_t bcsh_C[5] = { 0x0000, 0x0010, 0x0344, 0x0008, 0x034c }; /* OEM: 0x9a7a8, vendor tisp_BCSH_au32C: [1..4] = Cxl / Cxh / Cyl / Cyh,
+                                                                       * EV-interpolated by tiziano_bcsh_update and read by TransitParam (openimp #550) */
 static uint32_t bcsh_Cxl[9] = { 0x10, 0x10, 0x10, 0x10, 0x10, 0x10, 0x10, 0x10, 0x10 }; /* OEM: 0x9a784 */
 static uint32_t bcsh_Cxh[9] = { 0x344, 0x344, 0x344, 0x344, 0x344, 0x344, 0x344, 0x344, 0x344 }; /* OEM: 0x9a760 */
 static uint32_t bcsh_Cyl[9] = { 0x08, 0x08, 0x08, 0x08, 0x08, 0x08, 0x08, 0x08, 0x08 }; /* OEM: 0x9a73c */
 static uint32_t bcsh_Cyh[9] = { 0x34c, 0x34c, 0x34c, 0x34c, 0x34c, 0x34c, 0x34c, 0x34c, 0x34c }; /* OEM: 0x9a718 */
 static uint32_t bcsh_B = 0x0400; /* OEM: tisp_BCSH_u32B = 0x400 */
 /* EV-interpolated contrast clipping values (OEM computes these in tiziano_bcsh_update) */
-static uint32_t bcsh_Cxl_now = 0x10;
-static uint32_t bcsh_Cxh_now = 0x344;
-static uint32_t bcsh_Cyl_now = 0x08;
-static uint32_t bcsh_Cyh_now = 0x34c;
 /* TransitParam working copies (OEM: tisp_BCSH_ai32*) */
 static uint32_t bcsh_ai32_Svalue[4];
 static uint32_t bcsh_ai32_C[5];
@@ -8125,7 +8122,7 @@ static int tiziano_bcsh_update(struct isp_tuning_data *tuning)
     const uint32_t *const src[8] = { bcsh_SminListS_now, bcsh_SmaxListS_now, bcsh_SminListM_now, bcsh_SmaxListM_now,
                                      bcsh_Cxl, bcsh_Cxh, bcsh_Cyl, bcsh_Cyh };
     uint32_t *const dst[8] = { &bcsh_Svalue_base[0], &bcsh_Svalue_base[1], &bcsh_Svalue_base[2], &bcsh_Svalue_base[3],
-                               &bcsh_Cxl_now, &bcsh_Cxh_now, &bcsh_Cyl_now, &bcsh_Cyh_now };
+                               &bcsh_C[1], &bcsh_C[2], &bcsh_C[3], &bcsh_C[4] };
 
     /* not in the vendor: before the first EV / CT event, take them from the tuning state */
     if (tuning) {
@@ -32754,29 +32751,29 @@ static void tiziano_bcsh_TransitParam(void)
     if (bcsh_C[0] != 0 && user_contrast != 0x80) {
         bcsh_ai32_C[0] = bcsh_C[0];
         if ((int8_t)user_contrast < 0) {
-            uint32_t mid = ((bcsh_Cxh_now >= bcsh_Cxl_now) ?
-                (bcsh_Cxh_now - bcsh_Cxl_now) : (bcsh_Cxl_now - bcsh_Cxh_now)) / 2 + bcsh_Cxl_now;
+            uint32_t mid = ((bcsh_C[2] >= bcsh_C[1]) ?
+                (bcsh_C[2] - bcsh_C[1]) : (bcsh_C[1] - bcsh_C[2])) / 2 + bcsh_C[1];
 
             bcsh_ai32_C[1] = tiziano_bcsh_StrenCal_part0(
-                user_contrast, 0x80, 0xff, bcsh_Cxl_now, mid);
+                user_contrast, 0x80, 0xff, bcsh_C[1], mid);
             bcsh_ai32_C[2] = tiziano_bcsh_StrenCal(
-                user_contrast, 0x80, 0xff, bcsh_Cxh_now, mid, 1);
+                user_contrast, 0x80, 0xff, bcsh_C[2], mid, 1);
             bcsh_ai32_C[3] = tiziano_bcsh_StrenCal(
-                user_contrast, 0x80, 0xff, bcsh_Cyl_now, 0, 1);
+                user_contrast, 0x80, 0xff, bcsh_C[3], 0, 1);
             bcsh_ai32_C[4] = tiziano_bcsh_StrenCal_part0(
-                user_contrast, 0x80, 0xff, bcsh_Cyh_now, 0x3ff);
+                user_contrast, 0x80, 0xff, bcsh_C[4], 0x3ff);
         } else {
-            uint32_t mid = ((bcsh_Cyh_now >= bcsh_Cyl_now) ?
-                (bcsh_Cyh_now - bcsh_Cyl_now) : (bcsh_Cyl_now - bcsh_Cyh_now)) / 2 + bcsh_Cyl_now;
+            uint32_t mid = ((bcsh_C[4] >= bcsh_C[3]) ?
+                (bcsh_C[4] - bcsh_C[3]) : (bcsh_C[3] - bcsh_C[4])) / 2 + bcsh_C[3];
 
             bcsh_ai32_C[1] = tiziano_bcsh_StrenCal_part0(
-                user_contrast, 0, 0x80, 0, bcsh_Cxl_now);
+                user_contrast, 0, 0x80, 0, bcsh_C[1]);
             bcsh_ai32_C[2] = tiziano_bcsh_StrenCal(
-                user_contrast, 0, 0x80, 0x3ff, bcsh_Cxh_now, 1);
+                user_contrast, 0, 0x80, 0x3ff, bcsh_C[2], 1);
             bcsh_ai32_C[3] = tiziano_bcsh_StrenCal(
-                user_contrast, 0, 0x80, mid, bcsh_Cyl_now, 1);
+                user_contrast, 0, 0x80, mid, bcsh_C[3], 1);
             bcsh_ai32_C[4] = tiziano_bcsh_StrenCal_part0(
-                user_contrast, 0, 0x80, mid, bcsh_Cyh_now);
+                user_contrast, 0, 0x80, mid, bcsh_C[4]);
             bcsh_ai32_Svalue[0] = tiziano_bcsh_StrenCal_part0(
                 user_contrast, 0, 0x80, 0, bcsh_ai32_Svalue[0]);
             bcsh_ai32_Svalue[1] = tiziano_bcsh_StrenCal_part0(
