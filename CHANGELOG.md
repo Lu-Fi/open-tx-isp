@@ -6,7 +6,7 @@ marked otherwise. Release tags `vYYYY.MM.DD[-rcN]` are set on the `aperto` branc
 
 ## 2026-11-14: user OK for seven earlier beyond-vendor behaviours
 
-- docs/BEYOND_VENDOR.md: T21 brightness, T21 AWB hysteresis/IR freeze, T21 open rollback, T21 MDNS guard, CSC presets and front crop, scene/colour effects, T10/T20 anti-fog/DPC/mesh/sinter-temper ratio now "user OK 2026-11-14". No code change.
+- docs/BEYOND_VENDOR.md: T41 stale-sensor reclaim at AddSensor, T21 brightness, T21 AWB hysteresis/IR freeze, T21 open rollback, T21 MDNS guard, CSC presets and front crop, scene/colour effects, T10/T20 anti-fog/DPC/mesh/sinter-temper ratio now "user OK 2026-11-14". No code change.
 
 ## 2026-11-14: docs: T10/T20 DRC row approved, t40_ysp_on parameter text
 
