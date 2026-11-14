@@ -4,6 +4,10 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD[-rcN]` are set on the `aperto` branch, the same tag in open-tx-isp and OpenIMP: RC1 `v2026.10.11-rc1`, RC2 `v2026.10.25-rc2`, RC3 `v2026.11.07-rc3` (2026-11-07). Gate SoCs of RC3 and Release 1: T10, T20, T21, T23, T30, T31, T40, T41 (T32/T33 planned, QEMU only); release notes: [docs/releases/ in OpenIMP](https://github.com/Lu-Fi/openimp/blob/next/docs/releases/README.md). Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-11-14: docs: T32/T33 GetAeExprInfo short-frame words row (user OK 2026-11-14; openimp #527)
+
+- `docs/BEYOND_VENDOR.md`: the zeroed words 26..50 of the exposure block (`tx_isp_t32_tunblk.c:250`; the vendor returns stale kernel data there). Docs only.
+
 ## 2026-11-14: docs: three T31 beyond-vendor rows (user OK 2026-11-14; openimp #532, #533)
 
 - `docs/BEYOND_VENDOR.md`: span 1 for a zero-width CCM / BCSH interpolation segment (vendor divides by zero), the BCSH EV / CT fallback from the tuning state before the first event, and the `wdr_ready` check before `tisp_wdr_ev_update`. Docs only.
