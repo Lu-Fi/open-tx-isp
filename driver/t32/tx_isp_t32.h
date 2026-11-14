@@ -211,6 +211,16 @@ void t32_fs_done_irq(u32 done);
 void t32_fs_show(struct seq_file *m);
 int t32_fs_ivdc_frame(u32 ch);
 int t32_fs_crop(int ch, u32 *pos, u32 *size);
+void t32_fs_snap_pause(int restart);
+
+/* tx_isp_t32_snapldc.c: RAW snapshot, online LDC requests, /dev/offline_ldc (openimp #491) */
+int t32_snapldc_init(void);
+void t32_snapldc_exit(void);
+long t32_snap_ioctl(unsigned int cmd, unsigned long arg);
+long t32_ldc_online_ioctl(unsigned int cmd, unsigned long arg, u32 ldc_mode);
+void t32_snap_isp_irq(u32 sta2, u32 sta3);
+void t32_snap_vic_irq(u32 ch, u32 s, u32 s2);
+void t32_snapldc_show(struct seq_file *m);
 
 /* tx_isp_t32_ivdcdrv.c: IVDC direct mode (#349) */
 int t32_ivdc_init(void);

@@ -222,6 +222,10 @@ static irqreturn_t t32_isp_irq(int irq, void *dev)
 #endif
 	if (done)
 		t32_fs_done_irq(done);
+#ifdef TX_ISP_T33
+	if ((msca & 1) || (s3 & 0x10))	/* bits 32 / 68: RAW snapshot WDMA (openimp #491) */
+		t32_snap_isp_irq(msca, s3);
+#endif
 	if (msca & 2)			/* MSCA frame done: tisp_msca_irq_frame_done (ISP OSD, #336) */
 		t32_isposd_frame_done();
 	if (msca & T32_MSCADONE_LSC)	/* interrupt bit 36: tisp_lsc_irq_frame_done (tx_isp_t32_lscct.c) */
@@ -244,6 +248,11 @@ static irqreturn_t t32_vic_irq(int irq, void *dev)
 	writel(t0, isp_base + T32_VIC_BASE(1) + T32_VIC_INT_CLR);
 	writel(t1, isp_base + T32_VIC_BASE(1) + T32_VIC_INT_CLR2);
 	t32_hw_stats.vic_irqs++;
+#ifndef TX_ISP_T33
+	/* RAW snapshot through the VIC's MDMA (vendor lib_tisp_vic_intp_handle, openimp #491) */
+	t32_snap_vic_irq(0, s0, s1);
+	t32_snap_vic_irq(1, t0, t1);
+#endif
 	return IRQ_HANDLED;
 }
 

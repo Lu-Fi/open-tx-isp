@@ -565,6 +565,55 @@ static long t32_frame_drop_get(unsigned long arg)
 	return 0;
 }
 
+/*
+ * 0xc00454b9, online LDC LUT memory (T33 vendor tx_isp_ldc_online_probe; the
+ * T32 module has no handler: 0, block untouched).  48-byte block {vinum,
+ * func, block size (u16), .., word 6 (top half 1: one buffer), .., word 8
+ * extra bytes, word 9 size out, word 10 / 11 physical addresses out}; the
+ * sensor size comes from the core's event 0x100001c (width low, height high).
+ * Core lock held.
+ */
+static long t32_ldc_online_probe(unsigned long arg)
+{
+#ifdef TX_ISP_T33
+	struct t32_buf_info bi;
+	u32 b[12], w = 0, h = 0, bs, size;
+	int k, n;
+
+	if (copy_from_user(b, (void __user *)arg, sizeof(b))) {
+		isp_printf(2, "[ %s:%d ] copy from user error\n", "tx_isp_ldc_online_probe", 0xa2b);
+		return -EFAULT;
+	}
+	if (b[0] < T32_MAX_VI && core.vi[b[0]].registered) {
+		w = core.vi[b[0]].width;
+		h = core.vi[b[0]].height;
+	}
+	if ((b[1] == 2 || b[1] == 4) && (bs = b[2] & 0xffff)) {
+		b[2] = bs;
+		size = (((w + bs - 1) / bs + 3) & ~1U) * ((h + bs - 1) / bs + 1) * 4 + b[8];
+		n = (b[6] >> 16) == 1 ? 1 : 2;
+		for (k = 0; k < n; k++) {
+			memset(&bi, 0, sizeof(bi));
+			bi.size = size;
+			if (t32_malloc(&bi)) {
+				isp_printf(1, "[ %s:%d ] Failed to allocate memory\n", "tx_isp_ldc_online_probe",
+					   k ? 0xa5c : 0xa47);
+				return -ENOMEM;
+			}
+			/* no dirty line may later land on what libimp writes through /dev/mem */
+			dma_cache_wback_inv((unsigned long)bi.word0, size);
+			b[9] = size;
+			b[10 + k] = bi.word1;
+		}
+	}
+	if (copy_to_user((void __user *)arg, b, sizeof(b))) {
+		isp_printf(2, "[ %s:%d ] copy from user error\n", "tx_isp_ldc_online_probe", 0xa67);
+		return -EFAULT;
+	}
+#endif
+	return 0;
+}
+
 static long t32_isp_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 {
 	struct t32_vi *vi = &core.vi[0];
@@ -573,6 +622,13 @@ static long t32_isp_ioctl(struct file *file, unsigned int cmd, unsigned long arg
 	u32 v;
 	long ret = 0;
 
+	/* RAW snapshot: waits for frames, outside the core lock (vendor: no lock) */
+	if (cmd == T32_IOC_SNAP_RAW || cmd == T32_IOC_SNAP_CTL) {
+		ret = t32_snap_ioctl(cmd, arg);
+		if (t32_trace || ret)
+			isp_printf(ret ? 1 : 0, "tx-isp-t32: ioctl %#x -> %ld\n", cmd, ret);
+		return ret;
+	}
 	mutex_lock(&core.lock);
 	core.ioctls++;
 	switch (cmd) {
@@ -796,6 +852,13 @@ static long t32_isp_ioctl(struct file *file, unsigned int cmd, unsigned long arg
 		ret = T32_GET(arg, v);
 		if (!ret)
 			core.ldc_mode = v;
+		break;
+	case T32_IOC_LDC_ONLINE_PROBE:
+		ret = t32_ldc_online_probe(arg);
+		break;
+	case T32_IOC_LDC_ONLINE_INIT:
+	case T32_IOC_LDC_ONLINE_PAR:
+		ret = t32_ldc_online_ioctl(cmd, arg, core.ldc_mode);
 		break;
 	case T32_IOC_SET_PM_CTRL:
 	case T32_IOC_GET_PM_CTRL:
@@ -1261,6 +1324,7 @@ static int t32_proc_show(struct seq_file *m, void *v)
 	t33_stats_show(m);
 #endif
 	t32_fs_show(m);
+	t32_snapldc_show(m);
 	t32_ivdc_show(m);
 	return 0;
 }
@@ -1376,6 +1440,12 @@ int tx_isp_t32_core_init(void)
 		t32_hw_exit();
 		goto err_hw;
 	}
+	ret = t32_snapldc_init();
+	if (ret) {
+		t32_ivdc_exit();
+		t32_hw_exit();
+		goto err_hw;
+	}
 	core.proc = jz_proc_mkdir("isp");
 	if (core.proc) {
 		proc_create("isp-m0", 0444, core.proc, &t32_proc_fops);
@@ -1414,6 +1484,7 @@ void tx_isp_t32_core_exit(void)
 		remove_proc_entry("isp-w02", core.proc);
 		proc_remove(core.proc);
 	}
+	t32_snapldc_exit();
 	t32_ivdc_exit();
 	t32_hw_exit();
 	t32_fs_exit();

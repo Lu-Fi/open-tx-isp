@@ -15,7 +15,8 @@ tx-isp-t32-objs := tx_isp_t32_sinfo.o \
 		   tx_isp_t32_isposd.o \
 		   tx_isp_t32_tunctl.o \
 		   tx_isp_t32_tunblk.o \
-		   tx_isp_t32_ivdcdrv.o
+		   tx_isp_t32_ivdcdrv.o \
+		   tx_isp_t32_snapldc.o
 obj-m += tx-isp-t32.o
 
 ccflags-y += -I$(src)/../include -std=gnu99

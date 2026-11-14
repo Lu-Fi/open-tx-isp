@@ -45,6 +45,11 @@ module's except the DDR ring address. FrameSource input crop (vendor
 format words 13..17) reaches the MSCA list 23 as the vendor's. rmmod writes no ISP register while the
 ISP clock is off (as the vendor module). Not tested on a camera.
 
+RAW snapshot and LDC (openimp #491, `../t32/tx_isp_t32_snapldc.c`): `0xc004548e` / `0xc004548f`
+(raw WDMA, MSCA channel stop / restart), the online LDC requests `0xc00454b9..bb` and the
+`/dev/offline_ldc` misc device (LUT memory, one job on the ISP LDC at 0x27000, IRQ `isp-m1`) answer as
+the vendor module in QEMU (apitest t33f1, t33l1, t33drv); the online attribute is kept, not applied.
+
 Tuning controls (`/dev/isp-m0` 0xc0105467, openimp #389): the T32 dispatchers
 (`../t32/tx_isp_t32_txsctrl.h:297`, `txgctrl.h:177`, glue
 `tx_isp_t32_tunctl.c` / `tx_isp_t32_tunblk.c`) are built into this module.

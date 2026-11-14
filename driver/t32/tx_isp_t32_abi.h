@@ -48,6 +48,11 @@
 #define T32_IOC_RUN_SWITCH		0xc004543cU	/* value 0 / 1 / 2 / 3: IMP_ISP_OneShotDisable / Enable / Tick */
 #define T32_IOC_GET_RUN_MODE		0xc004543dU	/* R u32: IMP_ISP_GET_DriverMode */
 #define T32_IOC_LDC_MODE		0xc00454b8U	/* W u32 0 online / 1 offline: IMP_ISP_LDC_SetMode */
+#define T32_IOC_LDC_ONLINE_PROBE	0xc00454b9U	/* RW 48 B: online LDC LUT memory (T33 tx_isp_ldc_online_probe; T32: 0) */
+#define T32_IOC_LDC_ONLINE_INIT		0xc00454baU	/* W 48 B (T32 24 B): core 0x5000006, tx_ldc_online_init */
+#define T32_IOC_LDC_ONLINE_PAR		0xc00454bbU	/* RW 88 B: core 0x5000008, tx_ldc_get_online_param (T32: 0) */
+#define T32_IOC_SNAP_RAW		0xc004548eU	/* W 24 B {vinum, count, type, mode, size, paddr}: IMP_FrameSource_SnapRaw_Start */
+#define T32_IOC_SNAP_CTL		0xc004548fU	/* W 8 B {vinum, 0 stop / 1 restart the MSCA channels} */
 #define T32_IOC_MEMORY_MALLOC		0x800c543aU	/* W {.., .., size}; driver writes {kva, pa, size} */
 #define T32_IOC_MEMORY_FREE		0x800c543bU	/* W {kva, 0, ..} */
 #define T32_IOC_SET_TIZIANO_PAR		0xc00454c8U	/* RW int: pa of a MEMORY_MALLOC buffer (IQ bin) */

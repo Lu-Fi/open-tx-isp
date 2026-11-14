@@ -475,6 +475,38 @@ static const struct file_operations t32_fs_fops = {
 	.release = t32_fs_release,
 };
 
+/*
+ * RAW snapshot (/dev/tx-isp 0xc004548f, vendor ispcore event 0x100000b):
+ * restart 0 stops the output of every streaming channel (its buffers stay
+ * with the driver), restart 1 clears the address FIFOs and gives every
+ * buffer the MSCA held back to it, then starts the channel again.  The
+ * channels stay streaming for the frame channel ioctls in between.
+ */
+void t32_fs_snap_pause(int restart)
+{
+	unsigned long flags;
+	u32 in_w, in_h;
+	int c, i;
+
+	if (restart && t32_core_sensor_size(&in_w, &in_h))
+		return;
+	for (c = 0; c < T32_MSCA_CHANNELS; c++) {
+		struct t32_fchan *f = &fchan[c];
+
+		spin_lock_irqsave(&f->lock, flags);
+		if (f->streaming && !f->direct) {
+			t32_hw_msca_stop(f->ch);
+			if (restart) {
+				for (i = 0; i < f->nbufs; i++)
+					if (f->buf[i].state == BUF_HW || f->buf[i].state == BUF_QUEUED)
+						t32_fs_push_locked(f, i);
+				t32_hw_msca_start(f->ch, f->width, f->height, f->stride, in_w, in_h);
+			}
+		}
+		spin_unlock_irqrestore(&f->lock, flags);
+	}
+}
+
 void t32_fs_stop_all(void)
 {
 	int c;
