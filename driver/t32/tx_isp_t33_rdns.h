@@ -153,6 +153,24 @@ static inline void t33_rdns_para(u32 *v, u32 blc, u32 dg)
 	t33_itp_ks(t33_iabs((int)(v[0x61] - v[0x60])), t33_iabs((int)(v[0x5f] - v[0x5e])), 6, 9, &v[0xcd], &v[0xcf]);
 }
 
+#define T33_RDNS_SEC_WORD	0xd0	/* rdnsInfo word: the RDNS section pointer */
+
+/* func_rdns_bin_para_update: the bin bytes of the section (binary oracle block rdnspar) */
+static inline void t33_rdns_bin_para_update(u32 *v, const u8 *sec)
+{
+	t33_vb_bin(v, sec, t33_rdns_bin, ARRAY_SIZE(t33_rdns_bin));
+}
+
+/*
+ * func_rdns_para_update (block rdnspar): the copies, then the LUT / ks part;
+ * blc / dg: what the vendor reads with tisp_reg_read_t33 (BLC / DG list slot 3).
+ */
+static inline void t33_rdns_para_update(u32 *v, u32 blc, u32 dg)
+{
+	t33_vb_copy(v, t33_rdns_copy, ARRAY_SIZE(t33_rdns_copy));
+	t33_rdns_para(v, blc, dg);
+}
+
 /* list stores (slots of t33_rdns_tmpl) */
 static inline void t33_rdns_store(const u32 *v, u32 *l)
 {
@@ -205,11 +223,10 @@ static inline int t33_rdns_init(const u8 *sec, u32 gain, u32 ev, u32 blc, u32 dg
 
 	for (k = 0; k < T33_RDNS_WORDS; k++)
 		v[k] = 0;
-	t33_vb_bin(v, sec, t33_rdns_bin, ARRAY_SIZE(t33_rdns_bin));
+	t33_rdns_bin_para_update(v, sec);
 	t33_vb_evintp(v, sec, ev, sec + 0x39c, t33_rdns_evintp, ARRAY_SIZE(t33_rdns_evintp));
 	t33_vb_intp(v, sec, gain, t33_rdns_intp, ARRAY_SIZE(t33_rdns_intp));
-	t33_vb_copy(v, t33_rdns_copy, ARRAY_SIZE(t33_rdns_copy));
-	t33_rdns_para(v, blc, dg);
+	t33_rdns_para_update(v, blc, dg);
 	if (len > 0)
 		t33_rdns_store(v, l);
 	return len;

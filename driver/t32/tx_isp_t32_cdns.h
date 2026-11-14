@@ -224,8 +224,18 @@ static inline void t33_cdns_par(const u8 *sec, u32 gain, u8 *o)
 		o[k] = t32_tp_intp_u8(gi, gf, sec + 0x1a7 + 11 * (k - 0x27));
 }
 
-/* cdnsInfo (440 bytes): func_cdns_para_update's copies of the 0x36 values in words 54..107 */
+/* cdnsInfo (440 bytes): the 0x36 interpolated values in words 0..53, func_cdns_para_update's copies in 54..107 */
 #define T33_CDNS_INFO_WORDS	110
+
+/* func_cdns_para_update (binary oracle block rdnspar) */
+static inline void t33_cdns_para_update(u32 *inf)
+{
+	unsigned int k;
+
+	for (k = 0; k < 0x36; k++)
+		inf[0x36 + k] = inf[k];
+}
+
 static inline void t33_cdns_info(const u8 *sec, u32 gain, u32 *inf)
 {
 	u8 o[0x36];
@@ -233,7 +243,8 @@ static inline void t33_cdns_info(const u8 *sec, u32 gain, u32 *inf)
 
 	t33_cdns_par(sec, gain, o);
 	for (k = 0; k < 0x36; k++)
-		inf[54 + k] = o[k];
+		inf[k] = o[k];
+	t33_cdns_para_update(inf);
 }
 
 static inline int t33_cdns_gain(const u8 *sec, u32 gain, struct t32_front_write *w)

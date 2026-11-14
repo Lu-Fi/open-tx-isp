@@ -52,7 +52,6 @@ extern u32 t33_lcepf_irq8s, t33_lcepf_irq30s, t33_lcepf_curves, t33_lcepf_lce_ru
 #define T33_LCEPF_UNLOCK(c)	t33_lcepf_unlock_irq()
 #include "tx_isp_t33_lceev.h"	/* tx_isp_t33_lcepf.h + the EV update (openimp #500) */
 static void t33_lcepf_ev(u32 lo, u32 hi, u32 bv);
-static u32 t33_top_byp;		/* the top list's bypass word 0x40 (tisp_top_get_bypass) */
 #endif
 #include "tx_isp_t33_af.h"
 #include "tx_isp_t33_bcsh.h"
@@ -797,7 +796,6 @@ static void t32_front_init(void)
 			isp_wr(dw[i].reg, dw[i].val);
 		if (t32_ldc_top_hldc())	/* tisp_top_ldc_bypass_refresh: HLDC takes the LDC out of bypass */
 			w[0].val &= ~0x800000U;
-		t33_top_byp = w[0].val;
 		t33_mod_set(T33_MOD_TOP, w, T33_TOP_LIST_WRITES);
 	}
 	return;
@@ -1553,7 +1551,7 @@ out:
 void t33_ev_refresh(u32 lo, u32 hi, u32 bv)
 {
 	const u8 *bin;
-	u32 *buf, bytes;
+	u32 *buf, bytes, byp;
 
 	mutex_lock(&t33_gr_lock);
 	t33_sw_ev_lo = lo;
@@ -1565,16 +1563,18 @@ void t33_ev_refresh(u32 lo, u32 hi, u32 bv)
 	/*
 	 * tisp_long_ev_update runs each block's EV update only when its top bypass bit (tisp_top_get_bypass,
 	 * the top list's 0x40 word) is clear: BCSH 0x4000, CCM 0x80, RDNS bit 20, defog 0x200, LCE 0x800,
-	 * TMO 0x20 (PRJ008 0x00e4c098: BCSH and CCM skipped; openimp #507).
+	 * TMO 0x20 (PRJ008 0x00e4c098: BCSH and CCM skipped; openimp #507).  Read once from the TOP list like
+	 * the vendor (tx_isp_t33_top.h, block top).
 	 */
-	if (t33_gr_tmp && !(t33_top_byp & 0x4000) && (t33_mod_built & (1ULL << T33_MOD_BCSH)) &&
+	byp = t33_top_get_bypass(0);
+	if (t33_gr_tmp && !(byp & 0x4000) && (t33_mod_built & (1ULL << T33_MOD_BCSH)) &&
 	    (buf = t33_mod_buf(T33_MOD_BCSH))) {
 		memcpy(t33_gr_tmp, buf, T33_SLOT_WORDS * 4);
 		if (t33_bcsh_ev_update(t33_bcsh_st, t33_bcsh_sec, lo, hi, t33_gr_tmp))
 			t33_gr_commit(T33_MOD_BCSH, 1);
 	}
 	/* tisp_ccm_ev_update: the matrix words follow the CT here, list 10 reruns either way */
-	if (t33_gr_tmp && !(t33_top_byp & 0x80) && (t33_mod_built & (1ULL << T33_MOD_CCM)) &&
+	if (t33_gr_tmp && !(byp & 0x80) && (t33_mod_built & (1ULL << T33_MOD_CCM)) &&
 	    (buf = t33_mod_buf(T33_MOD_CCM)) && !t32_core_iq_bin(&bin, &bytes)) {
 		u32 len, off = t32_iq_section(bin, bytes, T33_SEC_CCM, &len);
 
@@ -1590,7 +1590,7 @@ void t33_ev_refresh(u32 lo, u32 hi, u32 bv)
 	 * tisp_gamma_ev_update (top bypass bit 8 clear): interp_by_ev / update_curve every time, list 11 rewritten
 	 * and rerun only on a new strength (block gammaev, openimp #507)
 	 */
-	if (t33_gr_tmp && !(t33_top_byp & 0x100) && (t33_mod_built & (1ULL << T33_MOD_GAMMA)) &&
+	if (t33_gr_tmp && !(byp & 0x100) && (t33_mod_built & (1ULL << T33_MOD_GAMMA)) &&
 	    (buf = t33_mod_buf(T33_MOD_GAMMA)) && !t32_core_iq_bin(&bin, &bytes)) {
 		u32 len, off = t32_iq_section(bin, bytes, T33_SEC_GAMMA, &len);
 
@@ -1602,13 +1602,13 @@ void t33_ev_refresh(u32 lo, u32 hi, u32 bv)
 				t33_gr_commit(T33_MOD_GAMMA, 1);
 		}
 	}
-	if (!(t33_top_byp & 0x800))
+	if (!(byp & 0x800))
 		t33_lcepf_ev(lo, hi, bv);
-	if (!(t33_top_byp & 0x100000))
+	if (!(byp & 0x100000))
 		t33_gr_rerun(T33_MOD_RDNS);
-	if (!(t33_top_byp & 0x200))
+	if (!(byp & 0x200))
 		t33_gr_rerun(T33_MOD_DEFOG);
-	if (!(t33_top_byp & 0x20))
+	if (!(byp & 0x20))
 		t33_gr_rerun(T33_MOD_TMO);
 	mutex_unlock(&t33_gr_lock);
 }
@@ -1687,7 +1687,7 @@ static const u8 *t33_ctup_bin;
 static u32 t33_ctup_bytes;
 
 #define T33_CTUP_HOOKS
-#define T33_CTUP_BYPASS(ch)		t33_top_byp
+#define T33_CTUP_BYPASS(ch)		t33_top_get_bypass(ch)
 #define T33_CTUP_CCM(ch, x, ct, c2)	t33_ctup_ccm(t33_ctup_bin, t33_ctup_bytes, (u32)(ct))
 #define T33_CTUP_LSC(ch, x, ct, c2)	do { } while (0)	/* LSC CT update not ported (words unchanged on PRJ008) */
 #define T33_CTUP_BCSH(ch, x, ct, c2)	t33_ctup_bcsh(t33_ctup_bin, t33_ctup_bytes, (u32)(ct))
@@ -2115,7 +2115,6 @@ static void t33_sw_top(const u8 *bin, u32 bytes, u32 width, u32 height, int baye
 	t32_wait_clear(T33_RCFG_TRIG_HI, 1U << (T33_MOD_TOP - 32), 2000);
 	local_irq_save(flags);
 	memcpy(buf, t33_gr_tmp, T33_SLOT_WORDS * 4);
-	t33_top_byp = tisp_w[0].val;
 	t33_top_sw = true;
 	local_irq_restore(flags);
 	t33_gr_runs[T33_MOD_TOP]++;

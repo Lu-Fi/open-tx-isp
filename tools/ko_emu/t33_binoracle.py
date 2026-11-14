@@ -26,6 +26,8 @@ SPEC: one function per line (from the block's .conf, FUNCS=):
                                 (e.g. mdnsInfo), ours gets the block's address; the block is compared after the call.
         info:VSYM:SIZE:W<M,..   the same with block word W (hex index) below M (e.g. table indices the vendor
                                 takes from 8-bit IQ fields and does not mask)
+        info:VSYM:SIZE:W@N,..   block word W (hex index) points at N random bytes (same address on both sides,
+                                compared after the call): the section / parameter pointers a block state holds
   CALLS NAME[:NARGS][@ARG:LEN]..[=RET] ...        (line) functions the code under test calls (vendor: a function of the module or a kernel
                                 import; ours: an `extern` declaration in the wrapper with the SAME name): neither side runs
                                 them, every call is recorded as (name, first NARGS of $a0..$a3; default 4) and returns RET (default 0; R1,R2,.. cycles through the values, by case number and call index, identical on both sides); @ARG:LEN (repeatable) records the LEN bytes argument ARG points to instead of the pointer value; the call
@@ -70,6 +72,9 @@ def _udiv(n, d):
 KERNEL_HLE = {
     'div64_u64': lambda e: _udiv(_q(e, 0), _q(e, 2)),
     'div_u64': lambda e: _udiv(_q(e, 0), _r(e, 2)),
+    # an error message only (e.g. isp_rdns_itp_update_ks with a zero range): no state, returns 0; list printk in
+    # CALLS to compare it as a call instead
+    'printk': lambda e: (0, 0),
 }
 EDGE32 = [0, 1, 2, 3, 0x7fffffff, 0x80000000, 0xffffffff, 0xfffffffe, 0x100, 0x1000, 0x10000]
 
@@ -159,10 +164,14 @@ def info_block(r, size, lim=''):
     else:
         w = [r.choice((0, 1, 2, 3, 0x40, 0x7f, 0x80, 0xff, 0x100, 0x101, 0xffc, 0xffd, 0xffe, 0xfff, 0x1000,
                        0xffffffff, r.getrandbits(12))) for _ in range(n)]
+    sub = []
     for c in filter(None, lim.split(',')):
+        if '@' in c:            # W@N: word W is a pointer to N random bytes (patched in run_one)
+            i, ln = c.split('@'); sub.append((int(i, 16), bytes(r.getrandbits(8) for _ in range(int(ln, 0)))))
+            continue
         i, mx = c.split('<')
         w[int(i, 16)] %= int(mx, 0)
-    return struct.pack('<%dI' % n, *w) + bytes(size - 4 * n)
+    return struct.pack('<%dI' % n, *w) + bytes(size - 4 * n), sub
 
 
 def run_one(e, fn, args, gl_init, gl_syms, gl_ptrs=(), vendor=False):
@@ -171,8 +180,13 @@ def run_one(e, fn, args, gl_init, gl_syms, gl_ptrs=(), vendor=False):
     e.heap_reset(); words = []; ptrs = []; del calllog[:]
     for k, v in args:
         if k == 'i':
-            sym, blk = v
-            ad = e.alloc(len(blk) + 16, blk + bytes(16)); ptrs.append((ad, len(blk)))
+            sym, (blk, sub) = v
+            blk = bytearray(blk); subp = []
+            for wi, data in sub:
+                pa = e.alloc(len(data) + 16, data + bytes(16)); subp.append((pa, len(data)))
+                blk[4 * wi:4 * wi + 4] = struct.pack('<I', pa)
+            blk = bytes(blk)
+            ad = e.alloc(len(blk) + 16, blk + bytes(16)); ptrs.append((ad, len(blk))); ptrs += subp
             if vendor:
                 e.write(e.addr(sym), struct.pack('<I', ad)); words.append(0)
             else:
@@ -275,7 +289,7 @@ def main():
                 continue
             nf += 1; bad += 1
             if nf <= 5:
-                shown = ['%#x' % v if k in ('v', 'v64') else '<%d B>' % len(v if k == 'p' else v[1]) for k, v in args]
+                shown = ['%#x' % v if k in ('v', 'v64') else '<%d B>' % len(v if k == 'p' else v[1][0]) for k, v in args]
                 print('MISMATCH %s(%s): %s' % (vfn, ', '.join(shown), diff))
         print('%s: %d cases, %d mismatches' % (vfn, a.n + len(fixed), nf))
     print('t33_binoracle: %d cases, %d mismatches' % (total, bad))

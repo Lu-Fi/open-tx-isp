@@ -20,7 +20,7 @@ extern u32 *stTopPar[256];
 
 /* callees ported elsewhere / hardware (recorded by the oracle) */
 extern u32 tisp_reg_read_t33(u32 id, u32 reg, u32 sel);
-extern u32 tisp_rcfg_get_dma_state(u32 id);
+extern int tisp_rcfg_get_dma_state(u32 id);
 extern void tisp_top_reg_cfg(u32 id);
 
 /* tisp_top_reg_write: program TOP now when the DMA is idle, else mark refresh */

@@ -89,6 +89,22 @@ int tisp_rcfg_module_cfg_trig(u32 ch, u32 mod)
 	return 0;
 }
 
+/* tisp_reg_read_t33: word reg + 1 of the module's list page (0 when the list is not built) */
+u32 tisp_reg_read_t33(u32 ch, u32 mod, u32 reg)
+{
+	const u32 *l;
+
+	mod &= 0xff;
+	if (mod >= T33_MODULES || !(t33_mod_built & (1ULL << mod)) || !t33_mod_page[mod] || reg + 1 >= T33_SLOT_WORDS)
+		return 0;
+	l = (const u32 *)CKSEG1ADDR(virt_to_phys((void *)t33_mod_page[mod]));
+	return l[reg + 1];
+}
+
+/* TOP helpers (block top): tisp_top_get_bypass reads the TOP list's bypass slot (ipcCfgMode 1: slot 1) */
+u8 ipcCfgMode = 1;
+#include "tx_isp_t33_top.h"
+
 /* tisp_mdns_decode_reg_write (from the YSP frame done): par = yspInfo + 1068 */
 static void t33_bst_mdns_decode(u32 ch, const u8 *par)
 {
