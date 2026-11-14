@@ -4314,8 +4314,8 @@ static uint32_t ae0_req_dg = 0x400;  /* Carried AE-requested digital gain */
 /* OEM gain register/limit references */
 static uint32_t ae_requested_ag = 0x400; /* Last REQUESTED AG (before sensor quantization) */
 static uint32_t data_c46a8 = 0x400; /* Max integration time (tuning param) */
-static uint32_t data_c46b0 = 0x157fe; /* Max analog gain in Q10 (OEM: set by tisp_s_max_again) */
-static uint32_t data_c46bc = 0x400; /* Max ISP digital gain in Q10 (OEM: set by tisp_s_max_isp_dgain) */
+/* OEM data_c46b0 / data_c46bc are fields of the AE control object (0xc469c): tisp_ae_ctrls[5] = max analog gain and [8] = max ISP
+ * digital gain, filled from the IQ bin ae_exp_th at AE init and by SetMaxAgain / SetMaxIspDgain (openimp #551). */
 static uint32_t data_c4714 = 0; /* Minimum integration time */
 static uint32_t data_c470c = 0; /* Minimum analog gain */
 
@@ -5832,8 +5832,8 @@ static int ae0_tune2(uint32_t wmean, uint32_t q, uint32_t fifo_target,
 
     /* OEM arg21-26: gain limit and current state pointers */
     v0_19 = tisp_ae_effective_max_it();  /* deflicker-limited max IT */
-    v0_21 = data_c46b0 ? data_c46b0 : ae_exp_th.data[1];
-    v0_23 = data_c46bc ? data_c46bc : ae_exp_th.data[2];
+    v0_21 = tisp_ae_ctrls[5] ? tisp_ae_ctrls[5] : ae_exp_th.data[1];
+    v0_23 = tisp_ae_ctrls[8] ? tisp_ae_ctrls[8] : ae_exp_th.data[2];
 
     /* Computed values */
     var_c0_1 = 0; /* convergence counter for output */
@@ -6622,7 +6622,7 @@ static void tisp_set_ae0_ag(uint32_t ag, uint32_t dg)
     /* Step 4: Clamp ISP digital gain compensation.
      * OEM clamps against the runtime max ISP DG control, not the sensor-DG
      * limit from ae_exp_th[2]. */
-    max_dg = data_c46bc ? data_c46bc : one_q;
+    max_dg = tisp_ae_ctrls[8] ? tisp_ae_ctrls[8] : one_q;
     if (max_dg > 0 && dg_comp > max_dg)
         dg_comp = max_dg;
 
@@ -7866,8 +7866,8 @@ static int tisp_g_ev_attr(uint32_t *ev_buffer, struct isp_tuning_data *tuning)
 	ev_buffer[7] = total >> 2;
 
 	/* Advertised limits and live sensor digital gain. */
-	ev_buffer[8] = tisp_log2_fixed_to_fixed(data_c46b0 + 4, 10, 5);
-	ev_buffer[9] = tisp_log2_fixed_to_fixed(data_c46bc + 4, 10, 5);
+	ev_buffer[8] = tisp_log2_fixed_to_fixed(tisp_ae_ctrls[5] + 4, 10, 5);
+	ev_buffer[9] = tisp_log2_fixed_to_fixed(tisp_ae_ctrls[8] + 4, 10, 5);
 	ev_buffer[10] = tisp_log2_fixed_to_fixed(data_c46a4, 10, 5);
 	/* OEM: log2 of data_c46b4, the AE0 sensor digital gain limit (Q10),
 	 * which this driver keeps in tisp_ae_ctrls[6] */
@@ -9355,12 +9355,12 @@ static int apical_isp_core_ops_s_ctrl(struct tx_isp_dev *dev, struct isp_core_ct
             ret = tisp_s_max_again(ctrl->value);
             if (ret)
                 goto out;
-            tuning->max_again = data_c46b0;
+            tuning->max_again = tisp_ae_ctrls[5];
             break;
 
         case 0x8000029:  /* OEM: tisp_s_max_isp_dgain — set max ISP digital gain */
             tisp_s_max_isp_dgain(ctrl->value);
-            tuning->max_dgain = data_c46bc;
+            tuning->max_dgain = tisp_ae_ctrls[8];
             break;
 
         case 0x8000035: { /* OEM: tisp_set_ae_attr — 0x98 bytes of AE attributes */
@@ -17383,12 +17383,9 @@ int tiziano_ae_s_max_again(uint32_t value)
         return -1;
     }
 
-    data_c46b0 = tisp_math_exp2(value, 5, 0xa);
-    /* Stock stores the limit in the AE control object (ctrls[5]).  Mirror
-     * it there so tisp_sensor_ctrl_sync() keeps a user-reduced limit and
-     * tisp_ae0_ctrls_update() clamps it against the sensor like stock.
-     * The AE solver keeps reading data_c46b0. */
-    tisp_ae_ctrls[5] = data_c46b0;
+    tisp_ae_ctrls[5] = tisp_math_exp2(value, 5, 0xa);
+    /* stock: the limit lives in the AE control object; tisp_ae0_ctrls_update()
+     * clamps it against the sensor, the AE solver and isp-m0 read it (#551) */
     data_a0dfc = 0;
     return 0;
 }
@@ -17397,8 +17394,7 @@ int tiziano_ae_s_max_again(uint32_t value)
  * Decompiled from OEM at 0x52fb4. tisp_s_max_isp_dgain calls this. */
 int tiziano_ae_s_max_isp_dgain(uint32_t value)
 {
-    data_c46bc = tisp_math_exp2(value, 5, 0xa);
-    tisp_ae_ctrls[8] = data_c46bc;	/* stock AE control object field */
+    tisp_ae_ctrls[8] = tisp_math_exp2(value, 5, 0xa);
     data_a0dfc = 0;
     return 0;
 }
@@ -36352,9 +36348,9 @@ int tisp_ae_algo_init(int enable, void *attr)
         a[10] = 0x400;                  /* min ISP digital gain */
         a[11] = sen ? sen->attr.max_integration_time : 0;          /* max integration time */
         a[12] = sen && sen->attr.max_again ?
-                tisp_math_exp2(sen->attr.max_again, 0x10, 0x10) >> 6 : data_c46b0;
+                tisp_math_exp2(sen->attr.max_again, 0x10, 0x10) >> 6 : tisp_ae_ctrls[5];
         a[13] = 0x400;
-        a[14] = data_c46bc;             /* max ISP digital gain */
+        a[14] = tisp_ae_ctrls[8];             /* max ISP digital gain */
         a[15] = a[19] = a[23] = 0;      /* short frame (WDR) */
         a[17] = a[21] = a[25] = 0x400;
         if (sen && !a[3])
