@@ -2557,14 +2557,19 @@ static noinline_for_stack void t33_sw_tone(const u8 *bin, u32 bytes, u32 width, 
 	unsigned long long ev = (unsigned long long)hi << 32 | lo;
 	u32 off, len, tb;
 
-	/* tisp_lsc_switch_para: interp_by_tgain / _by_ct (forced), write_reg */
+	/*
+	 * tisp_lsc_switch_para: interp_by_tgain / _by_ct (forced) at the block's OWN gain (info + 0x14)
+	 * and CT (info + 8), not the AE / AWB values of the other blocks: both move only through
+	 * tisp_lsc_tgain_update / tisp_lsc_ct_update, which the top bypass bit 0x08 skips (PRJ008) and
+	 * which are not ported, so they stay at the init values (openimp #537)
+	 */
 	if (T33_SW_SEC(LSC) && t33_lsc_pages) {
 		const u8 *tab, *sec = t33_lsc_src(bin, bytes, off, len, &tab, &tb);
 
 		T33_SW_TMP();
 		t33_gr_commit(T33_MOD_LSC,
 			      t33_lsc_init(sec, tab, tb,
-					   height, width, gain, ct, t33_lsc_v, &t33_lsc_m,
+					   height, width, T33_INIT_GAIN, T33_CCM_INIT_CT, t33_lsc_v, &t33_lsc_m,
 					   (u8 *)CKSEG1ADDR(virt_to_phys((void *)t33_lsc_pages)),
 					   (u32)virt_to_phys((void *)t33_lsc_pages), t33_gr_tmp, T33_SLOT_WORDS));
 	}
