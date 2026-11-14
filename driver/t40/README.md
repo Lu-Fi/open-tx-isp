@@ -999,3 +999,15 @@ centre/size parameters for the full and half resolution, record at `main_hldc_pa
 register (apitest t40dev 8000000 with ISP+0x15000 sampled, `audit/issue432/run1`). With HLDC off in the bin the attribute is only
 stored (the vendor would oops on its NULL record).
 
+
+## Frame-start interrupt and frame-start sensor apply (2026-11-14, openimp #505)
+
+The vendor enables every VIC source; status bit 4 (frame start) queues `main_fs_work` / `sec_fs_work`, and
+`ispcore_irq_main_fs_work` sends the pending sensor slots (core+0x300+ch*0x48: AGAIN 0, INT_TIME 3, flip 5, EXPO 6, FPS 8)
+once per frame when the sensor sets `expo_fs` (attr+0x124 = 1, sc830ai); `ispcore_irq_main_fd_work` does the same for
+`expo_fs = 0`. This driver unmasks bit 4 on VIC0/VIC1 (`t40_vic_fs_irq`, default 1, read at stream start), counts bits 0..3
+in the VIC device (isp-w02 row 2) and queues the fs works like the vendor ISR; on an `expo_fs` sensor the AE's exposure
+arms the slots like the vendor `sensor_set_integration_time` / `sensor_set_analog_gain` (`t40_expo_fs`, default 1) and the
+frame-start worker writes it. Fallback to the direct write: sensor without `expo_fs`, no core sensor attribute, or no
+frame-start interrupt within 0.5 s (`t40_expo_fs_direct` counts these). Counters: `t40_vic_fs_count`, `t40_expo_fs_armed`.
+Helpers and oracle: `tx_isp_t40_expo_fs.h`, `tests/t40_expo_fs_host.sh`.

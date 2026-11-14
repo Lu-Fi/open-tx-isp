@@ -9384,6 +9384,7 @@ module_param_named(ae_target_comp, regtrace_ae_target_comp, uint, 0444);
 #include "tx_isp_t40_ae_api.h"
 #include "tx_isp_t40_osd_slot.h"
 #include "tx_isp_t40_draw.h"
+#include "tx_isp_t40_expo_fs.h"
 /* T40-LAYOUT: all AE API state lives in .t40c2 (new .bss objects shift the lifted &isp_memopt+N strays:
  * a first build with ~5 KB of new .bss delivered no frames on .184) */
 static spinlock_t t40_ae_api_lock T40C2 = __SPIN_LOCK_UNLOCKED(t40_ae_api_lock);
@@ -9845,6 +9846,26 @@ static bool regtrace_enable_vic_mdma_internal_ring;
 static bool regtrace_enable_vic_mdma_qbuf_rearm_irq;
 static bool regtrace_force_local_frame_streamoff;
 static bool regtrace_enable_vic_irq_ack_filter;
+/*
+ * #505: vendor frame-start interrupt and frame-start sensor apply.  The vendor tx_vic_enable_irq enables every VIC source;
+ * isp_vic_interrupt_service_routine queues main_fs_work / sec_fs_work on status bit 4 (frame start), and
+ * ispcore_irq_main_fs_work sends the pending sensor slots (EXPO / AGAIN / INT_TIME / FPS) once per frame when the sensor
+ * sets attr+0x124 (expo_fs, sc830ai).  t40_vic_fs_irq (read when the VIC interrupt is enabled = stream start): unmask
+ * bit 4 next to frame done and queue the frame-start works like the vendor.  t40_expo_fs: on an expo_fs sensor the AE's
+ * sensor exposure goes through the slots to the frame-start worker (vendor) instead of being written right after the
+ * AE step; without a frame-start interrupt in the last 0.5 s, or on a sensor without expo_fs, it is written at once.
+ */
+static bool t40_vic_fs_irq T40C2 = true;
+module_param_named(t40_vic_fs_irq, t40_vic_fs_irq, bool, 0644);
+MODULE_PARM_DESC(t40_vic_fs_irq, "VIC frame-start interrupt + frame-start works like the vendor (read at stream start). default 1");
+static bool t40_expo_fs T40C2 = true;
+module_param_named(t40_expo_fs, t40_expo_fs, bool, 0644);
+MODULE_PARM_DESC(t40_expo_fs, "expo_fs sensors: AE exposure written by the frame-start worker like the vendor. default 1");
+static uint32_t t40_vic_fs_count T40C2, t40_vic_fs_nowork T40C2, t40_expo_fs_armed T40C2, t40_expo_fs_direct T40C2;
+static unsigned long t40_vic_fs_last T40C2;
+module_param_named(t40_vic_fs_count, t40_vic_fs_count, uint, 0444);
+module_param_named(t40_expo_fs_armed, t40_expo_fs_armed, uint, 0444);
+module_param_named(t40_expo_fs_direct, t40_expo_fs_direct, uint, 0444);
 static bool regtrace_enable_vic_mdma_kick_370;
 static bool regtrace_enable_core_event_tisp_main_init;
 static bool regtrace_enable_core_event_gate_1700c;
@@ -21921,6 +21942,39 @@ static inline void regtrace_put_u16(uintptr_t base, uint32_t off, uint16_t value
     *(uint16_t *)(base + off) = value;
 }
 
+static uintptr_t t40_worker_core(void);
+/*
+ * #505: on an expo_fs sensor (attr+0x124 == 1, sc830ai) the vendor AE does not write the sensor: its sensor_ctrl callbacks
+ * sensor_set_integration_time / sensor_set_analog_gain arm the pending slots (INT_TIME 3, AGAIN 0, EXPO 6 = again << 16 | it)
+ * and ispcore_irq_main_fs_work sends them at the next frame start.  Same here for the AE's exposure in sensor units; false =
+ * not routed (t40_expo_fs off, sensor without expo_fs, no core attr yet, or no frame-start interrupt in the last 0.5 s:
+ * then the caller writes it at once as before).
+ */
+static bool t40_expo_fs_route(uint32_t packed)
+{
+    uintptr_t core, attr;
+    int armed;
+
+    if (!READ_ONCE(t40_expo_fs) || !READ_ONCE(t40_vic_fs_irq))
+        return false;
+    core = t40_worker_core();
+    if (!core)
+        return false;
+    attr = regtrace_get_u32(core, 368);
+    if (!regtrace_is_kernel_ptr((void *)attr) || regtrace_get_u32(attr, 292) != 1)
+        return false;
+    if (!READ_ONCE(t40_vic_fs_count) || time_after(jiffies, READ_ONCE(t40_vic_fs_last) + HZ / 2)) {
+        t40_expo_fs_direct++;
+        return false;
+    }
+    armed = t40_efs_set_it((uint8_t *)core, (uint8_t *)attr, 0, packed & 0xffffU);
+    armed |= t40_efs_set_again((uint8_t *)core, (uint8_t *)attr, 0, packed >> 16);
+    if (!armed)   /* attr+0xa0 / +0xb0 already held the values (defaults written elsewhere): the exposure still changed */
+        t40_efs_arm((uint8_t *)core, 0, 6, packed);
+    t40_expo_fs_armed++;
+    return true;
+}
+
 static int regtrace_ae_sensor_apply_maybe(int channel, const char *reason)
 {
     uintptr_t core;
@@ -22037,6 +22091,13 @@ static int regtrace_ae_sensor_apply_maybe(int channel, const char *reason)
      * Keep arg+0 populated too so this remains compatible with the usual
      * Ingenic sensor handlers that dereference *(int *)arg.
      */
+    /* #505: the AE's exposure goes to the frame-start worker on an expo_fs sensor (vendor), not to the sensor now */
+    if (forced && channel == 0 && t40_expo_fs_route(packed)) {
+        regtrace_ae_sensor_apply_count[channel]++;
+        regtrace_ae_sensor_apply_last_ret[channel] = 0;
+        return 0;
+    }
+
     payload[0] = packed;
     payload[1] = packed;
     ret = regtrace_sensor_call_sensor_ioctl(REGTRACE_TX_ISP_EVENT_SENSOR_EXPO,
@@ -32902,7 +32963,8 @@ void tx_vic_enable_irq(int32_t arg1)
                 writel(0xffffffffU, irq_regs + 0x1f0);
                 writel(0xffffffffU, irq_regs + 0x1f4);
                 wmb();
-                writel(0xfffffffeU, irq_regs + 0x1e8);
+                /* frame done (bit 0), + frame start (bit 4, #505) on VIC0/VIC1 where the vendor ISR queues the fs works */
+                writel((READ_ONCE(t40_vic_fs_irq) && arg1 < 2) ? 0xffffffeeU : 0xfffffffeU, irq_regs + 0x1e8);
                 writel(0xfffffffcU, irq_regs + 0x1ec);
             } else {
                 writel(0U, irq_regs + 0x1e8);
@@ -48416,6 +48478,25 @@ static int32_t regtrace_vic_irq_ack_filter(int32_t irq, void *dev_id)
     regtrace_vic_irq_last_mask1 = mask1;
     regtrace_vic_irq_last_pending0 = pending0;
     regtrace_vic_irq_last_pending1 = pending1;
+    /* #505: vendor isp_vic_interrupt_service_routine: device counters of bits 0..3 (isp-w02 row 2) and the frame-start
+     * works on bit 4 (vendor: queue_work_on(2 = WORK_CPU_UNBOUND with NR_CPUS 2, system_wq, ...)) */
+    switch (t40_vic_irq_account((uint8_t *)vic_dev, idx, pending0)) {
+    case T40_EFS_WORK_MAIN:
+        t40_vic_fs_count++;
+        WRITE_ONCE(t40_vic_fs_last, jiffies);
+        schedule_work((struct work_struct *)main_fs_work);
+        break;
+    case T40_EFS_WORK_SEC:
+        t40_vic_fs_count++;
+        WRITE_ONCE(t40_vic_fs_last, jiffies);
+        schedule_work((struct work_struct *)sec_fs_work);
+        break;
+    case T40_EFS_WORK_NOWORK:
+        t40_vic_fs_nowork++;
+        break;
+    default:
+        break;
+    }
     if (pending0 & 0x1) {
         regtrace_vic_irq_frame_done_count++;
         regtrace_irq_frame_done_event((int)idx,
@@ -48433,7 +48514,7 @@ static int32_t regtrace_vic_irq_ack_filter(int32_t irq, void *dev_id)
     }
     if (pending1 & 0x2)
         regtrace_vic_irq_mdma1_count++;
-    if ((pending0 & ~0x1U) || (pending1 & ~0x3U))
+    if ((pending0 & ~0x11U) || (pending1 & ~0x3U))
         regtrace_vic_irq_other_count++;
     if (pending1 & 0x3U)
         regtrace_vic_mdma_kick370(irq_regs, idx, idx, 2,
@@ -132328,43 +132409,25 @@ static int32_t t40_core_sd_ioctl(uint32_t cmd, uint32_t *arg)
     return ((int32_t (*)(uintptr_t, uint32_t, uint32_t))fn)(sd, cmd, (uint32_t)(uintptr_t)arg);
 }
 
-static const int32_t t40_slot_cmd[9] = {
-    0x2000007, 0x2000008, 0x2000009, 0x2000005, 0x2000006, 0x2000010, 0x2000016, -1, 0x200000a
-};
-
-/* fs == 0: fd worker (applies when attr+292 == 0), fs == 1: fs worker (attr+292 == 1) */
+/* fs == 0: fd worker (applies when attr+292 == 0), fs == 1: fs worker (attr+292 == 1).  The slot walk is
+ * t40_efs_slots_take (tx_isp_t40_expo_fs.h, checked against the OEM workers under Unicorn, #505); it clears a pending word
+ * before the command goes out, so a slot armed during the I2C write stays pending for the next frame. */
 static void t40_core_slots_apply(uintptr_t core, uint32_t ch, uint32_t fs, uint32_t widx)
 {
-    uintptr_t slots = core + 768 + ch * 72;
+    struct t40_efs_cmd cmds[9];
+    uintptr_t attr = regtrace_get_u32(core, 368 + ch * 96);
     uint32_t arg[2];
-    uint32_t i;
+    unsigned int i, n;
 
     t40_worker_runs[widx]++;
-    for (i = 0; i < 9; i++) {
-        uintptr_t attr;
-
-        if (!regtrace_get_u32(slots, i * 8))
-            continue;
-        if (i == 5) {
-            /* OEM: slot 5 issues 0x2000010 with core+812/+884 and clears its pending word (core+808/+880)
-             * in both workers, independent of the attr+292 mode. */
-            arg[0] = ch;
-            arg[1] = regtrace_get_u32(slots, 5 * 8 + 4);
-            ispcore_sensor_ops_ioctl((uintptr_t)ispcore_sd, 0x2000010, (uint32_t)(uintptr_t)arg);
-            (void)t40_sensor_flip_apply(arg[1]);   /* T40-SENSOR-FLIP: sensor modules without a VFLIP handler */
-            regtrace_put_u32(slots, 5 * 8, 0);
-            t40_worker_sent[widx]++;
-            continue;
-        }
-        attr = regtrace_get_u32(core, 368 + ch * 96);
-        if (!regtrace_is_kernel_ptr((void *)attr) || regtrace_get_u32(attr, 292) != fs)
-            continue;
-        if (t40_slot_cmd[i] == -1)
-            continue;
+    n = t40_efs_slots_take((uint8_t *)core, regtrace_is_kernel_ptr((void *)attr) ? (uint8_t *)attr : NULL, ch, fs, cmds);
+    for (i = 0; i < n; i++) {
         arg[0] = ch;
-        arg[1] = regtrace_get_u32(slots, i * 8 + 4);
-        ispcore_sensor_ops_ioctl((uintptr_t)ispcore_sd, (uint32_t)t40_slot_cmd[i], (uint32_t)(uintptr_t)arg);
-        regtrace_put_u32(slots, i * 8, 0);
+        arg[1] = cmds[i].value;
+        ispcore_sensor_ops_ioctl((uintptr_t)ispcore_sd, cmds[i].cmd, (uint32_t)(uintptr_t)arg);
+        /* OEM: slot 5 issues 0x2000010 in both workers, independent of the attr+292 mode */
+        if (cmds[i].cmd == 0x2000010U)
+            (void)t40_sensor_flip_apply(arg[1]);   /* T40-SENSOR-FLIP: sensor modules without a VFLIP handler */
         t40_worker_sent[widx]++;
     }
 }
@@ -143884,6 +143947,8 @@ static int regtrace_core_exit_steps(int upto, int from_proc)
              * also calls into the sensor module, which is gone by now) */
             cancel_work_sync(&regtrace_frame_3a_work);
             cancel_work_sync(&regtrace_adr_process_work);
+            cancel_work_sync((struct work_struct *)main_fs_work);   /* #505: queued by the VIC frame-start interrupt */
+            cancel_work_sync((struct work_struct *)sec_fs_work);
             WRITE_ONCE(regtrace_t40_dn_event_off, true);
             cancel_work_sync(&regtrace_t40_dn_event_work);
             break;
@@ -144238,6 +144303,8 @@ int tx_isp_core_remove(struct platform_device *pdev)
     cancel_work_sync(&regtrace_isp_block_init_work);
     cancel_work_sync(&regtrace_frame_3a_work);
     cancel_work_sync(&regtrace_adr_process_work);
+    cancel_work_sync((struct work_struct *)main_fs_work);   /* #505 */
+    cancel_work_sync((struct work_struct *)sec_fs_work);
 
     /* the object itself (OEM: kfree(core); the lift freed NULL); global aliases were dropped by subdev_deinit */
     private_platform_set_drvdata((void *)arg1, NULL);
