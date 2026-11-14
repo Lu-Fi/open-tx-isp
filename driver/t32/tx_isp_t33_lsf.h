@@ -45,25 +45,7 @@ static const struct t33_tcmd t33_lsf_tmpl[] = {
 /* tisp_ev_intp_uint8_t / tisp_bv_intp_uint8_t: 11 u8 points over 11 LE u32 knots (bv: falling) */
 static inline u32 t33_intp_u8(u32 x, const u8 *e, const u8 *t, int bv)
 {
-	u32 k, lo, hi, d, kv;
-	unsigned long long f;
-
-	for (k = 0; k < 11; k++) {
-		kv = t33_le32(e + 4 * k);
-		if (bv ? kv < x : x < kv)
-			break;
-	}
-	if (k == 11)
-		return t[10];
-	if (!k)
-		return t[0];
-	hi = t33_le32(e + 4 * k);
-	lo = t33_le32(e + 4 * k - 4);
-	d = bv ? lo - hi : hi - lo;
-	if (!d)
-		return 2;
-	f = (unsigned long long)(bv ? lo - x : x - lo) * 0x1000 + (d >> 1);
-	return (u8)t33_sub_interp((u32)t32_tp_div64(f, (unsigned long long)d), t[k - 1], t[k]);
+	return bv ? t33_bv_intp_u8(x, e, t) : t33_ev_intp_u8(x, e, t);
 }
 
 /*

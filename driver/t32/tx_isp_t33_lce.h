@@ -28,6 +28,7 @@
 #define TX_ISP_T33_LCE_H
 
 #include "tx_isp_t33_blk.h"
+#include "tx_isp_t33_intp2.h"
 
 #define T33_MOD_LCE		16
 #define T33_SEC_LCE		15
@@ -104,26 +105,7 @@ static inline void t33_lce_size(u8 *s, u32 h, u32 w)
 /* tisp_ev_intp_uint16_t / tisp_bv_intp_uint16_t: 11 u16 points over 11 LE u32 knots (bv: falling) */
 static inline u16 t33_intp_u16(u32 x, const u8 *e, const u8 *t, int bv)
 {
-	u32 k, lo, hi, d, kv;
-	unsigned long long f;
-
-	for (k = 0; k < 11; k++) {
-		kv = t33_le32(e + 4 * k);
-		if (bv ? kv < x : x < kv)
-			break;
-	}
-	if (k == 11)
-		return t32_tp_le16(t + 20);
-	if (!k)
-		return t32_tp_le16(t);
-	hi = t33_le32(e + 4 * k);
-	lo = t33_le32(e + 4 * k - 4);
-	d = bv ? lo - hi : hi - lo;
-	if (!d)
-		return 2;
-	f = (unsigned long long)(bv ? lo - x : x - lo) * 0x1000 + (d >> 1);
-	return (u16)t33_sub_interp((u32)t32_tp_div64(f, (unsigned long long)d), t32_tp_le16(t + 2 * k - 2),
-				   t32_tp_le16(t + 2 * k));
+	return bv ? t33_bv_intp_u16(x, e, t) : t33_ev_intp_u16(x, e, t);
 }
 
 /* the default curve (tisp_lce_curve_init_default) in both halves of the curve buffer */

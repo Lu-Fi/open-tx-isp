@@ -4,6 +4,13 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD[-rcN]` are set on the `aperto` branch, the same tag in open-tx-isp and OpenIMP: RC1 `v2026.10.11-rc1`, RC2 `v2026.10.25-rc2`, RC3 `v2026.11.07-rc3` (2026-11-07). Gate SoCs of RC3 and Release 1: T10, T20, T21, T23, T30, T31, T40, T41 (T32/T33 planned, QEMU only); release notes: [docs/releases/ in OpenIMP](https://github.com/Lu-Fi/openimp/blob/next/docs/releases/README.md). Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-11-14: T33 port loop round 4: 75 more T33-only functions proven by the binary oracle (openimp #99; host only)
+
+- 26 new blocks in `tests/t33_binoracle/` (intp2, ccmsm, blcsw, swsm2, swmid, lscmisc, msca-strm/osd/line, aemisc, awbm, aeint, ldcA/B, tmoA, tmoSW, mdnsA, mdnsMem, rdnsEv, awbL, mscaInit, attrAE1-3, attrAWB, defbin) with ports in `driver/t32/tx_isp_t33_<block>.h`; each runs the vendor `tx-isp-t33.ko` function and our C side by side in Unicorn (full N = 2000, all mutants detected). Includes the day/night `switch_para` of AF/CLM/TOP/CCM/CSCCR/DEFOG/LSC/BLC/TMO, `tisp_mdns_t33_set_mem_cfg`, `tisp_rdns_ev_update`, `tisp_t33_awb_long_alogrithm`, `tisp_msca_t33_init`, the MSCA OSD/mask/line API and the AE/AWB ioctl attr wrappers.
+- Wired (T33 only, bit-exact): the LCE/LSF 11-point interpolation helpers (`t33_intp_u16`, `t33_intp_u8`) now call the proven `tisp_ev/bv_intp_*` ports of `tx_isp_t33_intp2.h`. All other new ports are proven, not wired: they work on the vendor block-state layout (stMscaAttr, rdnsInfo, tmoInfo, ...) that our driver replaces with its own state structs (state layer, #504/#507).
+- Not covered by an oracle: the NULL-kmalloc branch of `tisp_awb_malloc_info` (the vendor writes through the first allocation unchecked and oopses; block awbm uses non-NULL allocations).
+- `tx-isp-t32.ko` code identical.
+
 ## 2026-11-14: T10/T20 firmware de-lift batch 3: FSM clear / switch-state functions on per-FSM structs (openimp #539; host + T10 cam, planned)
 
 - `driver/t20/tx_isp_t20_firmware.c`: 27 of the 28 `*_fsm_clear` / `*_fsm_switch_state` functions use per-FSM structs (`driver/t20/tx_isp_t20_fsm.h`, each starting with `struct t20_fsm_hdr`) and named parameters instead of register-variable fragments and raw offsets; `matrix_yuv_fsm_clear` stays as recovered (both model attempts changed its code). `tests/t20_fw/pre.h` includes the FSM header (the firmware includes it in its kernel-tree block).
