@@ -86,6 +86,26 @@ SCENARIOS ?= simple oem ext ext-oem
 check: all
 	SCENARIOS="$(SCENARIOS)" ./compare.sh $(OUT) "$(CALIB)" $(REF) $(filter-out $(REF),$(VARIANTS))
 
+# de-lift oracle: the firmware unit of an older revision (FW_OLD_REV, default
+# origin/next) against the working tree, both -O0 and -Os, all scenarios.
+# A readable-C rewrite must produce identical traces, output and firmware
+# data.  make -C tests/t20_fw delift [FW_OLD_REV=<rev>]
+FW_OLD_REV ?= origin/next
+FLAGS_oldO0 := $(FLAGS_O0)
+FLAGS_oldOs := $(FLAGS_Os)
+$(OUT)/fw_old.c: FORCE | $(OUT)
+	git -C $(ROOT) show $(FW_OLD_REV):driver/t20/tx_isp_t20_firmware.c > $@.tmp
+	cmp -s $@.tmp $@ || mv $@.tmp $@; rm -f $@.tmp
+$(OUT)/fw_unit_old.c: fw_unit.c $(OUT)/fw_old.c
+	sed 's|"../../driver/t20/tx_isp_t20_firmware.c"|"fw_old.c"|' $< > $@
+$(OUT)/fw-old%.o: $(OUT)/fw_unit_old.c pre.h
+	$(CC) $(FWFLAGS) -I. -iquote $(ROOT)/driver/t20 $(FLAGS_old$*) $(FWEXTRA) -c -o $@ $<
+.PHONY: FORCE delift
+FORCE:
+delift: $(foreach v,O0 Os oldO0 oldOs,$(OUT)/t20fw-$(v) $(OUT)/t20fw-$(v).sym)
+	SCENARIOS="$(SCENARIOS)" ./compare.sh $(OUT) "$(CALIB)" oldOs Os O0
+	SCENARIOS="$(SCENARIOS)" ./compare.sh $(OUT) "$(CALIB)" oldO0 O0
+
 # the register-poke scenario drives the vendor debug API (type 5 ids 0x7c..0x7f);
 # it is not part of "check" because that path cannot be validated from the host
 check-poke: SCENARIOS += poke poke-oem

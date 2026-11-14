@@ -920,7 +920,66 @@ static const char frame_channel_dqbuf_rodata_anchor[] = "frame_channel_dqbuf_rod
  * tuning ioctls, and /proc/jz/isp/isp_info.  The recovered firmware had
  * accidentally emitted a second private copy, disconnecting every firmware
  * control and exposure update from those consumers. */
-extern unsigned char stab[60];
+/* Layout: Ingenic SDK isp/t20/include/apical-isp/apical.h "system_tab" (copied
+ * field by field; this unit does not include the SDK headers). */
+typedef struct _sytem_tab {
+	uint8_t global_freeze_firmware;
+	uint8_t global_manual_exposure;
+	uint8_t global_manual_exposure_ratio;
+	uint8_t global_manual_integration_time;
+	uint8_t global_manual_sensor_analog_gain;
+	uint8_t global_manual_sensor_digital_gain;
+	uint8_t global_manual_isp_digital_gain;
+	uint8_t global_manual_directional_sharpening;
+	uint8_t global_manual_un_directional_sharpening;
+	uint8_t global_manual_iridix;
+	uint8_t global_manual_sinter;
+	uint8_t global_manual_temper;
+	uint8_t global_manual_awb;
+	uint8_t global_antiflicker_enable;
+	uint8_t global_slow_frame_rate_enable;
+	uint8_t global_manual_saturation;
+	uint32_t global_manual_exposure_time;
+	uint8_t global_exposure_dark_target;
+	uint8_t global_exposure_bright_target;
+	uint8_t global_exposure_ratio;
+	uint8_t global_max_exposure_ratio;
+	uint16_t global_integration_time;
+	uint16_t global_max_integration_time;
+	uint8_t global_sensor_analog_gain;
+	uint8_t global_max_sensor_analog_gain;
+	uint8_t global_sensor_digital_gain;
+	uint8_t global_max_sensor_digital_gain;
+	uint8_t global_isp_digital_gain;
+	uint8_t global_max_isp_digital_gain;
+	uint8_t global_directional_sharpening_target;
+	uint8_t global_maximum_directional_sharpening;
+	uint8_t global_minimum_directional_sharpening;
+	uint8_t global_un_directional_sharpening_target;
+	uint8_t global_maximum_un_directional_sharpening;
+	uint8_t global_minimum_un_directional_sharpening;
+	uint8_t global_iridix_strength_target;
+	uint8_t global_maximum_iridix_strength;
+	uint8_t global_minimum_iridix_strength;
+	uint8_t global_sinter_threshold_target;
+	uint8_t global_maximum_sinter_strength;
+	uint8_t global_minimum_sinter_strength;
+	uint8_t global_temper_threshold_target;
+	uint8_t global_maximum_temper_strength;
+	uint8_t global_minimum_temper_strength;
+	uint8_t global_awb_red_gain;
+	uint8_t global_awb_blue_gain;
+	uint8_t global_saturation_target;
+	uint8_t global_anti_flicker_frequency;
+	uint8_t global_ae_compensation;
+	uint8_t global_calibrate_bad_pixels;
+	uint16_t global_dis_x;
+	uint16_t global_dis_y;
+} system_tab;
+_Static_assert(sizeof(system_tab) == 60, "system_tab layout (SDK apical.h)");
+_Static_assert(__builtin_offsetof(system_tab, global_integration_time) == 24, "system_tab layout");
+_Static_assert(__builtin_offsetof(system_tab, global_dis_y) == 58, "system_tab layout");
+extern system_tab stab;
 
 /*
  * APICAL firmware ABI views.  These offsets are shared with the proven
@@ -1007,7 +1066,7 @@ static const uint8_t awb_idx_table[6] = { 1, 2, 3, 4, 5, 6 };
  * stab+26); the recovered firmware had mis-decoded it as a dangling function
  * pointer, so every scene_mode() write below was discarded instead of
  * updating the canonical system table. */
-#define data_4290a (*(uint16_t *)(stab + 26))
+#define data_4290a (stab.global_max_integration_time)
 #ifdef REGTRACE_KERNEL_TREE_BUILD
 static void isp_core_device_platform_release(struct device *dev) { (void)dev; }
 static u64 isp_core_device_dma_mask = ~(u64)0;
@@ -1040,66 +1099,6 @@ struct _get_size_entry {
 struct isp_client_state {
     int *d;
     int w;
-};
-struct stab_t {
-    unsigned char b0;
-    unsigned char b1;
-    unsigned char b2;
-    unsigned char b3;
-    unsigned char b4;
-    unsigned char b5;
-    unsigned char b6;
-    unsigned char b7;
-    unsigned char b8;
-    unsigned char b9;
-    unsigned char b10;
-    unsigned char b11;
-    unsigned char b12;
-    unsigned char b13;
-    unsigned char b14;
-    unsigned char b15;
-    unsigned char b16;
-    unsigned char b17;
-    unsigned char b18;
-    unsigned char b19;
-    unsigned char b20;
-    unsigned char b21;
-    unsigned char b22;
-    unsigned char b23;
-    unsigned char b24;
-    unsigned char b25;
-    unsigned char b26;
-    unsigned char b27;
-    unsigned char b28;
-    unsigned char b29;
-    unsigned char b30;
-    unsigned char b31;
-    unsigned char b32;
-    unsigned char b33;
-    unsigned char b34;
-    unsigned char b35;
-    unsigned char b36;
-    unsigned char b37;
-    unsigned char b38;
-    unsigned char b39;
-    unsigned char b40;
-    unsigned char b41;
-    unsigned char b42;
-    unsigned char b43;
-    unsigned char b44;
-    unsigned char b45;
-    unsigned char b46;
-    unsigned char b47;
-    unsigned char b48;
-    unsigned char b49;
-    unsigned char b50;
-    unsigned char b51;
-    unsigned char b52;
-    unsigned char b53;
-    unsigned char b54;
-    unsigned char b55;
-    unsigned short h56;
-    unsigned short h58;
 };
 static uintptr_t __key_0;
 static unsigned char __attribute__((aligned(4))) cos_table[182] = {	/* + OEM index 90: 0 */
@@ -2393,42 +2392,42 @@ int32_t apical_init_calibrations(int32_t arg1)
 /* WHOLE_DRIVER_CANDIDATE fn_000000000001574c origin=model_output original=init_stab */
 int32_t init_stab(void)
 {
-    ((struct stab_t *)stab)->b0 = 0;
-    ((struct stab_t *)stab)->b22 = 8;
-    ((struct stab_t *)stab)->b52 = 50;
-    ((struct stab_t *)stab)->b23 = 16;
-    ((struct stab_t *)stab)->b29 = 117;
-    ((struct stab_t *)stab)->b33 = 32;
-    ((struct stab_t *)stab)->b1 = 0;
-    ((struct stab_t *)stab)->b3 = 0;
-    ((struct stab_t *)stab)->b4 = 0;
-    ((struct stab_t *)stab)->b5 = 0;
-    ((struct stab_t *)stab)->b6 = 0;
-    ((struct stab_t *)stab)->b7 = 0;
-    ((struct stab_t *)stab)->b8 = 0;
-    ((struct stab_t *)stab)->b9 = 0;
-    ((struct stab_t *)stab)->b10 = 0;
-    ((struct stab_t *)stab)->b11 = 0;
-    ((struct stab_t *)stab)->b12 = 0;
-    ((struct stab_t *)stab)->b15 = 0;
-    ((struct stab_t *)stab)->b2 = 0;
-    ((struct stab_t *)stab)->b13 = 0;
-    ((struct stab_t *)stab)->b28 = 0;
-    ((struct stab_t *)stab)->b30 = 0;
-    ((struct stab_t *)stab)->b32 = 0;
-    ((struct stab_t *)stab)->b34 = 0;
-    ((struct stab_t *)stab)->b37 = 0;
-    ((struct stab_t *)stab)->b31 = 0;
-    ((struct stab_t *)stab)->b40 = 0;
-    ((struct stab_t *)stab)->b43 = 0;
-    ((struct stab_t *)stab)->b46 = 0;
-    ((struct stab_t *)stab)->b49 = -128;
-    ((struct stab_t *)stab)->b50 = -128;
-    ((struct stab_t *)stab)->b51 = 0;
-    ((struct stab_t *)stab)->b53 = -128;
-    ((struct stab_t *)stab)->b54 = 0;
-    ((struct stab_t *)stab)->h56 = 0;
-    ((struct stab_t *)stab)->h58 = 0;
+    stab.global_freeze_firmware = 0;
+    stab.global_exposure_ratio = 8;
+    stab.global_anti_flicker_frequency = 50;
+    stab.global_max_exposure_ratio = 16;
+    stab.global_max_sensor_analog_gain = 117;
+    stab.global_max_isp_digital_gain = 32;
+    stab.global_manual_exposure = 0;
+    stab.global_manual_integration_time = 0;
+    stab.global_manual_sensor_analog_gain = 0;
+    stab.global_manual_sensor_digital_gain = 0;
+    stab.global_manual_isp_digital_gain = 0;
+    stab.global_manual_directional_sharpening = 0;
+    stab.global_manual_un_directional_sharpening = 0;
+    stab.global_manual_iridix = 0;
+    stab.global_manual_sinter = 0;
+    stab.global_manual_temper = 0;
+    stab.global_manual_awb = 0;
+    stab.global_manual_saturation = 0;
+    stab.global_manual_exposure_ratio = 0;
+    stab.global_antiflicker_enable = 0;
+    stab.global_sensor_analog_gain = 0;
+    stab.global_sensor_digital_gain = 0;
+    stab.global_isp_digital_gain = 0;
+    stab.global_directional_sharpening_target = 0;
+    stab.global_un_directional_sharpening_target = 0;
+    stab.global_max_sensor_digital_gain = 0;
+    stab.global_iridix_strength_target = 0;
+    stab.global_sinter_threshold_target = 0;
+    stab.global_temper_threshold_target = 0;
+    stab.global_awb_red_gain = -128;
+    stab.global_awb_blue_gain = -128;
+    stab.global_saturation_target = 0;
+    stab.global_ae_compensation = -128;
+    stab.global_calibrate_bad_pixels = 0;
+    stab.global_dis_x = 0;
+    stab.global_dis_y = 0;
     return (int32_t)&stab;
 }
 
@@ -2508,7 +2507,7 @@ static int32_t apical_change_resolution(uint32_t arg1)
 	APICAL_WRITE_32(0x110, (APICAL_READ_32(0x110) & 0xffff0000) | width);
 	APICAL_WRITE_32(0x118, (APICAL_READ_32(0x118) & 0xffff0000) | width);
 	APICAL_WRITE_32(0x124, (APICAL_READ_32(0x124) & 0xffff0000) | height);
-	*(uint16_t *)(stab + 0x1a) = *(uint16_t *)TX_ISP_T20_FW_PTR(
+	stab.global_max_integration_time = *(uint16_t *)TX_ISP_T20_FW_PTR(
 		TX_ISP_T20_FW_STAB_EXPOSURE);
 
 	for (i = 0; i != 8; i++) {
@@ -2557,7 +2556,7 @@ int32_t apical_interrupt_ae_stats(int32_t *arg1)
 {
 	arg1[1] += 1;
 
-	if (stab[0] == 0) {
+	if (stab.global_freeze_firmware == 0) {
 		int32_t saved = *arg1;
 		*arg1 = 0;
 		apical_isp_process_interrupt(&arg1[6], 3);
@@ -2573,7 +2572,7 @@ int32_t apical_interrupt_awb_stats(int32_t *arg1)
 {
 	arg1[1] += 1;
 
-	if (stab[0] == 0) {
+	if (stab.global_freeze_firmware == 0) {
 		int32_t saved = *arg1;
 		*arg1 = 0;
 		apical_isp_process_interrupt(&arg1[6], 4);
@@ -2590,7 +2589,7 @@ int32_t apical_interrupt_frame_buffer_fr(int32_t *arg1)
 {
 	arg1[1] += 1;
 
-	if (stab[0] == 0) {
+	if (stab.global_freeze_firmware == 0) {
 		int32_t saved = *arg1;
 		*arg1 = 0;
 		apical_isp_process_interrupt(&arg1[6], 5);
@@ -2609,7 +2608,7 @@ int32_t apical_interrupt_frame_buffer_ds(int32_t *arg1)
 
     arg1[1] += 1;
 
-	if (stab[0] == 0) {
+	if (stab.global_freeze_firmware == 0) {
         saved = arg1[0];
         ((void **)arg1)[0] = 0;
         apical_isp_process_interrupt(&arg1[6], 6);
@@ -2626,7 +2625,7 @@ int32_t apical_interrupt_frame_buffer_ds2(int32_t *arg1)
 {
 	arg1[1] += 1;
 
-	if (stab[0] == 0) {
+	if (stab.global_freeze_firmware == 0) {
 		int32_t saved = *arg1;
 		*arg1 = 0;
 		apical_isp_process_interrupt(&arg1[6], 12);
@@ -2642,7 +2641,7 @@ int32_t apical_interrupt_fpga_frame_wdr(int32_t *arg1)
 {
 	arg1[1] += 1;
 
-	if (stab[0] == 0) {
+	if (stab.global_freeze_firmware == 0) {
 		int32_t saved = *arg1;
 		*arg1 = 0;
 		apical_isp_process_interrupt(&arg1[6], 10);
@@ -2838,8 +2837,8 @@ int32_t apical_fw_process(int32_t *arg1)
 	    ae_wake_trace_count++ < 12)
 		printk(KERN_INFO "T20AE fw_process head=%d tail=%d size=%d enabled=%u stab=%u\n",
 		       queue[0], queue[1], queue[3],
-		       *(uint8_t *)((char *)arg1 + 0x10), stab[0]);
-	if (stab[0] == 0 && *(uint8_t *)((char *)arg1 + 0x10) == 1) {
+		       *(uint8_t *)((char *)arg1 + 0x10), stab.global_freeze_firmware);
+	if (stab.global_freeze_firmware == 0 && *(uint8_t *)((char *)arg1 + 0x10) == 1) {
 		*arg1 = 0;
 		apical_isp_process_events((void *)((char *)arg1 + 0x18), 5);
 	}
@@ -2850,7 +2849,7 @@ int32_t apical_fw_process(int32_t *arg1)
 uint32_t apical_fw_raise_event(void *arg1, int32_t arg2)
 {
 
-    uint8_t stab_val = stab[0];
+    uint8_t stab_val = stab.global_freeze_firmware;
     if (stab_val != 0)
         return stab_val;
 
@@ -2876,7 +2875,7 @@ int32_t apical_interrupt_frame_end(int32_t *arg1)
 
     base[1] += 1;
 
-    if (stab[0] == 0) {
+    if (stab.global_freeze_firmware == 0) {
         saved = *base;
         *base = 0;
         apical_isp_process_interrupt((void *)(base + 6), 0);
@@ -2920,7 +2919,7 @@ uint32_t apical_isp_raise_event(void *arg1, int32_t arg2)
 		       ae_raise_trace_count++ < 12;
 	int32_t *queue = (int32_t *)((char *)arg1 + 0x2ea4);
 
-    uint8_t stab_val = stab[0];
+    uint8_t stab_val = stab.global_freeze_firmware;
     if (stab_val != 0)
         return stab_val;
 
@@ -5549,360 +5548,411 @@ static int32_t t20_api_stab_u32(uint32_t val, uint32_t dir, int32_t *ret, uint32
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000019768 origin=model_output original=system_freeze_firmware */
-int32_t system_freeze_firmware(int32_t arg1, char arg2, char arg3, int32_t *arg4)
+int32_t system_freeze_firmware(int32_t unused, char value, char direction, int32_t *ret_value)
 {
-	(void)arg1;
-	return t20_api_stab_u8(arg2, arg3, arg4, 0);
+	(void)unused;
+	return t20_api_stab_u8(value, direction, ret_value,
+			       __builtin_offsetof(system_tab, global_freeze_firmware));
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000197a4 origin=model_output original=system_manual_exposure */
-int32_t system_manual_exposure(int32_t arg1, char arg2, char arg3, int32_t *arg4)
+int32_t system_manual_exposure(int32_t unused, char value, char direction, int32_t *ret_value)
 {
-	(void)arg1;
-	return t20_api_stab_u8(arg2, arg3, arg4, 1);
+	(void)unused;
+	return t20_api_stab_u8(value, direction, ret_value,
+			       __builtin_offsetof(system_tab, global_manual_exposure));
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000197e0 origin=model_output original=system_manual_exposure_ratio */
-int32_t system_manual_exposure_ratio(int32_t arg1, char arg2, char arg3, int32_t *arg4)
+int32_t system_manual_exposure_ratio(int32_t unused, char value, char direction, int32_t *ret_value)
 {
-	(void)arg1;
-	return t20_api_stab_u8(arg2, arg3, arg4, 2);
+	(void)unused;
+	return t20_api_stab_u8(value, direction, ret_value,
+			       __builtin_offsetof(system_tab, global_manual_exposure_ratio));
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000001981c origin=model_output original=system_manual_integration_time */
-int32_t system_manual_integration_time(int32_t arg1, char arg2, char arg3, int32_t *arg4)
+int32_t system_manual_integration_time(int32_t unused, char value, char direction, int32_t *ret_value)
 {
-	(void)arg1;
-	return t20_api_stab_u8(arg2, arg3, arg4, 3);
+	(void)unused;
+	return t20_api_stab_u8(value, direction, ret_value,
+			       __builtin_offsetof(system_tab, global_manual_integration_time));
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000019858 origin=model_output original=system_manual_sensor_analog_gain */
-int32_t system_manual_sensor_analog_gain(int32_t arg1, char arg2, char arg3, int32_t *arg4)
+int32_t system_manual_sensor_analog_gain(int32_t unused, char value, char direction, int32_t *ret_value)
 {
-	(void)arg1;
-	return t20_api_stab_u8(arg2, arg3, arg4, 4);
+	(void)unused;
+	return t20_api_stab_u8(value, direction, ret_value,
+			       __builtin_offsetof(system_tab, global_manual_sensor_analog_gain));
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000019894 origin=model_output original=system_manual_sensor_digital_gain */
-int32_t system_manual_sensor_digital_gain(int32_t arg1, char arg2, char arg3, int32_t *arg4)
+int32_t system_manual_sensor_digital_gain(int32_t unused, char value, char direction, int32_t *ret_value)
 {
-	(void)arg1;
-	return t20_api_stab_u8(arg2, arg3, arg4, 5);
+	(void)unused;
+	return t20_api_stab_u8(value, direction, ret_value,
+			       __builtin_offsetof(system_tab, global_manual_sensor_digital_gain));
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000198d0 origin=model_output original=system_manual_isp_digital_gain */
-int32_t system_manual_isp_digital_gain(int32_t arg1, char arg2, char arg3, int32_t *arg4)
+int32_t system_manual_isp_digital_gain(int32_t unused, char value, char direction, int32_t *ret_value)
 {
-	(void)arg1;
-	return t20_api_stab_u8(arg2, arg3, arg4, 6);
+	(void)unused;
+	return t20_api_stab_u8(value, direction, ret_value,
+			       __builtin_offsetof(system_tab, global_manual_isp_digital_gain));
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000001990c origin=model_output original=system_manual_directional_sharpening */
-int32_t system_manual_directional_sharpening(int32_t arg1, char arg2, char arg3, int32_t *arg4)
+int32_t system_manual_directional_sharpening(int32_t unused, char value, char direction, int32_t *ret_value)
 {
-	(void)arg1;
-	return t20_api_stab_u8(arg2, arg3, arg4, 7);
+	(void)unused;
+	return t20_api_stab_u8(value, direction, ret_value,
+			       __builtin_offsetof(system_tab, global_manual_directional_sharpening));
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000019948 origin=model_output original=system_manual_un_directional_sharpening */
-int system_manual_un_directional_sharpening(int arg1, char arg2, char arg3, int *arg4)
+int system_manual_un_directional_sharpening(int unused, char value, char direction, int *ret_value)
 {
-	(void)arg1;
-	return t20_api_stab_u8(arg2, arg3, arg4, 8);
+	(void)unused;
+	return t20_api_stab_u8(value, direction, ret_value,
+			       __builtin_offsetof(system_tab, global_manual_un_directional_sharpening));
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000019984 origin=model_output original=system_manual_iridix */
-int32_t system_manual_iridix(int32_t arg1, char arg2, char arg3, int32_t *arg4)
+int32_t system_manual_iridix(int32_t unused, char value, char direction, int32_t *ret_value)
 {
-	(void)arg1;
-	return t20_api_stab_u8(arg2, arg3, arg4, 9);
+	(void)unused;
+	return t20_api_stab_u8(value, direction, ret_value,
+			       __builtin_offsetof(system_tab, global_manual_iridix));
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000199c0 origin=model_output original=system_dis_x */
-int32_t system_dis_x(int32_t arg1, int16_t arg2, char arg3, int32_t *arg4)
+int32_t system_dis_x(int32_t unused, int16_t value, char direction, int32_t *ret_value)
 {
-	(void)arg1;
-	return t20_api_stab_u16(arg2, arg3, arg4, 56);
+	(void)unused;
+	return t20_api_stab_u16(value, direction, ret_value,
+			       __builtin_offsetof(system_tab, global_dis_x));
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000199fc origin=model_output original=system_dis_y */
-int32_t system_dis_y(int32_t arg1, int16_t arg2, char arg3, int32_t *arg4)
+int32_t system_dis_y(int32_t unused, int16_t value, char direction, int32_t *ret_value)
 {
-	(void)arg1;
-	return t20_api_stab_u16(arg2, arg3, arg4, 58);
+	(void)unused;
+	return t20_api_stab_u16(value, direction, ret_value,
+			       __builtin_offsetof(system_tab, global_dis_y));
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000019a38 origin=model_output original=system_manual_sinter */
-int32_t system_manual_sinter(int32_t arg1, char arg2, char arg3, int32_t *arg4)
+int32_t system_manual_sinter(int32_t unused, char value, char direction, int32_t *ret_value)
 {
-	(void)arg1;
-	return t20_api_stab_u8(arg2, arg3, arg4, 10);
+	(void)unused;
+	return t20_api_stab_u8(value, direction, ret_value,
+			       __builtin_offsetof(system_tab, global_manual_sinter));
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000019a74 origin=model_output original=system_manual_temper */
-int32_t system_manual_temper(int32_t arg1, char arg2, char arg3, int32_t *arg4)
+int32_t system_manual_temper(int32_t unused, char value, char direction, int32_t *ret_value)
 {
-	(void)arg1;
-	return t20_api_stab_u8(arg2, arg3, arg4, 11);
+	(void)unused;
+	return t20_api_stab_u8(value, direction, ret_value,
+			       __builtin_offsetof(system_tab, global_manual_temper));
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000019ab0 origin=model_output original=system_manual_awb */
-int32_t system_manual_awb(int32_t arg1, char arg2, char arg3, int32_t *arg4)
+int32_t system_manual_awb(int32_t unused, char value, char direction, int32_t *ret_value)
 {
-	(void)arg1;
-	return t20_api_stab_u8(arg2, arg3, arg4, 12);
+	(void)unused;
+	return t20_api_stab_u8(value, direction, ret_value,
+			       __builtin_offsetof(system_tab, global_manual_awb));
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000019aec origin=model_output original=system_slow_frame_rate_enable */
-int32_t system_slow_frame_rate_enable(int32_t arg1, char arg2, char arg3, int32_t *arg4)
+int32_t system_slow_frame_rate_enable(int32_t unused, char value, char direction, int32_t *ret_value)
 {
-	(void)arg1;
-	return t20_api_stab_u8(arg2, arg3, arg4, 14);
+	(void)unused;
+	return t20_api_stab_u8(value, direction, ret_value,
+			       __builtin_offsetof(system_tab, global_slow_frame_rate_enable));
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000019b28 origin=model_output original=system_manual_saturation */
-int32_t system_manual_saturation(int32_t arg1, char arg2, char arg3, int32_t *arg4)
+int32_t system_manual_saturation(int32_t unused, char value, char direction, int32_t *ret_value)
 {
-	(void)arg1;
-	return t20_api_stab_u8(arg2, arg3, arg4, 15);
+	(void)unused;
+	return t20_api_stab_u8(value, direction, ret_value,
+			       __builtin_offsetof(system_tab, global_manual_saturation));
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000019b64 origin=model_output original=system_manual_exposure_time */
-int32_t system_manual_exposure_time(int32_t arg1, int32_t arg2, char arg3, int32_t *arg4)
+int32_t system_manual_exposure_time(int32_t unused, int32_t value, char direction, int32_t *ret_value)
 {
-	(void)arg1;
-	return t20_api_stab_u32(arg2, arg3, arg4, 16);
+	(void)unused;
+	return t20_api_stab_u32(value, direction, ret_value,
+			       __builtin_offsetof(system_tab, global_manual_exposure_time));
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000019ba0 origin=model_output original=system_exposure_dark_target */
-int32_t system_exposure_dark_target(int32_t arg1, char arg2, char arg3, int32_t *arg4)
+int32_t system_exposure_dark_target(int32_t unused, char value, char direction, int32_t *ret_value)
 {
-	(void)arg1;
-	return t20_api_stab_u8(arg2, arg3, arg4, 20);
+	(void)unused;
+	return t20_api_stab_u8(value, direction, ret_value,
+			       __builtin_offsetof(system_tab, global_exposure_dark_target));
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000019bdc origin=model_output original=system_exposure_bright_target */
-int32_t system_exposure_bright_target(int32_t arg1, char arg2, char arg3, int32_t *arg4)
+int32_t system_exposure_bright_target(int32_t unused, char value, char direction, int32_t *ret_value)
 {
-	(void)arg1;
-	return t20_api_stab_u8(arg2, arg3, arg4, 21);
+	(void)unused;
+	return t20_api_stab_u8(value, direction, ret_value,
+			       __builtin_offsetof(system_tab, global_exposure_bright_target));
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000019c18 origin=model_output original=system_exposure_ratio */
-int32_t system_exposure_ratio(int32_t arg1, char arg2, char arg3, int32_t *arg4)
+int32_t system_exposure_ratio(int32_t unused, char value, char direction, int32_t *ret_value)
 {
-	(void)arg1;
-	return t20_api_stab_u8(arg2, arg3, arg4, 22);
+	(void)unused;
+	return t20_api_stab_u8(value, direction, ret_value,
+			       __builtin_offsetof(system_tab, global_exposure_ratio));
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000019c54 origin=model_output original=system_max_exposure_ratio */
-int32_t system_max_exposure_ratio(int32_t arg1, char arg2, char arg3, int32_t *arg4)
+int32_t system_max_exposure_ratio(int32_t unused, char value, char direction, int32_t *ret_value)
 {
-	(void)arg1;
-	return t20_api_stab_u8(arg2, arg3, arg4, 23);
+	(void)unused;
+	return t20_api_stab_u8(value, direction, ret_value,
+			       __builtin_offsetof(system_tab, global_max_exposure_ratio));
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000019c90 origin=model_output original=system_integration_time */
-int32_t system_integration_time(int32_t arg1, int16_t arg2, char arg3, int32_t *arg4)
+int32_t system_integration_time(int32_t unused, int16_t value, char direction, int32_t *ret_value)
 {
-	(void)arg1;
-	return t20_api_stab_u16(arg2, arg3, arg4, 24);
+	(void)unused;
+	return t20_api_stab_u16(value, direction, ret_value,
+			       __builtin_offsetof(system_tab, global_integration_time));
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000019ccc origin=model_output original=system_max_integration_time */
-int32_t system_max_integration_time(int32_t arg1, int16_t arg2, char arg3, int32_t *arg4)
+int32_t system_max_integration_time(int32_t unused, int16_t value, char direction, int32_t *ret_value)
 {
-	(void)arg1;
-	return t20_api_stab_u16(arg2, arg3, arg4, 26);
+	(void)unused;
+	return t20_api_stab_u16(value, direction, ret_value,
+			       __builtin_offsetof(system_tab, global_max_integration_time));
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000019d08 origin=model_output original=system_sensor_analog_gain */
-int32_t system_sensor_analog_gain(int32_t arg1, char arg2, char arg3, int32_t *arg4)
+int32_t system_sensor_analog_gain(int32_t unused, char value, char direction, int32_t *ret_value)
 {
-	(void)arg1;
-	return t20_api_stab_u8(arg2, arg3, arg4, 28);
+	(void)unused;
+	return t20_api_stab_u8(value, direction, ret_value,
+			       __builtin_offsetof(system_tab, global_sensor_analog_gain));
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000019d44 origin=model_output original=system_max_sensor_analog_gain */
-int system_max_sensor_analog_gain(int arg1, char arg2, char arg3, int *arg4)
+int system_max_sensor_analog_gain(int unused, char value, char direction, int *ret_value)
 {
-	(void)arg1;
-	return t20_api_stab_u8(arg2, arg3, arg4, 29);
+	(void)unused;
+	return t20_api_stab_u8(value, direction, ret_value,
+			       __builtin_offsetof(system_tab, global_max_sensor_analog_gain));
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000019d80 origin=model_output original=system_sensor_digital_gain */
-int32_t system_sensor_digital_gain(int32_t arg1, char arg2, char arg3, int32_t *arg4)
+int32_t system_sensor_digital_gain(int32_t unused, char value, char direction, int32_t *ret_value)
 {
-	(void)arg1;
-	return t20_api_stab_u8(arg2, arg3, arg4, 30);
+	(void)unused;
+	return t20_api_stab_u8(value, direction, ret_value,
+			       __builtin_offsetof(system_tab, global_sensor_digital_gain));
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000019dbc origin=model_output original=system_max_sensor_digital_gain */
-int32_t system_max_sensor_digital_gain(int32_t arg1, char arg2, char arg3, int32_t *arg4)
+int32_t system_max_sensor_digital_gain(int32_t unused, char value, char direction, int32_t *ret_value)
 {
-	(void)arg1;
-	return t20_api_stab_u8(arg2, arg3, arg4, 31);
+	(void)unused;
+	return t20_api_stab_u8(value, direction, ret_value,
+			       __builtin_offsetof(system_tab, global_max_sensor_digital_gain));
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000019df8 origin=model_output original=system_isp_digital_gain */
-int32_t system_isp_digital_gain(int32_t arg1, char arg2, char arg3, int32_t *arg4)
+int32_t system_isp_digital_gain(int32_t unused, char value, char direction, int32_t *ret_value)
 {
-	(void)arg1;
-	return t20_api_stab_u8(arg2, arg3, arg4, 32);
+	(void)unused;
+	return t20_api_stab_u8(value, direction, ret_value,
+			       __builtin_offsetof(system_tab, global_isp_digital_gain));
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000019e34 origin=model_output original=system_max_isp_digital_gain */
-int32_t system_max_isp_digital_gain(int32_t arg1, char arg2, char arg3, int32_t *arg4)
+int32_t system_max_isp_digital_gain(int32_t unused, char value, char direction, int32_t *ret_value)
 {
-	(void)arg1;
-	return t20_api_stab_u8(arg2, arg3, arg4, 33);
+	(void)unused;
+	return t20_api_stab_u8(value, direction, ret_value,
+			       __builtin_offsetof(system_tab, global_max_isp_digital_gain));
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000019e70 origin=model_output original=system_directional_sharpening_target */
-int32_t system_directional_sharpening_target(int32_t arg1, char arg2, char arg3, int32_t *arg4)
+int32_t system_directional_sharpening_target(int32_t unused, char value, char direction, int32_t *ret_value)
 {
-	(void)arg1;
-	return t20_api_stab_u8(arg2, arg3, arg4, 34);
+	(void)unused;
+	return t20_api_stab_u8(value, direction, ret_value,
+			       __builtin_offsetof(system_tab, global_directional_sharpening_target));
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000019eac origin=model_output original=system_maximum_directional_sharpening */
-int32_t system_maximum_directional_sharpening(int32_t arg1, char arg2, char arg3, int32_t *arg4)
+int32_t system_maximum_directional_sharpening(int32_t unused, char value, char direction, int32_t *ret_value)
 {
-	(void)arg1;
-	return t20_api_stab_u8(arg2, arg3, arg4, 35);
+	(void)unused;
+	return t20_api_stab_u8(value, direction, ret_value,
+			       __builtin_offsetof(system_tab, global_maximum_directional_sharpening));
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000019ee8 origin=model_output original=system_minimum_directional_sharpening */
-int32_t system_minimum_directional_sharpening(int32_t arg1, char arg2, char arg3, int32_t *arg4)
+int32_t system_minimum_directional_sharpening(int32_t unused, char value, char direction, int32_t *ret_value)
 {
-	(void)arg1;
-	return t20_api_stab_u8(arg2, arg3, arg4, 36);
+	(void)unused;
+	return t20_api_stab_u8(value, direction, ret_value,
+			       __builtin_offsetof(system_tab, global_minimum_directional_sharpening));
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000019f24 origin=model_output original=system_un_directional_sharpening_target */
-int32_t system_un_directional_sharpening_target(int32_t arg1, char arg2, char arg3, int32_t *arg4)
+int32_t system_un_directional_sharpening_target(int32_t unused, char value, char direction, int32_t *ret_value)
 {
-	(void)arg1;
-	return t20_api_stab_u8(arg2, arg3, arg4, 37);
+	(void)unused;
+	return t20_api_stab_u8(value, direction, ret_value,
+			       __builtin_offsetof(system_tab, global_un_directional_sharpening_target));
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000019f60 origin=model_output original=system_maximum_un_directional_sharpening */
-int32_t system_maximum_un_directional_sharpening(int32_t arg1, char arg2, char arg3, int32_t *arg4)
+int32_t system_maximum_un_directional_sharpening(int32_t unused, char value, char direction, int32_t *ret_value)
 {
-	(void)arg1;
-	return t20_api_stab_u8(arg2, arg3, arg4, 38);
+	(void)unused;
+	return t20_api_stab_u8(value, direction, ret_value,
+			       __builtin_offsetof(system_tab, global_maximum_un_directional_sharpening));
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000019f9c origin=model_output original=system_minimum_un_directional_sharpening */
-int32_t system_minimum_un_directional_sharpening(int32_t arg1, char arg2, char arg3, int32_t *arg4)
+int32_t system_minimum_un_directional_sharpening(int32_t unused, char value, char direction, int32_t *ret_value)
 {
-	(void)arg1;
-	return t20_api_stab_u8(arg2, arg3, arg4, 39);
+	(void)unused;
+	return t20_api_stab_u8(value, direction, ret_value,
+			       __builtin_offsetof(system_tab, global_minimum_un_directional_sharpening));
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000019fd8 origin=model_output original=system_iridix_strength_target */
-int32_t system_iridix_strength_target(int32_t arg1, char arg2, char arg3, int32_t *arg4)
+int32_t system_iridix_strength_target(int32_t unused, char value, char direction, int32_t *ret_value)
 {
-	(void)arg1;
-	return t20_api_stab_u8(arg2, arg3, arg4, 40);
+	(void)unused;
+	return t20_api_stab_u8(value, direction, ret_value,
+			       __builtin_offsetof(system_tab, global_iridix_strength_target));
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000001a014 origin=model_output original=system_maximum_iridix_strength */
-int32_t system_maximum_iridix_strength(int32_t arg1, char arg2, char arg3, int32_t *arg4)
+int32_t system_maximum_iridix_strength(int32_t unused, char value, char direction, int32_t *ret_value)
 {
-	(void)arg1;
-	return t20_api_stab_u8(arg2, arg3, arg4, 41);
+	(void)unused;
+	return t20_api_stab_u8(value, direction, ret_value,
+			       __builtin_offsetof(system_tab, global_maximum_iridix_strength));
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000001a050 origin=model_output original=system_minimum_iridix_strength */
-int32_t system_minimum_iridix_strength(int32_t arg1, char arg2, char arg3, int32_t *arg4)
+int32_t system_minimum_iridix_strength(int32_t unused, char value, char direction, int32_t *ret_value)
 {
-	(void)arg1;
-	return t20_api_stab_u8(arg2, arg3, arg4, 42);
+	(void)unused;
+	return t20_api_stab_u8(value, direction, ret_value,
+			       __builtin_offsetof(system_tab, global_minimum_iridix_strength));
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000001a08c origin=model_output original=system_sinter_threshold_target */
-int32_t system_sinter_threshold_target(int32_t arg1, char arg2, char arg3, int32_t *arg4)
+int32_t system_sinter_threshold_target(int32_t unused, char value, char direction, int32_t *ret_value)
 {
-	(void)arg1;
-	return t20_api_stab_u8(arg2, arg3, arg4, 43);
+	(void)unused;
+	return t20_api_stab_u8(value, direction, ret_value,
+			       __builtin_offsetof(system_tab, global_sinter_threshold_target));
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000001a0c8 origin=model_output original=system_maximum_sinter_strength */
-int32_t system_maximum_sinter_strength(int32_t arg1, char arg2, char arg3, int32_t *arg4)
+int32_t system_maximum_sinter_strength(int32_t unused, char value, char direction, int32_t *ret_value)
 {
-	(void)arg1;
-	return t20_api_stab_u8(arg2, arg3, arg4, 44);
+	(void)unused;
+	return t20_api_stab_u8(value, direction, ret_value,
+			       __builtin_offsetof(system_tab, global_maximum_sinter_strength));
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000001a104 origin=model_output original=system_minimum_sinter_strength */
-int32_t system_minimum_sinter_strength(int32_t arg1, char arg2, char arg3, int32_t *arg4)
+int32_t system_minimum_sinter_strength(int32_t unused, char value, char direction, int32_t *ret_value)
 {
-	(void)arg1;
-	return t20_api_stab_u8(arg2, arg3, arg4, 45);
+	(void)unused;
+	return t20_api_stab_u8(value, direction, ret_value,
+			       __builtin_offsetof(system_tab, global_minimum_sinter_strength));
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000001a140 origin=model_output original=system_temper_threshold_target */
-int32_t system_temper_threshold_target(int32_t arg1, char arg2, char arg3, int32_t *arg4)
+int32_t system_temper_threshold_target(int32_t unused, char value, char direction, int32_t *ret_value)
 {
-	(void)arg1;
-	return t20_api_stab_u8(arg2, arg3, arg4, 46);
+	(void)unused;
+	return t20_api_stab_u8(value, direction, ret_value,
+			       __builtin_offsetof(system_tab, global_temper_threshold_target));
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000001a17c origin=model_output original=system_maximum_temper_strength */
-int32_t system_maximum_temper_strength(int32_t arg1, char arg2, char arg3, int32_t *arg4)
+int32_t system_maximum_temper_strength(int32_t unused, char value, char direction, int32_t *ret_value)
 {
-	(void)arg1;
-	return t20_api_stab_u8(arg2, arg3, arg4, 47);
+	(void)unused;
+	return t20_api_stab_u8(value, direction, ret_value,
+			       __builtin_offsetof(system_tab, global_maximum_temper_strength));
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000001a1b8 origin=model_output original=system_minimum_temper_strength */
-int32_t system_minimum_temper_strength(int32_t arg1, char arg2, char arg3, int32_t *arg4)
+int32_t system_minimum_temper_strength(int32_t unused, char value, char direction, int32_t *ret_value)
 {
-	(void)arg1;
-	return t20_api_stab_u8(arg2, arg3, arg4, 48);
+	(void)unused;
+	return t20_api_stab_u8(value, direction, ret_value,
+			       __builtin_offsetof(system_tab, global_minimum_temper_strength));
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000001a1f4 origin=model_output original=system_awb_red_gain */
-int32_t system_awb_red_gain(int32_t arg1, char arg2, char arg3, int32_t *arg4)
+int32_t system_awb_red_gain(int32_t unused, char value, char direction, int32_t *ret_value)
 {
-	(void)arg1;
-	return t20_api_stab_u8(arg2, arg3, arg4, 49);
+	(void)unused;
+	return t20_api_stab_u8(value, direction, ret_value,
+			       __builtin_offsetof(system_tab, global_awb_red_gain));
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000001a230 origin=model_output original=system_awb_blue_gain */
-int32_t system_awb_blue_gain(int32_t arg1, char arg2, char arg3, int32_t *arg4)
+int32_t system_awb_blue_gain(int32_t unused, char value, char direction, int32_t *ret_value)
 {
-	(void)arg1;
-	return t20_api_stab_u8(arg2, arg3, arg4, 50);
+	(void)unused;
+	return t20_api_stab_u8(value, direction, ret_value,
+			       __builtin_offsetof(system_tab, global_awb_blue_gain));
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000001a26c origin=model_output original=system_saturation_target */
-int32_t system_saturation_target(int32_t arg1, char arg2, char arg3, int32_t *arg4)
+int32_t system_saturation_target(int32_t unused, char value, char direction, int32_t *ret_value)
 {
-	(void)arg1;
-	return t20_api_stab_u8(arg2, arg3, arg4, 51);
+	(void)unused;
+	return t20_api_stab_u8(value, direction, ret_value,
+			       __builtin_offsetof(system_tab, global_saturation_target));
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000001a2a8 origin=model_output original=system_anti_flicker_frequency */
-int32_t system_anti_flicker_frequency(int32_t arg1, char arg2, char arg3, int32_t *arg4)
+int32_t system_anti_flicker_frequency(int32_t unused, char value, char direction, int32_t *ret_value)
 {
-	(void)arg1;
-	return t20_api_stab_u8(arg2, arg3, arg4, 52);
+	(void)unused;
+	return t20_api_stab_u8(value, direction, ret_value,
+			       __builtin_offsetof(system_tab, global_anti_flicker_frequency));
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000001a2e4 origin=model_output original=system_ae_compensation */
-int32_t system_ae_compensation(int32_t arg1, char arg2, char arg3, int32_t *arg4)
+int32_t system_ae_compensation(int32_t unused, char value, char direction, int32_t *ret_value)
 {
-	(void)arg1;
-	return t20_api_stab_u8(arg2, arg3, arg4, 53);
+	(void)unused;
+	return t20_api_stab_u8(value, direction, ret_value,
+			       __builtin_offsetof(system_tab, global_ae_compensation));
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000001a320 origin=model_output original=system_calibrate_bad_pixels */
-int32_t system_calibrate_bad_pixels(int32_t arg1, char arg2, char arg3, int32_t *arg4)
+int32_t system_calibrate_bad_pixels(int32_t unused, char value, char direction, int32_t *ret_value)
 {
-	(void)arg1;
-	return t20_api_stab_u8(arg2, arg3, arg4, 54);
+	(void)unused;
+	return t20_api_stab_u8(value, direction, ret_value,
+			       __builtin_offsetof(system_tab, global_calibrate_bad_pixels));
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000001a35c origin=fragment_seed original=selftest_lens_interface */
@@ -6881,7 +6931,7 @@ int32_t ae_mode(void *arg1, int32_t arg2, char arg3, int32_t *arg4)
 		uint32_t cur = (uint32_t)p[0x110];
 		int32_t out;
 
-		if (stab[3] == 0) {
+		if (stab.global_manual_integration_time == 0) {
 			if (cur == 0)
 				out = 0x25;
 			else
@@ -6897,22 +6947,22 @@ int32_t ae_mode(void *arg1, int32_t arg2, char arg3, int32_t *arg4)
 	}
 
 	if (arg2 == 0x26) {
-		stab[3] = 1;
+		stab.global_manual_integration_time = 1;
 		p[0x110] = 1;
 	} else if ((uint32_t)arg2 < 0x27) {
 		if (arg2 != 0x25)
 			return 2;
 
-		stab[3] = 0;
+		stab.global_manual_integration_time = 0;
 		p[0x110] = 0;
 	} else if (arg2 == 0x27) {
-		stab[3] = 0;
+		stab.global_manual_integration_time = 0;
 		p[0x110] = 1;
 	} else {
 		if (arg2 != 0x28)
 			return 2;
 
-		stab[3] = 1;
+		stab.global_manual_integration_time = 1;
 		p[0x110] = 0;
 	}
 
@@ -6982,7 +7032,7 @@ int32_t ae_gain(void *arg1, int32_t arg2, char arg3, int32_t *arg4)
 int32_t ae_exposure(void *arg1, int32_t arg2, char arg3, int32_t *arg4)
 {
 	uint32_t mode = (uint32_t)(uint8_t)arg3;
-	uint16_t *integration_time = (uint16_t *)(stab + 24);
+	uint16_t *integration_time = &stab.global_integration_time;
 	uint32_t lines;
 	u64 product;
 
@@ -7006,9 +7056,9 @@ int32_t ae_exposure(void *arg1, int32_t arg2, char arg3, int32_t *arg4)
 	if (mode != 0)
 		return 2;
 
-	/* OEM: only with manual integration time (stab[3]) and a non-zero
+	/* OEM: only with manual integration time (stab.global_manual_integration_time) and a non-zero
 	 * current value; the product must leave a 32-bit quotient. */
-	if (*integration_time == 0 || stab[3] == 0)
+	if (*integration_time == 0 || stab.global_manual_integration_time == 0)
 		return 3;
 	lines = (uint32_t)cmos_get_lines_per_second((int32_t *)((char *)arg1 + 0x100));
 	product = div64_u64((u64)lines * (u32)arg2, 1000000ULL);
@@ -7040,14 +7090,14 @@ int32_t ae_compensation(int32_t arg1, int32_t arg2, char arg3, int32_t *arg4)
 
     if (a2 != 0) {
         if (a2 == 1) {
-            *arg4 = (int32_t)stab[53];
+            *arg4 = (int32_t)stab.global_ae_compensation;
             return 0;
         }
         return 2;
     }
 
     if ((unsigned int)arg2 < 256) {
-        stab[53] = (unsigned char)arg2;
+        stab.global_ae_compensation = (unsigned char)arg2;
         return 0;
     }
     return 2;
@@ -7130,7 +7180,7 @@ int32_t awb_mode(void *arg1, int32_t arg2, char arg3, int32_t *arg4)
         if (mode != 1)
             return 2;
 
-        if (stab[12] != 0)
+        if (stab.global_manual_awb != 0)
             *arg4 = *(int32_t *)((char *)arg1 + 0xec8);
         else
             *arg4 = 0x32;
@@ -7138,7 +7188,7 @@ int32_t awb_mode(void *arg1, int32_t arg2, char arg3, int32_t *arg4)
     }
 
     if (arg2 == 0x33) {
-        stab[12] = 1;
+        stab.global_manual_awb = 1;
         *(uint8_t *)((char *)arg1 + 0x75a) = 0;
         AWB_fsm_process_state((int32_t *)((char *)arg1 + 0x748));
         *(int32_t *)((char *)arg1 + 0xec8) = arg2;
@@ -7154,10 +7204,10 @@ int32_t awb_mode(void *arg1, int32_t arg2, char arg3, int32_t *arg4)
             uint32_t val1 = (uint32_t)(uint16_t)entry[1];
 
             *(uint8_t *)((char *)arg1 + 0x75a) = 0;
-            stab[12] = 1;
+            stab.global_manual_awb = 1;
             *(int32_t *)((char *)arg1 + 0xec8) = arg2;
-            stab[49] = (uint8_t)(val0 >> 1);
-            stab[50] = (uint8_t)(val1 >> 1);
+            stab.global_awb_red_gain = (uint8_t)(val0 >> 1);
+            stab.global_awb_blue_gain = (uint8_t)(val1 >> 1);
             ret = 0;
         }
     } else {
@@ -7165,7 +7215,7 @@ int32_t awb_mode(void *arg1, int32_t arg2, char arg3, int32_t *arg4)
             ret = 2;
         else {
             *(uint8_t *)((char *)arg1 + 0x75a) = 1;
-            stab[12] = 0;
+            stab.global_manual_awb = 0;
             *(int32_t *)((char *)arg1 + 0xec8) = arg2;
             ret = 0;
         }
@@ -7182,18 +7232,18 @@ int32_t awb_red_gain(void *arg1, int32_t arg2, char arg3, int32_t *arg4)
     if (mode != 0) {
         if (mode == 1) {
             int32_t val;
-            if ((int8_t)stab[12] == 0)
+            if ((int8_t)stab.global_manual_awb == 0)
                 val = (int32_t)(*(uint16_t *)((char *)arg1 + 0x760) >> 1);
             else
-                val = (int32_t)(uint8_t)stab[49];
+                val = (int32_t)(uint8_t)stab.global_awb_red_gain;
             *arg4 = val;
             return 0;
         }
         return 2;
     }
     if ((uint32_t)arg2 < 256u) {
-        if (stab[12] != 0) {
-            stab[49] = (uint8_t)arg2;
+        if (stab.global_manual_awb != 0) {
+            stab.global_awb_red_gain = (uint8_t)arg2;
             return 0;
         }
     }
@@ -7212,17 +7262,17 @@ int32_t awb_blue_gain(void *arg1, int32_t arg2, char arg3, int32_t *arg4)
 		result = 2;
 		if (a2 == 1) {
 			uint32_t v0_1;
-			if ((uint8_t)stab[12] == 0)
+			if ((uint8_t)stab.global_manual_awb == 0)
 				v0_1 = (uint32_t)(*(uint16_t *)((char *)arg1 + 0x762) >> 1);
 			else
-				v0_1 = (uint8_t)stab[50];
+				v0_1 = (uint8_t)stab.global_awb_blue_gain;
 			*arg4 = v0_1;
 			return 0;
 		}
 	} else {
 		result = 2;
-		if ((uint32_t)arg2 < 0x100 && (uint8_t)stab[12] != 0) {
-			stab[50] = (uint8_t)arg2;
+		if ((uint32_t)arg2 < 0x100 && (uint8_t)stab.global_manual_awb != 0) {
+			stab.global_awb_blue_gain = (uint8_t)arg2;
 			return 0;
 		}
 	}
@@ -7691,13 +7741,13 @@ int32_t antiflicker_mode(int32_t arg1, int32_t arg2, char arg3, int32_t *arg4)
     if (mode != 0) {
         result = 2;
         if (mode == 1) {
-            *arg4 = (int32_t)stab[52];
+            *arg4 = (int32_t)stab.global_anti_flicker_frequency;
             return 0;
         }
     } else {
         result = 2;
         if ((uint32_t)arg2 < 256u) {
-            stab[52] = (uint8_t)arg2;
+            stab.global_anti_flicker_frequency = (uint8_t)arg2;
             return 0;
         }
     }
@@ -7723,7 +7773,7 @@ int32_t iridix(void *arg1, int32_t arg2, char arg3, int32_t *arg4)
 
         val = 3;
         if ((APICAL_READ_32(0x3c0) & 1) == cmd) {
-            if (*(uint8_t *)((char *)&stab + 0x9) != 0)
+            if (stab.global_manual_iridix != 0)
                 val = 0x3b;
             else
                 val = *(int32_t *)((char *)arg1 + 0xfec);
@@ -7739,9 +7789,9 @@ int32_t iridix(void *arg1, int32_t arg2, char arg3, int32_t *arg4)
         *uint_ptr = 0x18be5d;
         uchar_ptr = (uint8_t *)_GET_UCHAR_PTR(0x5b);
         *uchar_ptr = (uint8_t)(-1);
-        *(uint8_t *)((char *)&stab + 0x9) = 0;
+        stab.global_manual_iridix = 0;
         APICAL_WRITE_32(0x3c0, APICAL_READ_32(0x3c0) | 1);
-        *(uint8_t *)((char *)&stab + 0x29) = *(uint8_t *)_GET_UCHAR_PTR(0x5b);
+        stab.global_maximum_iridix_strength = *(uint8_t *)_GET_UCHAR_PTR(0x5b);
         *(int32_t *)((char *)arg1 + 0xfec) = s0_val;
         return 0;
     } else if ((uint32_t)arg2 >= 0x3e) {
@@ -7750,9 +7800,9 @@ int32_t iridix(void *arg1, int32_t arg2, char arg3, int32_t *arg4)
             *uint_ptr = 0x12a3dd;
             uchar_ptr = (uint8_t *)_GET_UCHAR_PTR(0x5b);
             *uchar_ptr = 0x6e;
-            *(uint8_t *)((char *)&stab + 0x9) = 0;
+            stab.global_manual_iridix = 0;
             APICAL_WRITE_32(0x3c0, APICAL_READ_32(0x3c0) | 1);
-            *(uint8_t *)((char *)&stab + 0x29) = *(uint8_t *)_GET_UCHAR_PTR(0x5b);
+            stab.global_maximum_iridix_strength = *(uint8_t *)_GET_UCHAR_PTR(0x5b);
             *(int32_t *)((char *)arg1 + 0xfec) = s0_val;
             return 0;
         }
@@ -7761,9 +7811,9 @@ int32_t iridix(void *arg1, int32_t arg2, char arg3, int32_t *arg4)
             *uint_ptr = 0x12a3dd;
             uchar_ptr = (uint8_t *)_GET_UCHAR_PTR(0x5b);
             *uchar_ptr = 0xbe;
-            *(uint8_t *)((char *)&stab + 0x9) = 0;
+            stab.global_manual_iridix = 0;
             APICAL_WRITE_32(0x3c0, APICAL_READ_32(0x3c0) | 1);
-            *(uint8_t *)((char *)&stab + 0x29) = *(uint8_t *)_GET_UCHAR_PTR(0x5b);
+            stab.global_maximum_iridix_strength = *(uint8_t *)_GET_UCHAR_PTR(0x5b);
             *(int32_t *)((char *)arg1 + 0xfec) = 0x3e;
             return 0;
         } else {
@@ -7773,16 +7823,16 @@ int32_t iridix(void *arg1, int32_t arg2, char arg3, int32_t *arg4)
             *uint_ptr = 0x18be5d;
             uchar_ptr = (uint8_t *)_GET_UCHAR_PTR(0x5b);
             *uchar_ptr = 0xbe;
-            *(uint8_t *)((char *)&stab + 0x29) = *(uint8_t *)_GET_UCHAR_PTR(0x5b);
+            stab.global_maximum_iridix_strength = *(uint8_t *)_GET_UCHAR_PTR(0x5b);
             APICAL_WRITE_32(0x3c0, APICAL_READ_32(0x3c0) | 1);
-            *(uint8_t *)((char *)&stab + 0x9) = 0;
+            stab.global_manual_iridix = 0;
             *(int32_t *)((char *)arg1 + 0xfec) = arg2;
             return 0;
         }
     } else if (arg2 == 0x3b) {
         APICAL_WRITE_32(0x3c0, APICAL_READ_32(0x3c0) | 1);
         APICAL_WRITE_32(0x3c0, APICAL_READ_32(0x3c0) | 1);
-        *(uint8_t *)((char *)&stab + 0x9) = 1;
+        stab.global_manual_iridix = 1;
         *(int32_t *)((char *)arg1 + 0xfec) = arg2;
         return 0;
     } else if ((uint32_t)arg2 >= 0x3c) {
@@ -7790,9 +7840,9 @@ int32_t iridix(void *arg1, int32_t arg2, char arg3, int32_t *arg4)
         *uint_ptr = 0xf76fa2;
         uchar_ptr = (uint8_t *)_GET_UCHAR_PTR(0x5b);
         *uchar_ptr = 0xff;
-        *(uint8_t *)((char *)&stab + 0x9) = 0;
+        stab.global_manual_iridix = 0;
         APICAL_WRITE_32(0x3c0, APICAL_READ_32(0x3c0) | 1);
-        *(uint8_t *)((char *)&stab + 0x29) = *(uint8_t *)_GET_UCHAR_PTR(0x5b);
+        stab.global_maximum_iridix_strength = *(uint8_t *)_GET_UCHAR_PTR(0x5b);
         *(int32_t *)((char *)arg1 + 0xfec) = 0x3c;
         return 0;
     } else {
@@ -7814,19 +7864,19 @@ int32_t iridix_strength(int32_t arg1, int32_t arg2, char arg3, int32_t *arg4)
 	if (mode != 0) {
 		if (mode != 1)
 			return 2;
-		*arg4 = (int32_t)stab[40];
+		*arg4 = (int32_t)stab.global_iridix_strength_target;
 		return 0;
 	}
 
 	uint32_t val = APICAL_READ_32(0x3c0) & 1;
 
-	if (val == 0 || (uint32_t)stab[9] != val)
+	if (val == 0 || (uint32_t)stab.global_manual_iridix != val)
 		return 3;
 
 	if ((uint32_t)arg2 >= 0x100)
 		return 2;
 
-	stab[40] = (uint8_t)arg2;
+	stab.global_iridix_strength_target = (uint8_t)arg2;
 	return 0;
 }
 
@@ -7878,17 +7928,17 @@ int32_t sinter(int32_t arg1, int32_t arg2, char arg3, int32_t *arg4)
     if (s3 == 0) {
         if (arg2 == 0x3b) {
             APICAL_WRITE_32(0x280, APICAL_READ_32(0x280) | 0x10);
-            *(uint8_t *)((char *)&stab + 0xa) = 1;
+            stab.global_manual_sinter = 1;
             return 0;
         }
         if (arg2 == 0x40) {
             APICAL_WRITE_32(0x280, APICAL_READ_32(0x280) | 0x10);
-            *(uint8_t *)((char *)&stab + 0xa) = 0;
+            stab.global_manual_sinter = 0;
             return 0;
         }
         if (arg2 == 3) {
             APICAL_WRITE_32(0x280, APICAL_READ_32(0x280) & 0xffffffef);
-            *(uint8_t *)((char *)&stab + 0xa) = 0;
+            stab.global_manual_sinter = 0;
             return 0;
         }
         return 2;
@@ -7898,7 +7948,7 @@ int32_t sinter(int32_t arg1, int32_t arg2, char arg3, int32_t *arg4)
         int32_t reg_280 = APICAL_READ_32(0x280);
         int32_t result;
         if ((reg_280 & 0x10) != 0) {
-            if (*(uint8_t *)((char *)&stab + 0xa) == 0)
+            if (stab.global_manual_sinter == 0)
                 result = 0x40;
             else
                 result = 0x3b;
@@ -7932,7 +7982,7 @@ int32_t sinter_strength(int32_t arg1, int32_t arg2, char arg3, int32_t *arg4)
             result = 3;
 
             if (a1 != 0) {
-                reg_428fa = *(uint8_t *)((char *)&stab + 0xa);
+                reg_428fa = stab.global_manual_sinter;
                 v1_1 = (uint32_t)(uint8_t)reg_428fa;
 
                 if (v1_1 == (uint32_t)a1) {
@@ -7940,12 +7990,12 @@ int32_t sinter_strength(int32_t arg1, int32_t arg2, char arg3, int32_t *arg4)
                         *arg4 = (int32_t)v1_1;
                         return 5;
                     }
-                    *(uint8_t *)((char *)&stab + 0x2b) = (uint8_t)arg2;
+                    stab.global_sinter_threshold_target = (uint8_t)arg2;
                     return 0;
                 }
             }
         } else if (s2 == 1) {
-            reg_4291b = *(uint8_t *)((char *)&stab + 0x2b);
+            reg_4291b = stab.global_sinter_threshold_target;
             *arg4 = (int32_t)(uint32_t)(uint8_t)reg_4291b;
             return 0;
         }
@@ -7965,7 +8015,7 @@ int32_t temper(int32_t arg1, int32_t arg2, char arg3, int32_t *arg4)
         if (mode == 0) {
             if (arg2 == 0x3b) {
                 APICAL_WRITE_32(0x2c0, APICAL_READ_32(0x2c0) | 1);
-                *(uint8_t *)((char *)&stab + 0xb) = 1;
+                stab.global_manual_temper = 1;
             } else {
                 int32_t val;
                 if (arg2 == 0x40) {
@@ -7978,7 +8028,7 @@ int32_t temper(int32_t arg1, int32_t arg2, char arg3, int32_t *arg4)
                     val = APICAL_READ_32(0x2c0) & 0xfffffffe;
                 }
                 APICAL_WRITE_32(0x2c0, val);
-                *(uint8_t *)((char *)&stab + 0xb) = 0;
+                stab.global_manual_temper = 0;
             }
             return 0;
         }
@@ -7986,7 +8036,7 @@ int32_t temper(int32_t arg1, int32_t arg2, char arg3, int32_t *arg4)
             int32_t result;
             if ((APICAL_READ_32(0x2c0) & 1) != 0) {
                 result = 0x3b;
-                if (*(uint8_t *)((char *)&stab + 0xb) == 0)
+                if (stab.global_manual_temper == 0)
                     result = 0x40;
             } else {
                 result = 3;
@@ -8017,19 +8067,19 @@ int32_t temper_strength(int32_t arg1, int32_t arg2, char arg3, int32_t *arg4)
             result = 3;
 
             if (a1 != 0) {
-                v1_1 = (uint32_t)stab[11];
+                v1_1 = (uint32_t)stab.global_manual_temper;
 
                 if (v1_1 == (uint32_t)a1) {
                     if ((uint32_t)arg2 >= 0x100) {
                         *arg4 = (int32_t)v1_1;
                         return 5;
                     }
-                    stab[46] = (uint8_t)arg2;
+                    stab.global_temper_threshold_target = (uint8_t)arg2;
                     return 0;
                 }
             }
         } else if (s2 == 1) {
-            *arg4 = (int32_t)stab[46];
+            *arg4 = (int32_t)stab.global_temper_threshold_target;
             return 0;
         }
     }
@@ -8044,7 +8094,7 @@ int32_t defect_pixel(int32_t arg1, int32_t arg2, char arg3)
         return 2;
     if (arg2 != 66)
         return 2;
-    stab[54] = 1;
+    stab.global_calibrate_bad_pixels = 1;
     return 0;
 }
 
@@ -8203,9 +8253,9 @@ int32_t scene_mode(void *arg1, int32_t arg2, char arg3, int32_t *arg4)
     cmd_ret = apical_command(3, 0x56, 0x25, 0, arg4);
     s6_val = (cmd_ret < 1) ? 1 : 0;
 
-	stab[4] = 0;
-	stab[5] = 0;
-	stab[6] = 0;
+	stab.global_manual_sensor_analog_gain = 0;
+	stab.global_manual_sensor_digital_gain = 0;
+	stab.global_manual_isp_digital_gain = 0;
     data_4290a = 0xffff;
 
     if (apical_command(3, 0x60, 0x32, 0, arg4) != 0)
@@ -8250,12 +8300,12 @@ int32_t scene_mode(void *arg1, int32_t arg2, char arg3, int32_t *arg4)
         result = 0;
         goto label_1d5ac;
     case 0x48:
-		stab[4] = 1;
-		stab[28] = 1;
-		stab[5] = 1;
-		stab[30] = 1;
-		stab[6] = 1;
-		stab[32] = 1;
+		stab.global_manual_sensor_analog_gain = 1;
+		stab.global_sensor_analog_gain = 1;
+		stab.global_manual_sensor_digital_gain = 1;
+		stab.global_sensor_digital_gain = 1;
+		stab.global_manual_isp_digital_gain = 1;
+		stab.global_isp_digital_gain = 1;
         result = apical_command(3, 0x5b, 0x8c, 0, arg4);
         if (result != 0)
             return 5;
@@ -8275,12 +8325,12 @@ int32_t scene_mode(void *arg1, int32_t arg2, char arg3, int32_t *arg4)
             return 5;
         goto label_1d5ac;
     case 0x4b:
-		stab[4] = 1;
-		stab[28] = 1;
-		stab[5] = 1;
-		stab[30] = 1;
-		stab[6] = 1;
-		stab[32] = 1;
+		stab.global_manual_sensor_analog_gain = 1;
+		stab.global_sensor_analog_gain = 1;
+		stab.global_manual_sensor_digital_gain = 1;
+		stab.global_sensor_digital_gain = 1;
+		stab.global_manual_isp_digital_gain = 1;
+		stab.global_isp_digital_gain = 1;
         data_4290a = *(uint16_t *)((char *)arg1 + 0x50) << 1;
         goto label_1d3e0;
     case 0x4c:
@@ -8635,15 +8685,15 @@ int32_t antifog_mode(int32_t arg1, int32_t arg2, char arg3, int32_t *arg4)
     if (arg2 == 0x2d) {
         int32_t ptr = _GET_UCHAR_PTR(0x5b);
         uint8_t data = *(uint8_t *)ptr;
-        *(uint8_t *)((char *)&stab + 0x29) = data;
-        *(uint8_t *)((char *)&stab + 0x9) = 0;
+        stab.global_maximum_iridix_strength = data;
+        stab.global_manual_iridix = 0;
         *(uint8_t *)((char *)arg1 + 0x1526) = 0;
     } else if (arg2 != 0x2e) {
         *arg4 = 1;
         return 5;
     } else {
-        *(uint8_t *)((char *)&stab + 0x9) = 1;
-        *(uint8_t *)((char *)&stab + 0x29) = 0xff;
+        stab.global_manual_iridix = 1;
+        stab.global_maximum_iridix_strength = 0xff;
         *(uint8_t *)((char *)arg1 + 0x1526) = 1;
     }
 
@@ -8692,10 +8742,10 @@ int32_t antifog_set_preset(void *arg1, int32_t arg2, char arg3, int32_t *arg4)
 	}
 	if (!base[0x1526])
 		return 0;
-	stab[9] = 1;
+	stab.global_manual_iridix = 1;
 	APICAL_WRITE_32(0x3c8, (APICAL_READ_32(0x3c8) & 0xfffffff0) | nib);
 	APICAL_WRITE_32(0x3c8, (APICAL_READ_32(0x3c8) & 0xffffff0f) | (nib << 4));
-	stab[40] = strength;
+	stab.global_iridix_strength_target = strength;
 	base[0x1525] = (uint8_t)arg2;
 	return 0;
 }
@@ -9257,15 +9307,15 @@ uint32_t cmos_alloc_integration_time(int32_t *arg1, int32_t arg2)
 
     uint32_t base = *(uint32_t *)arg1;
     uint32_t max_val = *(uint32_t *)((char *)base + 0x6c);
-    uint16_t min_val = *(uint16_t *)(stab + 0x1a);
+    uint16_t min_val = stab.global_max_integration_time;
     uint32_t cur_val = *(uint32_t *)((char *)base + 0x78);
     uint32_t result;
     uint16_t v1;
 
-    if (stab[3] == 0)
+    if (stab.global_manual_integration_time == 0)
         result = math_exp2(arg2, 0x10, 0);
     else
-        result = *(uint16_t *)(stab + 0x18);
+        result = stab.global_integration_time;
 
     v1 = (uint16_t)max_val;
 
@@ -9277,8 +9327,8 @@ uint32_t cmos_alloc_integration_time(int32_t *arg1, int32_t arg2)
         v1 = (uint16_t)result;
     }
 
-    if (stab[3] != 0)
-        *(uint16_t *)(stab + 0x18) = v1;
+    if (stab.global_manual_integration_time != 0)
+        stab.global_integration_time = v1;
 
     uint32_t ret = *(uint16_t *)((char *)arg1 + 0x1c4);
     *(uint32_t *)((char *)arg1 + 0x1c0) = ret;
@@ -9301,7 +9351,7 @@ int32_t cmos_alloc_sensor_analog_gain(int32_t *arg1, uint32_t arg2)
 		return 0;
 
 	isp = (uint8_t *)(uintptr_t)arg1[0];
-	max_gain = (int32_t)stab[29] << 11;
+	max_gain = (int32_t)stab.global_max_sensor_analog_gain << 11;
 	if (max_gain >= (int32_t)arg2)
 		max_gain = (int32_t)arg2;
 
@@ -9322,7 +9372,7 @@ int32_t cmos_alloc_sensor_digital_gain(int32_t *arg1, uint32_t arg2)
 		return 0;
 
 	isp = (uint8_t *)(uintptr_t)arg1[0];
-	max_gain = (int32_t)stab[31] << 11;
+	max_gain = (int32_t)stab.global_max_sensor_digital_gain << 11;
 	gain = max_gain;
 	if (max_gain >= (int32_t)arg2)
 		gain = (int32_t)arg2;
@@ -9344,7 +9394,7 @@ uint32_t cmos_alloc_isp_digital_gain(void *arg1, int arg2)
     if (arg2 < 0)
         return 0;
 
-	limit = (uint32_t)stab[33] << 11;
+	limit = (uint32_t)stab.global_max_isp_digital_gain << 11;
     v = *(uint32_t *)((uintptr_t)arg1 + 0x1e4);
 
     if ((int)v < (int)limit)
@@ -9359,25 +9409,25 @@ uint32_t cmos_alloc_isp_digital_gain(void *arg1, int arg2)
 /* WHOLE_DRIVER_CANDIDATE fn_000000000001ea80 origin=model_output original=cmos_get_manual_again_log2 */
 int32_t cmos_get_manual_again_log2(int32_t *arg1)
 {
-	if (stab[4] == 0)
+	if (stab.global_manual_sensor_analog_gain == 0)
 		return -1;
-	return cmos_alloc_sensor_analog_gain(arg1, stab[28] << 11);
+	return cmos_alloc_sensor_analog_gain(arg1, stab.global_sensor_analog_gain << 11);
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000001eaac origin=model_output original=cmos_get_manual_dgain_log2 */
 int32_t cmos_get_manual_dgain_log2(int32_t *arg1)
 {
-	if (stab[5] == 0)
+	if (stab.global_manual_sensor_digital_gain == 0)
 		return -1;
-	return cmos_alloc_sensor_digital_gain(arg1, (int32_t)stab[30] << 11);
+	return cmos_alloc_sensor_digital_gain(arg1, (int32_t)stab.global_sensor_digital_gain << 11);
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000001ead8 origin=model_output original=cmos_get_manual_isp_dgain_log2 */
 int cmos_get_manual_isp_dgain_log2(void *arg1)
 {
-	if (stab[6] == 0)
+	if (stab.global_manual_isp_digital_gain == 0)
 		return -1;
-	return cmos_alloc_isp_digital_gain(arg1, (uint32_t)stab[32] << 11);
+	return cmos_alloc_isp_digital_gain(arg1, (uint32_t)stab.global_isp_digital_gain << 11);
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000001eb04 origin=model_output original=cmos_convert_integration_time_ms2lines */
@@ -9512,15 +9562,15 @@ uint32_t cmos_update_exposure_history(int32_t *arg1)
 	if (fw[1] == 0)
 		system_hw_interrupts_enable();
 
-	if (stab[3] == 0)
-		*(uint16_t *)&stab[24] = *(uint16_t *)((uint8_t *)arg1 + 0x1c4);
+	if (stab.global_manual_integration_time == 0)
+		stab.global_integration_time = *(uint16_t *)((uint8_t *)arg1 + 0x1c4);
 
 	gain = math_exp2(arg1[0x1cc / 4], 0x10, 0);
 	reg = APICAL_READ_32(0x400a8);
 	APICAL_WRITE_32(0x400a8, (gain << 16) | (reg & 0xffff));
 
-	if (stab[4] == 0)
-		stab[28] = (uint8_t)(arg1[0x1cc / 4] >> 11);
+	if (stab.global_manual_sensor_analog_gain == 0)
+		stab.global_sensor_analog_gain = (uint8_t)(arg1[0x1cc / 4] >> 11);
 
 	gain = math_exp2(arg1[0x1d0 / 4] + arg1[0x1d4 / 4], 0x10, 0x10);
 	reg = APICAL_READ_32(0x400a0);
@@ -9530,13 +9580,13 @@ uint32_t cmos_update_exposure_history(int32_t *arg1)
 	APICAL_WRITE_32(0x400a0,
 		(((gain & 0xffff) >> 6) << 16) | (reg & 0xfc00ffff));
 
-	if (stab[5] == 0)
-		stab[30] = (uint8_t)(arg1[0x1d0 / 4] >> 11);
+	if (stab.global_manual_sensor_digital_gain == 0)
+		stab.global_sensor_digital_gain = (uint8_t)(arg1[0x1d0 / 4] >> 11);
 
-	result = stab[6];
+	result = stab.global_manual_isp_digital_gain;
 	if (result == 0) {
 		result = arg1[0x1d4 / 4] >> 11;
-		stab[32] = (uint8_t)result;
+		stab.global_isp_digital_gain = (uint8_t)result;
 	}
 
 	return result;
@@ -10284,8 +10334,8 @@ uint32_t cmos_fsm_process_interrupt(int32_t *arg1, char arg2)
 			return result;
 	}
 
-	result = (uint32_t)stab[52] << 8;
-	if (stab[13] == 0)
+	result = (uint32_t)stab.global_anti_flicker_frequency << 8;
+	if (stab.global_antiflicker_enable == 0)
 		result = 0;
 	if (result != *(uint16_t *)((char *)arg1 + 0x1b4)) {
 		*(uint16_t *)((char *)arg1 + 0x1b4) = (uint16_t)result;
@@ -10330,7 +10380,7 @@ int32_t cmos_inttime_update(int32_t *arg1)
 	uint32_t div_result4;
 	int32_t delta;
 
-	if (stab[3] != 0)
+	if (stab.global_manual_integration_time != 0)
 		goto tail_call;
 
 	if (*(uint8_t *)((char *)arg1 + 0x10) != 1) {
@@ -10385,7 +10435,7 @@ int32_t cmos_inttime_update(int32_t *arg1)
 			t5 = *(int32_t *)((char *)arg1 + 0x48);
 		}
 
-		if (v0 != 0 && *(uint8_t *)((char *)arg1 + 0x10) == 0 && stab[13] != 0) {
+		if (v0 != 0 && *(uint8_t *)((char *)arg1 + 0x10) == 0 && stab.global_antiflicker_enable != 0) {
 			fps = cmos_get_fps(arg1);
 			val_50 = *(uint16_t *)((char *)*(int32_t *)arg1 + 0x50);
 			val_1b4 = *(uint16_t *)((char *)arg1 + 0x1b4);
@@ -10489,7 +10539,7 @@ int32_t cmos_analog_gain_update(int32_t *arg1)
 	 * the previous one re-allocates the previous gain (a1 = s0[460]);
 	 * signed compares.  The recovery allocated gain 0 and compared as
 	 * pointers (unsigned). */
-	if (stab[4] == 0) {
+	if (stab.global_manual_sensor_analog_gain == 0) {
 		int32_t a1_1 = arg1[0x1cc / 4];
 
 		if (result != a1_1 && s1 >= a1_1 - 0xfff && a1_1 + 0xfff >= s1)
@@ -10784,7 +10834,7 @@ int32_t defect_pixel_initialize(uintptr_t a0)
 int32_t defect_pixel_update(int32_t *arg1)
 {
 	uint8_t *fsm = (uint8_t *)arg1;
-	uint8_t state = stab[54];
+	uint8_t state = stab.global_calibrate_bad_pixels;
 	uint8_t phase;
 	uint8_t countdown;
 	uint16_t threshold;
@@ -10799,8 +10849,8 @@ int32_t defect_pixel_update(int32_t *arg1)
 		cmos_set_exposure_target(*arg1 + 0x100, 0, 0);
 		fsm[0x14] = state;
 		fsm[0x10] = 0x10;
-		*(int32_t *)(fsm + 0x18) = (int32_t)stab[46];
-		stab[46] = 0xff;
+		*(int32_t *)(fsm + 0x18) = (int32_t)stab.global_temper_threshold_target;
+		stab.global_temper_threshold_target = 0xff;
 		*(uint16_t *)(fsm + 0x12) = 0x100;
 		reg = APICAL_READ_32(0x1cc);
 		return APICAL_WRITE_32(0x1cc,
@@ -10860,7 +10910,7 @@ int32_t saturation_modulate_strength(int32_t *arg1)
     int32_t rows = _GET_ROWS(idx);
     int16_t *mod_ptr = (int16_t *)_GET_MOD_ENTRY16_PTR(idx);
     int32_t result = calc_modulation_u16((sum >> 8) & 0xffff, (uintptr_t)mod_ptr, rows);
-    stab[51] = (uint8_t)result;
+    stab.global_saturation_target = (uint8_t)result;
     return result;
 }
 
@@ -10953,10 +11003,10 @@ int32_t color_matrix_recalculate(int32_t *arg1)
 	int32_t result = 0;
 	int32_t i;
 
-	if (stab[15] == 0)
+	if (stab.global_manual_saturation == 0)
 		saturation_modulate_strength(arg1);
 
-	strength = stab[51];
+	strength = stab.global_saturation_target;
 	scaled = strength << 1;
 	inv_scaled = 0x100 - scaled;
 	for (i = 0; i < 9; i++) {
@@ -11365,7 +11415,7 @@ int32_t color_matrix_initialize(int32_t *arg1)
     color_matrix_change_CCMs(arg1);
     ((uint8_t *)arg1)[0x12] = (uint8_t)0x80;
     ((uint8_t *)arg1)[0x11] = 0;
-    ((uint8_t *)stab)[0x33] = (uint8_t)0x80;
+    stab.global_saturation_target = (uint8_t)0x80;
 
 	fw = (uint8_t *)(uintptr_t)arg1[0];
 	general = *(uint8_t **)(fw + 0x14e8);
@@ -11632,7 +11682,7 @@ int32_t iridix_initialize(int32_t *arg1)
 		byte_val = *(uint8_t *)((char *)s3 + 0x10);
 	}
 
-	*(uint8_t *)((char *)&stab + 0x28) = byte_val;
+	stab.global_iridix_strength_target = byte_val;
 
 	base_ptr = *(uint32_t **)s3;
 	mode = *(uint8_t *)((char *)base_ptr + 0x1524);
@@ -11648,7 +11698,7 @@ int32_t iridix_initialize(int32_t *arg1)
 		}
 		a0_val = 0x5c;
 		byte_val = *(uint8_t *)_GET_UCHAR_PTR(a0_val);
-		*(uint8_t *)((char *)&stab + 0x29) = byte_val;
+		stab.global_maximum_iridix_strength = byte_val;
 		reg = APICAL_READ_32(0x3e0);
 		APICAL_WRITE_32(0x3e0, reg & 0xfffffffe);
 		reg = APICAL_READ_32(0x3e0);
@@ -11661,7 +11711,7 @@ int32_t iridix_initialize(int32_t *arg1)
 
 common_path:
 	byte_val = *(uint8_t *)_GET_UCHAR_PTR(a0_val);
-	*(uint8_t *)((char *)&stab + 0x29) = byte_val;
+	stab.global_maximum_iridix_strength = byte_val;
 	reg = APICAL_READ_32(0x3e0);
 	APICAL_WRITE_32(0x3e0, reg | 1);
 	reg = APICAL_READ_32(0x3e0);
@@ -11773,14 +11823,14 @@ unsigned int iridix_control_strength_calculate(int32_t * arg1) {
         if (v0_40 != 0)
             s4_4 = s0_8 << 0x10 >> 0x10;
 
-        uint32_t v0_45 = (uint32_t)stab[42];
-        v0_13 = (uint16_t)(((int32_t)((int32_t)stab[41] - (int32_t)v0_45) << 8) * (uint32_t)s4_4 / 0x64) + (int32_t)(v0_45 << 8);
+        uint32_t v0_45 = (uint32_t)stab.global_minimum_iridix_strength;
+        v0_13 = (uint16_t)(((int32_t)((int32_t)stab.global_maximum_iridix_strength - (int32_t)v0_45) << 8) * (uint32_t)s4_4 / 0x64) + (int32_t)(v0_45 << 8);
 		t20_iridix_last_hist_factor = max_t(int32_t,
 			(int16_t)lo_3, 0);
 		t20_iridix_last_exposure_factor = s0_8;
 		t20_iridix_last_target = v0_13 >> 8;
-		t20_iridix_last_minimum = stab[42];
-		t20_iridix_last_maximum = stab[41];
+		t20_iridix_last_minimum = stab.global_minimum_iridix_strength;
+		t20_iridix_last_maximum = stab.global_maximum_iridix_strength;
 		t20_iridix_last_full_strength_exposure = fp_1;
 		t20_iridix_last_no_strength_exposure =
 			*(uint32_t *)_GET_UINT_PTR(0xd3);
@@ -11802,25 +11852,25 @@ int32_t iridix_update(int32_t *arg1)
 
     /* Beyond vendor: pending safe anti-fog request (see t20_antifog_apply). */
     t20_antifog_apply();
-    if (stab[9]) {
-        val = (uint32_t)stab[40] << 8;
+    if (stab.global_manual_iridix) {
+        val = (uint32_t)stab.global_iridix_strength_target << 8;
     } else {
         val = (uint32_t)iridix_control_strength_calculate(arg1);
-        stab[40] = (uint8_t)(val >> 8);
+        stab.global_iridix_strength_target = (uint8_t)(val >> 8);
     }
 
     result = (int16_t)val;
 
-    uint32_t max_val = (uint32_t)stab[42] << 8;
+    uint32_t max_val = (uint32_t)stab.global_minimum_iridix_strength << 8;
     if ((uint32_t)result < (max_val & 0xff00))
         result = (int16_t)max_val;
 
-    uint32_t min_val = (uint32_t)stab[41] << 8;
+    uint32_t min_val = (uint32_t)stab.global_maximum_iridix_strength << 8;
     if ((min_val & 0xff00) < (uint32_t)(uint16_t)result)
         result = (int16_t)min_val;
 
     /* Beyond vendor: DRC ratio on the auto strength (see t20_drc_ratio). */
-    if (!stab[9] && t20_drc_ratio != 128) {
+    if (!stab.global_manual_iridix && t20_drc_ratio != 128) {
         uint32_t v = (uint16_t)result;
 
         if (t20_drc_ratio < 128)
@@ -11830,7 +11880,7 @@ int32_t iridix_update(int32_t *arg1)
         result = (int16_t)(v > 0xff00 ? 0xff00 : v);
     }
     /* Beyond vendor: defog strength floor (see t2x_defog_apply()). */
-    if (!stab[9] && t20_defog_floor &&
+    if (!stab.global_manual_iridix && t20_defog_floor &&
         (uint32_t)(uint16_t)result < (t20_defog_floor << 8))
         result = (int16_t)(t20_defog_floor << 8);
 
@@ -12416,49 +12466,49 @@ int32_t general_set_wdr_mode(int32_t *arg1)
 	printk(KERN_INFO "T20FW general_wdr switch done\n");
 
 	if (mode == 1) {
-		*(uint16_t *)((char *)&stab + 0x1a) = *(uint16_t *)((char *)base + 0x70);
+		stab.global_max_integration_time = *(uint16_t *)((char *)base + 0x70);
 		entry = _GET_MOD_ENTRY16_PTR(0x2f);
 		val = *(uint8_t *)((char *)entry + 2);
-		*(uint8_t *)((char *)&stab + 0x2d) = val;
+		stab.global_minimum_sinter_strength = val;
 		entry2 = _GET_MOD_ENTRY16_PTR(0x2f);
 		rows = _GET_ROWS(0x2f);
 		val = *(uint8_t *)((char *)entry2 + ((rows - 1) << 2) + 2);
-		*(uint8_t *)((char *)&stab + 0x2c) = val;
+		stab.global_maximum_sinter_strength = val;
 		load_isp_sequence(0);
 		printk(KERN_INFO "T20FW general_wdr sequence 0 done\n");
 		a0_val = *arg1;
 	} else if (mode == 0) {
-		*(uint16_t *)((char *)&stab + 0x1a) = *(uint16_t *)((char *)base + 0x78);
+		stab.global_max_integration_time = *(uint16_t *)((char *)base + 0x78);
 		entry = _GET_MOD_ENTRY16_PTR(0x2e);
 		val = *(uint8_t *)((char *)entry + 2);
-		*(uint8_t *)((char *)&stab + 0x2d) = val;
+		stab.global_minimum_sinter_strength = val;
 		entry2 = _GET_MOD_ENTRY16_PTR(0x2e);
 		rows = _GET_ROWS(0x2e);
 		val = *(uint8_t *)((char *)entry2 + ((rows - 1) << 2) + 2);
-		*(uint8_t *)((char *)&stab + 0x2c) = val;
+		stab.global_maximum_sinter_strength = val;
 		load_isp_sequence(1);
 		printk(KERN_INFO "T20FW general_wdr sequence 1 done\n");
 		a0_val = *arg1;
 	} else if (mode == 2) {
-		*(uint16_t *)((char *)&stab + 0x1a) = *(uint16_t *)((char *)base + 0x70);
+		stab.global_max_integration_time = *(uint16_t *)((char *)base + 0x70);
 		rows = _GET_ROWS(0x30);
 		entry = _GET_MOD_ENTRY16_PTR(0x30);
 		val = *(uint8_t *)((char *)entry + 2);
-		*(uint8_t *)((char *)&stab + 0x2d) = val;
+		stab.global_minimum_sinter_strength = val;
 		entry2 = _GET_MOD_ENTRY16_PTR(0x30);
 		val = *(uint8_t *)((char *)entry2 + ((rows - 1) << 2) + 2);
-		*(uint8_t *)((char *)&stab + 0x2c) = val;
+		stab.global_maximum_sinter_strength = val;
 		a0_val = *arg1;
 	} else if (mode != 3) {
 		a0_val = *arg1;
 	} else {
 		entry = _GET_MOD_ENTRY16_PTR(0x31);
 		val = *(uint8_t *)((char *)entry + 2);
-		*(uint8_t *)((char *)&stab + 0x2d) = val;
+		stab.global_minimum_sinter_strength = val;
 		entry2 = _GET_MOD_ENTRY16_PTR(0x31);
 		rows = _GET_ROWS(0x31);
 		val = *(uint8_t *)((char *)entry2 + ((rows - 1) << 2) + 2);
-		*(uint8_t *)((char *)&stab + 0x2c) = val;
+		stab.global_maximum_sinter_strength = val;
 		a0_val = *arg1;
 	}
 
@@ -17373,11 +17423,11 @@ int32_t sensor_hw_init(int32_t *arg1)
 
     val = *(int32_t *)((char *)arg1 + 0x58);
     stab_val = ((val >> 0xa) & 1) + (val >> 0xb);
-    *(uint8_t *)((char *)((char *)&stab + 0x1d)) = (uint8_t)stab_val;
+    stab.global_max_sensor_analog_gain = (uint8_t)stab_val;
 
     val = *(int32_t *)((char *)arg1 + 0x5c);
     stab_val = ((val >> 0xa) & 1) + (val >> 0xb);
-    *(uint8_t *)((char *)((char *)&stab + 0x1f)) = (uint8_t)stab_val;
+    stab.global_max_sensor_digital_gain = (uint8_t)stab_val;
 
     return (int32_t)(int32_t *)&stab;
 }
@@ -17724,7 +17774,7 @@ static u32 t20_ae_corrected_target(u32 target, s32 exposure_log2,
 		*curve_value = curve;
 	/* Both signed offsets are IQ/system-table values in 1/32-stop units. */
 	target_log2 = log2_fixed_to_fixed(target, 0, 16) +
-		(((s32)stab[53] - 0x80) << 11) +
+		(((s32)stab.global_ae_compensation - 0x80) << 11) +
 		(((s32)curve - 0x80) << 11);
 	return max_t(u32, 1, math_exp2(target_log2, 16, 0));
 }
@@ -17883,13 +17933,13 @@ int32_t AE_fsm_process_interrupt(int32_t *arg1, char arg2)
 			int32_t *sharpening = (void *)(isp + 0x1014);
 
 			/* openimp #285: like the OEM cmos_update_exposure_
-			 * history(), a manual time (stab[3]) / analog gain
-			 * (stab[4]) keeps the value the user set in stab[24] /
-			 * stab[28]. */
-			if (!stab[3])
-				*(uint16_t *)&stab[24] = (uint16_t)integration;
-			if (!stab[4])
-				stab[28] = (uint8_t)clamp_t(int32_t,
+			 * history(), a manual time (stab.global_manual_integration_time) / analog gain
+			 * (stab.global_manual_sensor_analog_gain) keeps the value the user set in stab.global_integration_time /
+			 * stab.global_sensor_analog_gain. */
+			if (!stab.global_manual_integration_time)
+				stab.global_integration_time = (uint16_t)integration;
+			if (!stab.global_manual_sensor_analog_gain)
+				stab.global_sensor_analog_gain = (uint8_t)clamp_t(int32_t,
 					again_log2 >> 11, 0, 255);
 			*(int32_t *)(isp + 0xf4) = again_code;
 			*(int32_t *)(isp + 0xf8) = again_log2 >> 12;
@@ -17906,8 +17956,8 @@ int32_t AE_fsm_process_interrupt(int32_t *arg1, char arg2)
 			 * #246: publish and apply the ISP digital gain like the
 			 * OEM cmos_digital_gain_update() + cmos_update_exposure_
 			 * history(): the owner view feeds the NR/sharpen/LSC/
-			 * saturation gain modulation, stab[32] is what isp-m0 and
-			 * GetTotalGain report (OEM only when not manual, stab[6]),
+			 * saturation gain modulation, stab.global_isp_digital_gain is what isp-m0 and
+			 * GetTotalGain report (OEM only when not manual, stab.global_manual_isp_digital_gain),
 			 * and the cmos frame-start interrupt writes register 0x1a0
 			 * (4.8) from the cmos+0x58 slot of the sensor callback
 			 * tuple (OEM cmos_func.c.o 0xcb8-0xd14; the interrupt-7
@@ -17916,8 +17966,8 @@ int32_t AE_fsm_process_interrupt(int32_t *arg1, char arg2)
 			owner->isp_digital_gain = isp_dgain_log2;
 			*(int32_t *)(isp + T20_CMOS_FSM_OFFSET +
 				T20_CMOS_FRAME_ISP_DGAIN) = isp_dgain_log2;
-			if (!stab[6])
-				stab[32] = (uint8_t)clamp_t(int32_t,
+			if (!stab.global_manual_isp_digital_gain)
+				stab.global_isp_digital_gain = (uint8_t)clamp_t(int32_t,
 					isp_dgain_log2 >> 11, 0, 255);
 			if (owner->wdr_mode == 0 && !owner->exposure_ratio)
 				owner->exposure_ratio = T20_EXPOSURE_RATIO_Q6_ONE;
@@ -17992,7 +18042,7 @@ int32_t AE_fsm_process_interrupt(int32_t *arg1, char arg2)
 		if (t20_trace_events && simple_trace_count++ < 32)
 			printk(KERN_INFO
 			       "T20AE simple mean=%u target=%u raw=%u curve=%u contrast=%u tail=%u total=%u exposure=%d int=%u again=%d code=0x%x cooldown=%u rc=%d\n",
-			       mean, target, raw_target, curve_value, stab[53],
+			       mean, target, raw_target, curve_value, stab.global_ae_compensation,
 			       highlight_tail, total, simple_exposure_log2, integration,
 			       again_log2, again_code, simple_cooldown, result);
 		t20_ae_last_mean = mean;
@@ -18045,8 +18095,8 @@ uint32_t ae_calculate_exposure_ratio(int32_t *arg1)
 	lut_ptr = (uintptr_t)_GET_HDR_TABLE_INDEX(0x92, (uint8_t)((char *)hdr_idx + 0x1524)[0]);
 	lut_ptr = (uint32_t)_GET_UINT_PTR((uint32_t *)lut_ptr);
 
-	stab_flag = (uint8_t)((char *)((char *)&stab + 0x2))[0];
-	stab_val = (uint8_t)((char *)((char *)&stab + 0x17))[0];
+	stab_flag = (uint8_t)stab.global_manual_exposure_ratio;
+	stab_val = (uint8_t)stab.global_max_exposure_ratio;
 	result = stab_val << 6;
 
 	if (stab_flag == 0) {
@@ -18075,7 +18125,7 @@ uint32_t ae_calculate_exposure_ratio(int32_t *arg1)
 				result_1 = (result_1 * result_1) >> 6;
 		}
 	} else {
-		result_1 = (uint8_t)((char *)((char *)&stab + 0x16))[0] << 3;
+		result_1 = (uint8_t)stab.global_exposure_ratio << 3;
 	}
 
 	if (result_1 < 0x40)
@@ -18093,7 +18143,7 @@ uint32_t ae_calculate_exposure_ratio(int32_t *arg1)
 	}
 
 	if (stab_flag == 0)
-		((uint8_t *)((char *)&stab + 0x16))[0] = (uint8_t)(result >> 3);
+		stab.global_exposure_ratio = (uint8_t)(result >> 3);
 
 	return result;
 }
@@ -18113,7 +18163,7 @@ uint16_t* ae_calculate_target(uintptr_t a0)
 	 *   mode 1/2:
 	 *     mean = sqrt32(sum hist[i]*(2i+1)^2*w(i) / population) >> 1
 	 *   w(i) = 1 below bin 256-knee, (i + knee - 254) >> 1 from there
-	 *   target = log2(level) - log2(mean) + (stab[0x35]-128)*2048
+	 *   target = log2(level) - log2(mean) + (stab.global_ae_compensation-128)*2048
 	 *            + (corr(exp2(s0[20])) - 128)*2048
 	 *   corr = u8 table _GET_HDR_TABLE_INDEX(41, mode) interpolated over
 	 *   the u32 nodes of table 206.
@@ -18123,7 +18173,7 @@ uint16_t* ae_calculate_target(uintptr_t a0)
 	uint32_t mode = *(uint8_t *)(uintptr_t)(*(uint32_t *)ctx + 5412);
 	uint32_t *tbl = (uint32_t *)_GET_UINT_PTR(_GET_HDR_TABLE_INDEX(146, mode));
 	uint32_t pop = *(uint32_t *)(ctx + 1072);
-	uint32_t comp = *(uint8_t *)((char *)&stab + 0x35);
+	uint32_t comp = stab.global_ae_compensation;
 	uint32_t knee, start, i, mean, exp_lin, n, corr;
 	uint32_t *nodes;
 	uint8_t *ctab;
@@ -18204,7 +18254,7 @@ int32_t ae_calculate_exposure(int32_t *arg1)
 	int32_t *s1 = *(int32_t **)arg1;
 	int32_t s0 = (int32_t)arg1;
 	int32_t s3 = (int32_t)s1 + 0x100;
-	int32_t stab_flag = *(uint8_t *)((char *)&stab + 0x1);
+	int32_t stab_flag = stab.global_manual_exposure;
 	int32_t s1_2;
 
 	if (stab_flag == 0) {
@@ -18274,7 +18324,7 @@ int32_t ae_calculate_exposure(int32_t *arg1)
 		s1_2 = v0_11;
 		*(int32_t *)((char *)&stab + 0x10) = math_exp2(v0_11, 0x10, 6);
 	} else {
-		int32_t v0 = log2_fixed_to_fixed(*(uint32_t *)((char *)&stab + 0x10), 6, 0x10);
+		int32_t v0 = log2_fixed_to_fixed(stab.global_manual_exposure_time, 6, 0x10);
 		if (v0 < 0)
 			v0 = 0;
 		s1_2 = v0;
@@ -18926,7 +18976,7 @@ static void tx_isp_t20_awb_light_source(int32_t *awb_fsm, u32 ct)
  * awb_calc_avg_weighted_gr_gb_mesh in MANUAL (libt20-firmware 0x248c..0x2524):
  * CT = 1e6 / AWB_mesh(0xffff / R, 0xffff / B) over the RG_POS (226) / BG_POS
  * (251) axes and the CT mesh (214), R/B = the manual gains in Q8
- * (fsm+24/+26 = stab[49]/[50] << 1, awb_normalise), 0 -> 0xffff.
+ * (fsm+24/+26 = stab.global_awb_red_gain/[50] << 1, awb_normalise), 0 -> 0xffff.
  */
 static u32 tx_isp_t20_awb_manual_ct(u32 red_q8, u32 blue_q8)
 {
@@ -19032,19 +19082,19 @@ static void tx_isp_t20_simple_awb_update(int32_t *awb_fsm)
 	 * overwritten with the manual gains, so back in AUTO a scene without
 	 * usable zones (night/IR) held the manual gains until a module reload.
 	 */
-	if (stab[12] != 0) {
+	if (stab.global_manual_awb != 0) {
 		static_wb = tx_isp_t20_awb_u16_table(T20_CAL_STATIC_WB, 1, 4);
 		if (!static_wb)
 			return;
-		red_scale = clamp_t(u32, (u32)stab[49] << 1, 0x40, 0x400);
-		blue_scale = clamp_t(u32, (u32)stab[50] << 1, 0x40, 0x400);
+		red_scale = clamp_t(u32, (u32)stab.global_awb_red_gain << 1, 0x40, 0x400);
+		blue_scale = clamp_t(u32, (u32)stab.global_awb_blue_gain << 1, 0x40, 0x400);
 		t20_simple_awb_manual_applied = true;
 		accepted_population = 0;
 		average_rg = 0;
 		average_bg = 0;
 		/* openimp #262: the CCM follows the CT of the manual gains (OEM) */
 		tx_isp_t20_awb_light_source(awb_fsm, tx_isp_t20_awb_manual_ct(
-			(u32)stab[49] << 1, (u32)stab[50] << 1));
+			(u32)stab.global_awb_red_gain << 1, (u32)stab.global_awb_blue_gain << 1));
 		goto apply_gains;
 	}
 	if (t20_simple_awb_manual_applied) {
@@ -19059,8 +19109,8 @@ static void tx_isp_t20_simple_awb_update(int32_t *awb_fsm)
 		t20_simple_awb_manual_applied = false;
 		red_scale = t20_simple_awb_red_q8;
 		blue_scale = t20_simple_awb_blue_q8;
-		stab[49] = (uint8_t)min_t(u32, red_scale >> 1, 0xff);
-		stab[50] = (uint8_t)min_t(u32, blue_scale >> 1, 0xff);
+		stab.global_awb_red_gain = (uint8_t)min_t(u32, red_scale >> 1, 0xff);
+		stab.global_awb_blue_gain = (uint8_t)min_t(u32, blue_scale >> 1, 0xff);
 		accepted_population = 0;
 		average_rg = 0;
 		average_bg = 0;
@@ -19237,8 +19287,8 @@ static void tx_isp_t20_simple_awb_update(int32_t *awb_fsm)
 		0x40, 0x400);
 	/* As OEM awb_normalise in AUTO: report the AWB R/B gains (Q7) where
 	 * SYSTEM_AWB_RED/BLUE_GAIN and GetWB read them. */
-	stab[49] = (uint8_t)min_t(u32, t20_simple_awb_red_q8 >> 1, 0xff);
-	stab[50] = (uint8_t)min_t(u32, t20_simple_awb_blue_q8 >> 1, 0xff);
+	stab.global_awb_red_gain = (uint8_t)min_t(u32, t20_simple_awb_red_q8 >> 1, 0xff);
+	stab.global_awb_blue_gain = (uint8_t)min_t(u32, t20_simple_awb_blue_q8 >> 1, 0xff);
 	if (no_zone)
 		t20_awb_ct_update(awb_fsm, rg_pos, bg_pos, ct_mesh,
 				  0xffffU / t20_simple_awb_red_q8,
@@ -19713,7 +19763,7 @@ int32_t awb_calc_avg_weighted_gr_gb_mesh(uintptr_t a0)
 	get_point((uint16_t *)&point);
 	*(uint32_t *)(fsm + 48) = point.x;
 	*(uint32_t *)(fsm + 52) = point.y;
-	if (stab[12] == 0) {
+	if (stab.global_manual_awb == 0) {
 		int32_t temperature = 0;
 
 		if (point.x && point.y) {
@@ -19765,7 +19815,7 @@ int32_t awb_calc_avg_weighted_gr_gb_mesh(uintptr_t a0)
 			       *(uint16_t *)(fsm + 24), *(uint16_t *)(fsm + 26),
 			       *(int32_t *)(fsm + 1912),
 			       *(int32_t *)(fsm + 1928), *(int32_t *)(fsm + 1924),
-			       stab[12], stab[49], stab[50]);
+			       stab.global_manual_awb, stab.global_awb_red_gain, stab.global_awb_blue_gain);
 			printk(KERN_INFO "T20AWB zone0 rg=%u bg=%u pop=%u zone112 rg=%u bg=%u pop=%u\n",
 			       *(uint16_t *)(fsm + 88), *(uint16_t *)(fsm + 90),
 			       *(uint32_t *)(fsm + 92),
@@ -19946,16 +19996,16 @@ int32_t *awb_normalise(int32_t *arg1)
 		gain[i] = log2_fixed_to_fixed(*(uint16_t *)(fsm + 0x770 + 2 * i),
 					      8, 0x10);
 
-	if (stab[12] != 0) {
-		gain[0] += log2_fixed_to_fixed(stab[49], 7, 0x10);
-		gain[3] += log2_fixed_to_fixed(stab[50], 7, 0x10);
-		*(uint16_t *)(fsm + 0x18) = (uint16_t)(stab[49] << 1);
-		*(uint16_t *)(fsm + 0x1a) = (uint16_t)(stab[50] << 1);
+	if (stab.global_manual_awb != 0) {
+		gain[0] += log2_fixed_to_fixed(stab.global_awb_red_gain, 7, 0x10);
+		gain[3] += log2_fixed_to_fixed(stab.global_awb_blue_gain, 7, 0x10);
+		*(uint16_t *)(fsm + 0x18) = (uint16_t)(stab.global_awb_red_gain << 1);
+		*(uint16_t *)(fsm + 0x1a) = (uint16_t)(stab.global_awb_blue_gain << 1);
 	} else {
 		gain[0] += log2_fixed_to_fixed(*(uint16_t *)(fsm + 0x18), 8, 0x10);
 		gain[3] += log2_fixed_to_fixed(*(uint16_t *)(fsm + 0x1a), 8, 0x10);
-		stab[49] = (uint8_t)(*(uint16_t *)(fsm + 0x18) >> 1);
-		stab[50] = (uint8_t)(*(uint16_t *)(fsm + 0x1a) >> 1);
+		stab.global_awb_red_gain = (uint8_t)(*(uint16_t *)(fsm + 0x18) >> 1);
+		stab.global_awb_blue_gain = (uint8_t)(*(uint16_t *)(fsm + 0x1a) >> 1);
 	}
 
 	lowest = gain[0] < gain[3] ? gain[0] : gain[3];
@@ -19989,11 +20039,11 @@ int32_t *awb_normalise(int32_t *arg1)
  * Why the vendor path is not used.  The stock firmware command pair
  * (antifog_set_preset + antifog_mode, TALGORITHMS ids 0xe / 0xd) runs in the
  * ioctl thread and, in one go,
- *   - writes global_manual_iridix (stab[9]) and the strength (stab[40])
+ *   - writes global_manual_iridix (stab.global_manual_iridix) and the strength (stab.global_iridix_strength_target)
  *     while the frame processing reads them,
  *   - rewrites the Iridix variance word 0x3c8 (two nibbles) with the block
  *     running, mid-frame,
- *   - on "off" restores the upper strength clamp (stab[41]) from the
+ *   - on "off" restores the upper strength clamp (stab.global_maximum_iridix_strength) from the
  *     calibration table 0x5b through the table lookup (a lookup that does not
  *     find its table never returns, see iridix_control_strength_calculate),
  *     and never restores 0x3c8.
@@ -20005,7 +20055,7 @@ int32_t *awb_normalise(int32_t *arg1)
  *   - validates the level (0 off, 1 strong, 2 medium, 3 weak, else -EINVAL)
  *     and only stores it (two 32-bit words, no register or table access in
  *     the caller's context);
- *   - applies it in iridix_update(), the one owner of stab[9]/stab[40],
+ *   - applies it in iridix_update(), the one owner of stab.global_manual_iridix/stab.global_iridix_strength_target,
  *     between two AE statistics runs: strength 0xff / 0xc0 / 0x80 as manual
  *     Iridix, the upper clamp raised to 0xff and remembered (restored from
  *     the remembered value, never from a table);
@@ -20025,8 +20075,8 @@ volatile uint32_t t20_antifog_gen;
 volatile uint32_t t20_antifog_hw_want;	/* bit 8 pending, bit 9 enable, bits 0..7 value */
 static uint32_t t20_antifog_seen_gen;
 static uint32_t t20_antifog_on;		/* level applied by this path, 0 = none */
-static uint8_t t20_antifog_saved_max;	/* stab[41] before the preset */
-static uint8_t t20_antifog_prev_manual;	/* stab[9] before the preset */
+static uint8_t t20_antifog_saved_max;	/* stab.global_maximum_iridix_strength before the preset */
+static uint8_t t20_antifog_prev_manual;	/* stab.global_manual_iridix before the preset */
 static uint8_t t20_antifog_var_saved;
 static uint8_t t20_antifog_var_valid;
 uint32_t t20_antifog_variance;
@@ -20070,9 +20120,9 @@ static void t20_antifog_apply(void)
 			return;
 		/* manual Iridix only if this path switched it on */
 		if (!t20_antifog_prev_manual)
-			stab[9] = 0;
-		if (stab[41] == 0xff)
-			stab[41] = t20_antifog_saved_max;
+			stab.global_manual_iridix = 0;
+		if (stab.global_maximum_iridix_strength == 0xff)
+			stab.global_maximum_iridix_strength = t20_antifog_saved_max;
 		t20_antifog_on = 0;
 		if (t20_antifog_variance)
 			t20_antifog_hw_want = 0x100 | 0x00;
@@ -20084,12 +20134,12 @@ static void t20_antifog_apply(void)
 		return;
 	}
 	if (!t20_antifog_on) {
-		t20_antifog_prev_manual = stab[9];
-		t20_antifog_saved_max = stab[41];
+		t20_antifog_prev_manual = stab.global_manual_iridix;
+		t20_antifog_saved_max = stab.global_maximum_iridix_strength;
 	}
-	stab[40] = strength[level];
-	stab[41] = 0xff;
-	stab[9] = 1;
+	stab.global_iridix_strength_target = strength[level];
+	stab.global_maximum_iridix_strength = 0xff;
+	stab.global_manual_iridix = 1;
 	t20_antifog_on = level;
 	if (t20_antifog_variance)
 		t20_antifog_hw_want = 0x300 | variance[level];
@@ -20344,7 +20394,7 @@ static int32_t sinter_strength_calculate_recovered(uintptr_t a0)
 
     /* fragment 1: CallSetup */
     t0 = v0;
-    s1 = *(uint8_t *)((char *)((char *)&stab + 0x2b));
+    s1 = stab.global_sinter_threshold_target;
     local_20 = t0;
     v0 = (uintptr_t)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)_GET_HDR_TABLE_INDEX)(46, *(uint8_t *)((char *)(*(uint32_t *)((char *)(s0) + 0)) + 5412)); /* jalr target resolved by relocation */
 
@@ -20510,8 +20560,8 @@ int32_t sinter_strength_calculate(struct tx_isp_t20_nr_state *state)
 		owner->sensor_digital_gain + owner->isp_digital_gain) >> 8);
 	u8 log_ratio = log16(owner->exposure_ratio);
 
-	if (stab[10]) {
-		strength = stab[43];
+	if (stab.global_manual_sinter) {
+		strength = stab.global_sinter_threshold_target;
 	} else {
 		int strength_idx = _GET_HDR_TABLE_INDEX(
 			T20_CAL_SINTER_STRENGTH_START, owner->wdr_mode);
@@ -20525,10 +20575,10 @@ int32_t sinter_strength_calculate(struct tx_isp_t20_nr_state *state)
 		u32 value;
 
 		table = (void *)(uintptr_t)_GET_MOD_ENTRY16_PTR(strength_idx);
-		value = calc_adjust_modulation_u16(gain, stab[45], stab[44],
+		value = calc_adjust_modulation_u16(gain, stab.global_minimum_sinter_strength, stab.global_maximum_sinter_strength,
 			(uintptr_t)table, _GET_ROWS(strength_idx));
 		strength = min_t(u32, value, 0xff);
-		stab[43] = strength;
+		stab.global_sinter_threshold_target = strength;
 
 		table = (void *)(uintptr_t)_GET_MOD_ENTRY16_PTR(strength1_idx);
 		value = calc_modulation_u16(gain, (u16 *)table,
@@ -20576,8 +20626,8 @@ static uint32_t temper_strength_calculate_recovered(int32_t *arg1)
     uint32_t s4 = (int16_t)s3;
     uint32_t v0_7;
 
-    if (*(uint8_t *)((char *)&stab + 0xb)) {
-        v0_7 = *(uint8_t *)((char *)&stab + 0x2e);
+    if (stab.global_manual_temper) {
+        v0_7 = stab.global_temper_threshold_target;
     } else {
         void *v1_1 = *(void **)arg1;
         uint32_t sum = (*(int32_t *)((char *)v1_1 + 0x2cc) +
@@ -20587,11 +20637,11 @@ static uint32_t temper_strength_calculate_recovered(int32_t *arg1)
         uint32_t mod_entry = _GET_MOD_ENTRY16_PTR(0xcd);
         uint32_t rows = _GET_ROWS(0xcd);
         uint32_t calc_result = calc_adjust_modulation_u16(shifted,
-                                                          *(uint8_t *)((char *)&stab + 0x30),
-                                                          *(uint8_t *)((char *)&stab + 0x2f),
+                                                          stab.global_minimum_temper_strength,
+                                                          stab.global_maximum_temper_strength,
                                                           mod_entry,
                                                           rows);
-        *(uint8_t *)((char *)&stab + 0x2e) = (uint8_t)calc_result;
+        stab.global_temper_threshold_target = (uint8_t)calc_result;
         if (calc_result >= 0x100)
             v0_7 = 0xff;
         else
@@ -20624,17 +20674,17 @@ uint32_t temper_strength_calculate(struct tx_isp_t20_nr_state *state)
 	s16 log_delta = (s16)((u16)log16(owner->exposure_ratio) - 0x60);
 	u16 strength;
 
-	if (stab[11]) {
-		strength = stab[46];
+	if (stab.global_manual_temper) {
+		strength = stab.global_temper_threshold_target;
 	} else {
 		const u16 *table = (void *)(uintptr_t)
 			_GET_MOD_ENTRY16_PTR(T20_CAL_TEMPER_STRENGTH);
 		u16 gain = (u16)((owner->sensor_analog_gain +
 			owner->sensor_digital_gain + owner->isp_digital_gain) >> 8);
-		u32 value = calc_adjust_modulation_u16(gain, stab[48], stab[47],
+		u32 value = calc_adjust_modulation_u16(gain, stab.global_minimum_temper_strength, stab.global_maximum_temper_strength,
 			(uintptr_t)table, _GET_ROWS(T20_CAL_TEMPER_STRENGTH));
 
-		stab[46] = value;
+		stab.global_temper_threshold_target = value;
 		strength = min_t(u32, value, 0xff);
 	}
 
@@ -20682,13 +20732,13 @@ static int32_t noise_reduction_initialize_recovered(void *arg1)
 
     lut_ptr = (uint32_t *)_GET_MOD_ENTRY16_PTR(0xcd);
     byte_val = *(uint8_t *)(lut_ptr + 2);
-    *(uint8_t *)((char *)&stab + 0x30) = byte_val;
+    stab.global_minimum_temper_strength = byte_val;
 
     lut_ptr = (uint32_t *)_GET_MOD_ENTRY16_PTR(0xcd);
     rows = _GET_ROWS(0xcd);
     last_entry = (uintptr_t)lut_ptr + ((rows - 1) << 2);
     byte_val = *(uint8_t *)(last_entry + 2);
-    *(uint8_t *)((char *)&stab + 0x2f) = byte_val;
+    stab.global_maximum_temper_strength = byte_val;
 
     val = (uint32_t)_GET_USHORT_PTR(0x10a);
     byte_val = *(uint8_t *)val;
@@ -20725,8 +20775,8 @@ int32_t noise_reduction_initialize(void *arg1)
 	state->sinter_strength_base = 0xf;
 
 	/* Modulation entries are packed { u16 gain, u16 value }. */
-	stab[48] = table[1];
-	stab[47] = table[(rows - 1) * 2 + 1];
+	stab.global_minimum_temper_strength = table[1];
+	stab.global_maximum_temper_strength = table[(rows - 1) * 2 + 1];
 
 	value = APICAL_READ_32(0x448) & 0xffffff00;
 	return APICAL_WRITE_32(0x448,
@@ -20763,7 +20813,7 @@ static int32_t noise_reduction_update_recovered(int32_t *arg1)
 	if (s1 != 1) {
 		v1_2 = *(uint8_t *)((char *)arg1 + 0x23);
 	} else {
-		*(uint8_t *)((char *)arg1 + 0x1c) = *(uint8_t *)((char *)&stab + 0x2b);
+		*(uint8_t *)((char *)arg1 + 0x1c) = stab.global_sinter_threshold_target;
 		sinter_strength_calculate(arg1);
 		int32_t *s2 = *(int32_t **)arg1;
 		uint16_t val_2ca = *(uint16_t *)((char *)s2 + 0x2ca);
@@ -20867,7 +20917,7 @@ int32_t noise_reduction_update(struct tx_isp_t20_nr_state *state)
 		s32 long_threshold;
 		s32 short_threshold;
 
-		state->sinter_strength = stab[43];
+		state->sinter_strength = stab.global_sinter_threshold_target;
 		sinter_strength_calculate(state);
 
 		if (!owner->exposure_ratio || owner->wdr_mode != 1) {
@@ -21040,7 +21090,6 @@ uint32_t sharpening_initialize(int32_t *arg1)
 	uint8_t mode = *(uint8_t *)((char *)base + 0x1524);
 	int32_t lut_idx;
 	int32_t *lut_ptr;
-	uint8_t *stab_base = stab;
 	uint32_t result;
 	int32_t rows;
 	int32_t *entry;
@@ -21077,9 +21126,9 @@ uint32_t sharpening_initialize(int32_t *arg1)
 	result = *(uint8_t *)((char *)base + 0x1524);
 
 	/* OEM 0x2ecec..0x2eefc: per mode the first/last value of the
-	 * modulation table 0x42+mode go to stab[0x23]/[0x24] and the
-	 * first/last value of table 0x47+mode to stab[0x26]/[0x27]; the
-	 * recovery lost the stab[0x27] store (0 instead of the table's last
+	 * modulation table 0x42+mode go to stab.global_maximum_directional_sharpening/[0x24] and the
+	 * first/last value of table 0x47+mode to stab.global_maximum_un_directional_sharpening/[0x27]; the
+	 * recovery lost the stab.global_minimum_un_directional_sharpening store (0 instead of the table's last
 	 * strength). */
 	if (result <= 3) {
 		static const uint8_t mod_tab[4][2] = {
@@ -21088,15 +21137,15 @@ uint32_t sharpening_initialize(int32_t *arg1)
 		mod_idx = mod_tab[result][0];
 		mod_idx2 = mod_tab[result][1];
 		entry = (int32_t *)_GET_MOD_ENTRY16_PTR(mod_idx);
-		*(uint8_t *)(stab_base + 0x23) = (uint8_t)(*(uint16_t *)((char *)entry + 2));
+		stab.global_maximum_directional_sharpening = (uint8_t)(*(uint16_t *)((char *)entry + 2));
 		rows = _GET_ROWS(mod_idx);
 		entry2 = (int32_t *)_GET_MOD_ENTRY16_PTR(mod_idx);
-		*(uint8_t *)((uintptr_t)stab_base + 0x24) = (uint8_t)(*(uint16_t *)((uintptr_t)entry2 + ((rows - 1) << 2) + 2));
+		stab.global_minimum_directional_sharpening = (uint8_t)(*(uint16_t *)((uintptr_t)entry2 + ((rows - 1) << 2) + 2));
 		entry = (int32_t *)_GET_MOD_ENTRY16_PTR(mod_idx2);
-		*(uint8_t *)(stab_base + 0x26) = (uint8_t)(*(uint16_t *)((char *)entry + 2));
+		stab.global_maximum_un_directional_sharpening = (uint8_t)(*(uint16_t *)((char *)entry + 2));
 		rows = _GET_ROWS(mod_idx2);
 		result = (uint32_t)(*(uint16_t *)((uintptr_t)entry + ((rows - 1) << 2) + 2));
-		*(uint8_t *)(stab_base + 0x27) = (uint8_t)result;
+		stab.global_minimum_un_directional_sharpening = (uint8_t)result;
 	}
 
 	return result;
@@ -21138,7 +21187,6 @@ int32_t sharpening_update(int32_t *arg1)
 	int16_t *mod_ptr;
 	int32_t mod_idx;
 	int16_t *mod_ptr2;
-	uint32_t stab_base;
 	uint32_t s1_val;
 	uint32_t fp_val;
 	uint32_t mask;
@@ -21291,36 +21339,35 @@ int32_t sharpening_update(int32_t *arg1)
 	}
 
 	mod_ptr2 = (int16_t *)_GET_MOD_ENTRY16_PTR(mod_idx);
-	stab_base = (uint32_t)((char *)&stab);
 
-	if (*(uint8_t *)((char *)stab_base + 7) == 0) {
+	if (stab.global_manual_directional_sharpening == 0) {
 		rows = _GET_ROWS(0x42);
 		calc_val = calc_scaled_modulation_u16((int16_t)(mod_val & 0xffff),
-			(int16_t)*(uint8_t *)((char *)stab_base + 0x23),
-			(int16_t)*(uint8_t *)((char *)stab_base + 0x24),
+			(int16_t)stab.global_maximum_directional_sharpening,
+			(int16_t)stab.global_minimum_directional_sharpening,
 			(uintptr_t)mod_ptr, (int32_t)rows);
 		scale = *(uint16_t *)((char *)arg1 + 0x20);
 		s1_val = (uint32_t)((uint16_t)((calc_val * scale) >> 7));
 		if (s1_val >= 0x100)
 			s1_val = 0xff;
-		*(uint8_t *)((char *)stab_base + 0x22) = (uint8_t)s1_val;
+		stab.global_directional_sharpening_target = (uint8_t)s1_val;
 	} else {
-		s1_val = *(uint8_t *)((char *)stab_base + 0x22);
+		s1_val = stab.global_directional_sharpening_target;
 	}
 
-	if (*(uint8_t *)((char *)stab_base + 8) == 0) {
+	if (stab.global_manual_un_directional_sharpening == 0) {
 		rows = _GET_ROWS(0x47);
 		calc_val = calc_scaled_modulation_u16((int16_t)(mod_val & 0xffff),
-			(int16_t)*(uint8_t *)((char *)stab_base + 0x26),
-			(int16_t)*(uint8_t *)((char *)stab_base + 0x27),
+			(int16_t)stab.global_maximum_un_directional_sharpening,
+			(int16_t)stab.global_minimum_un_directional_sharpening,
 			(uintptr_t)mod_ptr2, (int32_t)rows);
 		scale = *(uint16_t *)((char *)arg1 + 0x20);
 		fp_val = (uint32_t)((uint16_t)((calc_val * scale) >> 7));
 		if (fp_val >= 0x100)
 			fp_val = 0xff;
-		*(uint8_t *)((char *)stab_base + 0x25) = (uint8_t)fp_val;
+		stab.global_un_directional_sharpening_target = (uint8_t)fp_val;
 	} else {
-		fp_val = *(uint8_t *)((char *)stab_base + 0x25);
+		fp_val = stab.global_un_directional_sharpening_target;
 	}
 
 	mask = 0xffffff00;
@@ -21407,7 +21454,7 @@ int32_t flash_processing(int32_t *arg1)
     if (sub_state == 0) {
         *(uint8_t *)((char *)arg1 + 0x11) = 1;
         *(int32_t *)((char *)arg1 + 0x14) = *(int32_t *)((char *)s1 + 0x31c);
-		stab[12] = 1;
+		stab.global_manual_awb = 1;
         *(int32_t *)((char *)s1 + 0xee4) = 1;
         *(int32_t *)((char *)s1 + 0xee0) = 1;
         write_to_flash_output_port(1);
@@ -21437,16 +21484,16 @@ int32_t flash_processing(int32_t *arg1)
 
             ptr1 = _GET_UCHAR_PTR(0x10d);
             ptr2 = _GET_UCHAR_PTR(0x10e);
-			old1 = stab[49];
-			old2 = stab[50];
+			old1 = stab.global_awb_red_gain;
+			old2 = stab.global_awb_blue_gain;
             new1 = *(uint8_t *)(int32_t)ptr1;
             new2 = *(uint8_t *)(int32_t)ptr2;
 
             delta1 = (int32_t)new1 - (int32_t)old1;
             delta2 = (int32_t)new2 - (int32_t)old2;
 
-			stab[49] = (uint8_t)((delta1 * step) >> 8) + old1;
-			stab[50] = (uint8_t)((delta2 * step) >> 8) + old2;
+			stab.global_awb_red_gain = (uint8_t)((delta1 * step) >> 8) + old1;
+			stab.global_awb_blue_gain = (uint8_t)((delta2 * step) >> 8) + old2;
 
             *(uint8_t *)((char *)arg1 + 0x11) = 2;
             result = *(int32_t *)((char *)s1 + 0x31c);
@@ -21456,7 +21503,7 @@ int32_t flash_processing(int32_t *arg1)
         *(uint8_t *)((char *)arg1 + 0x11) = sub_state + 1;
         result = *(int32_t *)((char *)s1 + 0x31c);
     } else {
-		stab[12] = 0;
+		stab.global_manual_awb = 0;
         *(uint8_t *)((char *)arg1 + 0x11) = 0;
         *(int32_t *)((char *)s1 + 0xee4) = 0x23;
         *(int32_t *)((char *)s1 + 0xee0) = 0xf;
@@ -21666,8 +21713,8 @@ static int32_t dis_update_output(void *arg1, int32_t arg2, int32_t arg3, int32_t
     ((void **)(uintptr_t)p)[0x1834 / 4] = (uint32_t)arg4;
     ((void **)(uintptr_t)p)[0x1838 / 4] = (uint32_t)arg5;
     ((void **)(uintptr_t)p)[0x183c / 4] = p[0x1c / 4];
-    ((struct stab_t *)stab)->h56 = (uint16_t)arg2;
-    ((struct stab_t *)stab)->h58 = (uint16_t)arg3;
+    stab.global_dis_x = (uint16_t)arg2;
+    stab.global_dis_y = (uint16_t)arg3;
     return 0;
 }
 
@@ -21712,8 +21759,10 @@ void dis_analyze_stats(void *arg1)
         *(int *)(p + 0x1834) = var_18;
         *(int *)(p + 0x1838) = var_14;
         *(int *)(p + 0x183c) = *(int *)(p + 0x1c);
-        *(unsigned short *)&stab[0x38 / 4] = (unsigned short)var_10;
-        *(unsigned short *)&stab[0x3a / 4] = (unsigned short)var_c;
+        /* OEM 0x2ff80: sh at stab+56/+58 (global_dis_x/y); the recovery
+         * scaled the byte offsets by 4 and wrote both halves to stab+14 */
+        stab.global_dis_x = (unsigned short)var_10;
+        stab.global_dis_y = (unsigned short)var_c;
     }
 
     *(int *)(p + 0x20) = 0;
