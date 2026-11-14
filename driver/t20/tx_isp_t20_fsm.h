@@ -164,7 +164,7 @@ struct t20_fps_cnt {
 
 struct t20_fsm_cmos {
 	struct t20_fsm_hdr hdr;
-	uint8_t pad_0c[4];
+	uint32_t word_0c;
 	uint8_t field_10;
 	uint8_t pad_11[3];
 	uint32_t field_14;
@@ -382,6 +382,14 @@ struct t20_fsm_defect_pixel {
 
 struct t20_fsm_noise_reduction {
 	struct t20_fsm_hdr hdr;		/* body: struct tx_isp_t20_nr_state */
+};
+
+/* Event loop buffer header (apical_loop_buffer_init), 0x10 bytes. */
+struct t20_loop_buffer {
+	int32_t head;		/* 0x00 */
+	int32_t tail;		/* 0x04 */
+	int32_t data;		/* 0x08: storage */
+	int32_t size;		/* 0x0c: capacity */
 };
 
 struct t20_fw_outer;
