@@ -14,7 +14,7 @@ extern uint32_t system_reg_read(uint32_t reg);
 extern uint32_t tisp_rcfg_module_cfg_trig(uint32_t vin, uint32_t id);
 extern int tisp_event_push(uint32_t vin, void *ev);
 
-#include "tx_isp_t33_lcepf.h"
+#include "tx_isp_t33_lceev.h"	/* tx_isp_t33_lcepf.h with func_lce_para_update at init */
 
 /* the vendor's event record: type at +8 */
 struct emu_ev { u32 r[2]; u32 type; u32 more[9]; };

@@ -84,6 +84,14 @@ raises irq 8 / 30 with each frame end): list 16 runs once per frame and list
 37 once, as with the vendor module. Not ported: `tisp_lce_ev_update` (EV
 changes), the tuning API set / day-night switch of the LCE section.
 
+LCE / LSF EV update (openimp #500, `../t32/tx_isp_t33_lceev.h`): on each AE
+EV change with the LCE not bypassed, `tisp_lce_ev_update` (BV / EV words,
+LSF-mode curve slot, `tisp_lce_bin_para_update`, EV or BV interpolations,
+`tisp_lce_gausswgt_calc`, `func_lce_para_update` with its lceInfo list
+mirror, lists 16 / 37 words, list 16 enable) under the irq 8 lock; the
+next irq 8 starts the lists. Oracle `tests/t33_binoracle/lceev.conf`
+(init + EV chains and poked lceInfo blocks vs the vendor instructions).
+
 Build (3.10.14 kernel tree):
 
     make -C $KDIR M=$PWD/driver/t33 ARCH=mips CROSS_COMPILE=mipsel-linux- modules

@@ -22,9 +22,10 @@
  *
  * struct t33_lce_pf is the vendor's lceInfo block in its layout (0x23dc8
  * bytes; the offsets are checked below), so that the host oracle
- * (tests/t33_lcepf_host.sh) can compare all of it.  Not filled here: the
- * list mirror func_lce_para_update keeps at 0x52c .. 0x62f4 (our lists are
- * built by tx_isp_t33_lce.h / tx_isp_t33_lsf.h) and the section pointer at
+ * (tests/t33_lcepf_host.sh) can compare all of it.  The list mirror
+ * func_lce_para_update keeps at 0x52c .. 0x62f4 is filled at init when the
+ * includer takes tx_isp_t33_lceev.h (our init lists are built by
+ * tx_isp_t33_lce.h / tx_isp_t33_lsf.h); not here: the section pointer at
  * 0x62f8 (the section is an argument).
  *
  * Vendor behaviour kept: tisp_lce_hist_method's final spread of the rest
@@ -35,9 +36,9 @@
  * The 0xab9c histogram the temporal blend of get_hist_data uses
  * (sec u16 0x354 == 1) starts at 0x400 per bin like the vendor's.
  *
- * Not ported here (vendor callers outside the irq / event path):
- * tisp_lce_ev_update (EV changes), tisp_lce_param_array_set / switch_para
- * (tuning API, day / night).
+ * Not here (vendor callers outside the irq / event path): tisp_lce_ev_update
+ * (EV changes: tx_isp_t33_lceev.h, openimp #500), tisp_lce_param_array_set /
+ * switch_para (tuning API, day / night).
  */
 #ifndef TX_ISP_T33_LCEPF_H
 #define TX_ISP_T33_LCEPF_H
@@ -114,6 +115,11 @@ T33_LCEPF_AT(frames, 0x23da4);
 T33_LCEPF_AT(bv, 0x23dac);
 T33_LCEPF_AT(h, 0x23dc2);
 _Static_assert(sizeof(struct t33_lce_pf) == T33_LCEPF_BYTES, "lceInfo size");
+
+/* func_lce_para_update at init: the list mirror, with tx_isp_t33_lceev.h (else only its last store) */
+#ifndef T33_LCEPF_PARA_UPDATE
+#define T33_LCEPF_PARA_UPDATE(c, s)	do { } while (0)
+#endif
 
 /* the locked part of soft_process; the includer may define these (kernel: a spinlock) */
 #ifndef T33_LCEPF_LOCK
@@ -246,7 +252,9 @@ static inline void t33_lcepf_init(struct t33_lce_pf *c, u8 *s, u32 w, u32 h)
 	t33_lcepf_bin_para(c, s);
 	t33_lcepf_ev_par(c, s);
 	t33_lcepf_gausswgt(c, s);
-	c->r62f4 = 0x1e0;	/* func_lce_para_update's last store */
+	T33_LCEPF_PARA_UPDATE(c, s);	/* func_lce_para_update (tx_isp_t33_lceev.h) */
+	c->r62f4 = 0x1e0;		/* func_lce_para_update's last store */
+	((u32 *)(void *)c)[0x62e4 / 4] = 3;	/* the init's list 16 slot 0x11 write keeps its 3 here */
 }
 
 /*

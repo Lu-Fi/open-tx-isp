@@ -7,8 +7,8 @@ Tisp_lce_soft and its leaves, and the C of driver/t32/tx_isp_t33_lcepf.h (built 
 tests/t33_lcepf/build_emu.sh into LCEPF_EMU.o) run in Unicorn on the same random state: section 15 (sizes, EV / BV
 knots, Gauss parameters, clip and converge words, modes), statistics parts, LSF histograms or curves, the
 registers 0xc088 / 0x25040 / 0x25220, one or two sensors.
-Compared after every call: the whole lceInfo block (but the list mirror 0x52c..0x62f4 func_lce_para_update keeps
-and the section pointer), the section, the curve buffer, lists 16 and 37, the LSF buffer, the order and arguments
+Compared after every call: the whole lceInfo block (with func_lce_para_update's list mirror, tx_isp_t33_lceev.h;
+but the section pointer), the section, the curve buffer, lists 16 and 37, the LSF buffer, the order and arguments
 of the register reads, list starts and event pushes; for tisp_lce_init also the irq / event registrations.
 Leaves (tisp_lce_hist_method, _thres_search, _hist_adjust, _16bit_data_converge, tisp_lsf_write_curve) on their own
 with random inputs.  Nothing of the vendor module is stored here.
@@ -93,7 +93,7 @@ class Side:
         s.scratch = e.alloc(0x1000, bytes(0x1000))
     def blobs(s):
         e = s.e; c = bytearray(e.read(s.c, LI))
-        c[0x52c:0x62f4] = bytes(0x62f4 - 0x52c); c[0x62f8:0x62fc] = bytes(4)
+        c[0x62f8:0x62fc] = bytes(4)
         return {"lceInfo": bytes(c), "sec": e.read(s.sec, SEC), "curve": e.read(s.curve, 0x2d00),
                 "l16": e.read(s.l16, 0x1000), "l37": e.read(s.l37, 0x1000), "lsf": e.read(s.lsf, 0x2420)}
 
@@ -252,13 +252,9 @@ def chain(case, frames):
     if case == 0:
         print("vendor tisp_lce_init registers: " + ", ".join("%s %#x -> %s" % (x[0], x[2], names.get(x[3], hex(x[3]))) for x in regs))
     log["oem"].clear(); log["our"].clear()
-    # the init's list words and func_lce_para_update's section writes are not ours here
+    # the init's list words are tx_isp_t33_lce.h / tx_isp_t33_lsf.h, not compared here
     for s in (o, u):
         s.e.write(s.l16, bytes(0x1000)); s.e.write(s.l37, bytes(0x1000)); s.e.write(s.curve, bytes(0x2d00)); s.e.write(s.lsf, bytes(0x2420))
-    sv = bytearray(oem.read(o.sec, SEC))
-    for lo, hi in ((0x117, 0x157), (0x1a3, 0x1e3)):
-        sv[lo:hi] = our.read(u.sec + lo, hi - lo)
-    oem.write(o.sec, bytes(sv))
     ok = cmp("init case %d" % case, o, u, "(%dx%d bv=%d)" % (w, hgt, sec[0x3d9]))
     if not ok: return
     w32(oem, OS["stIspInitPar"] + 904, nsens)

@@ -47,10 +47,12 @@ static void t33_lcepf_lock_irq(void);
 static void t33_lcepf_unlock_irq(void);
 static void t33_lcepf_wbinv(unsigned long pages, u32 len);
 static void t33_lcepf_free(void);
-extern u32 t33_lcepf_irq8s, t33_lcepf_irq30s, t33_lcepf_curves, t33_lcepf_lce_runs, t33_lcepf_lsf_runs;
+extern u32 t33_lcepf_irq8s, t33_lcepf_irq30s, t33_lcepf_curves, t33_lcepf_lce_runs, t33_lcepf_lsf_runs, t33_lcepf_evs;
 #define T33_LCEPF_LOCK(c)	t33_lcepf_lock_irq()
 #define T33_LCEPF_UNLOCK(c)	t33_lcepf_unlock_irq()
-#include "tx_isp_t33_lcepf.h"
+#include "tx_isp_t33_lceev.h"	/* tx_isp_t33_lcepf.h + the EV update (openimp #500) */
+static void t33_lcepf_ev(u32 lo, u32 hi, u32 bv);
+static u32 t33_top_byp;		/* the top list's bypass word 0x40 (tisp_top_get_bypass) */
 #endif
 #include "tx_isp_t33_af.h"
 #include "tx_isp_t33_bcsh.h"
@@ -676,6 +678,7 @@ static void t32_front_init(void)
 			isp_wr(dw[i].reg, dw[i].val);
 		if (t32_ldc_top_hldc())	/* tisp_top_ldc_bypass_refresh: HLDC takes the LDC out of bypass */
 			w[0].val &= ~0x800000U;
+		t33_top_byp = w[0].val;
 		t33_mod_set(T33_MOD_TOP, w, T33_TOP_LIST_WRITES);
 	}
 	return;
@@ -988,8 +991,8 @@ void t33_stats_show(struct seq_file *m)
 		   t33_st.ae.hi, t33_st.ae.tag, t33_st.hist_frames, t33_st.hist_bad, t33_st.mean16);
 	t33_awbc_show(m);
 	t33_aec_show(m);
-	seq_printf(m, "t33 lce/lsf: irq8 %u irq30 %u curves %u list16 %u list37 %u\n", t33_lcepf_irq8s,
-		   t33_lcepf_irq30s, t33_lcepf_curves, t33_lcepf_lce_runs, t33_lcepf_lsf_runs);
+	seq_printf(m, "t33 lce/lsf: irq8 %u irq30 %u curves %u list16 %u list37 %u ev %u\n", t33_lcepf_irq8s,
+		   t33_lcepf_irq30s, t33_lcepf_curves, t33_lcepf_lce_runs, t33_lcepf_lsf_runs, t33_lcepf_evs);
 }
 
 /* for ../t33/tx_isp_t33_awbc.c: register read, and the per-frame AWB results into lists 7 / 29 */
@@ -1357,13 +1360,16 @@ out:
 /*
  * tisp_long_ev_update's block part (AE event 6, on an EV change): BCSH
  * (tisp_bcsh_ev_update) and CCM (tisp_ccm_ev_update: the CT matrix of the
- * last CT update reaches the list words here, list 10 reruns every time).
- * The vendor's gamma / RDNS / defog / LCE / TMO EV updates leave their
- * words unchanged on PRJ008 (flat EV tables, QEMU trace); RDNS, defog and
- * TMO set their refresh flag every time (tisp_rdns_ev_update,
+ * last CT update reaches the list words here, list 10 reruns every time),
+ * LCE (tisp_lce_ev_update, top bypass bit 11 clear: lists 16 / 37 words
+ * from the EV / BV interpolations, picked up by the next irq 8 start;
+ * openimp #500).  The vendor's gamma / RDNS / defog / TMO EV updates leave
+ * their words unchanged on PRJ008 (flat EV tables, QEMU trace); RDNS, defog
+ * and TMO set their refresh flag every time (tisp_rdns_ev_update,
  * tisp_defog_ev_update, tisp_tmo_ev_update): lists 3, 12 and 8 rerun.
+ * bv: the AE event's brightness word (the vendor's x argument).
  */
-void t33_ev_refresh(u32 lo, u32 hi)
+void t33_ev_refresh(u32 lo, u32 hi, u32 bv)
 {
 	const u8 *bin;
 	u32 *buf, bytes;
@@ -1390,6 +1396,8 @@ void t33_ev_refresh(u32 lo, u32 hi)
 				t33_gr_rerun(T33_MOD_CCM);
 		}
 	}
+	if (!(t33_top_byp & 0x800))
+		t33_lcepf_ev(lo, hi, bv);
 	t33_gr_rerun(T33_MOD_RDNS);
 	t33_gr_rerun(T33_MOD_DEFOG);
 	t33_gr_rerun(T33_MOD_TMO);
@@ -1631,6 +1639,28 @@ static void t33_lcepf_work(struct work_struct *w)
 }
 static DECLARE_WORK(t33_lcepf_w, t33_lcepf_work);
 
+/* tisp_lce_ev_update (AE event 6, process context): lists 16 / 37 words, uncached, under the irq 8 lock */
+static u32 t33_lce_mode[2];	/* the vendor's lcemodeflag / lcemodecounter */
+u32 t33_lcepf_evs;
+static void t33_lcepf_ev(u32 lo, u32 hi, u32 bv)
+{
+	u32 *l16, *l37, dummy[0x30];
+
+	if (!ACCESS_ONCE(t33_lcepf_ready))
+		return;
+	l37 = t33_lcepf_list(T33_MOD_LSF);
+	l16 = t33_lcepf_list(T33_MOD_LCE);	/* not built in the LSF mode */
+	if (!l37)
+		return;
+	if (t33_lce_sec[0x2fb] == 1 && t33_lce_sec[0xc8] == 1)
+		t33_lcepf_inv((void *)t33_lsf_hist_pages, T33_LSF_HIST_BYTES);
+	spin_lock_irq(&t33_lcepf_lock);
+	t33_lcepf_ev_update(t33_lcepf, t33_lce_sec, lo, hi, bv, (u32)virt_to_phys((void *)t33_lce_curve_pages),
+			    (u32)virt_to_phys((void *)t33_lsf_hist_pages), l16 ? l16 : dummy, l37, t33_lce_mode);
+	spin_unlock_irq(&t33_lcepf_lock);
+	t33_lcepf_evs++;
+}
+
 static void t33_lcepf_stop(void)
 {
 	ACCESS_ONCE(t33_lcepf_ready) = false;
@@ -1651,7 +1681,7 @@ static void t33_lcepf_attach(u32 width, u32 height)
 		return;
 	}
 	t33_lcepf_init(t33_lcepf, t33_lce_sec, width, height);
-	t33_lcepf_irq8s = t33_lcepf_irq30s = t33_lcepf_curves = t33_lcepf_lce_runs = t33_lcepf_lsf_runs = 0;
+	t33_lcepf_irq8s = t33_lcepf_irq30s = t33_lcepf_curves = t33_lcepf_lce_runs = t33_lcepf_lsf_runs = t33_lcepf_evs = 0;
 	ACCESS_ONCE(t33_lcepf_ready) = true;
 }
 

@@ -110,7 +110,7 @@ static void drv_event(u32 ch, const u32 *ev)
 		st.bv = ev[6];
 		if (ev[4] != ev_last[0] || ev[5] != ev_last[1]) {
 			t33_awbc_ae_event(6, ev[4], ev[5]);
-			t33_ev_refresh(ev[4], ev[5]);
+			t33_ev_refresh(ev[4], ev[5], ev[6]);
 			ev_last[0] = ev[4];
 			ev_last[1] = ev[5];
 		}
