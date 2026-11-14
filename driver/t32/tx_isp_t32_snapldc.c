@@ -407,13 +407,13 @@ long t32_ldc_online_ioctl(unsigned int cmd, unsigned long arg, u32 ldc_mode)
 		}
 		return 0;
 	}
-	/* T32_IOC_LDC_ONLINE_PAR: lib_tisp_ldc_get_par, no IQ-bin LDC parameters here */
+	/* T32_IOC_LDC_ONLINE_PAR: lib_tisp_ldc_get_par, the LDC parameters of the IQ bin's append data (APPEND_LDC) */
 	if (copy_from_user(b, (void __user *)arg, 88)) {
 		isp_printf(2, "[ %s:%d ] copy from user error\n", "tx_ldc_get_online_param", 111);
 		isp_printf(2, "[ %s:%d ] Failed to ioctl!\n", "ldc_core_ops_ioctl", 207);
 		return -EFAULT;
 	}
-	b[1] = 0;
+	b[1] = !t33_bin_ldc_par(b[0], (u8 *)&b[2]);
 	if (copy_to_user((void __user *)arg, b, 88)) {
 		isp_printf(2, "[ %s:%d ] copy from user error\n", "tx_ldc_get_online_param", 125);
 		isp_printf(2, "[ %s:%d ] Failed to ioctl!\n", "ldc_core_ops_ioctl", 207);

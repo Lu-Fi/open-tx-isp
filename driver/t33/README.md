@@ -110,6 +110,12 @@ the first CT update that gives a new matrix. Ours does the same
 `tests/t33_binoracle/bcshlist.conf` (switch / EV / CT update sequences vs
 the vendor instructions, EV and BV mode, calc modes 1 and 2).
 
+IQ bin append data (`tx_isp_t33_append.h`, oracle `tests/t33_binoracle/append.conf`): behind the 28 sections a
+PRJ008 bin may carry records `APPEND_<block>`; as the vendor's `tisp_bin_append_data_parse` the driver takes
+`APPEND_LDC` (80 LDC parameter bytes, returned by the LDC ioctl 0x5000008) and `APPEND_LSC` (further mesh
+tables for LSC section 7) at every bin load and day / night switch. MIPI stream-on is the vendor's
+`mipi_phy_stream_on` (`tx_isp_t33_mipi.h`, oracle `mipiphy.conf`).
+
 Build (3.10.14 kernel tree):
 
     make -C $KDIR M=$PWD/driver/t33 ARCH=mips CROSS_COMPILE=mipsel-linux- modules
