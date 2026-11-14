@@ -163,6 +163,7 @@ static bool t33_first_fe;	/* the TMO / MDNS start words are still 1 */
 static void t33_first_frame_words(void);
 static u32 t33_list_word(const u32 *l, u32 reg);
 static void t33_bst_irq(u32 msca);	/* tx_isp_t33_bst.h: the blocks' frame-done handlers */
+static void t33_csc_fra_down(const u32 *init);	/* system irq 48: tisp_csc_fra_down_interrupt */
 extern u32 t33_st_isp_init_par_mode[1008];	/* stIspInitPar (word 226 = byte 904: 1) */
 int tisp_rcfg_module_cfg_trig(u32 ch, u32 mod);
 int tisp_rcfg_get_dma_state(u32 mod);
@@ -296,6 +297,8 @@ static irqreturn_t t32_isp_irq(int irq, void *dev)
 #ifdef TX_ISP_T33
 	if (msca)			/* system irqs 38..56: tisp_*_t33_frame_done_interrupt */
 		t33_bst_irq(msca);
+	if (msca & (1U << 16))		/* system irq 48: tisp_csc_fra_down_interrupt */
+		t33_csc_fra_down(t33_st_isp_init_par_mode);
 #endif
 #ifdef TX_ISP_T33
 	if (msca & 2)			/* system irq 33: tisp_msca_t33_frame_done_interrupt */
@@ -849,10 +852,14 @@ static void t33_dn_wr(u32 reg, u32 val)
 	isp_wr(reg, val);
 }
 
+static bool t33_dn_stop_to;	/* tisp_all_reset ended at the stop timeout (no core reset) */
+
 static u32 t33_dn_log(u32 level, u32 line)
 {
-	if (line == 289)
+	if (line == 289) {
+		t33_dn_stop_to = true;
 		return isp_printf(level, "tx-isp-t33: isp stop timeout\n");
+	}
 	if (line == 301)
 		return isp_printf(level, "tx-isp-t33: isp all reset timeout\n");
 	return isp_printf(level, "tx-isp-t33: isp all reset\n");
@@ -1059,6 +1066,61 @@ static void t32_stats_init(void)
  * Front end (tx_isp_t32_front.h): CSC, CSCCR and the ISP top block from the
  * IQ bin, in the vendor's AddSensor order, before the statistics engines.
  */
+#ifdef TX_ISP_T33
+#include "tx_isp_t33_csc.h"
+/*
+ * CSC list 13 as the vendor's tisp_csc_init: section copy with bytes 98 / 99 = 0, tisp_csc_para_refresh_by_mode,
+ * tisp_csc_update_para (working block = csc_cp), tisp_t33_csc_write_reg into the slots (the same words the
+ * list was built from), tispCscRefresh for tisp_csc_fra_down_interrupt (system irq 48, t33_csc_fra_down).
+ */
+static u8 t33_csc_sec[T32_CSC_BYTES], t33_csc_full[0x28], t33_csc_api[T32_CSC_API_BYTES];
+static u8 t33_csc_refresh, t33_csc_cfg_mode = 1;	/* tispCscRefresh, cscCfgMode */
+static const struct t33_csc_ops t33_csc_hw = { tisp_reg_write_t33, tisp_rcfg_get_dma_state };
+
+static void t33_csc_init_slots(const u8 *sec)
+{
+	struct t32_csc_ctx ctx = { t33_csc_sec, t33_csc_full, t33_csc_api };
+
+	memcpy(t33_csc_sec, sec, T32_CSC_BYTES);
+	t33_csc_sec[98] = t33_csc_sec[99] = 0;
+	t32_csc_refresh_by_mode(t33_csc_sec[91], 0, t33_csc_sec);
+	t32_csc_update_para(&ctx);
+	t33_csc_write_reg(0, t33_csc_full, t33_csc_cfg_mode, &t33_csc_refresh, &t33_csc_hw);
+}
+
+/* tisp_csc_fra_down_interrupt (system irq 48): refresh 1 starts list 13, 2 writes the slots again */
+static void t33_csc_fra_down(const u32 *init)
+{
+	if (init[226] != 1)
+		return;
+	if (t33_csc_refresh == 1) {
+		tisp_rcfg_module_cfg_trig(0, T33_MOD_CSC);
+		t33_csc_refresh = 0;
+	} else if (t33_csc_refresh == 2) {
+		t33_csc_write_reg(0, t33_csc_full, t33_csc_cfg_mode, &t33_csc_refresh, &t33_csc_hw);
+	}
+}
+
+/*
+ * tisp_csccr_bin_par_update at tisp_csccr_init (sw 0: bytes 13 / 14 = 0) and tisp_csccr_switch_para (sw 1:
+ * byte 14 = 1, byte 13 from the bin): after tisp_csccr_para_refresh_by_mode the ranges of the section, or with
+ * byte 13 above 1 the API ranges (synced from the section when byte 15 is 1, else csccr_ap); the vendor only
+ * logs the result.
+ */
+static void t33_csccr_check(const u8 *sec, u32 sw)
+{
+	static const u8 ap[8] = { 0x00, 0xff, 0x00, 0xff, 0x00, 0xff, 0x00, 0xff };	/* csccr_ap + 4 */
+	u8 p[T32_CSCCR_BYTES];
+
+	memcpy(p, sec, sizeof(p));
+	if (!sw)
+		p[0xd] = 0;
+	p[0xe] = sw;
+	t32_csccr_para_refresh_by_mode(p[4], p + 5);
+	t33_csccr_bin_par_update(p, p[15] == 1 ? p + 5 : ap);
+}
+#endif
+
 static void t32_front_init(void)
 {
 	struct t32_front_write w[T32_FRONT_MAX_WRITES];
@@ -1080,12 +1142,19 @@ static void t32_front_init(void)
 		n = t32_csc_init(bin + off, w);
 		if (T32_SOC_LIST_IRQ)
 			t33_mod_set(T33_MOD_CSC, w, n);
+#ifdef TX_ISP_T33
+		if (n)
+			t33_csc_init_slots(bin + off);
+#endif
 		for (i = 0; !T32_SOC_LIST_IRQ && i < n; i++)
 			isp_wr(w[i].reg, w[i].val);
 	}
 	off = t32_iq_section(bin, bytes, T32_IQ_SEC_CSCCR, &len);
 	if (off && T32_IQ_SEC_OK(len, T32_CSCCR_BYTES)) {
 		r = t32_csccr_init(bin + off, w);
+#ifdef TX_ISP_T33
+		t33_csccr_check(bin + off, 0);
+#endif
 		if (T32_SOC_LIST_IRQ && r > 0) {
 			for (i = 0; i < (unsigned int)r; i++)
 				if (w[i].reg == 0x14010)
@@ -2705,6 +2774,8 @@ static noinline_for_stack void t33_sw_space(const u8 *bin, u32 bytes, u32 width,
 	}
 	/* tisp_csccr_switch_para: para_refresh_by_mode, bin_par_update, write_reg */
 	off = t32_iq_section(bin, bytes, T32_IQ_SEC_CSCCR, &len);
+	if (off && T32_IQ_SEC_OK(len, T32_CSCCR_BYTES))
+		t33_csccr_check(bin + off, 1);
 	if (off && T32_IQ_SEC_OK(len, T32_CSCCR_BYTES) && (r = t32_csccr_init(bin + off, tisp_w)) > 0) {
 		for (i = 0; i < r; i++)
 			if (tisp_w[i].reg == 0x14010)
@@ -3052,7 +3123,23 @@ int t32_hw_input_setup(const void *attr, u32 w, u32 h)
 	}
 #ifdef TX_ISP_T33
 	/* lib_tisp_init -> tisp_all_reset (T33: 20000 polls, core state register 0 nonzero) */
+	t33_dn_stop_to = false;
 	t33_all_reset(&t33_dn);
+	/*
+	 * openimp #514: on the T33L with the thingino boot chain the ISP sometimes
+	 * never acknowledges the stop request (0x204, and the CPM SRBC bit 20
+	 * before it); the vendor tisp_all_reset then returns without the core
+	 * reset and no register list runs (no frames).  Here the core reset is
+	 * still done (the pre-#99 T32-style order, which streamed in that state).
+	 */
+	if (t33_dn_stop_to) {
+		isp_printf(2, "tx-isp-t33: core reset without the stop ack (#514)\n");
+		isp_wr(T33_RST_CORE, T33_RST_CORE_VAL);
+		for (i = T33_RST_POLLS; i && !isp_rd(T33_RST_STATE); i--)
+			;
+		if (!i)
+			isp_printf(2, "tx-isp-t33: isp all reset timeout\n");
+	}
 	i = 0;
 #else
 	isp_wr(T32_RDMA_IRQ_EN, 0xffffffff);

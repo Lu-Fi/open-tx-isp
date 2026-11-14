@@ -2585,6 +2585,11 @@ static struct platform_device tx_isp_vic_platform_device;
 static struct platform_device tx_isp_csi_platform_device;
 static struct platform_device tx_isp_vin_platform_device;
 static struct platform_device tx_isp_ivdc_platform_device;
+/* Non-OEM: the DMA owner for the raw-inject buffer (tx_isp_t41_rawinject.c) */
+struct device *t41_rawinject_dma_dev(void)
+{
+    return &tx_isp_ivdc_platform_device.dev;
+}
 static struct platform_device tx_isp_fs_platform_device;
 struct tx_isp_subdev;
 struct v4l2_format;
@@ -7397,13 +7402,16 @@ int32_t private_misc_deregister(void *misc)
     return 0;
 }
 
+const void *t41_proc_ops(const struct file_operations *f);	/* tx_isp_t41_procops.c */
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000000bf4 origin=fragment_seed original=private_proc_create_data */
 int32_t private_proc_create_data(const char *name, umode_t mode, void *parent, const struct file_operations *fops, void *data)
 {
     void *pde;
 
     t41_procwatch_begin();
-    pde = proc_create_data(name, mode, parent, fops, data);
+    /* 5.6+: proc_ops, not file_operations (tx_isp_t41_procops.c) */
+    pde = proc_create_data(name, mode, parent,
+                           (const struct file_operations *)t41_proc_ops(fops), data);
     t41_procwatch_add(pde, fops);
     return (int32_t)pde;
 }

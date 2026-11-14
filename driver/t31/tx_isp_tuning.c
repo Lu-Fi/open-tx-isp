@@ -40,6 +40,7 @@
 #include <linux/highmem.h>
 #include <linux/pagemap.h>
 #include <linux/version.h>
+#include "tx_isp_t31_intp.h"	/* vendor-equal interpolation helpers (tests/t31_binoracle, openimp #533) */
 #include <linux/clk.h>
 #include <linux/math64.h>
 #include <asm/cacheflush.h>
@@ -857,17 +858,14 @@ static uint32_t bcsh_HDP[3] = { 0x0000, 0x0018, 0x0058 }; /* OEM: 0x9a894 */
 static uint32_t bcsh_HBP[3] = { 0x0000, 0x0320, 0x0360 }; /* OEM: 0x9a888 */
 static uint32_t bcsh_HLSP[3] = { 0x0000, 0x0008, 0x0018 }; /* OEM: 0x9a87c */
 static uint32_t bcsh_Sthres[3] = { 0x0000, 0x000a, 0x002a }; /* OEM: 0x9a870 */
-static uint32_t bcsh_C[5] = { 0x0000, 0x0010, 0x0344, 0x0008, 0x034c }; /* OEM: 0x9a7a8 */
+static uint32_t bcsh_C[5] = { 0x0000, 0x0010, 0x0344, 0x0008, 0x034c }; /* OEM: 0x9a7a8, vendor tisp_BCSH_au32C: [1..4] = Cxl / Cxh / Cyl / Cyh,
+                                                                       * EV-interpolated by tiziano_bcsh_update and read by TransitParam (openimp #550) */
 static uint32_t bcsh_Cxl[9] = { 0x10, 0x10, 0x10, 0x10, 0x10, 0x10, 0x10, 0x10, 0x10 }; /* OEM: 0x9a784 */
 static uint32_t bcsh_Cxh[9] = { 0x344, 0x344, 0x344, 0x344, 0x344, 0x344, 0x344, 0x344, 0x344 }; /* OEM: 0x9a760 */
 static uint32_t bcsh_Cyl[9] = { 0x08, 0x08, 0x08, 0x08, 0x08, 0x08, 0x08, 0x08, 0x08 }; /* OEM: 0x9a73c */
 static uint32_t bcsh_Cyh[9] = { 0x34c, 0x34c, 0x34c, 0x34c, 0x34c, 0x34c, 0x34c, 0x34c, 0x34c }; /* OEM: 0x9a718 */
 static uint32_t bcsh_B = 0x0400; /* OEM: tisp_BCSH_u32B = 0x400 */
 /* EV-interpolated contrast clipping values (OEM computes these in tiziano_bcsh_update) */
-static uint32_t bcsh_Cxl_now = 0x10;
-static uint32_t bcsh_Cxh_now = 0x344;
-static uint32_t bcsh_Cyl_now = 0x08;
-static uint32_t bcsh_Cyh_now = 0x34c;
 /* TransitParam working copies (OEM: tisp_BCSH_ai32*) */
 static uint32_t bcsh_ai32_Svalue[4];
 static uint32_t bcsh_ai32_C[5];
@@ -997,71 +995,14 @@ static void tiziano_bcsh_Tccm_Comp2Orig(void)
 /* OEM EXACT: tiziano_ct_bcsh_interpolation — CT-based CCM interpolation.
  * Decompiled from OEM at 0x28790. Interpolates between D/T/A signed CCMs based on CT.
  * Result in tisp_BCSH_as32CCMMatrix[]. */
+/* vendor tiziano_ct_bcsh_interpolation 0x287e0 (tx_isp_t31_intp.h, oracle block ccm; openimp #533) */
 static int tiziano_ct_bcsh_interpolation(uint32_t ct)
 {
     static uint32_t ct_flag_bcsh;
     static uint32_t ct_flag_bcsh_last;
-    int i;
 
-    /* Determine CT zone */
-    if (ct >= 0x1357)
-        ct_flag_bcsh = 0;         /* D zone */
-    else if (ct >= 0xF0B)
-        ct_flag_bcsh = 1;         /* D↔T interpolation */
-    else if (ct >= 0xEA7)
-        ct_flag_bcsh = 2;         /* T zone */
-    else if (ct >= 0xB23)
-        ct_flag_bcsh = 3;         /* T↔A interpolation */
-    else
-        ct_flag_bcsh = 4;         /* A zone */
-
-    /* OEM gating: skip if no zone change and not first-time (BCSH_real) */
-    if (BCSH_real == 0) {
-        if (ct_flag_bcsh == 0 && ct_flag_bcsh_last == 0)
-            return 0xb0000;
-        if ((ct_flag_bcsh == 2 || ct_flag_bcsh == 4) &&
-            ct_flag_bcsh_last == ct_flag_bcsh)
-            return 0xb0000;
-    }
-
-    ct_flag_bcsh_last = ct_flag_bcsh;
-
-    switch (ct_flag_bcsh) {
-    case 0: /* Pure D */
-        memcpy(tisp_BCSH_as32CCMMatrix, tisp_BCSH_as32CCMMatrix_d, 0x24);
-        break;
-    case 1: { /* D↔T interpolation */
-        uint32_t dist = (ct >= 0xF0A) ? (ct - 0xF0A) : (0xF0A - ct);
-        for (i = 0; i < 9; i++) {
-            int32_t vt = tisp_BCSH_as32CCMMatrix_t[i];
-            int32_t vd = tisp_BCSH_as32CCMMatrix_d[i];
-            if (vd >= vt)
-                tisp_BCSH_as32CCMMatrix[i] = (uint32_t)(vd - vt) * dist / 0x44C + vt;
-            else
-                tisp_BCSH_as32CCMMatrix[i] = vt - (uint32_t)(vt - vd) * dist / 0x44C;
-        }
-        break;
-    }
-    case 2: /* Pure T */
-        memcpy(tisp_BCSH_as32CCMMatrix, tisp_BCSH_as32CCMMatrix_t, 0x24);
-        break;
-    case 3: { /* T↔A interpolation */
-        uint32_t dist = (ct >= 0xB22) ? (ct - 0xB22) : (0xB22 - ct);
-        for (i = 0; i < 9; i++) {
-            int32_t va = tisp_BCSH_as32CCMMatrix_a[i];
-            int32_t vt = tisp_BCSH_as32CCMMatrix_t[i];
-            if (vt >= va)
-                tisp_BCSH_as32CCMMatrix[i] = (uint32_t)(vt - va) * dist / 0x384 + va;
-            else
-                tisp_BCSH_as32CCMMatrix[i] = va - (uint32_t)(va - vt) * dist / 0x384;
-        }
-        break;
-    }
-    case 4: /* Pure A */
-        memcpy(tisp_BCSH_as32CCMMatrix, tisp_BCSH_as32CCMMatrix_a, 0x24);
-        break;
-    }
-
+    t31_ct_bcsh_interp(ct, &ct_flag_bcsh, &ct_flag_bcsh_last, BCSH_real, tisp_BCSH_as32CCMMatrix,
+                       tisp_BCSH_as32CCMMatrix_d, tisp_BCSH_as32CCMMatrix_t, tisp_BCSH_as32CCMMatrix_a);
     return 0;
 }
 
@@ -3634,6 +3575,29 @@ int tisp_ct_update(uint32_t ct);
 int tisp_ae_ir_update(uint32_t ir_val);
 int tisp_lsc_write_lut_datas(void);
 static int tisp_lsc_ct_update(uint32_t ct);
+int tisp_awb_ev_update(uint32_t ev);
+int tisp_bcsh_ev_update(uint32_t ev);
+int tisp_bcsh_ct_update(uint32_t ct);
+static int tisp_adr_ev_update(uint32_t ev, uint32_t aux_ev);
+static int tisp_defog_ev_update(uint32_t ev, uint32_t aux_ev);
+
+/* Vendor-equal CT / EV fan-out and BCSH triggers, proven against the vendor instructions by
+ * tests/t31_binoracle (blocks ctev, bcshtr; openimp #532 / #533).  The callees keep our argument lists. */
+extern uint32_t system_reg_read(u32 reg);
+#define T31_CTEV_HOOKS
+#define T31_CTEV_BYPASS()		system_reg_read(0xc)
+#define T31_CT_CCM(a, b)		tisp_ccm_ct_update()
+#define T31_CT_LSC(a, b)		tisp_lsc_ct_update(a)
+#define T31_CT_BCSH(a, b)		tisp_bcsh_ct_update(a)
+#define T31_EV_AWB(a, b)		tisp_awb_ev_update(a)
+#define T31_EV_CCM(a, b)		tisp_ccm_ev_update()
+#define T31_EV_ADR(a, b)		tisp_adr_ev_update(a, b)
+#define T31_EV_DEFOG(a, b)		tisp_defog_ev_update(a, b)
+#define T31_EV_BCSH(a, b)		tisp_bcsh_ev_update(a)
+/* wdr_ready: not in the vendor; our WDR buffers are allocated / freed at run time (beyond vendor guard) */
+#define T31_EV_WDR(a, b)		do { if (READ_ONCE(wdr_ready)) tisp_wdr_ev_update(a, b); } while (0)
+#define T31_BCSH_UPDATE()		tiziano_bcsh_update(NULL)
+#include "tx_isp_t31_ctev.h"
 static int tisp_lsc_gain_update(uint32_t gain);
 static void tisp_lsc_upside_down_lut(uint32_t *lut, int rows, int cols_padded);
 static int tisp_lsc_lut_mirror_exchange(uint32_t *lut, int idx_a, int idx_b,
@@ -4350,8 +4314,8 @@ static uint32_t ae0_req_dg = 0x400;  /* Carried AE-requested digital gain */
 /* OEM gain register/limit references */
 static uint32_t ae_requested_ag = 0x400; /* Last REQUESTED AG (before sensor quantization) */
 static uint32_t data_c46a8 = 0x400; /* Max integration time (tuning param) */
-static uint32_t data_c46b0 = 0x157fe; /* Max analog gain in Q10 (OEM: set by tisp_s_max_again) */
-static uint32_t data_c46bc = 0x400; /* Max ISP digital gain in Q10 (OEM: set by tisp_s_max_isp_dgain) */
+/* OEM data_c46b0 / data_c46bc are fields of the AE control object (0xc469c): tisp_ae_ctrls[5] = max analog gain and [8] = max ISP
+ * digital gain, filled from the IQ bin ae_exp_th at AE init and by SetMaxAgain / SetMaxIspDgain (openimp #551). */
 static uint32_t data_c4714 = 0; /* Minimum integration time */
 static uint32_t data_c470c = 0; /* Minimum analog gain */
 
@@ -5868,8 +5832,8 @@ static int ae0_tune2(uint32_t wmean, uint32_t q, uint32_t fifo_target,
 
     /* OEM arg21-26: gain limit and current state pointers */
     v0_19 = tisp_ae_effective_max_it();  /* deflicker-limited max IT */
-    v0_21 = data_c46b0 ? data_c46b0 : ae_exp_th.data[1];
-    v0_23 = data_c46bc ? data_c46bc : ae_exp_th.data[2];
+    v0_21 = tisp_ae_ctrls[5] ? tisp_ae_ctrls[5] : ae_exp_th.data[1];
+    v0_23 = tisp_ae_ctrls[8] ? tisp_ae_ctrls[8] : ae_exp_th.data[2];
 
     /* Computed values */
     var_c0_1 = 0; /* convergence counter for output */
@@ -6658,7 +6622,7 @@ static void tisp_set_ae0_ag(uint32_t ag, uint32_t dg)
     /* Step 4: Clamp ISP digital gain compensation.
      * OEM clamps against the runtime max ISP DG control, not the sensor-DG
      * limit from ae_exp_th[2]. */
-    max_dg = data_c46bc ? data_c46bc : one_q;
+    max_dg = tisp_ae_ctrls[8] ? tisp_ae_ctrls[8] : one_q;
     if (max_dg > 0 && dg_comp > max_dg)
         dg_comp = max_dg;
 
@@ -7902,8 +7866,8 @@ static int tisp_g_ev_attr(uint32_t *ev_buffer, struct isp_tuning_data *tuning)
 	ev_buffer[7] = total >> 2;
 
 	/* Advertised limits and live sensor digital gain. */
-	ev_buffer[8] = tisp_log2_fixed_to_fixed(data_c46b0 + 4, 10, 5);
-	ev_buffer[9] = tisp_log2_fixed_to_fixed(data_c46bc + 4, 10, 5);
+	ev_buffer[8] = tisp_log2_fixed_to_fixed(tisp_ae_ctrls[5] + 4, 10, 5);
+	ev_buffer[9] = tisp_log2_fixed_to_fixed(tisp_ae_ctrls[8] + 4, 10, 5);
 	ev_buffer[10] = tisp_log2_fixed_to_fixed(data_c46a4, 10, 5);
 	/* OEM: log2 of data_c46b4, the AE0 sensor digital gain limit (Q10),
 	 * which this driver keeps in tisp_ae_ctrls[6] */
@@ -8140,91 +8104,35 @@ static int apical_isp_ev_g_attr(struct tx_isp_dev *dev, struct isp_core_ctrl *ct
     return 0;
 }
 
-static uint32_t tiziano_bcsh_interp_u32(uint32_t lo, uint32_t hi,
-					uint32_t ev_lo, uint32_t ev_hi,
-					uint32_t ev_now)
-{
-	uint32_t ev_delta;
-	uint32_t ev_range;
 
-	if (lo == hi || ev_lo == ev_hi)
-		return lo;
-
-	ev_delta = (ev_now >= ev_lo) ? (ev_now - ev_lo) : (ev_lo - ev_now);
-	ev_range = (ev_hi >= ev_lo) ? (ev_hi - ev_lo) : (ev_lo - ev_hi);
-
-	if (hi >= lo)
-		return lo + (ev_delta * (hi - lo)) / ev_range;
-	return lo - (ev_delta * (lo - hi)) / ev_range;
-}
+/* vendor tiziano_bcsh_update 0x29f20 (tx_isp_t31_bcshup.h, oracle block bcshup; openimp #533).  The callee
+ * argument lists are ours (the LUT parameters: our clip / offset arrays, vendor tisp_BCSH words). */
+#define T31_BCSHUP_HOOKS
+#define T31_BU_COMP2ORIG()	tiziano_bcsh_Tccm_Comp2Orig()
+#define T31_BU_CTINTP(ct)	tiziano_ct_bcsh_interpolation(ct)
+#define T31_BU_RGB2YUV()	tiziano_bcsh_Tccm_RGB2YUV(bcsh_HMatrix, tisp_BCSH_as32CCMMatrix)
+#define T31_BU_TOFFSET()	tiziano_bcsh_Toffset_RGB2YUV((int32_t *)bcsh_OffsetRGB2yuv, (const int32_t *)bcsh_OffsetRGB_now)
+#define T31_BU_TRANSIT()	tiziano_bcsh_TransitParam()
+#define T31_BU_LUT()		tiziano_bcsh_lut_parameter(bcsh_clip0, bcsh_clip1, bcsh_clip2, bcsh_Offset0)
+#define T31_BU_REAL_CLEAR()	(BCSH_real = 0)
+#include "tx_isp_t31_bcshup.h"
 
 static int tiziano_bcsh_update(struct isp_tuning_data *tuning)
 {
-    uint32_t ev_now = bcsh_ev_current;
-    uint32_t ev_shifted;
-    uint32_t ct_now = bcsh_ct_current;
-    int i;
+    const uint32_t *const src[8] = { bcsh_SminListS_now, bcsh_SmaxListS_now, bcsh_SminListM_now, bcsh_SmaxListM_now,
+                                     bcsh_Cxl, bcsh_Cxh, bcsh_Cyl, bcsh_Cyh };
+    uint32_t *const dst[8] = { &bcsh_Svalue_base[0], &bcsh_Svalue_base[1], &bcsh_Svalue_base[2], &bcsh_Svalue_base[3],
+                               &bcsh_C[1], &bcsh_C[2], &bcsh_C[3], &bcsh_C[4] };
 
+    /* not in the vendor: before the first EV / CT event, take them from the tuning state */
     if (tuning) {
-        if (ev_now == 0)
-            ev_now = tuning->bcsh_ev;
-        if (ct_now == 0)
-            ct_now = tuning->wb_temp;
+        if (bcsh_ev_current == 0)
+            bcsh_ev_current = tuning->bcsh_ev;
+        if (bcsh_ct_current == 0)
+            bcsh_ct_current = tuning->wb_temp;
     }
 
-    bcsh_ev_current = ev_now;
-    bcsh_ct_current = ct_now;
-    ev_shifted = ev_now >> 10;
-
-    if (bcsh_EvList_now[0] > ev_shifted) {
-        bcsh_Svalue_base[0] = bcsh_SminListS_now[0];
-        bcsh_Svalue_base[1] = bcsh_SmaxListS_now[0];
-        bcsh_Svalue_base[2] = bcsh_SminListM_now[0];
-        bcsh_Svalue_base[3] = bcsh_SmaxListM_now[0];
-        bcsh_Cxl_now = bcsh_Cxl[0];
-        bcsh_Cxh_now = bcsh_Cxh[0];
-        bcsh_Cyl_now = bcsh_Cyl[0];
-        bcsh_Cyh_now = bcsh_Cyh[0];
-    } else if (ev_shifted >= bcsh_EvList_now[8]) {
-        bcsh_Svalue_base[0] = bcsh_SminListS_now[8];
-        bcsh_Svalue_base[1] = bcsh_SmaxListS_now[8];
-        bcsh_Svalue_base[2] = bcsh_SminListM_now[8];
-        bcsh_Svalue_base[3] = bcsh_SmaxListM_now[8];
-        bcsh_Cxl_now = bcsh_Cxl[8];
-        bcsh_Cxh_now = bcsh_Cxh[8];
-        bcsh_Cyl_now = bcsh_Cyl[8];
-        bcsh_Cyh_now = bcsh_Cyh[8];
-    } else {
-        for (i = 0; i < 8; i++) {
-            uint32_t ev_lo = bcsh_EvList_now[i];
-            uint32_t ev_hi = bcsh_EvList_now[i + 1];
-
-            if (ev_shifted < ev_lo || ev_shifted > ev_hi)
-                continue;
-
-            bcsh_Svalue_base[0] = tiziano_bcsh_interp_u32(
-                bcsh_SminListS_now[i], bcsh_SminListS_now[i + 1],
-                ev_lo, ev_hi, ev_shifted);
-            bcsh_Svalue_base[1] = tiziano_bcsh_interp_u32(
-                bcsh_SmaxListS_now[i], bcsh_SmaxListS_now[i + 1],
-                ev_lo, ev_hi, ev_shifted);
-            bcsh_Svalue_base[2] = tiziano_bcsh_interp_u32(
-                bcsh_SminListM_now[i], bcsh_SminListM_now[i + 1],
-                ev_lo, ev_hi, ev_shifted);
-            bcsh_Svalue_base[3] = tiziano_bcsh_interp_u32(
-                bcsh_SmaxListM_now[i], bcsh_SmaxListM_now[i + 1],
-                ev_lo, ev_hi, ev_shifted);
-            bcsh_Cxl_now = tiziano_bcsh_interp_u32(
-                bcsh_Cxl[i], bcsh_Cxl[i + 1], ev_lo, ev_hi, ev_shifted);
-            bcsh_Cxh_now = tiziano_bcsh_interp_u32(
-                bcsh_Cxh[i], bcsh_Cxh[i + 1], ev_lo, ev_hi, ev_shifted);
-            bcsh_Cyl_now = tiziano_bcsh_interp_u32(
-                bcsh_Cyl[i], bcsh_Cyl[i + 1], ev_lo, ev_hi, ev_shifted);
-            bcsh_Cyh_now = tiziano_bcsh_interp_u32(
-                bcsh_Cyh[i], bcsh_Cyh[i + 1], ev_lo, ev_hi, ev_shifted);
-            break;
-        }
-    }
+    t31_bcsh_update(bcsh_ev_current, bcsh_ct_current, bcsh_EvList_now, src, dst);
 
     if (tuning) {
         tuning->bcsh_saturation_value = bcsh_Svalue_base[0];
@@ -8232,15 +8140,6 @@ static int tiziano_bcsh_update(struct isp_tuning_data *tuning)
         tuning->bcsh_saturation_min = bcsh_Svalue_base[2];
         tuning->bcsh_saturation_mult = bcsh_Svalue_base[3];
     }
-
-    tiziano_bcsh_Tccm_Comp2Orig();
-    tiziano_ct_bcsh_interpolation(ct_now);
-    tiziano_bcsh_Tccm_RGB2YUV(bcsh_HMatrix, tisp_BCSH_as32CCMMatrix);
-    tiziano_bcsh_Toffset_RGB2YUV((int32_t *)bcsh_OffsetRGB2yuv,
-                                 (const int32_t *)bcsh_OffsetRGB_now);
-    tiziano_bcsh_TransitParam();
-    tiziano_bcsh_lut_parameter(bcsh_clip0, bcsh_clip1, bcsh_clip2, bcsh_Offset0);
-    BCSH_real = 0;
     return 0;
 }
 
@@ -8443,42 +8342,22 @@ int tisp_bcsh_g_saturation(void)
     return bcsh_saturation_user;
 }
 
+/* vendor tisp_bcsh_ev_update 0x2a63c / tisp_bcsh_ct_update 0x2a6d8 (tx_isp_t31_ctev.h, oracle block bcshtr):
+ * bcsh_ev_current / bcsh_ct_current = vendor BCSH_ev / BCSH_ct, bcsh_cm_ev / bcsh_cm_ct = cm_ev / cm_ct */
+static uint32_t bcsh_cm_ev, bcsh_cm_ct;
+
 int tisp_bcsh_ev_update(uint32_t ev)
 {
-    uint32_t ev_shifted;
-    uint32_t prev_ev;
-    uint32_t delta;
-
     if (ourISPdev && ourISPdev->tuning_data)
         ourISPdev->tuning_data->bcsh_ev = ev;
-    bcsh_ev_current = ev;
-    ev_shifted = ev >> 10;
-    prev_ev = bcsh_last_ev;
-    delta = (prev_ev >= ev_shifted) ? (prev_ev - ev_shifted) : (ev_shifted - prev_ev);
-
-    if (BCSH_real == 1 || delta > bcsh_ev_threshold) {
-        tiziano_bcsh_update(NULL);
-        bcsh_last_ev = ev_shifted;
-    }
-    return 0;
+    return t31_bcsh_ev_update(ev, &bcsh_ev_current, &bcsh_cm_ev, &BCSH_real, &bcsh_last_ev, bcsh_ev_threshold);
 }
 
 int tisp_bcsh_ct_update(uint32_t ct)
 {
-    uint32_t prev_ct;
-    uint32_t delta;
-
     if (ourISPdev && ourISPdev->tuning_data)
         ourISPdev->tuning_data->wb_temp = ct;
-    bcsh_ct_current = ct;
-    prev_ct = bcsh_last_ct;
-    delta = (prev_ct >= ct) ? (prev_ct - ct) : (ct - prev_ct);
-
-    if (BCSH_real == 1 || delta > bcsh_ct_threshold) {
-        tiziano_bcsh_update(NULL);
-        bcsh_last_ct = ct;
-    }
-    return 0;
+    return t31_bcsh_ct_update(ct, &bcsh_ct_current, &bcsh_cm_ct, &BCSH_real, &bcsh_last_ct, bcsh_ct_threshold);
 }
 
 
@@ -9476,12 +9355,12 @@ static int apical_isp_core_ops_s_ctrl(struct tx_isp_dev *dev, struct isp_core_ct
             ret = tisp_s_max_again(ctrl->value);
             if (ret)
                 goto out;
-            tuning->max_again = data_c46b0;
+            tuning->max_again = tisp_ae_ctrls[5];
             break;
 
         case 0x8000029:  /* OEM: tisp_s_max_isp_dgain — set max ISP digital gain */
             tisp_s_max_isp_dgain(ctrl->value);
-            tuning->max_dgain = data_c46bc;
+            tuning->max_dgain = tisp_ae_ctrls[8];
             break;
 
         case 0x8000035: { /* OEM: tisp_set_ae_attr — 0x98 bytes of AE attributes */
@@ -17504,12 +17383,9 @@ int tiziano_ae_s_max_again(uint32_t value)
         return -1;
     }
 
-    data_c46b0 = tisp_math_exp2(value, 5, 0xa);
-    /* Stock stores the limit in the AE control object (ctrls[5]).  Mirror
-     * it there so tisp_sensor_ctrl_sync() keeps a user-reduced limit and
-     * tisp_ae0_ctrls_update() clamps it against the sensor like stock.
-     * The AE solver keeps reading data_c46b0. */
-    tisp_ae_ctrls[5] = data_c46b0;
+    tisp_ae_ctrls[5] = tisp_math_exp2(value, 5, 0xa);
+    /* stock: the limit lives in the AE control object; tisp_ae0_ctrls_update()
+     * clamps it against the sensor, the AE solver and isp-m0 read it (#551) */
     data_a0dfc = 0;
     return 0;
 }
@@ -17518,8 +17394,7 @@ int tiziano_ae_s_max_again(uint32_t value)
  * Decompiled from OEM at 0x52fb4. tisp_s_max_isp_dgain calls this. */
 int tiziano_ae_s_max_isp_dgain(uint32_t value)
 {
-    data_c46bc = tisp_math_exp2(value, 5, 0xa);
-    tisp_ae_ctrls[8] = data_c46bc;	/* stock AE control object field */
+    tisp_ae_ctrls[8] = tisp_math_exp2(value, 5, 0xa);
     data_a0dfc = 0;
     return 0;
 }
@@ -22089,93 +21964,12 @@ static uint32_t ct_flag_last = 0;
  * Interpolation uses the SIGNED _ccm_{d,t,a}_parameter arrays filled by
  * jz_isp_ccm_parameter_convert → jz_isp_ccm_reg2par.
  */
+/* vendor tiziano_ct_ccm_interpolation 0x26ff0 (tx_isp_t31_intp.h, oracle block ccm; openimp #533): strict
+ * zone bounds (ct == 5000 - thr is the D/T blend, ours took the D zone before) */
 static void tiziano_ct_ccm_interpolation(uint32_t ct_value, uint32_t ct_threshold)
 {
-    /* ---- 1. Determine ct_flag from dynamic thresholds ---- */
-    uint32_t bound_d  = 0x1388 - ct_threshold;   /* D boundary */
-    uint32_t bound_dt = ct_threshold + 0xed8;     /* D↔T pivot */
-    uint32_t bound_t  = 0xed8 - ct_threshold;     /* T boundary (note: 0xed8 unsigned) */
-    uint32_t bound_ta = ct_threshold + 0xaf0;     /* T↔A pivot */
-
-    if (ct_value >= bound_d) {
-        ct_flag_cur = 0;               /* D zone */
-    } else if (ct_value > bound_dt) {
-        ct_flag_cur = 1;               /* D↔T interpolation */
-    } else if (ct_value > bound_t) {
-        ct_flag_cur = 2;               /* T zone */
-    } else if (ct_value > bound_ta) {
-        ct_flag_cur = 3;               /* T↔A interpolation */
-    } else {
-        ct_flag_cur = 4;               /* A zone */
-    }
-
-    /* ---- 2. Hysteresis: suppress minor oscillations ---- */
-    if (ccm_real != 0) {
-        /* First call (ccm_real==1): accept any flag */
-    } else {
-        /* Subsequent calls: apply hysteresis filter */
-        if (ct_flag_cur == 0) {
-            if (ct_flag_last == 0)
-                return;                /* No change, skip */
-        } else if (ct_flag_cur == 2 || ct_flag_cur == 4) {
-            if (ct_flag_last == ct_flag_cur)
-                return;                /* Plateau, skip if same */
-        }
-        /* Interpolation zones (1,3) always proceed */
-    }
-    ct_flag_last = ct_flag_cur;
-
-    /* ---- 3. Populate ccm_parameter[] per region ---- */
-    switch (ct_flag_cur) {
-    case 0: /* D */
-        memcpy(ccm_parameter, _ccm_d_parameter, 0x24);
-        break;
-
-    case 1: { /* Interpolate D ↔ T */
-        uint32_t dist = (ct_value >= bound_dt) ?
-                        (ct_value - bound_dt) : (bound_dt - ct_value);
-        uint32_t span = (bound_d >= bound_dt) ?
-                        (bound_d - bound_dt) : (bound_dt - bound_d);
-        if (span == 0) span = 1;
-        for (int i = 0; i < 9; i++) {
-            int32_t t_val = _ccm_t_parameter[i];
-            int32_t d_val = _ccm_d_parameter[i];
-            if (d_val >= t_val)
-                ccm_parameter[i] = (int32_t)((uint32_t)(d_val - t_val) * dist / span) + t_val;
-            else
-                ccm_parameter[i] = t_val - (int32_t)((uint32_t)(t_val - d_val) * dist / span);
-        }
-        break;
-    }
-
-    case 2: /* T */
-        memcpy(ccm_parameter, _ccm_t_parameter, 0x24);
-        break;
-
-    case 3: { /* Interpolate T ↔ A */
-        uint32_t dist = (ct_value >= bound_ta) ?
-                        (ct_value - bound_ta) : (bound_ta - ct_value);
-        uint32_t span = (bound_t >= bound_ta) ?
-                        (bound_t - bound_ta) : (bound_ta - bound_t);
-        if (span == 0) span = 1;
-        for (int i = 0; i < 9; i++) {
-            int32_t a_val = _ccm_a_parameter[i];
-            int32_t t_val = _ccm_t_parameter[i];
-            if (t_val >= a_val)
-                ccm_parameter[i] = (int32_t)((uint32_t)(t_val - a_val) * dist / span) + a_val;
-            else
-                ccm_parameter[i] = a_val - (int32_t)((uint32_t)(a_val - t_val) * dist / span);
-        }
-        break;
-    }
-
-    case 4: /* A */
-        memcpy(ccm_parameter, _ccm_a_parameter, 0x24);
-        break;
-    }
-
-    /* OEM tail: copy result to the persistent buffer at 0xb52f8 area */
-    /* (In our layout ccm_parameter IS the persistent buffer) */
+	t31_ct_ccm_interp(ct_value, ct_threshold, &ct_flag_cur, &ct_flag_last, ccm_real, ccm_parameter,
+			  _ccm_d_parameter, _ccm_t_parameter, _ccm_a_parameter);
 }
 
 /* cm_control - OEM EXACT CCM saturation control (decompiled from 0x1f200).
@@ -23354,55 +23148,10 @@ static int tisp_dmsc_d_ud_ns_par_cfg(void)
 	return 0;
 }
 
+/* vendor tisp_dmsc_intp 0x252ac (tx_isp_t31_intp.h T31_DMSC_INTP_LIST, oracle block intp; openimp #533) */
 static int tisp_dmsc_intp(u32 gain)
 {
-	int hi = gain >> 16;
-	int lo = gain & 0xffff;
-
-	dmsc_hv_thres_1_val = tisp_simple_intp(hi, lo, dmsc_hv_thres_1_curve);
-	dmsc_hv_stren_val = tisp_simple_intp(hi, lo, dmsc_hv_stren_curve);
-	dmsc_aa_thres_1_val = tisp_simple_intp(hi, lo, dmsc_aa_thres_1_curve);
-	dmsc_aa_stren_val = tisp_simple_intp(hi, lo, dmsc_aa_stren_curve);
-	dmsc_hvaa_thres_1_val = tisp_simple_intp(hi, lo, dmsc_hvaa_thres_1_curve);
-	dmsc_hvaa_stren_val = tisp_simple_intp(hi, lo, dmsc_hvaa_stren_curve);
-	dmsc_uu_thres_val = tisp_simple_intp(hi, lo, dmsc_uu_thres_curve_now);
-	dmsc_uu_stren_val = tisp_simple_intp(hi, lo, dmsc_uu_stren_curve_now);
-	dmsc_alias_stren_val = tisp_simple_intp(hi, lo, dmsc_alias_stren_curve);
-	dmsc_alias_thres_1_val = tisp_simple_intp(hi, lo, dmsc_alias_thres_1_curve);
-	dmsc_alias_thres_2_val = tisp_simple_intp(hi, lo, dmsc_alias_thres_2_curve);
-	dmsc_alias_dir_thres_val = tisp_simple_intp(hi, lo, dmsc_alias_dir_thres_curve);
-	dmsc_nor_alias_thres_val = tisp_simple_intp(hi, lo, dmsc_nor_alias_thres_curve);
-	dmsc_sp_d_w_stren_val = tisp_simple_intp(hi, lo, dmsc_sp_d_w_stren_curve_now);
-	dmsc_sp_d_b_stren_val = tisp_simple_intp(hi, lo, dmsc_sp_d_b_stren_curve_now);
-	dmsc_sp_d_brig_thres_val = tisp_simple_intp(hi, lo, dmsc_sp_d_brig_thres_curve);
-	dmsc_sp_d_dark_thres_val = tisp_simple_intp(hi, lo, dmsc_sp_d_dark_thres_curve);
-	dmsc_sp_ud_w_stren_val = tisp_simple_intp(hi, lo, dmsc_sp_ud_w_stren_curve_now);
-	dmsc_sp_ud_b_stren_val = tisp_simple_intp(hi, lo, dmsc_sp_ud_b_stren_curve_now);
-	dmsc_sp_ud_brig_thres_val = tisp_simple_intp(hi, lo, dmsc_sp_ud_brig_thres_curve);
-	dmsc_sp_ud_dark_thres_val = tisp_simple_intp(hi, lo, dmsc_sp_ud_dark_thres_curve);
-	dmsc_sp_alias_thres_val = tisp_simple_intp(hi, lo, dmsc_sp_alias_thres_curve);
-	dmsc_rgb_dir_thres_val = tisp_simple_intp(hi, lo, dmsc_rgb_dir_thres_curve);
-	dmsc_rgb_alias_stren_val = tisp_simple_intp(hi, lo, dmsc_rgb_alias_stren_curve);
-	dmsc_fc_alias_stren_val = tisp_simple_intp(hi, lo, dmsc_fc_alias_stren_curve);
-	dmsc_fc_t1_thres_val = tisp_simple_intp(hi, lo, dmsc_fc_t1_thres_curve);
-	dmsc_fc_t1_stren_val = tisp_simple_intp(hi, lo, dmsc_fc_t1_stren_curve);
-	dmsc_fc_t2_stren_val = tisp_simple_intp(hi, lo, dmsc_fc_t2_stren_curve);
-	dmsc_fc_t3_stren_val = tisp_simple_intp(hi, lo, dmsc_fc_t3_stren_curve);
-	dmsc_deir_fusion_thres_val = tisp_simple_intp(hi, lo, dmsc_deir_fusion_thres_curve);
-	dmsc_deir_fusion_stren_val = tisp_simple_intp(hi, lo, dmsc_deir_fusion_stren_curve);
-	dmsc_sp_d_v2_win5_thres_val = tisp_simple_intp(hi, lo, dmsc_sp_d_v2_win5_thres_curve);
-	dmsc_sp_d_flat_stren_val = tisp_simple_intp(hi, lo, dmsc_sp_d_flat_stren_curve);
-	dmsc_sp_d_flat_thres_val = tisp_simple_intp(hi, lo, dmsc_sp_d_flat_thres_curve);
-	dmsc_sp_d_oe_stren_val = tisp_simple_intp(hi, lo, dmsc_sp_d_oe_stren_curve);
-	dmsc_sp_ud_std_stren_val = tisp_simple_intp(hi, lo, dmsc_sp_ud_std_stren_curve);
-	dmsc_sp_ud_std_thres_val = tisp_simple_intp(hi, lo, dmsc_sp_ud_std_thres_curve);
-	dmsc_sp_ud_flat_thres_val = tisp_simple_intp(hi, lo, dmsc_sp_ud_flat_thres_curve);
-	dmsc_sp_ud_flat_stren_val = tisp_simple_intp(hi, lo, dmsc_sp_ud_flat_stren_curve);
-	dmsc_sp_ud_oe_stren_val = tisp_simple_intp(hi, lo, dmsc_sp_ud_oe_stren_curve);
-	dmsc_fc_lum_stren_val = tisp_simple_intp(hi, lo, dmsc_fc_lum_stren_curve);
-	dmsc_fc_lum_thres_val = tisp_simple_intp(hi, lo, dmsc_fc_lum_thres_curve);
-	dmsc_sp_d_ns_thres_val = tisp_simple_intp(hi, lo, dmsc_sp_d_ns_thres_curve);
-	dmsc_sp_ud_ns_thres_val = tisp_simple_intp(hi, lo, dmsc_sp_ud_ns_thres_curve);
+	T31_DMSC_INTP_BODY(gain);
 	return 0;
 }
 
@@ -30116,13 +29865,11 @@ static void tisp_ydns_param_cfg(void)
 /* OEM EXACT: tisp_simple_intp — 32-bit interpolation matching OEM at 0x11300.
  * OEM uses abs/sign approach: computes |array[hi+1]-array[hi]| * gain_lo / 65536,
  * then adds or subtracts from array[hi]. Pure 32-bit arithmetic, no s64. */
+/* vendor tisp_simple_intp 0x11350 (tx_isp_t31_intp.h, oracle block intp; openimp #533): signed direction and
+ * arithmetic Q16 rounding, a negative index returns array[8] like any index >= 8 */
 static uint32_t tisp_simple_intp(int gain_hi, int gain_lo, const uint32_t *array)
 {
-	if (gain_hi < 0)
-		gain_hi = 0;
-
-	return tx_isp_lerp_u32((uint32_t)gain_hi, (uint32_t)gain_lo,
-				array, 8);
+	return t31_simple_intp(gain_hi, gain_lo, array);
 }
 
 /* OEM EXACT: absFun (0x1f5cc) — absolute difference of two values */
@@ -32469,33 +32216,18 @@ static int tisp_adr_ev_update(uint32_t ev, uint32_t aux_ev)
     return 0;
 }
 
-/* OEM EXACT: tisp_ev_update calls sub-module EV update functions.
- * ADR (bit 7), defog (bit 11), WDR (bit 3) are gated on bypass register 0xc. */
+/* vendor tisp_ev_update 0x14cd4 (tx_isp_t31_ctev.h, oracle block ctev; openimp #532): skip on an unchanged
+ * (ev, aux) pair, then AWB, CCM, ADR (0x80), defog (0x800), BCSH, WDR (0x8) */
+static uint32_t ev_last[2];
+
 int tisp_ev_update(uint32_t ev, uint32_t aux_ev)
 {
-    uint32_t reg_0c;
-
     data_9a454 = ev;
-
-    tisp_awb_ev_update(ev);
-    tisp_ccm_ev_update();
-    tisp_bcsh_ev_update(ev);
-
-    reg_0c = system_reg_read(0xc);
-    if ((reg_0c & 0x80) == 0)
-        tisp_adr_ev_update(ev, aux_ev);
-    if ((reg_0c & 0x800) == 0)
-        tisp_defog_ev_update(ev, aux_ev);
-    if (wdr_ready && (reg_0c & 8) == 0)
-        tisp_wdr_ev_update(ev, aux_ev);
-
-    return 0;
+    return t31_ev_update(ev, aux_ev, ev_last);
 }
 
 int tisp_ct_update(uint32_t ct)
 {
-	uint32_t reg_0c;
-
 	if (!ourISPdev || !ourISPdev->tuning_data)
 		return 0;
 
@@ -32505,21 +32237,11 @@ int tisp_ct_update(uint32_t ct)
 		ourISPdev->tuning_data->wb_temp = ct;
 
 	data_9a450 = ct;
-	reg_0c = system_reg_read(0xc);
 
-	if ((reg_0c & 0x200) == 0)
-		tisp_ccm_ct_update();
-
-	if ((reg_0c & 0x40) == 0)
-		tisp_lsc_ct_update(ct);
-
-	/* OEM gates on MDNS bypass bit 16, but our isp_block_enable
-	 * intentionally bypasses MDNS (bit 16=1), permanently blocking
-	 * BCSH CT adaptation. Call unconditionally — the HMatrix and
-	 * saturation update is independent of MDNS processing. */
-	tisp_bcsh_ct_update(ct);
-
-	return 0;
+	/* vendor tisp_ct_update 0x14de4 (oracle block ctev; openimp #532): CCM unless 0xc bit 9, LSC unless
+	 * bit 6, BCSH unless bit 16.  Bit 16 is clear while streaming (tisp_mdns_enable_after_dma clears it);
+	 * it stays set only with force_bypass_mdns=1, then BCSH keeps its CT state, as in the vendor. */
+	return t31_ct_update(ct, 0);
 }
 
 /* OEM EXACT: tisp_ae_ir_update delegates to GIB DEIR IR update */
@@ -33025,29 +32747,29 @@ static void tiziano_bcsh_TransitParam(void)
     if (bcsh_C[0] != 0 && user_contrast != 0x80) {
         bcsh_ai32_C[0] = bcsh_C[0];
         if ((int8_t)user_contrast < 0) {
-            uint32_t mid = ((bcsh_Cxh_now >= bcsh_Cxl_now) ?
-                (bcsh_Cxh_now - bcsh_Cxl_now) : (bcsh_Cxl_now - bcsh_Cxh_now)) / 2 + bcsh_Cxl_now;
+            uint32_t mid = ((bcsh_C[2] >= bcsh_C[1]) ?
+                (bcsh_C[2] - bcsh_C[1]) : (bcsh_C[1] - bcsh_C[2])) / 2 + bcsh_C[1];
 
             bcsh_ai32_C[1] = tiziano_bcsh_StrenCal_part0(
-                user_contrast, 0x80, 0xff, bcsh_Cxl_now, mid);
+                user_contrast, 0x80, 0xff, bcsh_C[1], mid);
             bcsh_ai32_C[2] = tiziano_bcsh_StrenCal(
-                user_contrast, 0x80, 0xff, bcsh_Cxh_now, mid, 1);
+                user_contrast, 0x80, 0xff, bcsh_C[2], mid, 1);
             bcsh_ai32_C[3] = tiziano_bcsh_StrenCal(
-                user_contrast, 0x80, 0xff, bcsh_Cyl_now, 0, 1);
+                user_contrast, 0x80, 0xff, bcsh_C[3], 0, 1);
             bcsh_ai32_C[4] = tiziano_bcsh_StrenCal_part0(
-                user_contrast, 0x80, 0xff, bcsh_Cyh_now, 0x3ff);
+                user_contrast, 0x80, 0xff, bcsh_C[4], 0x3ff);
         } else {
-            uint32_t mid = ((bcsh_Cyh_now >= bcsh_Cyl_now) ?
-                (bcsh_Cyh_now - bcsh_Cyl_now) : (bcsh_Cyl_now - bcsh_Cyh_now)) / 2 + bcsh_Cyl_now;
+            uint32_t mid = ((bcsh_C[4] >= bcsh_C[3]) ?
+                (bcsh_C[4] - bcsh_C[3]) : (bcsh_C[3] - bcsh_C[4])) / 2 + bcsh_C[3];
 
             bcsh_ai32_C[1] = tiziano_bcsh_StrenCal_part0(
-                user_contrast, 0, 0x80, 0, bcsh_Cxl_now);
+                user_contrast, 0, 0x80, 0, bcsh_C[1]);
             bcsh_ai32_C[2] = tiziano_bcsh_StrenCal(
-                user_contrast, 0, 0x80, 0x3ff, bcsh_Cxh_now, 1);
+                user_contrast, 0, 0x80, 0x3ff, bcsh_C[2], 1);
             bcsh_ai32_C[3] = tiziano_bcsh_StrenCal(
-                user_contrast, 0, 0x80, mid, bcsh_Cyl_now, 1);
+                user_contrast, 0, 0x80, mid, bcsh_C[3], 1);
             bcsh_ai32_C[4] = tiziano_bcsh_StrenCal_part0(
-                user_contrast, 0, 0x80, mid, bcsh_Cyh_now);
+                user_contrast, 0, 0x80, mid, bcsh_C[4]);
             bcsh_ai32_Svalue[0] = tiziano_bcsh_StrenCal_part0(
                 user_contrast, 0, 0x80, 0, bcsh_ai32_Svalue[0]);
             bcsh_ai32_Svalue[1] = tiziano_bcsh_StrenCal_part0(
@@ -36626,9 +36348,9 @@ int tisp_ae_algo_init(int enable, void *attr)
         a[10] = 0x400;                  /* min ISP digital gain */
         a[11] = sen ? sen->attr.max_integration_time : 0;          /* max integration time */
         a[12] = sen && sen->attr.max_again ?
-                tisp_math_exp2(sen->attr.max_again, 0x10, 0x10) >> 6 : data_c46b0;
+                tisp_math_exp2(sen->attr.max_again, 0x10, 0x10) >> 6 : tisp_ae_ctrls[5];
         a[13] = 0x400;
-        a[14] = data_c46bc;             /* max ISP digital gain */
+        a[14] = tisp_ae_ctrls[8];             /* max ISP digital gain */
         a[15] = a[19] = a[23] = 0;      /* short frame (WDR) */
         a[17] = a[21] = a[25] = 0x400;
         if (sen && !a[3])

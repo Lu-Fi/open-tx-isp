@@ -197,3 +197,16 @@ MUTATIONS line (`header|from|to`) must be detected. Inputs: `T33_OEM_KO` (vendor
 The T33 status page counts a T33-only vendor function as proven when it is an entry point (or a callee of one)
 of these blocks or of `t33_lcepf_host`.
 The block `t32-mscafifo` (make target `t32_binoracle_mscafifo`, openimp #529) runs the same harness on the vendor `tx-isp-t32.ko` (`T32_OEM_KO`, local only): `tisp_msca_addr_fifo_read` vs `driver/t32/tx_isp_t32_msca_fifo.h`.
+
+## T31 binary oracle (`tests/t31_binoracle`, openimp #533)
+
+`t31_binoracle/run.sh <block>` runs the same harness (`tools/ko_emu/t33_binoracle.py`, `t33_binoracle/build_emu.sh`)
+on the vendor `tx-isp-t31.ko` (H20221206a; `T31_OEM_KO`, local only; compiler `T31_CC`, else `T33_CC` / `T40_CC`;
+SKIP without them) against the hand-written T31 code moved into `driver/t31/tx_isp_t31_ctev.h`. Blocks (make
+targets, part of `check-oracles`): `t31_binoracle_ctev` (`tisp_ct_update`, `tisp_ev_update`: top bypass gates,
+unchanged-EV skip, call order, `ev_last`; #532) and `t31_binoracle_bcshtr` (`tisp_bcsh_ev_update`,
+`tisp_bcsh_ct_update`: `BCSH_real` block, `cm_ev` / `cm_ct`, `BCSH_ev` / `BCSH_ct`). Further blocks (#533):
+`t31_binoracle_intp` (`tisp_simple_intp`, `tisp_dmsc_intp`; `driver/t31/tx_isp_t31_intp.h`), `t31_binoracle_ccm`
+(`tiziano_ct_ccm_interpolation`, `tiziano_ct_bcsh_interpolation`; same header) and `t31_binoracle_bcshup`
+(`tiziano_bcsh_update`; `driver/t31/tx_isp_t31_bcshup.h`). Vendor static locals are named with their suffix
+(`cm_ev.31983`). A mutation line is split at `|`: mutation text must not contain `|`, and one VEC line holds one vector.

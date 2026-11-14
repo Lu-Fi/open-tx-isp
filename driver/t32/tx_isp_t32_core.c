@@ -57,6 +57,13 @@ MODULE_PARM_DESC(driver_soc, "SoC name answered to DRIVER_VERSION");
 static char *driver_version = "20251107a";
 module_param(driver_version, charp, 0444);
 MODULE_PARM_DESC(driver_version, "ISP driver version answered to DRIVER_VERSION (must match libimp)");
+#ifdef TX_ISP_T33
+#include "tx_isp_t33_drvver.h"
+static int t33_put_user_block(void *dst, const void *src, u32 n)	/* private_copy_to_user */
+{
+	return copy_to_user((void __user *)dst, src, n) ? 1 : 0;
+}
+#endif
 
 /*
  * DEFAULT_BIN: libimp passes an 880-byte buffer (zeroed) and checks two
@@ -714,6 +721,11 @@ static long t32_isp_ioctl(struct file *file, unsigned int cmd, unsigned long arg
 	mutex_lock(&core.lock);
 	core.ioctls++;
 	switch (cmd) {
+#ifdef TX_ISP_T33
+	case T32_IOC_DRIVER_VERSION:	/* tx_isp_driver_version: the vendor's 96-byte block */
+		ret = t33_driver_version((void *)arg, driver_soc, driver_version, t33_put_user_block);
+		break;
+#else
 	case T32_IOC_DRIVER_VERSION: {
 		char ver[64];
 
@@ -723,6 +735,7 @@ static long t32_isp_ioctl(struct file *file, unsigned int cmd, unsigned long arg
 		ret = T32_PUT(arg, ver);
 		break;
 	}
+#endif
 	case T32_IOC_REGISTER_SENSOR: {
 		struct t32_sensor_reginfo info;
 

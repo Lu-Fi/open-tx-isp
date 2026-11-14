@@ -394,6 +394,18 @@ static inline int t33_isqrt_round(int v)
 	return x + 1;
 }
 
+/*
+ * tisp_sdns_other_params_transform: the four plain bytes of the SDNS section (sdnsInfo[ch] word 0x24) into
+ * sdnsInfo words 0, 3, 12, 15 (binary oracle block cscmisc)
+ */
+static inline void t33_sdns_other_params(const u8 *sec, u32 *p)
+{
+	p[0] = sec[4];
+	p[3] = sec[0x1b];
+	p[12] = sec[0x74];
+	p[15] = sec[0x8b];
+}
+
 /* tisp_sdns_par_refresh (+ other_params_transform, func_sdns_para_update) */
 static inline void t33_sdns_par(const u8 *sec, u32 gain, u32 *p, u32 *s)
 {
@@ -405,10 +417,7 @@ static inline void t33_sdns_par(const u8 *sec, u32 gain, u32 *p, u32 *s)
 	unsigned int k;
 	int v;
 
-	p[0] = sec[4];
-	p[3] = sec[0x1b];
-	p[12] = sec[0x74];
-	p[15] = sec[0x8b];
+	t33_sdns_other_params(sec, p);
 	for (k = 0; k < 13; k++)
 		p[tab[k][0]] = t32_tp_intp_u8(i, f, sec + tab[k][1]);
 	q = t33_sdns_quant(p[2]);

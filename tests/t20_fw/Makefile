@@ -96,10 +96,16 @@ FLAGS_oldOs := $(FLAGS_Os)
 $(OUT)/fw_old.c: FORCE | $(OUT)
 	git -C $(ROOT) show $(FW_OLD_REV):driver/t20/tx_isp_t20_firmware.c > $@.tmp
 	cmp -s $@.tmp $@ || mv $@.tmp $@; rm -f $@.tmp
+	@# the old unit is built with its own headers (found next to fw_old.c),
+	@# so a layout header may change together with the functions using it
+	for h in $$(git -C $(ROOT) ls-tree --name-only $(FW_OLD_REV) driver/t20/ | grep '\.h$$'); do \
+		git -C $(ROOT) show $(FW_OLD_REV):$$h > $(OUT)/$$(basename $$h); done
 $(OUT)/fw_unit_old.c: fw_unit.c $(OUT)/fw_old.c
 	sed 's|"../../driver/t20/tx_isp_t20_firmware.c"|"fw_old.c"|' $< > $@
-$(OUT)/fw-old%.o: $(OUT)/fw_unit_old.c pre.h
-	$(CC) $(FWFLAGS) -I. -iquote $(ROOT)/driver/t20 $(FLAGS_old$*) $(FWEXTRA) -c -o $@ $<
+$(OUT)/pre_old.h: pre.h | $(OUT)
+	sed 's|"../../driver/t20/\(tx_isp_t20_[a-z_]*\.h\)"|"\1"|' $< > $@
+$(OUT)/fw-old%.o: $(OUT)/fw_unit_old.c $(OUT)/pre_old.h
+	$(CC) $(patsubst pre.h,$(OUT)/pre_old.h,$(FWFLAGS)) -I. -iquote $(ROOT)/driver/t20 $(FLAGS_old$*) $(FWEXTRA) -c -o $@ $<
 .PHONY: FORCE delift
 FORCE:
 delift: $(foreach v,O0 Os oldO0 oldOs,$(OUT)/t20fw-$(v) $(OUT)/t20fw-$(v).sym)
