@@ -2846,6 +2846,19 @@ int32_t apical_fw_process(int32_t *arg1)
 	return wait_semaphore((uintptr_t)((char *)arg1 + 0xc), 0xa);
 }
 
+/*
+ * Non-OEM (#540): apical_fw_init() memsets the firmware context and only
+ * apical_isp_init() builds the event queue (loop buffer at fw+0x2ebc, data
+ * pointer at +8).  An Apical IRQ in that window (ISP re-open while the
+ * sensor still streams, e.g. a streamer restart) pushed through the NULL
+ * buffer and panicked in apical_loop_buffer_write_u8.  Until the queue
+ * exists the context is not built either, so such interrupts are dropped.
+ */
+static inline int apical_fw_queue_ready(const void *fw)
+{
+	return ((const int32_t *)((const char *)fw + 0x2ebc))[2] != 0;
+}
+
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000016504 origin=model_output original=apical_fw_raise_event */
 uint32_t apical_fw_raise_event(void *arg1, int32_t arg2)
 {
@@ -2853,6 +2866,9 @@ uint32_t apical_fw_raise_event(void *arg1, int32_t arg2)
     uint8_t stab_val = stab.global_freeze_firmware;
     if (stab_val != 0)
         return stab_val;
+
+    if (!apical_fw_queue_ready(arg1))	/* #540 */
+        return 0;
 
     int32_t irq_state = *(int32_t *)((char *)arg1 + 4);
     if (irq_state == 0)
@@ -2873,6 +2889,9 @@ int32_t apical_interrupt_frame_end(int32_t *arg1)
     int32_t *base = arg1;
     int32_t saved;
     int32_t result;
+
+    if (!apical_fw_queue_ready(base))	/* #540: context not built yet */
+        return 0;
 
     base[1] += 1;
 
@@ -2923,6 +2942,10 @@ uint32_t apical_isp_raise_event(void *arg1, int32_t arg2)
     uint8_t stab_val = stab.global_freeze_firmware;
     if (stab_val != 0)
         return stab_val;
+
+    /* #540: arg1 is the ISP context (fw + 0x18), its queue is fw + 0x2ebc */
+    if (!queue[2])
+        return 0;
 
     void *ptr = *(void **)((char *)arg1 + 4);
     int32_t irq_state = *(int32_t *)((char *)ptr + 4);
