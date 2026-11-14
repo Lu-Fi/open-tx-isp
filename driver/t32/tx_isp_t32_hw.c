@@ -718,14 +718,30 @@ static void t33_mod_free(void)
 #endif
 }
 
+#ifdef TX_ISP_T33
+/*
+ * The vendor tisp_rcfg_t33_reset_reg_cfg (oracle-proven port tx_isp_t33_rcfgmisc.h, block rcfgmisc) runs here:
+ * its module data objects become these statics (rcfg_buf_info[0] + 4 holds the list table address).
+ */
+static void system_reg_write(u32 reg, u32 val) { isp_wr(reg, val); }
+static u32 t33_rcfg_buf[2];
+static u8 *rcfg_buf_info[1] = { (u8 *)t33_rcfg_buf };
+#include "tx_isp_t33_rcfgmisc.h"
+#endif
+
 /* tisp_rcfg_init: table, control and masks; at the core init */
 static void t33_rcfg_core_init(void)
 {
 	isp_wr(T33_RCFG_MODE, 0);
+#ifdef TX_ISP_T33
+	t33_rcfg_buf[1] = rcfg_pa;
+	t33_rcfg_reset_reg_cfg();	/* tisp_rcfg_t33_reset_reg_cfg: table, control, masks */
+#else
 	isp_wr(T33_RCFG_TABLE, rcfg_pa);
 	isp_wr(T33_RCFG_CTRL, 1);
 	isp_wr(T33_RCFG_MASK0, 0xffffffff);
 	isp_wr(T33_RCFG_MASK1, 0xffffffff);
+#endif
 }
 
 /* lists the vendor's tisp_rcfg_t33_write_all_reg does not start (LSF 37: LCE irq only) */
