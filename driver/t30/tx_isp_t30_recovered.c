@@ -8829,6 +8829,79 @@ invalid:
 	return 0;
 }
 
+/*
+ * Lu-Fi/openimp #497 (beyond vendor, stability): hold a reference on the
+ * sensor module while its subdev sits on the vin sensor list.  The vendor
+ * T30 ko 4ea12e1f takes the reference only around the client lookup
+ * (isp_i2c_new_subdev_board), so `rmmod sensor_*` during a stream succeeds,
+ * sensor_remove() frees the subdev that is still on the list and the next
+ * stream-off reads the freed attribute (csi_video_s_stream +0x110 -> +0x14):
+ * vendor and open both oopsed in QEMU.  With the reference the rmmod is
+ * refused (EBUSY) until IMP_ISP_DelSensor or the last close releases it.
+ */
+#define TX_ISP_T30_SENSOR_REFS 4
+static struct {
+	void *sensor;
+	struct module *owner;
+} tx_isp_t30_sensor_refs[TX_ISP_T30_SENSOR_REFS];
+static DEFINE_SPINLOCK(tx_isp_t30_sensor_ref_lock);
+
+/*
+ * The owner is the module that holds the subdev ops table: the i2c driver's
+ * .owner names tx_isp_t30 itself, because the sensor registers through our
+ * private_i2c_add_driver() (that is also why the vendor's get/put in
+ * isp_i2c_new_subdev_board pins the wrong module).
+ */
+static int tx_isp_t30_sensor_ref_get(void *sensor, void *subdev)
+{
+	struct module *owner;
+	unsigned long flags;
+	bool got;
+	int i;
+
+	preempt_disable();
+	owner = __module_address((unsigned long)*(void **)((char *)subdev + 0xc4));
+	got = owner && owner != THIS_MODULE && try_module_get(owner);
+	preempt_enable();
+	if (!got)
+		return (owner && owner != THIS_MODULE) ? -EBUSY : 0;
+	spin_lock_irqsave(&tx_isp_t30_sensor_ref_lock, flags);
+	for (i = 0; i < TX_ISP_T30_SENSOR_REFS; i++) {
+		if (!tx_isp_t30_sensor_refs[i].sensor) {
+			tx_isp_t30_sensor_refs[i].sensor = sensor;
+			tx_isp_t30_sensor_refs[i].owner = owner;
+			break;
+		}
+	}
+	spin_unlock_irqrestore(&tx_isp_t30_sensor_ref_lock, flags);
+	if (i == TX_ISP_T30_SENSOR_REFS) {
+		module_put(owner);
+		return -ENOSPC;
+	}
+	return 0;
+}
+
+/* Called after the client is unregistered: compares the pointer only. */
+static void tx_isp_t30_sensor_ref_put(void *sensor)
+{
+	struct module *owner = NULL;
+	unsigned long flags;
+	int i;
+
+	spin_lock_irqsave(&tx_isp_t30_sensor_ref_lock, flags);
+	for (i = 0; i < TX_ISP_T30_SENSOR_REFS; i++) {
+		if (tx_isp_t30_sensor_refs[i].sensor == sensor) {
+			owner = tx_isp_t30_sensor_refs[i].owner;
+			tx_isp_t30_sensor_refs[i].sensor = NULL;
+			tx_isp_t30_sensor_refs[i].owner = NULL;
+			break;
+		}
+	}
+	spin_unlock_irqrestore(&tx_isp_t30_sensor_ref_lock, flags);
+	if (i < TX_ISP_T30_SENSOR_REFS)
+		module_put(owner);
+}
+
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000001fc4 origin=model_output original=subdev_sensor_ops_release_all_sensor */
 int32_t subdev_sensor_ops_release_all_sensor(void *arg1)
 {
@@ -8859,6 +8932,7 @@ int32_t subdev_sensor_ops_release_all_sensor(void *arg1)
             if (adapter != 0)
                 private_i2c_put_adapter((void *)adapter);
             private_i2c_unregister_device(client);
+            tx_isp_t30_sensor_ref_put((char *)node - 0xe4);
             node = *(void **)((char *)arg1 + 0xdc);
         } else if (i == 2) {
             node = *(void **)((char *)arg1 + 0xdc);
@@ -9041,7 +9115,9 @@ register_sensor:
 						void *core_ops = *(void **)ops_ptr;
 						int (*probe_fn)(void *, void *) = core_ops ?
 							*(int (**)(void *, void *))core_ops : NULL;
-						if (probe_fn && probe_fn(subdev, (char *)subdev + 0x8c) == 0) {
+						if (probe_fn && probe_fn(subdev, (char *)subdev + 0x8c) == 0 &&
+						    (*(int *)((char *)arg + 0x20) != 1 ||
+						     tx_isp_t30_sensor_ref_get(sensor, subdev) == 0)) {
 							private_mutex_lock((char *)file + 0xe8);
 							list_add_tail(
 								(struct list_head *)((char *)sensor + 0xe4),
@@ -9125,6 +9201,7 @@ register_sensor:
 				if (adap)
 					private_i2c_put_adapter((void *)adap);
 				private_i2c_unregister_device(client);
+				tx_isp_t30_sensor_ref_put(node);
 				return 0;
 			}
 		case 0x2000002:
