@@ -910,6 +910,41 @@ static u32 t33_dmsc_v[T33_DMSC_WORDS], t33_dpc_v[T33_DPC_WORDS], t33_ysp_v[T33_Y
 static u32 t33_rdns_v[T33_RDNS_WORDS], t33_ccm_v[T33_CCM_WORDS], t33_lsc_v[T33_LSC_WORDS];
 static struct t33_lsc t33_lsc_m;
 static u8 t33_bcsh_sec[T33_BCSH_SEC_BYTES], t33_bcsh_st[T33_BCSH_ST_BYTES];
+/*
+ * gamma block state (gamma_para): section 13 as the block sees it (tisp_gamma_init clears 0x42 / 0x43, a bin
+ * switch points at the raw new section), strength byte, the EV words interp_by_ev ran at (init: the
+ * stIspInitPar first-frame EV 0x4000 >> 10) and the curve of update_curve (openimp #507).
+ */
+static u8 t33_gamma_sec[T33_GAMMA_SEC_BYTES], t33_gamma_str = 0xff;
+static u32 t33_gamma_ip[2];
+static u16 t33_gamma_c[T33_GAMMA_N], t33_gamma_ap[T33_GAMMA_N];
+#define T33_BCSH_INIT_EV	0x4000U		/* stIspInitPar +0x398: fstframe_defaultp EV (u64 low word) */
+#define T33_GAMMA_INIT_IP	(T33_BCSH_INIT_EV >> 10)	/* fstframe_defaultp EV word >> 10, the vendor's init EV words */
+
+/*
+ * the block state of a gamma init (clear: tisp_gamma_init zeroes 0x42 / 0x43 first) or switch at the EV
+ * words ip[]: interp_by_ev (forced) and update_curve
+ */
+static void t33_gamma_state(const u8 *sec, const u8 *tab, u32 tabbytes, int clear)
+{
+	memcpy(t33_gamma_sec, sec, sizeof(t33_gamma_sec));
+	if (clear) {
+		t33_gamma_sec[0x42] = 0;
+		t33_gamma_sec[0x43] = 0;
+	}
+	if (!t33_gamma_sec[0x46] || tabbytes < t33_gamma_sec[0x46] * T33_GAMMA_CURVE_BYTES)
+		return;
+	if (clear) {	/* tisp_gamma_init: interp_by_ev (forced), update_curve, the normal write (ap kept on 0x44) */
+		u16 o[T33_GAMMA_N];
+
+		memcpy(t33_gamma_ap, t33_gamma_ap_def, sizeof(t33_gamma_ap));
+		t33_gamma_interp(t33_gamma_sec, t33_gamma_ip[0], t33_gamma_ip[1], &t33_gamma_str, 1);
+		t33_gamma_curve(t33_gamma_sec, tab, t33_gamma_ip[1] << 22 | t33_gamma_ip[0] >> 10, t33_gamma_c);
+		t33_gamma_transform(t33_gamma_c, t33_gamma_str, o);
+		if (t33_gamma_sec[0x44] == 1)
+			memcpy(t33_gamma_ap, o, sizeof(o));
+	}
+}
 static u32 t33_tmo_v[T33_TMO_WORDS], t33_mdns_v[T33_MDNS_WORDS];
 #include "tx_isp_t33_bst.h"
 #define T33_INIT_EV	0xffffffffU	/* the vendor's EV before the first AE run */
@@ -976,14 +1011,17 @@ static noinline_for_stack void t33_tisp_init_tone(const u8 *bin, u32 bytes)
 	if (off && len == T33_BCSH_SEC_BYTES) {
 		u32 *buf = t33_mod_buf(T33_MOD_BCSH), coff, clen;
 
-		/* CT 5000 K, EV 0 as the CCM; the colour space section for the csc set */
+		/*
+		 * stIspInitPar first-frame inputs (fstframe_defaultp, no RISC-V): CT +0x3d0 = 5000 K, EV +0x398 =
+		 * 0x4000 (state word 8 = EV >> 10), words +0x3d8 / +0x3dc; the colour space section for the csc set
+		 */
 		coff = t32_iq_section(bin, bytes, T32_IQ_SEC_CSC, &clen);
 		memcpy(t33_bcsh_sec, bin + off, sizeof(t33_bcsh_sec));
 		if (buf && coff && clen == T32_CSC_BYTES)
 			t33_mod_done(T33_MOD_BCSH,
 				     t33_bcsh_init(t33_bcsh_sec, bin + off + len,
 						   t32_iq_payload(bin + off, bytes - off, T33_SEC_BCSH), bin + coff,
-						   T33_CCM_INIT_CT, T33_CCM_INIT_EV, t33_bcsh_st, buf, T33_SLOT_WORDS));
+						   T33_CCM_INIT_CT, T33_BCSH_INIT_EV, t33_bcsh_st, buf, T33_SLOT_WORDS));
 	}
 }
 
@@ -1505,7 +1543,8 @@ out:
  * last CT update reaches the list words here, list 10 reruns every time),
  * LCE (tisp_lce_ev_update, top bypass bit 11 clear: lists 16 / 37 words
  * from the EV / BV interpolations, picked up by the next irq 8 start;
- * openimp #500).  The vendor's gamma / RDNS / defog / TMO EV updates leave
+ * openimp #500), gamma (tisp_gamma_ev_update, bit 8: list 11 on a new
+ * strength; openimp #507).  The vendor's RDNS / defog / TMO EV updates leave
  * their words unchanged on PRJ008 (flat EV tables, QEMU trace); RDNS, defog
  * and TMO set their refresh flag every time (tisp_rdns_ev_update,
  * tisp_defog_ev_update, tisp_tmo_ev_update): lists 3, 12 and 8 rerun.
@@ -1545,6 +1584,22 @@ void t33_ev_refresh(u32 lo, u32 hi, u32 bv)
 				t33_gr_commit(T33_MOD_CCM, 1);
 			else
 				t33_gr_rerun(T33_MOD_CCM);
+		}
+	}
+	/*
+	 * tisp_gamma_ev_update (top bypass bit 8 clear): interp_by_ev / update_curve every time, list 11 rewritten
+	 * and rerun only on a new strength (block gammaev, openimp #507)
+	 */
+	if (t33_gr_tmp && !(t33_top_byp & 0x100) && (t33_mod_built & (1ULL << T33_MOD_GAMMA)) &&
+	    (buf = t33_mod_buf(T33_MOD_GAMMA)) && !t32_core_iq_bin(&bin, &bytes)) {
+		u32 len, off = t32_iq_section(bin, bytes, T33_SEC_GAMMA, &len);
+
+		if (off && len == T33_GAMMA_SEC_BYTES && t33_gamma_sec[0x46] &&
+		    t32_iq_payload(bin + off, bytes - off, T33_SEC_GAMMA) >= t33_gamma_sec[0x46] * T33_GAMMA_CURVE_BYTES) {
+			memcpy(t33_gr_tmp, buf, T33_SLOT_WORDS * 4);
+			if (!t33_gamma_ev_update(t33_gamma_sec, bin + off + len, lo, hi, &t33_gamma_str, t33_gamma_ip,
+						 t33_gamma_c, t33_gamma_ap, t33_gr_tmp))
+				t33_gr_commit(T33_MOD_GAMMA, 1);
 		}
 	}
 	if (!(t33_top_byp & 0x800))
@@ -1931,6 +1986,9 @@ static void t33_tisp_init(const u8 *bin, u32 bytes)
 				     t33_gamma_init(bin + off, bin + off + len,
 						    t32_iq_payload(bin + off, bytes - off, T33_SEC_GAMMA),
 						    T33_CCM_INIT_EV, 0, buf, T33_SLOT_WORDS));
+		t33_gamma_ip[0] = T33_GAMMA_INIT_IP;
+		t33_gamma_ip[1] = 0;
+		t33_gamma_state(bin + off, bin + off + len, t32_iq_payload(bin + off, bytes - off, T33_SEC_GAMMA), 1);
 	}
 	off = t32_iq_section(bin, bytes, T33_SEC_DEFOG, &len);
 	if (off && len == T33_DEFOG_SEC_BYTES && !t32_core_sensor_size(&width, &height)) {
@@ -2104,12 +2162,23 @@ static noinline_for_stack void t33_sw_tone(const u8 *bin, u32 bytes, u32 width, 
 							(u32)virt_to_phys((void *)t33_tmo_pages), t33_tmo_v,
 							t33_gr_tmp, T33_SLOT_WORDS));
 	}
-	/* tisp_gamma_switch_para: interp_by_ev (forced), update_curve, write_lut */
+	/* tisp_gamma_switch_para: interp_by_ev (forced), update_curve, transform / API curve, write_lut */
 	if (T33_SW_SEC(GAMMA)) {
-		T33_SW_TMP();
-		t33_gr_commit(T33_MOD_GAMMA, t33_gamma_init(bin + off, bin + off + len,
-							    t32_iq_payload(bin + off, bytes - off, T33_SEC_GAMMA),
-							    lo, hi, t33_gr_tmp, T33_SLOT_WORDS));
+		u32 *buf;
+
+		/*
+		 * at the EV words of the last gamma EV update (gamma_para ip), the raw new section: its 0x42 / 0x43
+		 * may select the API curve (PRJ008: 0x43 = 2, the init curve kept in ap; block gammaev, openimp #507)
+		 */
+		t33_gamma_state(bin + off, bin + off + len, t32_iq_payload(bin + off, bytes - off, T33_SEC_GAMMA), 0);
+		if (t33_gamma_sec[0x46] && t32_iq_payload(bin + off, bytes - off, T33_SEC_GAMMA) >=
+					   t33_gamma_sec[0x46] * T33_GAMMA_CURVE_BYTES &&
+		    (t33_mod_built & (1ULL << T33_MOD_GAMMA)) && (buf = t33_mod_buf(T33_MOD_GAMMA))) {
+			memcpy(t33_gr_tmp, buf, T33_SLOT_WORDS * 4);
+			t33_gamma_switch(t33_gamma_sec, bin + off + len, t33_gamma_ip, &t33_gamma_str, t33_gamma_c,
+					 t33_gamma_ap, t33_gr_tmp);
+			t33_gr_commit(T33_MOD_GAMMA, 1);
+		}
 	}
 	/* tisp_ccm_switch_para: interp_by_ct (forced) / _by_ev, calc_para_refresh, write_reg */
 	if (T33_SW_SEC(CCM)) {

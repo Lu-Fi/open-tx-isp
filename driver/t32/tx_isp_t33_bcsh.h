@@ -34,6 +34,7 @@
 #define T33_BCSH_ID		0x01350181U
 #define T33_BCSH_ST_BYTES	0x290U
 #define T33_BCSH_INFO_BYTES	0xb2U
+#define T33_BCSH_INIT_W18	100U	/* stIspInitPar +0x3d8 (fstframe_defaultp word 16) */
 
 #ifdef __KERNEL__
 #define T33_BCSH_FN	static noinline_for_stack __maybe_unused int
@@ -592,6 +593,8 @@ T33_BCSH_FN t33_bcsh_init(u8 *sec, const u8 *lut, u32 lutbytes, const u8 *csc, i
 	ev >>= 10;
 	t32_bcsh_p32(st, 8, (u32)ev);
 	t32_bcsh_p32(st, 0xc, (u32)(ev >> 32));
+	/* stIspInitPar +0x3d8 / +0x3dc (first-frame defaults without RISC-V: 100, 0) */
+	t32_bcsh_p32(st, 0x18, T33_BCSH_INIT_W18);
 	t32_bcsh_p32(st, 0x24, 0xff);
 	t33_bcsh_new_para(sec, st + 0x25c);
 	t33_bcsh_ev(st, sec, ev);
