@@ -185,3 +185,14 @@ All of them print `SKIP` and exit 0 when an input is missing (a failure under `T
 
 The static checks always run; the Unicorn part needs `T31_OEM_KO=<vendor tx-isp-t31.ko>` and `T31_TUNING_BINS=<directory with T31
 sensor tuning bins>`, else it prints `SKIP`.
+
+## T33 binary oracle (`tests/t33_binoracle`, openimp #99)
+
+`t33_binoracle/run.sh <block>` (make target `t33_binoracle_leaf`, part of `check-oracles`) runs single functions
+of the vendor `tx-isp-t33.ko` in Unicorn next to our C of `driver/t32/tx_isp_t33_*.h`, built for mipsel with the
+vendor calling convention (`<block>.c`): `tools/ko_emu/t33_binoracle.py` compares the return value, every pointer
+argument's buffer and the listed globals on random and edge inputs (spec in `<block>.conf`, FUNCS), then each
+MUTATIONS line (`header|from|to`) must be detected. Inputs: `T33_OEM_KO` (vendor module, local only), `T33_CC`
+(else `T40_CC`); SKIP without them. A new block = `<block>.c` + `<block>.conf` (the port loop's `--test`).
+The T33 status page counts a T33-only vendor function as proven when it is an entry point (or a callee of one)
+of these blocks or of `t33_lcepf_host`.

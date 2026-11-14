@@ -85,10 +85,14 @@ static inline u32 t33_lsc_ct_part(u32 ct, u32 n, const u16 *c, const u8 *hy)
 #undef HY
 }
 
-/* 64-bit integer square root, rounded (tisp_sqrt_round) */
+/*
+ * Integer square root of 4 x, halved and rounded (tisp_sqrt_round -> tisp_sqrt).  The vendor's tisp_sqrt starts
+ * its bit at 1 << 30 (not 1 << 62), so it is exact only for 4 x < 2^32 and saturates near 0xffff above; kept
+ * (binary oracle tests/t33_binoracle leaf, openimp #99; the LSC callers stay below 2^30).
+ */
 static inline u32 t33_sqrt_round(unsigned long long x)
 {
-	unsigned long long r = 0, bit = 1ULL << 62;
+	unsigned long long r = 0, bit = 1ULL << 30;
 
 	x <<= 2;
 	while (bit > x)
