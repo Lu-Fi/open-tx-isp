@@ -4,6 +4,10 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD[-rcN]` are set on the `aperto` branch, the same tag in open-tx-isp and OpenIMP: RC1 `v2026.10.11-rc1`, RC2 `v2026.10.25-rc2`, RC3 `v2026.11.07-rc3` (2026-11-07). Gate SoCs of RC3 and Release 1: T10, T20, T21, T23, T30, T31, T40, T41 (T32/T33 planned, QEMU only); release notes: [docs/releases/ in OpenIMP](https://github.com/Lu-Fi/openimp/blob/next/docs/releases/README.md). Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-11-15: T10/T20 firmware: validate_complexity_test and awb_range_low keep their divide-by-zero guards (openimp #599, #600)
+
+- User decision 2026-11-15: better than the vendor (the vendor traps with a Break oops); listed in `docs/BEYOND_VENDOR.md`. No code change; vdiff keeps them in KNOWN_MUT as intentional differences.
+
 ## 2026-11-15: T10/T20 firmware: adjust_exposure stores through the history slot, unsigned long-integration clamp (openimp #602, #601; #598 kept as beyond vendor)
 
 - `driver/t20/tx_isp_t20_firmware.c` (shared T10 / T20) `adjust_exposure` (#602): the 8-slot loop now writes the corrected exposure through the pointer `cmos_get_frame_exposure_set()` returns (vendor tx-isp-t10.ko 0x229f8..0x22a18); the recovered code dropped the return value and read / wrote address 0, a kernel oops when the general FSM calls it after 21 saturated frames.
