@@ -526,6 +526,7 @@ def main():
         api = fuzz.fuzz_api(m, max(50, a.fuzz // 20))
         api.update(fuzz.fuzz_sbus(m, a.fuzz))
         api.update(fuzz.fuzz_crop(m, a.fuzz))
+        api.update(fuzz.fuzz_dis(m, a.fuzz))
         if a.only:
             api = {k: v for k, v in api.items() if k in a.only.split(',')}
         for fn, (n, bad) in sorted(api.items()):

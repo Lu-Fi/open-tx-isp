@@ -1,5 +1,7 @@
 """Randomised inputs for side-effect-free helpers (vendor vs ours)."""
+import os
 import random
+import sys
 import struct
 from emu import HEAP, SP0, u32
 
@@ -272,4 +274,99 @@ def fuzz_crop(m, n=3000, seed=4):
         out[name] = (n, bad)
     env.regs[:] = regs0
     env.log = []
+    return out
+
+
+# DIS family + register_value (openimp #564-#569): private contexts, random
+# register words (grid size reg 0x908, statistics bank 0x8000+0x570*4).
+# Same return, same private memory, same register writes / events.
+DIS_FN = ('dis_update_stats', 'dis_update_settings', 'validate_motion_vectors')   # register_value: sbus callback at +0x10 not modelled
+
+
+def fuzz_dis(m, n=3000, seed=6):
+    fw, retp = HEAP + 0x4000, HEAP + 0x800
+    ctx = fw + 0x18
+    fsm, filt, blk, api = HEAP + 0x20000, HEAP + 0x22000, HEAP + 0x24000, HEAP + 0x30000
+    SZ = {'fsm': 0x2000, 'filt': 0x100, 'blk': 0x1000, 'api': 0x1800}
+    env = m.env
+    regs0 = bytes(env.regs)
+    keep = env.io_ret, env.i2c_ret, env.i2c_data
+    out = {}
+    for name in DIS_FN:
+        if name not in m.V.sym or name not in m.O.sym:
+            continue
+        r = random.Random(seed)
+        bad = []
+        for i in range(n):
+            if os.environ.get('FUZZDBG'):
+                print('fuzz_dis', name, i, file=sys.stderr, flush=True)
+            mem = {}
+            fw_mem = bytearray(0x18 + 0x2fb8)
+            struct.pack_into('<I', fw_mem, 0x18 + 4, fw)
+            struct.pack_into('<iiii', fw_mem, 0x18 + 0x2ea4, 0, 0, ctx + 0x2eb4, 0x100)
+            mem[fw] = bytes(fw_mem)
+            rr = bytearray(r.getrandbits(8) for _ in range(0x1000))
+            gridw = r.choice((r.getrandbits(32), (r.randint(0, 9) << 8) | r.randint(0, 9)))
+            rr[0x908:0x90c] = struct.pack('<I', gridw)
+            env.io_ret = r.getrandbits(32)
+            env.i2c_ret = (r.choice((0, 0, 1)), r.choice((0, 0, 2)))
+            env.i2c_data = bytes(r.getrandbits(8) for _ in range(8))
+            if name == 'dis_update_stats':
+                f = bytearray(r.getrandbits(8) for _ in range(SZ['fsm']))
+                struct.pack_into('<IIII', f, 0, ctx, r.getrandbits(32), r.getrandbits(32), 0)
+                struct.pack_into('<iii', f, 32, r.choice((0, 0, 1)), r.randint(0, 50), r.choice((0, 8, 64, 100)))
+                mem[fsm] = bytes(f)
+                args = [fsm]
+            elif name == 'dis_update_settings':
+                f = bytearray(r.getrandbits(8) for _ in range(SZ['fsm']))
+                struct.pack_into('<I', f, 0x10, r.choice((0, filt, filt)))
+                struct.pack_into('<ii', f, 0x14, r.randint(0, 9), r.randint(0, 9))
+                struct.pack_into('<I', f, 0x1840, r.choice((1, 1, 1, 0, 2)))
+                mem[fsm] = bytes(f)
+                mem[filt] = bytes(r.getrandbits(8) for _ in range(SZ['filt']))
+                args = [r.choice((fsm, fsm, fsm, 0))]
+            elif name == 'validate_motion_vectors':
+                cols, rows = r.randint(0, 6), r.randint(0, 6)
+                b = bytearray(r.getrandbits(8) for _ in range(SZ['blk']))
+                for k in range(0, len(b) - 24, 4):
+                    struct.pack_into('<i', b, k, r.randint(0, 100))   # (-1 would divide by zero in validate_complexity_test)
+                mem[blk] = bytes(b)
+                args = [r.choice((fsm, fsm, fsm, 0)), r.choice((blk, blk, blk, 0)), cols, rows]
+            else:
+                a = bytearray(r.getrandbits(8) for _ in range(SZ['api']))
+                rid = r.choice((0x5d, 0x5e, 0x5b, 0x5d, 0x5e, 0x5b, r.getrandbits(16)))
+                struct.pack_into('<IH', a, 0x1500, r.getrandbits(32), r.choice((8, 16, 32, 8, 16, 32, r.getrandbits(16))))
+                struct.pack_into('<H', a, 0x1506, rid)
+                for off in (0x150c, 0x1c, 0x34):
+                    mask = sum(bt for bt in SBUS_BITS if bt != 2 and r.random() < 0.4)   # bit 2 = callback at +0x10 (not modelled)
+                    a[off:off + 0x40] = bytes(0x40)
+                    struct.pack_into('<IIII', a, off, mask | (r.getrandbits(1) << 15), r.getrandbits(32), r.getrandbits(32), 0)
+                mem[api] = bytes(a)
+                args = [api, r.getrandbits(r.choice((8, 16, 32, 32))), r.choice((0, 1, 2, 0, 1, 255)), retp]
+            res = []
+            for img in (m.V, m.O):
+                for a0, b in mem.items():
+                    m.uc.mem_write(a0, b)
+                env.regs[:] = regs0
+                env.regs[0:0x1000] = rr
+                env.regs[0x9000:0xa000] = rr[0x800:0x1000] * 2   # DIS statistics bank
+                m.w32(retp, 0xdeadbeef)
+                env.log = []
+                v0 = m.call(img.sym[name][0], args, sp=SP0)[0]
+                res.append((v0, m.r32(retp), env.log,
+                            tuple(bytes(m.uc.mem_read(a0, len(b))) for a0, b in mem.items()),
+                            bytes(env.regs[0:0x1000]), bool(m.fault)))
+            if res[0] != res[1]:
+                (a, ra, la, ma, ga, fa), (b, rb, lb, mb, gb, fb) = res
+                k = 0
+                while k < min(len(la), len(lb)) and la[k] == lb[k]:
+                    k += 1
+                dm = [(j, hex(x)) for j, (p, q) in enumerate(zip(ma, mb)) for x in range(len(p)) if p[x] != q[x]][:4]
+                bad.append((args, 'ret V=0x%x O=0x%x *ret V=0x%x O=0x%x log@%d V=%s O=%s mem(buf,off) %s%s' % (
+                    a, b, ra, rb, k, la[k:k + 1], lb[k:k + 1], dm,
+                    (' fault V=%s O=%s' % (fa, fb)) if fa or fb else '')))
+        out[name] = (n, bad)
+    env.regs[:] = regs0
+    env.log = []
+    env.io_ret, env.i2c_ret, env.i2c_data = keep
     return out

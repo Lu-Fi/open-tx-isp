@@ -2030,7 +2030,7 @@ int32_t defect_pixel(int32_t arg1, int32_t arg2, char arg3);
 int32_t register_address(void *arg1, int32_t arg2, char arg3, int32_t *arg4);
 int32_t register_size(void *arg1, int32_t arg2, char arg3, int32_t *arg4);
 int32_t register_source(void *arg1, int16_t arg2, char arg3, int32_t *arg4);
-int32_t register_value(void *arg1, char arg2, char arg3, uint32_t *arg4);
+int32_t register_value(void *arg1, uint32_t arg2, char arg3, uint32_t *arg4);
 int32_t scene_mode(void *arg1, int32_t arg2, char arg3, int32_t *arg4);
 static int32_t sharpening_mode(uint32_t a0, uint32_t a1, uint32_t a2, uintptr_t a3);
 int32_t sharpening_strength(void *arg1, int32_t arg2, char arg3, int32_t *arg4);
@@ -7460,7 +7460,7 @@ int32_t register_source(void *ctx, int16_t value, char direction, int32_t *resul
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000001d15c origin=model_output original=register_value */
-int32_t register_value(void *api, char data, char direction, uint32_t *result_out)
+int32_t register_value(void *api, uint32_t data, char direction, uint32_t *result_out)
 {
 	uint32_t reg_id;
 	uint32_t val;
@@ -7470,7 +7470,7 @@ int32_t register_value(void *api, char data, char direction, uint32_t *result_ou
 	int32_t ret;
 
 	reg_id = *(uint16_t *)((char *)api + 0x1506);
-	val = (uint32_t)(uint8_t)data;
+	val = data;
 	*result_out = 0;
 
 	if (reg_id == 0x5d) {
@@ -19567,7 +19567,7 @@ int32_t sharpening_update(int32_t *fsm)
 
 		idx2 = 0;
 		while (idx2 < 0x100) {
-			if ((uint32_t)fsm[idx2 * 4 + 0x1a] >= (uint32_t)thresh2 * (uint32_t)hist_val / (uint32_t)(width * 0x64))
+			if ((uint32_t)fsm[idx2 * 4 + 0x1a] >= (uint32_t)thresh3 * (uint32_t)hist_val / (uint32_t)(width * 0x64))
 				break;
 			idx2++;
 		}
@@ -19586,7 +19586,7 @@ int32_t sharpening_update(int32_t *fsm)
 		idx4 = 0;
 		flag = 0;
 		while (idx4 < 0x100) {
-			if ((uint32_t)fsm[idx4 * 4 + 0x1a] >= (uint32_t)hist_val - (uint32_t)thresh3 * (uint32_t)hist_val / (uint32_t)(height * 0x64)) {
+			if ((uint32_t)fsm[idx4 * 4 + 0x1a] >= (uint32_t)hist_val - (uint32_t)thresh2 * (uint32_t)hist_val / (uint32_t)(height * 0x64)) {
 				flag = (*(uint8_t *)((char *)fsm + 0x4d) < idx1) ? 1 : 0;
 				break;
 			}
@@ -19928,8 +19928,8 @@ int32_t dis_update_stats(int32_t *fsm)
     while ((uintptr_t)idx < count * 2) {
         int32_t raw_a = APICAL_READ_32((((uintptr_t)idx + 0x570) << 2) + 0x8000);
         int32_t raw_b = APICAL_READ_32((((uintptr_t)idx + 0x571) << 2) + 0x8000);
-        ((void **)dst)[0] = (int32_t)((uint32_t)raw_a << 0x18 >> 0x18);
-        ((void **)dst)[1] = (int32_t)((uint32_t)(raw_a >> 0x10) << 0x18 >> 0x18);
+        ((void **)dst)[0] = (int32_t)(int8_t)raw_a;
+        ((void **)dst)[1] = (int32_t)(int8_t)(raw_a >> 0x10);
         ((void **)dst)[2] = raw_b & 0xffff;
         ((void **)dst)[3] = raw_b >> 0x10;
         ((void **)dst)[4] = raw_b >> 0x10;
@@ -19966,8 +19966,9 @@ int32_t dis_update_settings(uintptr_t fsm)
         dis_get_settings(*(uint32_t *)((char *)fsm + 0x10), (int32_t)settings);
         uint32_t new_reg_a = APICAL_READ_32(0x908);
         uint32_t new_reg_b = APICAL_READ_32(0x908);
-        ((void **)settings)[0] = new_reg_a & 0x1f;
-        ((void **)settings)[1] = (new_reg_b & 0x1f00) >> 8;
+        /* vendor: settings[0] is the one dis_get_settings filled; the grid goes into [1] / [2] */
+        ((void **)settings)[1] = new_reg_a & 0x1f;
+        ((void **)settings)[2] = (new_reg_b & 0x1f00) >> 8;
         dis_set_settings(*(uint32_t *)((char *)fsm + 0x10), (int32_t)settings);
     }
 
@@ -19994,7 +19995,7 @@ void dis_analyze_stats(void *fsm)
 {
     unsigned char *base = (unsigned char *)fsm;
     int enabled, one;
-    int gmv_x, gmv_h, gmv_w, gmv_y;
+    int out_a[2], out_b[2];	/* dis_analyze writes two words through each pointer (vendor sp+24/sp+16) */
 
     if (base == 0)
         return;
@@ -20018,22 +20019,22 @@ void dis_analyze_stats(void *fsm)
     }
 
     *(int *)(base + 0x20) = enabled;
-    gmv_x = 0;
-    gmv_y = 0;
-    gmv_w = 0;
-    gmv_h = 0;
+    out_a[0] = 0;
+    out_a[1] = 0;
+    out_b[0] = 0;
+    out_b[1] = 0;
     dis_update_settings(base);
 
-    if (dis_analyze(*(void **)(base + 0x10), base + 0x2c, &gmv_x, &gmv_w) == 0) {
-        *(int *)(base + 0x182c) = gmv_x;
-        *(int *)(base + 0x1830) = gmv_y;
-        *(int *)(base + 0x1834) = gmv_w;
-        *(int *)(base + 0x1838) = gmv_h;
+    if (dis_analyze(*(void **)(base + 0x10), base + 0x2c, out_a, out_b) == 0) {
+        *(int *)(base + 0x182c) = out_a[0];
+        *(int *)(base + 0x1830) = out_a[1];
+        *(int *)(base + 0x1834) = out_b[0];
+        *(int *)(base + 0x1838) = out_b[1];
         *(int *)(base + 0x183c) = *(int *)(base + 0x1c);
         /* OEM 0x2ff80: sh at stab+56/+58 (global_dis_x/y); the recovery
          * scaled the byte offsets by 4 and wrote both halves to stab+14 */
-        stab.global_dis_x = (unsigned short)gmv_x;
-        stab.global_dis_y = (unsigned short)gmv_y;
+        stab.global_dis_x = (unsigned short)out_a[0];
+        stab.global_dis_y = (unsigned short)out_a[1];
     }
 
     *(int *)(base + 0x20) = 0;
@@ -20405,7 +20406,7 @@ int32_t validate_motion_vectors(int32_t ctx, void *blocks, int32_t cols, int32_t
                 *(int32_t *)((char *)cur + 0x14) = 0;
             }
 
-            cur = (void *)(uintptr_t)((uintptr_t)cur + (6));
+            cur = (void *)((char *)cur + 24);	/* vendor: 24-byte block record */
             col_idx++;
         }
 
