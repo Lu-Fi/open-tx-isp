@@ -333,6 +333,79 @@ static void t33_blc_switch(const u8 *sec)
 }
 
 /*
+ * LSC (openimp #99 group 13b): the vendor's lsc_para[0] (0xc4 bytes, tisp_lsc_init's layout) instead of the
+ * init builder's private state:
+ * - word 0 the section in tparamsP (+17488, t33_lsc_sec: the bin's section copied at every bin parse), word 1
+ *   the 0x20-byte parameters (0 / 1 sensor height / width, 2 CT, 3 the last CT zone, 5 gain), word 2 the 0x34-byte
+ *   mesh info (0 cells, 4 stride, 8..11 remainders / rows / cols, 0x10 / 0x12 / 0x13 CT / gain / last strength,
+ *   0x14 the shift, 0x15 valid, 0x18 the table CTs, 0x1c..0x30 the six planes = t33_lsc_m's), word 3 a 0xc-byte
+ *   block, words 4 / 5 the mesh table (tisp_lsc_malloc_info: virtual / physical address; here the driver's DMA
+ *   pages, written through KSEG1), byte 0x18 the pending-rewrite flag of the frame done;
+ * - tisp_lsc_init (t33_lsc_attach): tisp_lsc_lut_valid_check (t33_lsc_mesh_check), interp_by_tgain
+ *   (t33_lsc_interp_by_tgain_v), interp_by_ct (t33_lsc_ct_info, tx_isp_t33_lscv.h), func_lsc_para_update, tisp_lsc_write_reg (the
+ *   list 6 slots, tispLscRefresh), the two init stores 0x504c / 0x5010; tisp_lsc_switch_para (tx_isp_t33_swmid.h)
+ *   on the same block at day / night;
+ * - tisp_lsc_irq_frame_done (system irq 36, interrupt status bit 4): refresh 1 starts list 6, refresh 2 writes it.
+ * tisp_lsc_interp_by_ct is t33_lsc_ct of tx_isp_t33_lsc.h (the QEMU-proven init builder's CT blend, strength,
+ * distance and packing, openimp #388) on the mesh info's fields; it is not an oracle-proven port (its callees
+ * tisp_look_up_ct_list / lut_update_by_strength / _by_distance are).  tisp_lsc_tgain_update / ct_update are not
+ * wired: the PRJ008 top bypass bit 0x08 skips both (openimp #537).  The list layout itself still comes from the
+ * init builder (t33_lsc_init, the same words; tisp_rcfg reg_init checks it).
+ */
+#include "tx_isp_t33_lscv.h"
+#define T33_LSC_IRQ_BIT		4	/* system irq 36 */
+static struct t33_lsc_vblk t33_lsc_b;
+static u32 *lsc_para[4];
+static u8 t33_lsc_sec[T33_LSC_SEC_BYTES];	/* tparamsP[0] + 17488 */
+static u8 t33_lsc_refresh;			/* tispLscRefresh */
+static u32 t33_lsc_count[4];			/* lsc_count */
+static const u8 *t33_lsc_tab;			/* stLutInfo[0] + 0x14: the CT tables */
+u32 t33_lsc_runs[3];				/* init, switches, frame dones with a refresh */
+
+static void t33_lsc_wr(u32 ch, u32 blk, u32 sel, u32 val)
+{
+	tisp_reg_write_t33(ch, blk, sel, val);
+}
+
+/* tisp_lsc_write_reg(ch, mode) */
+static void t33_lsc_write_reg(u32 ch, u32 mode)
+{
+	(void)mode;
+	if (lsc_para[ch & 3])
+		t33_lsc_refresh = (u8)t33_lsc_write_regs(lsc_para[ch & 3], ch, t33_bst_cfg_mode, t33_lsc_wr,
+							   tisp_rcfg_get_dma_state);
+}
+
+/* tisp_lsc_init (channel 0): section sec / CT tables tab of the bin, sensor h x w, gain 16.16, ct in K */
+static void t33_lsc_attach(const u8 *sec, const u8 *tab, u32 tabbytes, u32 h, u32 w, u32 gain, u32 ct)
+{
+	unsigned long flags;
+	int rc;
+
+	if (!t33_lsc_pages)
+		return;
+	local_irq_save(flags);
+	lsc_para[0] = NULL;
+	t33_lsc_refresh = 0;
+	memcpy(t33_lsc_sec, sec, sizeof(t33_lsc_sec));
+	t33_lsc_tab = tab;
+	/* tisp_lsc_malloc_info: the mesh table = the driver's DMA pages, written through KSEG1 */
+	rc = t33_lsc_vinit(&t33_lsc_b, &t33_lsc_m, t33_lsc_sec, tab, tabbytes, h, w, gain, ct,
+			   (u8 *)CKSEG1ADDR(virt_to_phys((void *)t33_lsc_pages)), (u32)virt_to_phys((void *)t33_lsc_pages));
+	if (!rc) {
+		lsc_para[0] = t33_lsc_b.blk;
+		t33_lsc_write_reg(0, 0);
+		tisp_reg_write_t33(0, 6, t33_bst_cfg_mode ? 6 : 0x504c, 1);
+		tisp_reg_write_t33(0, 6, t33_bst_cfg_mode ? 1 : 0x5010, 1);
+	}
+	local_irq_restore(flags);
+	if (rc)
+		isp_printf(1, "tx-isp-t33: LSC tables do not fit, block not attached\n");
+	else
+		t33_lsc_runs[0]++;
+}
+
+/*
  * CSCCR day / night (openimp #507): lib_tisp_set_csccr from SET_TIZIANO_PAR
  * (update_csccr) and tisp_csccr_t33_frame_done_interrupt (system irq 57,
  * block fd-csccr), with the vendor's glue (tx_isp_t33_dnglue.h, block
@@ -396,6 +469,12 @@ static void t33_bst_irq(u32 msca)
 			t33_blc_runs[3]++;
 		t33_blc_frame_done_st(0, (const u8 *)t33_bst_initpar, &t33_blc_refresh, tisp_rcfg_module_cfg_trig,
 				      tisp_blc_write_reg);
+	}
+	if ((msca & (1U << T33_LSC_IRQ_BIT)) && lsc_para[0]) {
+		if (t33_lsc_refresh)
+			t33_lsc_runs[2]++;
+		t33_lsc_frame_done_v(0, lsc_para, t33_lsc_count, (const u8 *)t33_bst_initpar, &t33_lsc_refresh,
+				     tisp_rcfg_module_cfg_trig, t33_lsc_write_reg);
 	}
 	if (msca & (1U << T33_CSCCR_BIT)) {
 		t33_csccr_frame_done(0, (const u8 *)t33_bst_initpar, &t33_csccr_refresh, t33_csccr_cnt,

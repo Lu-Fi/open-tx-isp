@@ -1766,6 +1766,8 @@ void t33_stats_show(struct seq_file *m)
 		   t33_tmo1s_runs[2]);
 	seq_printf(m, "t33 blc: %s init %u gain %u switch %u fd %u refresh %u\n", blc_para[0] ? "on" : "off",
 		   t33_blc_runs[0], t33_blc_runs[1], t33_blc_runs[2], t33_blc_runs[3], t33_blc_refresh);
+	seq_printf(m, "t33 lsc: %s init %u switch %u fd %u refresh %u count %u\n", lsc_para[0] ? "on" : "off",
+		   t33_lsc_runs[0], t33_lsc_runs[1], t33_lsc_runs[2], t33_lsc_refresh, t33_lsc_count[0]);
 }
 
 /* for ../t33/tx_isp_t33_awbc.c: register read, and the per-frame AWB results into lists 7 / 29 */
@@ -2715,6 +2717,8 @@ static void t33_tisp_init(const u8 *bin, u32 bytes)
 						  T33_INIT_GAIN, T33_CCM_INIT_CT, t33_lsc_v, &t33_lsc_m,
 						  (u8 *)CKSEG1ADDR(virt_to_phys((void *)t33_lsc_pages)),
 						  (u32)virt_to_phys((void *)t33_lsc_pages), buf, T33_SLOT_WORDS));
+		if (t33_mod_built & (1ULL << T33_MOD_LSC))	/* tisp_lsc_init on lsc_para (tx_isp_t33_bst.h) */
+			t33_lsc_attach(sec, tab, tb, height, width, T33_INIT_GAIN, T33_CCM_INIT_CT);
 	}
 }
 
@@ -2872,26 +2876,24 @@ static void t33_sw_lce(const u8 *bin, u32 bytes)
  * - defog_info[0]: word 3 the section copy (t33_defog_sec), 4 the para3 table block, 6 the trans-k strength,
  *   8 / 9 the sensor height / width; the weights are recomputed only when the section's size differs (as the
  *   vendor's switch: the zoom byte is not compared); write_reg_para1..3 = t33_defog_init into list 12.
- * - lsc_para[0]: word 0 section copy, 1 the block parameters (0 / 1 sensor height / width, 2 CT, 5 gain: the
- *   init values, both move only through tisp_lsc_tgain_update / tisp_lsc_ct_update which the top bypass bit
- *   0x08 skips on PRJ008, openimp #537), 2 the 0x34-byte mesh info (lut_valid_check: 0 cells, 4 stride,
- *   8..11 remainders / rows / cols, 21 valid); func_lsc_para_update + write_reg = t33_lsc_init into list 6.
+ * - lsc_para[0]: the vendor-layout LSC block of tx_isp_t33_bst.h (group 13b): tisp_lsc_switch_para on the new
+ *   section (copied into its tparamsP slot), the block's own gain / CT (they move only through
+ *   tisp_lsc_tgain_update / ct_update, which the top bypass bit 0x08 skips on PRJ008, openimp #537); its
+ *   write_reg writes the list 6 slots and tispLscRefresh, the LSC frame done (irq 36) starts the list.
  */
 #define T33_TP_OFF_CCM		21536U
 #define T33_TP_OFF_CSCCR	17880U
 #define T33_TP_OFF_LSC		17488U
 static u8 *t33_swg_tp8[4];
-static u8 t33_swg_ccm_sec[T33_CCM_SEC_BYTES], t33_swg_csccr_sec[T32_CSCCR_BYTES], t33_swg_lsc_sec[T33_LSC_SEC_BYTES];
+static u8 t33_swg_ccm_sec[T33_CCM_SEC_BYTES], t33_swg_csccr_sec[T32_CSCCR_BYTES];
 static u32 t33_swg_ccm_blk[5], *t33_swg_ccm_para[4] = { t33_swg_ccm_blk };
 static u32 *t33_swg_csccr_info[4] = { t33_swg_csccr_blk };
 static u8 t33_swg_defog_tab[3184];	/* defog_info word 4: the para3 tables (bytes 2458..3177) */
 static u32 t33_swg_defog_blk[13], *t33_swg_defog_info[4] = { t33_swg_defog_blk };
-static u32 t33_swg_lsc_par[6], t33_swg_lsc_mesh[0x34 / 4];
-static u32 t33_swg_lsc_blk[3], *t33_swg_lsc_para[4] = { t33_swg_lsc_blk };
 static u8 t33_swg_ccm_refresh;		/* tispCcmRefresh: the list is committed by t33_gr_commit */
 static struct {
-	const u8 *lut, *ltab;
-	u32 lutbytes, ltabbytes;
+	const u8 *lut;
+	u32 lutbytes;
 } t33_swg_mid;
 
 static int tisp_ccm_interp_by_ct(u32 idx, u32 ct, u32 force)
@@ -3006,50 +3008,41 @@ static int tisp_defog_write_reg_para3(u32 idx, u32 zero)
 	return 0;
 }
 
-/* tisp_lsc_lut_valid_check(h, w, cell h, cell w, rem h, rem w, rows, cols, cells, valid, stride) */
+/*
+ * tisp_lsc_switch_para's callees on the vendor-layout lsc_para (tx_isp_t33_bst.h, group 13b): the proven
+ * lut_valid_check / interp_by_tgain / func_lsc_para_update / write_reg ports, interp_by_ct = t33_lsc_ct_info
+ */
 static int tisp_lsc_lut_valid_check(u32 h, u32 w, u32 mh, u32 mw, u8 *p0, u8 *p1, u8 *p2, u8 *p3, u8 *p4, u8 *p5,
 				    u8 *p6)
 {
-	struct t33_lsc *m = &t33_lsc_m;
-
-	t33_lsc_mesh(m, (int)h, (int)w, (int)mh, (int)mw);
-	*p0 = m->rem_h;
-	*p1 = m->rem_w;
-	*p2 = m->rows;
-	*p3 = m->cols;
-	*(u32 *)p4 = m->cells;
-	*p5 = m->valid;
-	*(u32 *)p6 = m->stride;
+	t33_lsc_mesh_check((int)h, (int)w, (int)mh, (int)mw, p0, p1, p2, p3, (u32 *)p4, p5, (u32 *)p6);
 	return 0;
 }
 
 static int tisp_lsc_interp_by_tgain(u32 idx, u32 gain, u32 force)
 {
-	(void)idx; (void)gain; (void)force;
+	(void)force;
+	t33_lsc_interp_by_tgain_v(lsc_para[idx & 3], gain);
 	return 0;
 }
 
 static int tisp_lsc_interp_by_ct(u32 idx, u32 ct, u32 force)
 {
-	(void)idx; (void)ct; (void)force;
+	(void)force;
+	if (lsc_para[idx & 3])
+		t33_lsc_ct_info(lsc_para[idx & 3], &t33_lsc_m, t33_lsc_tab, ct);
 	return 0;
 }
 
 static int func_lsc_para_update(u32 idx)
 {
-	(void)idx;
+	t33_lsc_para_update_info(lsc_para[idx & 3]);
 	return 0;
 }
 
 static int tisp_lsc_write_reg(u32 idx, u32 mode)
 {
-	(void)idx; (void)mode;
-	T33_SW_TMP();
-	t33_gr_commit(T33_MOD_LSC,
-		      t33_lsc_init((const u8 *)(unsigned long)t33_swg_lsc_blk[0], t33_swg_mid.ltab, t33_swg_mid.ltabbytes,
-				   t33_swg_lsc_par[0], t33_swg_lsc_par[1], t33_swg_lsc_par[5], (u16)t33_swg_lsc_par[2],
-				   t33_lsc_v, &t33_lsc_m, (u8 *)CKSEG1ADDR(virt_to_phys((void *)t33_lsc_pages)),
-				   (u32)virt_to_phys((void *)t33_lsc_pages), t33_gr_tmp, T33_SLOT_WORDS));
+	t33_lsc_write_reg(idx, mode);
 	return 0;
 }
 
@@ -3176,20 +3169,20 @@ static noinline_for_stack void t33_sw_tone(const u8 *bin, u32 bytes, u32 width, 
 	 * tisp_lsc_tgain_update / tisp_lsc_ct_update, which the top bypass bit 0x08 skips (PRJ008) and
 	 * which are not ported, so they stay at the init values (openimp #537)
 	 */
-	if (T33_SW_SEC(LSC) && t33_lsc_pages) {
+	if (T33_SW_SEC(LSC) && lsc_para[0]) {
 		const u8 *tab, *sec = t33_lsc_src(bin, bytes, off, len, &tab, &tb);
+		unsigned long flags;
 
-		memcpy(t33_swg_lsc_sec, sec, sizeof(t33_swg_lsc_sec));
-		t33_swg_mid.ltab = tab;
-		t33_swg_mid.ltabbytes = tb;
-		t33_swg_lsc_par[0] = height;
-		t33_swg_lsc_par[1] = width;
-		t33_swg_lsc_par[2] = T33_CCM_INIT_CT;
-		t33_swg_lsc_par[5] = T33_INIT_GAIN;
-		t33_swg_lsc_blk[1] = (u32)(unsigned long)t33_swg_lsc_par;
-		t33_swg_lsc_blk[2] = (u32)(unsigned long)t33_swg_lsc_mesh;
-		t33_swg_tp8[0] = t33_swg_lsc_sec - T33_TP_OFF_LSC;
-		t33_lsc_switch_para(0, t33_swg_tp8, t33_swg_lsc_para);
+		if (sec[0x94] && sec[0x94] <= 8 && tb >= sec[0x94] * T33_LSC_TABLE_BYTES) {
+			local_irq_save(flags);
+			memcpy(t33_lsc_sec, sec, sizeof(t33_lsc_sec));	/* the bin parse into tparamsP */
+			t33_lsc_tab = tab;
+			t33_swg_tp8[0] = t33_lsc_sec - T33_TP_OFF_LSC;
+			t33_lsc_switch_para(0, t33_swg_tp8, lsc_para);
+			local_irq_restore(flags);
+			t33_lsc_runs[1]++;
+			t33_gr_runs[T33_MOD_LSC]++;
+		}
 	}
 	/* tisp_tmo_switch_para (tx_isp_t33_tmoSW.h) on the vendor-layout tmoInfo block */
 	if (T33_SW_SEC(TMO) && t33_tmo_pages)

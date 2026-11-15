@@ -130,4 +130,58 @@ static inline int t33_lsc_write_regs(const u32 *v, u32 ch, u8 cfg, t33_lsc_wr_fn
 
 #undef T33_LSC_W
 
+/*
+ * tisp_lsc_interp_by_tgain(ch, gain): v = lsc_para[ch] (word 0 the section, 1 the 0x20-byte parameters,
+ * 2 the 0x34-byte mesh info): parameter word 5 = gain; section word 1 (byte 4) selects the CT / gain
+ * strengths of the mesh info bytes 0x10 / 0x12 (0: CT by gain, 1: CT fixed, 2: gain by gain, else fixed).
+ */
+static inline void t33_lsc_interp_by_tgain_v(u32 *v, u32 gain)
+{
+	const u8 *s = (const u8 *)(unsigned long)v[0];
+	u8 *mi = (u8 *)(unsigned long)v[2];
+	u32 mode;
+
+	((u32 *)(unsigned long)v[1])[5] = gain;
+	mode = t33_le32(s + 4);
+	if (mode == 0) {
+		mi[16] = t32_tp_intp_u8(gain >> 16, gain & 0xffff, s + 0x85);
+		mi[18] = 0xff;
+	} else if (mode == 1) {
+		mi[16] = s[0x90];
+		mi[18] = 0xff;
+	} else if (mode == 2) {
+		mi[16] = 0xff;
+		mi[18] = t32_tp_intp_u8(gain >> 16, gain & 0xffff, s + 0x48);
+	} else {
+		mi[16] = 0xff;
+		mi[18] = s[0x90];
+	}
+}
+
+/*
+ * tisp_lsc_irq_frame_done (system irq 36): count[ch] the frame counter (16 bit); info byte 0x18 set
+ * (a pending rewrite) -> clear + write_reg(ch, 2); with stIspInitPar word 226 == 1: refresh 1 starts
+ * list 6, refresh 2 writes the slots again (write_reg sets the refresh state).
+ */
+static inline int t33_lsc_frame_done_v(u32 ch, u32 *const *lsc_para, u32 *count, const u8 *initpar, u8 *refresh,
+				       int (*trig)(u32, u32), void (*write_reg)(u32, u32))
+{
+	u8 *v = (u8 *)lsc_para[ch];
+
+	count[ch] = (count[ch] + 1) & 0xffff;
+	if (v[0x18]) {
+		v[0x18] = 0;
+		write_reg(ch, 2);
+	}
+	if (t33_le32(initpar + 904) == 1) {
+		if (*refresh == 1) {
+			trig(ch & 0xff, 6);
+			*refresh = 0;
+		} else if (*refresh == 2) {
+			write_reg(ch, 2);
+		}
+	}
+	return 1;
+}
+
 #endif /* TX_ISP_T33_LSCMISC_H */
