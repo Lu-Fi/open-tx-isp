@@ -31,3 +31,4 @@ NOIPA void func_cac_para_update(u32 ch) { (void)ch; __asm__ volatile("" ::: "mem
 int bo_tisp_sdns_switch_para(u32 ch) { return t33_sdns_switch(ch); }
 void bo_tisp_ydns_switch_para(u32 ch) { t33_ydns_switch(ch); }
 void bo_tisp_dpc_switch_para(u32 ch) { t33_dpc_switch(ch); }
+void bo_tisp_dpc_l_gain_update(u32 ch, u32 gain) { t33_dpc_l_gain_update(ch, gain); }

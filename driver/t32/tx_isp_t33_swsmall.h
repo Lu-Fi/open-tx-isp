@@ -255,6 +255,14 @@ static inline void t33_dpc_switch(u32 ch)
 	tispDpcRefresh = tisp_rcfg_get_dma_state(2) ? 2 : 1;
 }
 
+/* tisp_dpc_l_gain_update (tisp_long_tgain_update, gain changed): the gain into dpcInfo word 171, then the same
+ * update and list writes as tisp_dpc_switch_para (the two vendor bodies differ only in this store) */
+static inline void t33_dpc_l_gain_update(u32 ch, u32 gain)
+{
+	dpcInfo[ch][171] = gain;
+	t33_dpc_switch(ch);
+}
+
 #undef T33_I8
 #undef T33_I16
 

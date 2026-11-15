@@ -16,7 +16,10 @@
  *   t33_bst_refresh[] (the frame-done handlers of tx_isp_t33_bst.h start the
  *   list at refresh 1 and write the slots at refresh 2);
  * - func_*_para_update / *_bin_para_update: the driver's proven par helpers
- *   (tx_isp_t33_blk.h, tx_isp_t33_dpc.h) on the info words.
+ *   (tx_isp_t33_blk.h) on the info words; the DPC / CTR / CAC ones the vendor-form
+ *   ports of tx_isp_t33_dpcpar.h (oracle dpcpar, group 13c) on the section copy
+ *   t33_dpc_sec (the vendor's tparamsP + 0x3e2c); the gain update is the proven
+ *   tisp_dpc_l_gain_update (t33_dpc_l_gain_update, oracle sw-small).
  *
  * - mdns (tx_isp_t33_swmdns.h): mdnsInfo = t33_mdns_v (word 2180 section,
  *   2181 gain, 2190 the compression flag), the five 11-byte threshold tables
@@ -27,6 +30,8 @@
  */
 #ifndef TX_ISP_T33_SWGLUE_H
 #define TX_ISP_T33_SWGLUE_H
+
+#include "tx_isp_t33_dpcpar.h"
 
 #define T33_SW_GLUE	1
 
@@ -46,7 +51,8 @@
 static u32 *sdnsInfo[4] = { t33_sdns_inf }, *ydnsInfo[4] = { t33_ydns_inf }, *dpcInfo[4] = { t33_dpc_v };
 static u32 *rdnsInfo[4] = { t33_rdns_v };
 static u32 *tparamsP[4];
-static const u8 *t33_swg_dpc_sec;		/* tisp_dpc_bin_para_update's section (tparamsP + dpc offset) */
+static u8 t33_dpc_sec[T33_DPC_SEC_BYTES];	/* the DPC section (the vendor: tparamsP + 0x3e2c), dpcInfo word 170 */
+u32 t33_dpc_gains;				/* tisp_dpc_l_gain_update calls (group 13c) */
 u32 t33_swg_runs[9];				/* switch_para calls: sdns, ydns, dpc, cdns, rdns, rdns ev, dmsc, ysp, mdns */
 
 static inline u32 tisp_simple_intp_uint8_t(int idx, u32 frac, const u8 *tab)
@@ -90,28 +96,25 @@ static inline void func_ydns_para_update(u32 ch)
 		ydnsInfo[ch][12 + k] = ydnsInfo[ch][k];
 }
 
+/* the DPC / CTR / CAC parameter updates on dpcInfo (tx_isp_t33_dpcpar.h, group 13c): word 170 = t33_dpc_sec */
 static inline void tisp_dpc_bin_para_update(u32 ch)
 {
-	u32 *v = dpcInfo[ch];
-
-	t33_vb_bin(v, t33_swg_dpc_sec, t33_dpc_bin, ARRAY_SIZE(t33_dpc_bin));
-	v[170] = (u32)(unsigned long)t33_swg_dpc_sec;
+	t33_dpc_bin_para_v(dpcInfo[ch]);
 }
 
-/* func_dpc_para_update + func_ctr_para_update + func_cac_para_update: tisp_dpc_init's para, then the copies */
 static inline void func_dpc_para_update(u32 ch)
 {
-	t33_dpc_para(dpcInfo[ch]);
+	t33_dpc_para_v(dpcInfo[ch]);
 }
 
 static inline void func_ctr_para_update(u32 ch)
 {
-	(void)ch;
+	t33_ctr_para_v(dpcInfo[ch]);
 }
 
 static inline void func_cac_para_update(u32 ch)
 {
-	t33_vb_copy(dpcInfo[ch], t33_dpc_copy, ARRAY_SIZE(t33_dpc_copy));
+	t33_cac_para_v(dpcInfo[ch]);
 }
 
 /* tisp_reg_read_t33(BLC / DG list, slot 3) of func_rdns_para_update: our lists' word 4 */
@@ -313,10 +316,12 @@ static inline void t33_swg_ysp_gain(const u8 *sec, u32 gain)
 	t33_ysp_v[T33_YSP_GAIN_WORD] = gain;
 }
 
+/* tisp_dpc_init's section / gain words: the section copied into its tparamsP slot (t33_dpc_sec) */
 static inline void t33_swg_dpc_gain(const u8 *sec, u32 gain)
 {
-	t33_dpc_v[170] = (u32)(unsigned long)sec;
-	t33_dpc_v[171] = gain;
+	memcpy(t33_dpc_sec, sec, sizeof(t33_dpc_sec));
+	t33_dpc_v[T33_DPC_SEC_WORD] = (u32)(unsigned long)t33_dpc_sec;
+	t33_dpc_v[T33_DPC_GAIN_WORD] = gain;
 }
 
 /*
@@ -334,7 +339,8 @@ static u64 t33_swg_small(const u8 *bin, u32 bytes)
 	if (off && len == T33_DPC_SEC_BYTES && (t33_mod_built & (1ULL << T33_MOD_DPC))) {
 		t33_bst_hold(T33_BST_DPC);
 		local_irq_save(flags);
-		t33_swg_dpc_sec = bin + off;
+		memcpy(t33_dpc_sec, bin + off, sizeof(t33_dpc_sec));	/* the bin parse into tparamsP */
+		t33_dpc_v[T33_DPC_SEC_WORD] = (u32)(unsigned long)t33_dpc_sec;
 		t33_dpc_switch(0);
 		local_irq_restore(flags);
 		t33_swg_runs[2]++;

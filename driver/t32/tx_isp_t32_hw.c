@@ -1768,6 +1768,8 @@ void t33_stats_show(struct seq_file *m)
 		   t33_blc_runs[0], t33_blc_runs[1], t33_blc_runs[2], t33_blc_runs[3], t33_blc_refresh);
 	seq_printf(m, "t33 lsc: %s init %u switch %u fd %u refresh %u count %u\n", lsc_para[0] ? "on" : "off",
 		   t33_lsc_runs[0], t33_lsc_runs[1], t33_lsc_runs[2], t33_lsc_refresh, t33_lsc_count[0]);
+	seq_printf(m, "t33 dpc: %s gain %u switch %u refresh %u\n", t33_dpc_v[T33_DPC_SEC_WORD] ? "on" : "off",
+		   t33_dpc_gains, t33_swg_runs[2], t33_bst_refresh[T33_BST_DPC]);
 }
 
 /* for ../t33/tx_isp_t33_awbc.c: register read, and the per-frame AWB results into lists 7 / 29 */
@@ -2085,19 +2087,25 @@ static void t33_gr_refresh(u32 gain, u64 skip)
 #define T33_GR_SEC(BLK)	((off = t32_iq_section(bin, bytes, T33_SEC_##BLK, &len)) && len == T33_##BLK##_SEC_BYTES)
 	/* tisp_blc_tgain_update at every update (tx_isp_t33_bst.h: blc_para, list 4 slots, tispBlcRefresh) */
 	t33_blc_gain(gain);
-	/* tisp_dpc_l_gain_update: every change */
 	/*
-	 * The info-struct blocks (tx_isp_t33_bst.h): the info struct at the new gain (the init builders fill
-	 * the dpc / dmsc / ysp / rdns word arrays, the scratch list is not used), then the par_refresh tail.
+	 * tisp_dpc_l_gain_update: every change, the proven port on dpcInfo and its section copy (group 13c:
+	 * bin / dpc / ctr / cac para updates, the list 2 slots, tispDpcRefresh; the DPC frame done starts the list)
 	 */
-	if (!(skip & (1ULL << T33_MOD_DPC)) && T33_GR_SEC(DPC)) {
+	if (!(skip & (1ULL << T33_MOD_DPC)) && (t33_mod_built & (1ULL << T33_MOD_DPC)) && t33_dpc_v[T33_DPC_SEC_WORD]) {
+		unsigned long flags;
+
 		t33_gr_gate(T33_MOD_DPC, gain);
 		t33_bst_hold(T33_BST_DPC);
-		if (t33_dpc_init(bin + off, gain, t33_dpc_v, t33_gr_tmp, T33_SLOT_WORDS) > 0) {
-			t33_swg_dpc_gain(bin + off, gain);
-			t33_bst_par_tail(T33_BST_DPC);
-		}
+		local_irq_save(flags);
+		t33_dpc_l_gain_update(0, gain);
+		local_irq_restore(flags);
+		t33_dpc_gains++;
+		t33_gr_runs[T33_MOD_DPC]++;
 	}
+	/*
+	 * The other info-struct blocks (tx_isp_t33_bst.h): the info struct at the new gain (the init builders fill
+	 * the dmsc / ysp / rdns word arrays, the scratch list is not used), then the par_refresh tail.
+	 */
 	if (!(skip & (1ULL << T33_MOD_DMSC)) && T33_GR_SEC(DMSC) && t33_gr_gate(T33_MOD_DMSC, gain)) {
 		t33_bst_hold(T33_BST_DMSC);
 		if (t33_dmsc_init(bin + off, gain, t33_dmsc_v, t33_gr_tmp, T33_SLOT_WORDS) > 0) {
