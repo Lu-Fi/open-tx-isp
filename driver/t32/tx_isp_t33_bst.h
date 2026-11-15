@@ -282,11 +282,6 @@ static void t33_bst_irq(u32 msca)
 	if (msca & (1U << T33_CSCCR_BIT)) {
 		t33_csccr_frame_done(0, (const u8 *)t33_bst_initpar, &t33_csccr_refresh, t33_csccr_cnt,
 				     t33_csccr_cur, t33_csccr_cur2);
-		if (t33_bst_refresh_mdns && !tisp_rcfg_get_dma_state(T33_MOD_MDNS)) {
-			/* tispMdnsRefresh: the MDNS frame done (not ported) starts list 15 */
-			tisp_rcfg_module_cfg_trig(0, T33_MOD_MDNS);
-			t33_bst_refresh_mdns = 0;
-		}
 		t33_csccr_fd_runs++;
 	}
 }

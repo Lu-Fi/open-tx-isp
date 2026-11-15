@@ -18,6 +18,8 @@
 #define TX_ISP_T33_MDNS_H
 
 #include "tx_isp_t33_blk.h"
+#include "tx_isp_t33_mdnsA.h"
+#include "tx_isp_t33_mdnsMem.h"
 
 #define T33_MOD_MDNS		15
 #define T33_SEC_MDNS		16
@@ -2417,15 +2419,19 @@ T33_MDNS_FN t33_mdns_store(const u32 *v, int zip, u32 *l)
 }
 
 /*
- * tisp_mdns_cmp_par_calc + tisp_mdns_t33_cmp_reg_write: compression of the
- * reference frame at ratio r (1/100, 1100..2000), w x h.
+ * tisp_mdns_cmp_par_calc: compression of the reference frame at ratio
+ * v[2201] (1/100, 1100..2000), w x h, into the vendor's mdnsInfo words
+ * 2191..2200 (the register values tisp_mdns_t33_cmp_reg_write writes;
+ * word 2193 stays 0 as at init).
  */
-static inline void t33_mdns_cmp(u32 w, u32 h, u32 r, u32 *l)
+static inline void t33_mdns_cmp_par_calc(u32 *v, u32 h, u32 w)
 {
+	u32 r = v[2201] & 0xffff;
 	int blk = (int)(((w + 0x1f) >> 5) * h), step, rest;
-	u32 bytes = 0x5dc00 / r, lo, a, q, c, e;
+	u32 bytes = 0x5dc00 / r, lo, q, c, e;
 
-	a = (u32)((int)(bytes * blk + 0x3f) / 0x40);
+	v[2191] = (u32)((int)(bytes * blk + 0x3f) / 0x40);
+	v[2192] = (h - 1) << 16 | (w - 1);
 	e = 0x2000 - (w * 16000) / r;
 	lo = 0xc00;
 	if ((int)e < 0xc00) {
@@ -2444,65 +2450,86 @@ static inline void t33_mdns_cmp(u32 w, u32 h, u32 r, u32 *l)
 		rest = 1;
 	q = (u32)(blk / rest);
 	q = (int)q >= 0xff ? 0xff : (int)q > 0 ? q : 1;
-	T33_SW(l, 0x1c3, 0x20);
-	T33_SW(l, 0x1c4, (h - 1) << 16 | (w - 1));
-	T33_SW(l, 0x1c5, 0);
-	T33_SW(l, 0x1c6, (((int)(c * 3) >> 2) << 16) | c);
-	T33_SW(l, 0x1c7, 0xa03c00a0);
-	T33_SW(l, 0x1c8, 0x33180204);
-	T33_SW(l, 0x1c9, 0x31a0203);
-	T33_SW(l, 0x1ca, (r > 0x4b0 ? 0x2c | 0x20 << 16 : 0x28 | 0x28 << 16) | 0x64007800);
-	T33_SW(l, 0x1cb, q | 0xf040200);
-	T33_SW(l, 0x1cc, 0x47382312);
-	T33_SW(l, 0x1cd, 0x746c6255);
-	T33_SW(l, 0x1ce, 0x7b7977);
-	T33_SW(l, 0x1cf, 0x31202020);
-	T33_SW(l, 0x1d0, 0x52424141);
-	T33_SW(l, 0x1d1, 0x63535252);
-	T33_SW(l, 0x1d2, 0xfcfe0002);
-	T33_SW(l, 0x1d3, 0xf6f8fafa);
-	T33_SW(l, 0x1d4, 0xf4f6f6f6);
-	T33_SW(l, 0x1d5, 0);
-	T33_SW(l, 0x1d6, 0x77654433);
-	T33_SW(l, 0x1d7, c << 16 | lo);
-	T33_SW(l, 0x1d8, 0);
-	T33_SW(l, 0x1d9, 0);
-	T33_SW(l, 0x1da, 0);
-	T33_SW(l, 0x1db, (int)c < 0xaa ? 0x140008 : 0x140005);
-	T33_SW(l, 0x1dc, a);
-	T33_SW(l, 0x1dd, ((u32)blk - 0x100) | 0x76000000);
-	T33_SW(l, 0x1de, 0xa1407);
-	T33_SW(l, 0x1e0, 0x20);
-	T33_SW(l, 0x1e1, (h - 1) << 16 | (w - 1));
-	T33_SW(l, 0x1e2, a);
-}
-
-/* reference frame words in 256-byte units (tisp_mdns_t33_set_mem_cfg; r <= 1000: uncompressed) */
-static inline u32 t33_mdns_ref_units(u32 w, u32 h, u32 r)
-{
-	u32 b = r < 1001 ? w * h * 3 >> 1 : (((w + 0x1f) >> 5) * (0x5dc00 / r) * h + 0x3f) >> 6 << 3;
-
-	return ((b + 0xff) >> 8) + 2;
+	v[2194] = (((int)(c * 3) >> 2) << 16) | c;
+	v[2195] = (r > 0x4b0 ? 0x2c | 0x20 << 16 : 0x28 | 0x28 << 16) | 0x64007800;
+	v[2196] = q | 0xf040200;
+	v[2197] = r > 0x4b0 ? 0xfcfe0002 : 0xfdfe0002;
+	v[2198] = c << 16 | lo;
+	v[2199] = (int)c < 0xaa ? 0x140008 : 0x140005;
+	v[2200] = ((u32)blk - 0x100) | 0x76000000;
 }
 
 /*
- * tisp_mdns_t33_set_mem_cfg without WDR: the ISP memory at pa holds the
- * reference frame, the statistics plane and the motion plane.  The unit
- * count goes to 0xd080 directly on the single-sensor path (*d080).
+ * The list being built by t33_mdns_init: tisp_reg_write_t33 (CfgMode) of
+ * the oracle-proven tisp_mdns_t33_cmp_reg_write (tx_isp_t33_mdnsA.h) and
+ * tisp_mdns_t33_set_mem_cfg (tx_isp_t33_mdnsMem.h) stores slot + 1;
+ * system_reg_write is 0xd080 (the direct unit count of the single-sensor
+ * path) only.
  */
-static inline void t33_mdns_mem(u32 w, u32 h, u32 r, u32 pa, u32 *l, u32 *d080)
-{
-	u32 units = t33_mdns_ref_units(w, h, r), off = units * 0x100, st = (((w + 7) >> 3) + 0xf) >> 4 << 3;
+static u32 *t33_mdns_wl, t33_mdns_d080;
 
-	*d080 = units & 0xffffff;
-	T33_SW(l, 9, pa);
-	T33_SW(l, 10, ((w + 7) >> 3) << 3);
-	T33_SW(l, 12, ((w + 7) >> 3) << 3);
-	T33_SW(l, 13, pa + off);
-	T33_SW(l, 14, st);
-	off += (((h + 7) * st >> 3) + 0x3ff) & 0xfffffc00;
-	T33_SW(l, 15, pa + off);
-	T33_SW(l, 16, ((w >> 1) + 7) & 0xfff8);
+static inline int t33_mdns_wl_w(u32 id, u32 blk, u32 reg, u32 val)
+{
+	(void)id;
+	(void)blk;
+	T33_SW(t33_mdns_wl, reg, val);
+	return 0;
+}
+
+static inline void t33_mdns_mm_w(u32 chn, u32 blk, u32 reg, u32 val)
+{
+	t33_mdns_wl_w(chn, blk, reg, val);
+}
+
+static inline void t33_mdns_mm_sys(u32 reg, u32 val)
+{
+	if (reg == 0xd080)
+		t33_mdns_d080 = val;
+}
+
+/* tisp_rcfg_module_cfg_trig: list 15 runs with the init refresh (T33_INIT_REFRESH) / the gain-refresh commit */
+static inline void t33_mdns_mm_trig(u32 chn, u32 blk)
+{
+	(void)chn;
+	(void)blk;
+}
+
+static inline void t33_mdns_mm_log(int line)
+{
+	(void)line;	/* RISC-V parameter mismatch: riscvEnable is 0 */
+}
+
+static const struct t33_mdns_mem_ops t33_mdns_mm_ops = {
+	t33_mdns_mm_w, t33_mdns_mm_sys, t33_mdns_mm_trig, t33_mdns_mm_log,
+};
+
+/*
+ * tisp_mdns_t33_set_mem_cfg (channel 0, CfgMode) on the vendor-layout
+ * statics: stIspInitPar[0] sensor size (bytes 12 / 14) and byte 904 = 1
+ * (single sensor: 0xd080 direct), stMemInfo[0] the zip ratio (byte 8,
+ * r <= 1000: uncompressed) without WDR (byte 11 = 0), riscvEnable 0.
+ */
+static u8 t33_mdns_ip[908], t33_mdns_mi[76];
+static const u8 t33_mdns_one = 1, t33_mdns_riscv[4];
+
+static inline void t33_mdns_mem(u32 w, u32 h, u32 r, u32 pa, const u32 *v, u32 *l, u32 *d080)
+{
+	const u32 *info[1] = { v };
+	const struct t33_mdns_mem_env env = {
+		t33_mdns_ip, t33_mdns_mi, info, &t33_mdns_one, t33_mdns_riscv, NULL,
+	};
+
+	t33_mdns_ip[12] = w & 0xff;
+	t33_mdns_ip[13] = w >> 8 & 0xff;
+	t33_mdns_ip[14] = h & 0xff;
+	t33_mdns_ip[15] = h >> 8 & 0xff;
+	t33_mdns_ip[904] = 1;
+	t33_mdns_mi[8] = r & 0xff;
+	t33_mdns_mi[9] = r >> 8 & 0xff;
+	t33_mdns_wl = l;
+	t33_mdns_d080 = 0;
+	t33_mdns_set_mem_cfg(0, pa, &env, &t33_mdns_mm_ops);
+	*d080 = t33_mdns_d080 & 0xffffff;
 }
 
 /* tisp_mdns_decode_reg_write: the YSP block's decode words (ysp: YSP block state, the vendor's yspInfo + 0x42c on) */
@@ -2538,8 +2565,12 @@ static inline int t33_mdns_init(const u8 *sec, u32 gain, u32 w, u32 h, u32 r, u3
 	v[0x888] = w;
 	v[0x889] = h;
 	v[0x885] = gain;
-	if (zip)
-		t33_mdns_cmp(w, h, r / 100 * 100, l);
+	v[2201] = r / 100 * 100;
+	if (zip) {
+		t33_mdns_cmp_par_calc(v, h, w);
+		t33_mdns_wl = l;
+		t33_mdns_cmp_reg_write(0, v, 1, t33_mdns_wl_w);	/* tisp_mdns_t33_cmp_reg_write (CfgMode) */
+	}
 	T33_SW(l, 0x14, 0);
 	T33_SW(l, 0x15, 0);
 	T33_SW(l, 0x16, 0);
@@ -2549,7 +2580,7 @@ static inline int t33_mdns_init(const u8 *sec, u32 gain, u32 w, u32 h, u32 r, u3
 	t33_mdns_para(v);
 	t33_mdns_store(v, zip, l);
 	T33_SW(l, 2, 1);
-	t33_mdns_mem(w, h, r < 1001 ? r : r / 100 * 100, pa, l, &d[0]);
+	t33_mdns_mem(w, h, r < 1001 ? r : r / 100 * 100, pa, v, l, &d[0]);
 	return len;
 }
 

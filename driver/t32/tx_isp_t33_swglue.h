@@ -266,7 +266,7 @@ static void t33_swg_mdns_para(u32 ch)
 
 static void t33_swg_mdns_trig(u32 ch)
 {
-	t33_mdns_reg_trig(ch, t33_bst_cfg_mode, t33_first_fe, &t33_bst_refresh_mdns);	/* tisp_mdns_t33_reg_trig */
+	t33_mdns_reg_trig(ch, t33_bst_cfg_mode, t33_mdns_init_flag, &t33_bst_refresh_mdns);	/* tisp_mdns_t33_reg_trig */
 }
 
 static const struct t33_swmdns_ops t33_swg_mdns_ops = {

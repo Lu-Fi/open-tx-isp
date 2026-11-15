@@ -160,8 +160,10 @@ static u8 t33_msca_refresh;		/* tispMscaRefresh: 1 = list 23 at the next MSCA fr
 static u32 t33_msca_test_num;		/* testNum of tisp_msca_t33_frame_done_interrupt */
 static u32 t33_mod_dirty;	/* lists 0..31 to run again at the next frame end (tisp*Refresh) */
 static bool t33_awb_refresh;
-static bool t33_first_fe;	/* the TMO / MDNS start words are still 1 */
+static bool t33_first_fe;	/* the TMO start word is still 1 */
+static u8 t33_mdns_init_flag, t33_mdns_started;	/* mdnsInit (set by the init), g_mdnsStart */
 static void t33_first_frame_words(void);
+static void t33_mdns_fd(void);
 /*
  * tmoInfo[0] in the vendor layout (10880 bytes; tisp_tmo_switch_para below fills it): byte 10845 the
  * "configured" flag of tisp_tmo_t33_frame_done_interrupt (cleared at every init, as tisp_tmo_init does).
@@ -234,8 +236,7 @@ static irqreturn_t t32_isp_irq(int irq, void *dev)
 #ifdef TX_ISP_T33
 		/*
 		 * First frame end after stream-on: tisp_tmo_t33_frame_done_interrupt
-		 * (TMO start word 0x70f0 = 0, tispTmoRefresh) and
-		 * tisp_mdns_t33_frame_done_interrupt (mdnsInit: 0xd018 = 0).
+		 * (TMO start word 0x70f0 = 0, tispTmoRefresh).
 		 */
 		if (t33_first_fe && !isp_rd(T33_RCFG_TRIG)) {
 			t33_first_fe = false;
@@ -306,6 +307,8 @@ static irqreturn_t t32_isp_irq(int irq, void *dev)
 #ifdef TX_ISP_T33
 	if (msca)			/* system irqs 38..56: tisp_*_t33_frame_done_interrupt */
 		t33_bst_irq(msca);
+	if (msca & (1U << 18))		/* system irq 50: tisp_mdns_t33_frame_done_interrupt (oracle block mdnsA) */
+		t33_mdns_fd();
 	if (msca & (1U << 16))		/* system irq 48: tisp_csc_fra_down_interrupt */
 		t33_csc_fra_down(t33_st_isp_init_par_mode);
 #endif
@@ -959,6 +962,7 @@ wait:
 	t33_awb_refresh = !!(lo & (1U << T33_MOD_AWB));
 	((u8 *)t33_swg_tmo_info)[T33_TMOA_FLAG] = 0;	/* tmoInfo configured flag (tisp_tmo_init) */
 	t33_first_fe = true;
+	t33_mdns_init_flag = 1;	/* mdnsInit (tisp_mdns_init) */
 #endif
 }
 
@@ -1367,17 +1371,20 @@ static const struct t33_tmo_fd_ops t33_tmo_fd_ops = { t33_tmo_fd_wr, t33_tmo_fd_
 static void t33_first_frame_words(void)
 {
 	u8 *info[4] = { (u8 *)t33_swg_tmo_info }, *tp[4] = { NULL };
-	u32 *l, w;
-
 	/* tisp_tmo_t33_frame_done_interrupt (oracle block tmoA): start word 0x70f0 (slot 32) = 0, tispTmoRefresh */
 	if ((t33_mod_built & (1ULL << T33_MOD_TMO)) && t33_mod_buf(T33_MOD_TMO)) {
 		t33_tmo_fd_refresh = !!(t33_mod_dirty & (1U << T33_MOD_TMO));
 		t33_tmo_frame_done(&t33_tmo_fd_ops, info, tp, t33_st_isp_init_par_mode[226], t33_bst_cfg_mode,
 				   &t33_tmo_fd_mulsensor, &t33_tmo_fd_refresh, 0);
 	}
-	if ((t33_mod_built & (1ULL << T33_MOD_MDNS)) && (l = t33_mod_buf(T33_MOD_MDNS)) &&
-	    (w = t33_list_word(l, T33_MDNS_START_REG)))
-		l[w] = 0;
+}
+
+/* system irq 50: tisp_mdns_t33_frame_done_interrupt (oracle block mdnsA): mdnsInit / g_mdnsStart 0xd018 = 0, tispMdnsRefresh */
+static void t33_mdns_fd(void)
+{
+	if (t33_mod_built & (1ULL << T33_MOD_MDNS))
+		t33_mdns_frame_done(0, t33_st_isp_init_par_mode[226], &t33_mdns_init_flag, &t33_bst_refresh_mdns,
+				    &t33_mdns_started, t33_bst_cfg_mode, tisp_reg_write_t33, tisp_rcfg_module_cfg_trig);
 }
 #include "tx_isp_t33_swglue.h"
 #include "tx_isp_t33_tmo1s.h"
@@ -1488,7 +1495,6 @@ int t33_ldc_reflesh_lut(u32 idx, u32 addr)
  */
 #include "tx_isp_t33_mcside.h"
 
-static u8 t33_mdns_started;	/* g_mdnsStart */
 static struct t33_lce_pf *t33_lcepf;	/* the LCE block (defined below, with the LCE / LSF code) */
 
 static void t33_lce_curve_default_cb(u32 ch)
@@ -1506,8 +1512,8 @@ void t33_module_control_set(u32 ch, u32 v)
 	if (chg & 0x820)
 		t33_lce_top_change_state(t33_lce_sec, ch, t33_lce_curve_default_cb);
 	t33_top_set_bypass(ch, (v & 0x3fffffU) | (cur & 0xffc00000U));
-	if (chg & 0x1000)	/* tisp_mdns_t33_reg_trig: mdnsInit is the pending first frame (t33_first_fe) */
-		t33_mdns_reg_trig(ch, t33_bst_cfg_mode, t33_first_fe, &t33_bst_refresh_mdns);
+	if (chg & 0x1000)	/* tisp_mdns_t33_reg_trig */
+		t33_mdns_reg_trig(ch, t33_bst_cfg_mode, t33_mdns_init_flag, &t33_bst_refresh_mdns);
 }
 
 u32 t33_module_control_get(u32 ch)
