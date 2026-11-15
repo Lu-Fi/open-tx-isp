@@ -34052,8 +34052,9 @@ int32_t register_address(void *arg1, int32_t arg2, char arg3, int32_t *arg4)
 {
 	uint32_t reg = (uint32_t)arg3 & 0xff;
 
+	/* OEM clears *arg4 on every path, also for an invalid direction (openimp #621) */
+	*arg4 = 0;
 	if (reg == 0) {
-		*arg4 = 0;
 		*(int32_t *)((uintptr_t)arg1 + 0x1500) = arg2;
 		return 0;
 	}
@@ -34096,8 +34097,9 @@ int32_t register_source(void *arg1, int16_t arg2, char arg3, int32_t *arg4)
     uint32_t type = (uint32_t)arg3 & 0xff;
     uint16_t *reg = (uint16_t *)((uintptr_t)arg1 + 0x1506);
 
+    /* OEM clears *arg4 on every path, also for an invalid direction (openimp #621) */
+    *arg4 = 0;
     if (type == 0) {
-        *arg4 = 0;
         *reg = (uint16_t)arg2;
     } else if (type == 1) {
         *arg4 = (int32_t)*reg;

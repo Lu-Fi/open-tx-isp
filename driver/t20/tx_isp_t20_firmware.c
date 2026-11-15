@@ -7454,9 +7454,11 @@ int32_t register_address(void *ctx, int32_t value, char direction, int32_t *resu
 
     /* OEM T10 module 0x1bfb0: SET (0) stores the address, GET (1) returns it, any
      * other direction returns 2.  The reconstruction had SET and "other"
-     * swapped. */
+     * swapped.  The OEM clears *result first on every path (sw zero in the
+     * delay slot of the first branch), also for the invalid direction
+     * (openimp #621). */
+    *result = 0;
     if (dir == 0) {
-        *result = 0;
         ((struct t20_isp_ctx *)ctx)->general.field_18 = value;
     } else if (dir == 1) {
         *result = ((struct t20_isp_ctx *)ctx)->general.field_18;
@@ -7495,8 +7497,9 @@ int32_t register_source(void *ctx, int16_t value, char direction, int32_t *resul
 	struct t20_isp_ctx *isp = ctx;
 	uint32_t dir = (uint32_t)direction & 0xff;
 
+	/* OEM clears *result on every path, also for an invalid direction (openimp #621) */
+	*result = 0;
 	if (dir == 0) {
-		*result = 0;
 		isp->general.field_1e = value;
 	} else if (dir == 1) {
 		*result = isp->general.field_1e;
