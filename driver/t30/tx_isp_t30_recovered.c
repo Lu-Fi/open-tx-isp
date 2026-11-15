@@ -6924,7 +6924,7 @@ int32_t matrix_yuv_fsm_process_event(int32_t *arg1, int32_t arg2);
 uint32_t apical_sbus_read_u8(int32_t *arg1, uint32_t arg2);
 uint32_t apical_sbus_read_u16(int32_t *dev, uint32_t addr);
 uint32_t apical_sbus_read_u32(struct apical_sbus_dev *dev, uint32_t offset);
-int32_t apical_sbus_write_u8(int32_t *arg1, int32_t arg2, char arg3);
+int32_t apical_sbus_write_u8(int32_t *arg1, int32_t arg2, uint32_t arg3);
 int32_t apical_sbus_write_u16(int32_t *arg1, uint32_t arg2, int16_t arg3);
 int32_t apical_sbus_write_u32(struct apical_sbus_dev *dev, uint32_t reg, uint32_t val);
 int32_t sensor_init_output(void *arg1, int32_t arg2);
@@ -40882,7 +40882,7 @@ uint32_t apical_sbus_read_u32(struct apical_sbus_dev *dev, uint32_t offset)
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000030824 origin=model_output original=apical_sbus_write_u8 */
-int32_t apical_sbus_write_u8(int32_t *arg1, int32_t arg2, char arg3)
+int32_t apical_sbus_write_u8(int32_t *arg1, int32_t arg2, uint32_t arg3)
 {
 	/*
 	 * OEM apical_sbus_write_u8 (SDK ko 0x2ff44): byte-swap the address per the
@@ -40930,7 +40930,7 @@ int32_t apical_sbus_write_u16(int32_t *arg1, uint32_t arg2, int16_t arg3)
 			return flags;
 
 		uint32_t a2 = hi;
-		uint32_t *s3 = lo;
+		uint32_t s3 = lo;
 		if ((flags & 0x100) == 0) {
 			a2 = lo;
 			s3 = hi;
@@ -40943,28 +40943,25 @@ int32_t apical_sbus_write_u16(int32_t *arg1, uint32_t arg2, int16_t arg3)
 	if ((flags & 0x100) != 0)
 		val = (uint16_t)((val << 8) | (val >> 8));
 
-	if ((flags & 0x20) == 0) {
-		if ((flags & 0x410) == 0x410) {
-			uint32_t *a = addr & 0xffff;
-			addr = (uint32_t)(((uintptr_t)a << 8) | ((uintptr_t)a >> 8));
-		} else if ((flags & 0x400) != 0) {
-			uint32_t lo = addr & 0xffff;
-			uint32_t hi = addr >> 16;
-			uint32_t v1 = (uint16_t)((lo << 8) | (lo >> 8));
-			uint32_t s0 = (uint16_t)((hi << 8) | (hi >> 8));
+	/* vendor 0x30044..0x300d4 (SDK tx-isp-t30.ko): 0x20 set -> 0x400 swaps both halves (0x800 puts the
+	 * low half high) or 0x200 rotates by 16; 0x20 clear -> the low half is byte-swapped only when
+	 * (flags & 0x410) == 0x410.  The lift had the two chains under the wrong 0x20 branch (openimp #596). */
+	if ((flags & 0x20) != 0) {
+		if ((flags & 0x400) != 0) {
+			uint32_t lo_sw = (uint16_t)(((addr & 0xffff) << 8) | ((addr & 0xffff) >> 8));
+			uint32_t hi_sw = (uint16_t)(((addr >> 16) << 8) | ((addr >> 16) >> 8));
+
 			if ((flags & 0x800) == 0)
-				s0 <<= 16;
+				addr = (hi_sw << 16) | lo_sw;
 			else
-				v1 <<= 16;
-			addr = s0 | v1;
+				addr = (lo_sw << 16) | hi_sw;
 		} else if ((flags & 0x200) != 0) {
 			addr = (addr >> 16) | (addr << 16);
 		}
-	} else {
-		if ((flags & 0x410) == 0x410) {
-			uint32_t *a = addr & 0xffff;
-			addr = (uint32_t)(((uintptr_t)a << 8) | ((uintptr_t)a >> 8));
-		}
+	} else if ((flags & 0x410) == 0x410) {
+		uint32_t a = addr & 0xffff;
+
+		addr = ((a << 8) | (a >> 8)) & 0xffff;
 	}
 
 	return ((int32_t (*)(int32_t *, uint32_t, uint32_t, int32_t))arg1[5])(arg1, addr, val, 2);
@@ -44161,13 +44158,12 @@ int32_t sharpening_update(int32_t *arg1)
 		uint32_t b4d = *(uint8_t *)((char *)arg1 + 0x4d);
 		uint32_t b4e = *(uint8_t *)((char *)arg1 + 0x4e);
 
+		/* vendor 0x359cc..0x35a58: search 1 w50/div1, search 2 w54/div1, search 3 h - w56/div2,
+		 * search 4 h - w52/div2 (the lift paired w52 / w54 / w56 with the wrong searches; openimp #597) */
 		uint32_t t1 = (w50 * hist_val) / div1;
-		uint32_t t2 = (w52 * hist_val) / div2;
-		uint32_t t3 = (w54 * hist_val) / div1;
-		uint32_t t4 = (w56 * hist_val) / div2;
-
-		uint32_t thresh_a = hist_val - t3;
-		uint32_t thresh_b = hist_val - t4;
+		uint32_t t2 = (w54 * hist_val) / div1;
+		uint32_t thresh_a = hist_val - (w56 * hist_val) / div2;
+		uint32_t thresh_b = hist_val - (w52 * hist_val) / div2;
 
 		cnt1 = 0;
 		p1 = arg1;
@@ -44257,8 +44253,9 @@ int32_t sharpening_update(int32_t *arg1)
 
 		v1_4 = 0;
 		if (gamma_lo != 0) {
-			uint32_t idx1 = gamma_lo << 1;
-			uint32_t idx2 = (gamma_lo - 1) << 1;
+			/* vendor 0x35b9c: lhu at lut + 2 * g = element g (the lift indexed element 2g; openimp #597) */
+			uint32_t idx1 = gamma_lo;
+			uint32_t idx2 = gamma_lo - 1;
 			v1_4 = ((uint32_t)lut_ptr[idx1] + (uint32_t)lut_ptr[idx2]) >> 1;
 		}
 
@@ -44266,10 +44263,10 @@ int32_t sharpening_update(int32_t *arg1)
 		v1_9 = (int16_t)((int32_t)v1_4 >> (a1_18 & 0x1f));
 		a0_10 = (uint32_t)(uint16_t)v1_9;
 
-		a2_9 = gamma_hi << 1;
+		a2_9 = gamma_hi;
 		if (s4_2 != 0xff) {
 			uint32_t idx3 = a2_9;
-			uint32_t idx4 = (gamma_hi + 1) << 1;
+			uint32_t idx4 = gamma_hi + 1;
 			v0_14 = ((uint32_t)lut_ptr[idx3] + (uint32_t)lut_ptr[idx4]) >> 1;
 		} else {
 			v0_14 = (uint32_t)lut_ptr[a2_9];

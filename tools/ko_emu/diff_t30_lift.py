@@ -9,6 +9,7 @@ Runs functions of the SDK-built vendor tx-isp-t30.ko (4ea12e1f) and of our drive
   sensor/cmos/color_matrix/iridix_fsm_switch_state  ordered callee log, FSM words
   crop_fsm_process_event                        return, state, callee log
   apical_sbus_write_u8                          bus callback (bus, addr, data, size)
+  apical_sbus_write_u16 / sharpening_update     bus callback + byte path (#596); thresholds, LUT index, registers, FSM (#597)
   awb_normalise                                 +0x760..+0x76c, +0x18/+0x1a, stab[49]/[50]
   awb_detect_light_source                       light source +0x77d from the colour temperature +0x778 (#450)
   apical_event_queue_push                       queue head, _qlock1
@@ -206,6 +207,65 @@ def t_sbus(V, O, rnd, n):
         if res[0] != res[1]:
             bad += 1
             if bad < 4: print("DIFF apical_sbus_write_u8 flags=%#x addr=%#x: vendor %s open %s" % (flags, addr, res[0], res[1]))
+    return bad
+
+def t_sbus16(V, O, rnd, n):              # apical_sbus_write_u16 (#596): bus address mapping (0x20 / 0x400 / 0x800 / 0x200 / 0x410), value swap 0x100, byte path
+    bad = 0
+    for k in range(n):
+        flags = rnd.getrandbits(12) | rnd.choice([0, 2, 2, 2])
+        if rnd.random() < 0.3: flags |= 0x410
+        addr, data = rnd.getrandbits(32), rnd.getrandbits(16)
+        res = []
+        for m in (V, O):
+            m.e.heap_reset(); bus = m.e.alloc(0x40, struct.pack("<I", flags) + bytes(16) + struct.pack("<I", CB) + bytes(0x28))
+            m.hook("apical_sbus_write_u8", m.rec("write_u8", 3))
+            r = m.call("apical_sbus_write_u16", bus, addr, data)
+            m.unhook("apical_sbus_write_u8")
+            res.append((r.stop, r.v0 & M32 if not m.log else None, [tuple('bus' if a == bus else a for a in x) for x in m.log]))
+        if res[0] != res[1]:
+            bad += 1
+            if bad < 4: print("DIFF apical_sbus_write_u16 flags=%#x addr=%#x data=%#x: vendor %s open %s" % (flags, addr, data, res[0], res[1]))
+    return bad
+
+def t_sharp(V, O, rnd, n):               # sharpening_update (#597): histogram thresholds / searches, gamma LUT element index, outputs
+    bad = 0
+    for k in range(n):
+        fsm = bytearray(rnd.getrandbits(8) for _ in range(0x500))
+        fsm[0x4c] = rnd.choice([0x2e, 0x2e, 0x2e, 0x2d, 0x10])
+        h = rnd.choice([1000, 65536, 300000, rnd.getrandbits(20) + 1])
+        hist = sorted(rnd.randrange(0, h + 1) for _ in range(256))
+        fsm[0x68:0x468] = struct.pack("<256I", *hist); fsm[0x464:0x468] = struct.pack("<I", h)
+        d1, d2 = rnd.randrange(1, 101), rnd.randrange(1, 101)     # thresholds w * h / (100 * d) inside the histogram range
+        fsm[0x58:0x5c] = struct.pack("<I", d1); fsm[0x5c:0x60] = struct.pack("<I", d2)
+        for off, d in ((0x50, d1), (0x52, d2), (0x54, d1), (0x56, d2)): fsm[off:off + 2] = struct.pack("<H", rnd.randrange(0, 100 * d + 1))
+        fsm[0x4d] = rnd.randrange(0, 40); fsm[0x4e] = rnd.randrange(1, 255); fsm[0x66] = rnd.randrange(10, 16)
+        lut = struct.pack("<512H", *[rnd.randrange(0, 4096) for _ in range(512)])
+        base = bytes(rnd.getrandbits(8) for _ in range(0x1600))
+        mod = bytes(rnd.getrandbits(8) for _ in range(0x80))
+        rows = rnd.choice([1, 2, 4, 8])
+        res = []
+        for m in (V, O):
+            m.e.heap_reset()
+            ba = m.e.alloc(len(base), base); la = m.e.alloc(len(lut), lut); ma = m.e.alloc(len(mod), mod)
+            f = bytearray(fsm); f[0:4] = struct.pack("<I", ba); fa = m.e.alloc(len(f), bytes(f))
+            regs = {}; wl = []; regfile(m, regs, wl)
+            for nm, rv in (("au_read_histogram", 0), ("setup_parameters_to_default", 0), ("_GET_HDR_TABLE_INDEX", 3),
+                           ("_GET_USHORT_PTR", la), ("_GET_MOD_ENTRY16_PTR", ma), ("_GET_ROWS", rows)):
+                m.hook(nm, m.rec(nm, 1, rv))
+            for nm, na in (("calc_modulation_u16", 3), ("calc_scaled_modulation_u16", 4)):   # other object in ours: recorded on both sides (real arity)
+                m.hook(nm, m.rec(nm, na, 0x155))
+            r = m.call("sharpening_update", fa)
+            for nm in ("au_read_histogram", "setup_parameters_to_default", "_GET_HDR_TABLE_INDEX", "_GET_USHORT_PTR",
+                       "_GET_MOD_ENTRY16_PTR", "_GET_ROWS", "APICAL_READ_32", "APICAL_WRITE_32",
+                       "calc_modulation_u16", "calc_scaled_modulation_u16"): m.unhook(nm)
+            log = [tuple({fa: 'fsm', ba: 'base', la: 'lut', ma: 'mod'}.get(a, a) for a in x) for x in m.log]
+            res.append((r.stop, r.v0 & M32, log, wl, m.e.read(fa + 4, len(f) - 4), m.e.read(ma, len(mod))))
+        if res[0] != res[1]:
+            bad += 1
+            if bad < 4:
+                what = [nm for nm, i in (("stop", 0), ("return", 1), ("calls", 2), ("regs", 3), ("fsm", 4), ("mod", 5)) if res[0][i] != res[1][i]]
+                cd = next(((i, a, b) for i, (a, b) in enumerate(zip(res[0][2], res[1][2])) if a != b), None)
+                print("DIFF sharpening_update k=%d mode=%#x: %s vendor stop %s open stop %s; first call diff %s" % (k, fsm[0x4c], what, res[0][0], res[1][0], cd))
     return bad
 
 def log2ff(e):
@@ -1237,7 +1297,7 @@ def t_matrix_yuv(V, O, rnd, n):
     return bad
 
 TESTS = [("nr_selectors", t_nr), ("general_frame_start", t_general), ("fsm_switch_state", t_fsm), ("crop_event", t_crop),
-         ("sbus_write_u8", t_sbus), ("awb_normalise", t_normalise), ("awb_detect_light_source", t_detect_ls), ("event_queue_push", t_queue),
+         ("sbus_write_u8", t_sbus), ("sbus_write_u16", t_sbus16), ("sharpening_update", t_sharp), ("awb_normalise", t_normalise), ("awb_detect_light_source", t_detect_ls), ("event_queue_push", t_queue),
          ("awb_mesh_chain", t_mesh), ("compute_weight", t_weight), ("awb_calc_mesh", t_calc),
          ("gp_lock_paths", t_gp_lock), ("ioctl_uaccess", t_uaccess),
          ("ptr_scale", t_ptr_scale), ("fsm_buffers", t_fsm_buffers), ("cm_initialize", t_cm_init), ("ptr_class_463", t_class463), ("fci_args", t_fci_args), ("sync_watchdog", t_sync), ("ldc_ncu_counts", t_counts), ("ldc_core_ops_init", t_ldc_init),
