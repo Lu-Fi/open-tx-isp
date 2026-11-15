@@ -389,9 +389,22 @@ u32 t33_rcfg_runs, t33_rcfg_timeouts;
 
 /* a module's list page, uncached (the core reads it by DMA); NULL without memory */
 void t33_osd_list_rebuilt(void);	/* tx_isp_t33_osd.c */
+void t33_msca_attr_stream_on(u32 w, u32 h);
+void t33_msca_attr_exit(void);
 
 #ifdef TX_ISP_T33
 static void t33_rc_register(unsigned int id);	/* tisp_rcfg_module_register (below) */
+
+/* system_reg_write / system_reg_read: the vendor's direct ISP register access (tisp_msca_t33_init, group 11) */
+void system_reg_write(u32 reg, u32 val)
+{
+	isp_wr(reg, val);
+}
+
+u32 system_reg_read(u32 reg)
+{
+	return isp_rd(reg);
+}
 #endif
 
 static u32 *t33_mod_buf(unsigned int id)
@@ -831,7 +844,7 @@ static void t33_mod_free(void)
  * The vendor tisp_rcfg_t33_reset_reg_cfg (oracle-proven port tx_isp_t33_rcfgmisc.h, block rcfgmisc) runs here:
  * its module data objects become these statics (rcfg_buf_info[0] + 4 holds the list table address).
  */
-static void system_reg_write(u32 reg, u32 val) { isp_wr(reg, val); }
+/* system_reg_write: above (global since group 11) */
 static u32 t33_rcfg_buf[2];
 static u8 *rcfg_buf_info[1] = { (u8 *)t33_rcfg_buf };
 #include "tx_isp_t33_rcfgmisc.h"
@@ -1567,6 +1580,7 @@ static noinline_for_stack void t33_tisp_init_tone(const u8 *bin, u32 bytes)
 				isp_wr(0xf0128 + 0x100 * i, 0);
 			t33_mod_done(T33_MOD_MSCA, t33_msca_init(width, height, off && len > 0x30 ? bin + off : NULL,
 								 buf, T33_SLOT_WORDS));
+			t33_msca_attr_stream_on(width, height);	/* stMscaAttr[0]: tisp_msca_t33_init (tx_isp_t33_osd.c) */
 			t33_osd_list_rebuilt();	/* OSD / mask set before a stream-off survive in the new list */
 		}
 	}
@@ -4232,6 +4246,9 @@ void t32_hw_exit(void)
 {
 	int i, regs;
 
+#ifdef TX_ISP_T33
+	t33_msca_attr_exit();
+#endif
 	if (!isp_base)
 		return;
 	/*

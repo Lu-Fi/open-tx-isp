@@ -295,9 +295,18 @@ int t32_tx_os_tisp_g_module_control(u32 ch, void *buf)
 }
 
 /* mirror / flip flags of output k = byte 0 bits 0..1, state bits 2..5 */
+#ifdef TX_ISP_T33
+int t33_msca_hv_flip_set(u32 ch, void *flags);	/* ../t33/tx_isp_t33_osd.c: tisp_msca_t33_api_{set,get}_mirr_flip */
+int t33_msca_hv_flip_get(u32 ch, void *flags);
+#endif
 int t32_tx_os_tisp_g_hv_flip(u32 ch, void *flags)
 {
 	u8 *f = flags;
+
+#ifdef TX_ISP_T33
+	if (!t33_msca_hv_flip_get(ch, flags))
+		return 0;
+#endif
 
 	*f = (u8)((*f & 3) | (t32_tc[ch].flip[*f & 3] & 0x3c));
 	return 0;
@@ -306,6 +315,11 @@ int t32_tx_os_tisp_g_hv_flip(u32 ch, void *flags)
 int t32_tx_os_tisp_s_hv_flip(u32 ch, void *flags)
 {
 	u8 *f = flags;
+
+#ifdef TX_ISP_T33
+	if (!t33_msca_hv_flip_set(ch, flags))
+		return 0;
+#endif
 
 	t32_tc[ch].flip[*f & 3] = *f & 0x3c;
 	return 0;

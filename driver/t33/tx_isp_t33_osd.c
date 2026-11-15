@@ -1,42 +1,157 @@
 // SPDX-License-Identifier: GPL-2.0
 /*
- * T33 (PRJ008) MSCA OSD and mask outputs: the tuning-id store of the vendor
- * dispatcher (tisp_s_osd_attr / tisp_s_osd_block_attr /
- * tisp_s_mscaler_mask_block_attr and the g_ twins, 0x109120 .. 0x1090b4) on
- * the ported tisp_msca_t33_api_* functions (../t32/tx_isp_t33_osd.h).  The
- * register words go to MSCA list 23 (tx_isp_t32_hw.c), which runs at the next
- * frame end.  T33 only (the T32 module keeps the ISP OSD path of
- * tx_isp_t32_isposd.c).  Callers hold the tuning lock.
+ * T33 (PRJ008) MSCA attribute state and its tuning ids (wiring group 11): the
+ * vendor's stMscaAttr[0] (6036 B) / msca_info[0] (368 B) / MscaOsdInfo /
+ * mscaCfgMode, set up by the ported tisp_msca_t33_init (tx_isp_t33_mscaInit.h),
+ * and the dispatcher entries of tisp_s_osd_attr / tisp_s_osd_block_attr /
+ * tisp_s_mscaler_mask_block_attr / tisp_s_draw_block_attr / tisp_s_hv_flip and
+ * their g_ twins (0x109120 .. 0x1090b4) on the ported tisp_msca_t33_api_*
+ * functions in that byte layout (tx_isp_t33_mscaosd.h, _msca_api4.h,
+ * _msca_api5.h, _mscastrm.h, _mscaline.h).  The register words go to MSCA
+ * list 23 (tisp_reg_write_t33, mscaCfgMode 1), which runs at the next frame
+ * end (tispMscaRefresh = t33_msca_list_refresh).  T33 only (the T32 module
+ * keeps the ISP OSD path of tx_isp_t32_isposd.c).  Callers hold the tuning
+ * lock.
+ *
+ * Differences to the vendor:
+ * - the attribute block is set up once (first stream-on or first tuning call)
+ *   and again only when the input size changes; it survives stream-off, and
+ *   the stored OSD / mask / draw windows go back into every rebuilt list 23
+ *   (t33_osd_list_rebuilt).  The vendor's list memory survives instead.
+ * - tisp_msca_t33_init's own callees: tisp_rcfg_module_register and
+ *   system_irq_func_set(33) are done by tx_isp_t32_hw.c (list 23 is built and
+ *   registered there, its frame-done handler is t33_msca_frame_done), here
+ *   they only answer 0.
+ * - tparamsP[0] + 0xa30c (the MSCA part of the IQ bin parameters) is IQ bin
+ *   section 25 (the only word read is +0x2c).
+ * - GET: the vendor dispatcher hands the getter an uninitialised stack block
+ *   (no copy-in), so the window / mask number the getter reads is stack
+ *   garbage.  Here the block is cleared and names the entry written last
+ *   (#442).  The OSD block getter's word at +12 is the stored word (the vendor
+ *   writes the address of its attribute bytes: no kernel address to user
+ *   space).  Window numbers out of range are refused.
  */
 #include <linux/kernel.h>
 #include <linux/types.h>
+#include <linux/slab.h>
 #include <linux/string.h>
 #include "tx_isp_t32.h"
-#include "tx_isp_t33_osd.h"
+#include "tx_isp_t32_iq.h"
+#include "tx_isp_t33_mscaInit.h"
+#include "tx_isp_t33_mscaosd.h"
+#include "tx_isp_t33_msca_api4.h"
+#include "tx_isp_t33_msca_api5.h"
+#include "tx_isp_t33_mscastrm.h"
+#include "tx_isp_t33_mscaline.h"
 
-#define T33_OSD_CH	3
+#define T33_OSD_CH		3	/* tuning channels the dispatcher passes; one MSCA attribute block (single sensor) */
+#define T33_MSCA_ATTR_BYTES	6036
+#define T33_TPARAMS_MSCA	0xa30c	/* tparamsP[ch] + 0xa30c: the MSCA parameters (msca_info word 0) */
 
 int isp_printf(unsigned int level, const char *fmt, ...);
-void t33_msca_list_slot(int slot, u32 v);	/* tx_isp_t32_hw.c: MSCA list 23 word */
-void t33_msca_list_refresh(void);		/* tispMscaRefresh = 1 */
+void t33_msca_list_refresh(void);		/* tx_isp_t32_hw.c: tispMscaRefresh = 1 */
 void t32_core_in_size(u32 *w, u32 *h);		/* tx_isp_t32_core.c */
+extern u32 t33_st_isp_init_par_mode[1008];	/* stIspInitPar (tx_isp_t32_hw.c) */
 
-static struct t33_osd osd[T33_OSD_CH];
-static struct t33_draw draw[T33_OSD_CH];
-static struct t33_colors colors;	/* the vendor's g_colotList: global */
-static bool osd_touched, mask_touched, draw_touched;
-/*
- * GET: the vendor dispatcher hands the getter an uninitialised stack block (no copy-in), so the
- * window / mask number the getter reads is stack garbage; the answer is the entry the stack happened
- * to name.  Here the block is cleared and names the window / mask written last (deterministic, and
- * no stack bytes reach user space), #442.
- */
+static u8 *stMscaAttr[1];
+static u8 *msca_info[1];
+static u32 MscaOsdInfo;
+static u8 mscaCfgMode = 1;			/* list slots (tisp_reg_write_t33 on list 23) */
+static u8 *tparamsP[1];
+static u8 msca_sec_zero[0x30];			/* no section 25: its +0x2c word reads 0 */
+static u32 g_colotList[5];			/* the draw colour list: 4 colours + fill count (global, as the vendor) */
+static u16 attr_w, attr_h;
+static bool osd_touched, mask_touched, draw_touched, flip_touched;
 static u8 last_osd, last_mask_ch, last_mask_win, last_draw;
 
-static void os_slot(u32 ch, u32 slot, u32 v) { t33_msca_list_slot((int)slot, v); }
-static void os_refresh(u32 ch) { t33_msca_list_refresh(); }
+/* tisp_msca_t33_init's callees that tx_isp_t32_hw.c owns (see the header comment) */
+void *private_kmalloc(u32 size, u32 flags)
+{
+	return kmalloc(size, flags);
+}
 
-static void os_msg(u32 level, const char *fmt, ...)
+int tisp_rcfg_module_register(u32 chn, u32 mod, void *reg_init)
+{
+	return 0;
+}
+
+int system_irq_func_set(u32 chn, u32 irq, void *fn)
+{
+	return 0;
+}
+
+static void msca_reg_init_none(void) { }
+static void msca_frame_irq_none(void) { }
+
+static void attr_free(void)
+{
+	kfree(stMscaAttr[0]);
+	kfree(msca_info[0]);
+	stMscaAttr[0] = NULL;
+	msca_info[0] = NULL;
+}
+
+/*
+ * tisp_msca_t33_init(0, par) for input size w x h (par +16 / +18), stIspInitPar
+ * init mode word 226; first call or a new size only.
+ */
+static u8 *attr_get_size(u32 w, u32 h)
+{
+	const u8 *bin, *sec = NULL;
+	u32 bytes, off, len;
+	u8 par[20] = { 0 };
+
+	if (stMscaAttr[0] && attr_w == w && attr_h == h)
+		return stMscaAttr[0];
+	if (!w || !h)
+		return stMscaAttr[0];
+	if (!t32_core_iq_bin(&bin, &bytes) && (off = t32_iq_section(bin, bytes, T33_SEC_MSCA, &len)) && len >= 0x30)
+		sec = bin + off;
+	attr_free();
+	tparamsP[0] = (u8 *)(sec ? sec : msca_sec_zero) - T33_TPARAMS_MSCA;
+	par[16] = (u8)w;
+	par[17] = (u8)(w >> 8);
+	par[18] = (u8)h;
+	par[19] = (u8)(h >> 8);
+	if (t33_msca_t33_init(0, par, stMscaAttr, msca_info, &MscaOsdInfo, tparamsP, t33_st_isp_init_par_mode[226],
+			      mscaCfgMode, (void *)msca_reg_init_none, (void *)msca_frame_irq_none)) {
+		attr_free();
+		return NULL;
+	}
+	attr_w = (u16)w;
+	attr_h = (u16)h;
+	return stMscaAttr[0];
+}
+
+static u8 *attr_get(void)
+{
+	u32 w = 0, h = 0;
+
+	t32_core_in_size(&w, &h);
+	/* the init writes 0xf0128 directly: not into a gated ISP (before the first stream-on / after the last close) */
+	if ((!stMscaAttr[0] || attr_w != w || attr_h != h) && !t32_core_clk_active())
+		return stMscaAttr[0];
+	return attr_get_size(w, h);
+}
+
+/* stream-on, after list 23 was built for the w x h input (tx_isp_t32_hw.c) */
+void t33_msca_attr_stream_on(u32 w, u32 h)
+{
+	attr_get_size(w, h);
+}
+
+void t33_msca_attr_exit(void)
+{
+	attr_free();
+	attr_w = attr_h = 0;
+}
+
+static void wr23(u32 ch, u32 blk, u32 reg, u32 val)
+{
+	tisp_reg_write_t33(0, blk, reg, val);
+}
+
+static int mo_msg(u32 level, const char *fmt, ...)
 {
 	char b[160];
 	va_list ap;
@@ -44,126 +159,196 @@ static void os_msg(u32 level, const char *fmt, ...)
 	va_start(ap, fmt);
 	vsnprintf(b, sizeof(b), fmt, ap);
 	va_end(ap);
-	isp_printf(level, "%s", b);
+	return isp_printf(level, "%s", b);
 }
 
-static const struct t33_osd_ops os_ops = { os_slot, os_refresh, os_msg };
-
-static struct t33_osd *os_get(u32 ch)
+/* the port's tispMscaRefresh store -> list 23 at the next frame end */
+static void refresh_done(u8 r)
 {
-	u32 w, h;
-
-	if (ch >= T33_OSD_CH)
-		return NULL;
-	t32_core_in_size(&w, &h);
-	osd[ch].in_w = (u16)w;
-	osd[ch].in_h = (u16)h;
-	return &osd[ch];
+	if (r)
+		t33_msca_list_refresh();
 }
+
+static void mo_env(struct t33_mo_env *e, u8 *a, u8 *refresh)
+{
+	e->attr = a;
+	e->cfg_mode = mscaCfgMode;
+	e->refresh = refresh;
+	e->osd_info = &MscaOsdInfo;
+	e->wr = wr23;
+	e->msg = mo_msg;
+}
+
+static void ml_wr(u32 ch, u32 reg, u32 v) { tisp_reg_write_t33(0, T33_MOD_MSCA, reg, v); }
+static void ml_refresh(u32 ch) { t33_msca_list_refresh(); }
+static void ml_note(u32 what)
+{
+	static const char *const m[] = { "colour list full", "msk size error", "line end points equal", "unknown line type" };
+
+	isp_printf(1, "%s: %s\n", "tisp_msca_t33_api_set_line_out_cfg", what < 4 ? m[what] : "?");
+}
+
+static const struct t33_line_ops ml_ops = { ml_wr, ml_refresh, ml_note };
 
 int t32_tx_os_tisp_s_osd_attr(u32 ch, void *buf)
 {
-	struct t33_osd *o = os_get(ch);
+	u8 *a = ch < T33_OSD_CH ? attr_get() : NULL;
 
-	if (!o)
+	if (!a)
 		return -EINVAL;
 	osd_touched = true;
-	t33_osd_set_attr(o, buf);
+	t33_msca_set_osd_out(a, buf);	/* tisp_msca_t33_api_set_osd_out_attribute_cfg: store only */
 	return 0;
 }
 
 int t32_tx_os_tisp_g_osd_attr(u32 ch, void *buf)
 {
-	struct t33_osd *o = os_get(ch);
+	u8 *a = ch < T33_OSD_CH ? attr_get() : NULL;
 
-	if (!o)
+	if (!a)
 		return -EINVAL;
 	memset(buf, 0, 32);
-	t33_osd_get_attr(o, buf);
+	t33_msca_get_osd_out(a, buf);
 	return 0;
 }
 
 int t32_tx_os_tisp_s_osd_block_attr(u32 ch, void *buf)
 {
-	struct t33_osd *o = os_get(ch);
+	u8 *a = ch < T33_OSD_CH ? attr_get() : NULL, r = 0;
+	struct t33_mo_env e;
 
-	if (!o)
+	if (!a)
 		return -EINVAL;
 	osd_touched = true;
 	last_osd = ((u8 *)buf)[0];
-	t33_osd_set_out(o, &os_ops, ch, buf);
+	mo_env(&e, a, &r);
+	t33_msca_osd_out_cfg(&e, 0, buf);
+	refresh_done(r);
 	return 0;
 }
 
 int t32_tx_os_tisp_g_osd_block_attr(u32 ch, void *buf)
 {
-	struct t33_osd *o = os_get(ch);
+	u8 *a = ch < T33_OSD_CH ? attr_get() : NULL, *p = buf;
 
-	if (!o)
+	if (!a)
 		return -EINVAL;
 	memset(buf, 0, 20);
-	((u8 *)buf)[0] = last_osd;
-	t33_osd_get_out(o, buf);
+	p[0] = last_osd;
+	if (p[0] > 3)
+		return 0;
+	t33_msca_get_osd_cfg(stMscaAttr, 0, p);
+	if (p[1])	/* the stored word, not the vendor's attribute address */
+		t33_osd_p32(p + 12, t33_osd_u32(a + 712 + 20 * p[0] + 12));
 	return 0;
 }
 
 int t32_tx_os_tisp_s_mscaler_mask_block_attr(u32 ch, void *buf)
 {
-	struct t33_osd *o = os_get(ch);
+	u8 *a = ch < T33_OSD_CH ? attr_get() : NULL, r = 0;
+	struct t33_mo_env e;
 
-	if (!o)
+	if (!a)
 		return -EINVAL;
 	mask_touched = true;
 	last_mask_ch = ((u8 *)buf)[0];
 	last_mask_win = ((u8 *)buf)[1];
-	t33_mask_set_out(o, &os_ops, ch, buf);
+	mo_env(&e, a, &r);
+	t33_msca_mask_out_cfg(&e, 0, buf);
+	refresh_done(r);
 	return 0;
 }
 
 int t32_tx_os_tisp_g_mscaler_mask_block_attr(u32 ch, void *buf)
 {
-	struct t33_osd *o = os_get(ch);
+	u8 *a = ch < T33_OSD_CH ? attr_get() : NULL, *p = buf;
 
-	if (!o)
+	if (!a)
 		return -EINVAL;
 	memset(buf, 0, 24);
-	((u8 *)buf)[0] = last_mask_ch;
-	((u8 *)buf)[1] = last_mask_win;
-	t33_mask_get_out(o, buf);
+	p[0] = last_mask_ch;
+	p[1] = last_mask_win;
+	if (p[0] > 2 || p[1] > 3)
+		return 0;
+	t33_msca_get_mask_out_cfg(0, p, stMscaAttr);
 	return 0;
 }
 
 int t32_tx_os_tisp_s_draw_block_attr(u32 ch, void *buf)
 {
-	if (ch >= T33_OSD_CH)
+	u8 *a = ch < T33_OSD_CH ? attr_get() : NULL;
+
+	if (!a)
 		return -EINVAL;
+	if (((u8 *)buf)[0] >= T33_ML_WIN)	/* the vendor writes past its windows */
+		return 0;
 	draw_touched = true;
 	last_draw = ((u8 *)buf)[0];
-	t33_draw_set_out(&draw[ch], &colors, &os_ops, ch, buf);
+	t33_msca_line_set_out(a, g_colotList, mscaCfgMode, &ml_ops, 0, buf);
 	return 0;
 }
 
 int t32_tx_os_tisp_g_draw_block_attr(u32 ch, void *buf)
 {
-	if (ch >= T33_OSD_CH)
+	u8 *a = ch < T33_OSD_CH ? attr_get() : NULL, *p = buf;
+
+	if (!a)
 		return -EINVAL;
 	memset(buf, 0, 36);
-	((u8 *)buf)[0] = last_draw;
-	t33_draw_get_out(&draw[ch], buf);
+	p[0] = last_draw;
+	if (p[0] >= T33_ML_WIN)
+		return 0;
+	t33_msca_get_line_cfg(stMscaAttr, 0, p);
+	return 0;
+}
+
+/* tisp_s_hv_flip -> tisp_msca_t33_api_set_mirr_flip: byte 0 bits 0..1 the output, bits 2..7 its flags */
+int t33_msca_hv_flip_set(u32 ch, void *flags)
+{
+	u8 *a = ch < T33_OSD_CH ? attr_get() : NULL, r = 0;
+
+	if (!a)
+		return -EINVAL;
+	flip_touched = true;
+	t33_msca_set_mirr_flip(0, flags, stMscaAttr, &mscaCfgMode, &r);
+	refresh_done(r);
+	return 0;
+}
+
+int t33_msca_hv_flip_get(u32 ch, void *flags)
+{
+	u8 *a = ch < T33_OSD_CH ? attr_get() : NULL;
+
+	if (!a)
+		return -EINVAL;
+	t33_msca_get_mirr_flip(a, flags);
 	return 0;
 }
 
 /*
  * The MSCA list (23) is built again at every stream-on (the vendor keeps its
- * list memory): put the stored OSD windows / mask words back.  Channel 0 only
- * (single sensor list).
+ * list memory): put the stored OSD windows / mask / draw words and the
+ * mirror / flip bits back (tisp_msca_t33_api_set_osd_reg / _set_mask_reg /
+ * tisp_msca_t33_set_line_reg / _api_set_mirr_flip).  Channel 0 only (single sensor list).
  */
 void t33_osd_list_rebuilt(void)
 {
+	u8 *a = stMscaAttr[0], r = 0;
+	struct t33_mo_env e;
+
+	if (!a)
+		return;
+	mo_env(&e, a, &r);
 	if (osd_touched)
-		t33_osd_set_reg(&osd[0], &os_ops, 0);
+		t33_msca_osd_reg(&e, 0);
 	if (mask_touched)
-		t33_mask_set_reg(&osd[0], &os_ops, 0);
+		t33_msca_mask_reg(&e, 0);
 	if (draw_touched)
-		t33_draw_set_reg(&draw[0], &colors, &os_ops, 0);
+		t33_msca_line_set_reg(a, g_colotList, mscaCfgMode, &ml_ops, 0);
+	if (flip_touched) {	/* block 0's flags: the port puts the bits of all three blocks into slot 7 */
+		u8 f = (u8)((a[80] & 0x3f) << 2);
+
+		t33_msca_set_mirr_flip(0, &f, stMscaAttr, &mscaCfgMode, &r);
+	}
+	refresh_done(r);
 }
