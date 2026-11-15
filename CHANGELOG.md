@@ -4,6 +4,11 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD[-rcN]` are set on the `aperto` branch, the same tag in open-tx-isp and OpenIMP: RC1 `v2026.10.11-rc1`, RC2 `v2026.10.25-rc2`, RC3 `v2026.11.07-rc3` (2026-11-07). Gate SoCs of RC3 and Release 1: T10, T20, T21, T23, T30, T31, T40, T41 (T32/T33 planned, QEMU only); release notes: [docs/releases/ in OpenIMP](https://github.com/Lu-Fi/openimp/blob/next/docs/releases/README.md). Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-11-15: T33 wiring group 6: CCM switch_para runs the proven vendor entry point (openimp #99, #504; host + QEMU)
+
+- `tisp_ccm_switch_para` (`tx_isp_t33_swmid.h`, oracle block swmid) now runs at a bin switch: ccm_para block with the vendor words (0 section, 2 / 3 EV, 4 CT), `tparamsP` per call (the vendor's clear of tparams byte 23419 is CCM section byte 0x75b, which the CCM builder does not read), `tispCcmRefresh`; the interpolation / calc callees are part of `t33_ccm_init`, which `tisp_ccm_write_reg` builds into list 10. CSCCR / defog / LSC switch_para of the same block stay unwired (they need the vendor csccr_info / defog_info / lsc_para block layouts).
+- Proof: QEMU -M ingenic-t33 day + night: night list 10 equal to the vendor run and group 5; day list 10 within 1-2 LSB (CT timing), BCSH 18 EV noise as before. rmmod / insmod ok, 0 oops; oracle block swmid passes; `tx-isp-t32.ko` code identical; make check passes.
+
 ## 2026-11-15: T33 wiring group 5: AF / CLM / TOP switch_para run the proven vendor entry points (openimp #99, #504; host + QEMU)
 
 - `tisp_af_switch_para`, `tisp_clm_switch_para` and `tisp_top_switch_para` (`tx_isp_t33_swsm2.h`, oracle block swsm2) now run at a bin switch: af_info / clm_info blocks with the vendor words (AF byte 0x4e8 section; CLM word 0 section, word 0x18 last CT), `tparamsP` per call, `stTopPar`. Callees mapped to the driver's builders: `tisp_af_par_init` = the section copy, `tisp_af_t33_all_reg_write` = `t33_af_init` (list 31), `tisp_clm_ct_interp` = `t33_clm_seg`, `tisp_clm_t33_write_reg` = `t33_clm_init` (list 20), `tisp_top_reg_write` = the refresh state (1 idle, 2 busy) after list 33 is built.

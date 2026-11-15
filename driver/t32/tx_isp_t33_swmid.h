@@ -11,11 +11,13 @@
 
 #include "tx_isp_t33_blk.h"
 
+#ifndef T33_SW_GLUE	/* the driver maps the CCM names (tx_isp_t32_hw.c, before t33_sw_tone) */
 extern int tisp_ccm_interp_by_ct(u32 idx, u32 ct, u32 force);
 extern int tisp_ccm_interp_by_ev(u32 idx, u32 pad, u32 ev_lo, u32 ev_hi, u32 force);
 extern int tisp_ccm_no_interp(u32 idx);
 extern int tisp_ccm_calc_para_refresh(u32 idx);
 extern int tisp_ccm_write_reg(u32 idx, u32 mode);
+#endif
 extern int tisp_csccr_para_refresh_by_mode(u32 mode, u32 zero);
 extern int tisp_csccr_sync_api_para(u32 idx, u32 one);
 extern int tisp_csccr_bin_par_update(u32 idx);

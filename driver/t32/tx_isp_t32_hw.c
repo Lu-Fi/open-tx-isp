@@ -2760,6 +2760,60 @@ static void t33_sw_lce(const u8 *bin, u32 bytes)
 }
 
 /* lsc, tmo, gamma, ccm */
+/*
+ * tisp_ccm_switch_para (oracle block swmid, tx_isp_t33_swmid.h) on the driver's state: ccm_para[0] points at a
+ * block with the vendor words the entry point reads (0: section, 2 / 3: EV low / high, 4: CT); tparamsP is set
+ * such that tparamsP + 21536 = our CCM section, so the vendor's clear of tparams byte 23419 is CCM section byte
+ * 0x75b.  The interpolation / calc callees are part of t33_ccm_init, which tisp_ccm_write_reg runs into list 10.
+ */
+#define T33_TP_OFF_CCM	21536U
+static u8 *t33_swg_ccm_tp[4];
+static u32 t33_swg_ccm_blk[5], *t33_swg_ccm_para[4] = { t33_swg_ccm_blk };
+static u8 t33_swg_ccm_refresh;		/* tispCcmRefresh: the list is committed by t33_gr_commit */
+static struct {
+	const u8 *bin;
+	u32 bytes, len;
+} t33_swg_ccm;
+
+static int tisp_ccm_interp_by_ct(u32 idx, u32 ct, u32 force)
+{
+	(void)idx; (void)ct; (void)force;
+	return 0;
+}
+
+static int tisp_ccm_interp_by_ev(u32 idx, u32 pad, u32 ev_lo, u32 ev_hi, u32 force)
+{
+	(void)idx; (void)pad; (void)ev_lo; (void)ev_hi; (void)force;
+	return 0;
+}
+
+static int tisp_ccm_no_interp(u32 idx)
+{
+	(void)idx;
+	return 0;
+}
+
+static int tisp_ccm_calc_para_refresh(u32 idx)
+{
+	(void)idx;
+	return 0;
+}
+
+static int tisp_ccm_write_reg(u32 idx, u32 mode)
+{
+	const u8 *sec = (const u8 *)(unsigned long)t33_swg_ccm_blk[0], *bin = t33_swg_ccm.bin;
+
+	(void)idx; (void)mode;
+	T33_SW_TMP();
+	t33_gr_commit(T33_MOD_CCM, t33_ccm_init(sec, sec + t33_swg_ccm.len,
+						t32_iq_payload(sec, t33_swg_ccm.bytes - (u32)(sec - bin), T33_SEC_CCM),
+						t33_swg_ccm_blk[4], t33_swg_ccm_blk[2], t33_swg_ccm_blk[3],
+						t33_ccm_v, t33_gr_tmp, T33_SLOT_WORDS));
+	return 0;
+}
+
+#include "tx_isp_t33_swmid.h"
+
 static noinline_for_stack void t33_sw_tone(const u8 *bin, u32 bytes, u32 width, u32 height, u32 gain, u32 ct, u32 lo,
 					   u32 hi)
 {
@@ -2809,10 +2863,14 @@ static noinline_for_stack void t33_sw_tone(const u8 *bin, u32 bytes, u32 width, 
 	}
 	/* tisp_ccm_switch_para: interp_by_ct (forced) / _by_ev, calc_para_refresh, write_reg */
 	if (T33_SW_SEC(CCM)) {
-		T33_SW_TMP();
-		t33_gr_commit(T33_MOD_CCM, t33_ccm_init(bin + off, bin + off + len,
-							t32_iq_payload(bin + off, bytes - off, T33_SEC_CCM), ct, lo, hi,
-							t33_ccm_v, t33_gr_tmp, T33_SLOT_WORDS));
+		t33_swg_ccm.bin = bin;
+		t33_swg_ccm.bytes = bytes;
+		t33_swg_ccm.len = len;
+		t33_swg_ccm_blk[2] = lo;
+		t33_swg_ccm_blk[3] = hi;
+		t33_swg_ccm_blk[4] = ct;
+		t33_swg_ccm_tp[0] = (u8 *)(unsigned long)(bin + off) - T33_TP_OFF_CCM;
+		t33_ccm_switch_para(0, t33_swg_ccm_tp, t33_swg_ccm_para, &t33_swg_ccm_refresh);
 	}
 }
 
