@@ -748,6 +748,16 @@ bool tx_isp_t20_simple_awb_enabled(void)
 	return t20_simple_awb;
 }
 
+/*
+ * The firmware thread may park after its first pass only while the compact
+ * AE and AWB own the sensor and the white balance: the OEM AE and AWB graphs
+ * run from the firmware events the thread consumes (openimp #609).
+ */
+bool tx_isp_t20_fw_may_park(void)
+{
+	return t20_simple_ae && t20_simple_awb;
+}
+
 static bool t20_simple_awb_static_only;
 module_param(t20_simple_awb_static_only, bool, 0644);
 MODULE_PARM_DESC(t20_simple_awb_static_only,
@@ -9527,12 +9537,13 @@ uint32_t cmos_fsm_process_interrupt(int32_t *fsm_ptr, char irq)
 
 	cmos_move_exposure_history((uint32_t *)cmos);
 	/*
-	 * Compact AE queues its sensor writes through the SDK I2C bridge.  The
-	 * recovered OEM callbacks consume a separate, currently incomplete CMOS
-	 * history and would replace those queued values with stale exposure data.
-	 * Keep the history moving for ABI consumers, but leave the sensor owner to
-	 * compact AE.  This is the same ownership split used by the working T30
-	 * compact controller.
+	 * Sensor ownership: compact AE queues its own sensor writes through the
+	 * SDK I2C bridge and does not fill the CMOS exposure history, so with
+	 * t20_simple_ae the history only keeps moving for ABI consumers.  With
+	 * the OEM AE (t20_simple_ae=0) the history is complete and vendor-equal
+	 * (filled by cmos_update_exposure_history from the exposure event 8);
+	 * it needs the firmware thread running, see tx_isp_t20_fw_may_park()
+	 * (openimp #609).
 	 */
 	if (t20_simple_ae || t20_cmos_irq_stage == 1)
 		return result;

@@ -64,16 +64,19 @@ MODULE_PARM_DESC(isp_clk, "isp core clock");
 static bool t20_park_fw_after_first_pass = true;
 module_param(t20_park_fw_after_first_pass, bool, 0644);
 MODULE_PARM_DESC(t20_park_fw_after_first_pass,
-	"park the recovered T20 firmware thread after its proven-good first pass (only with t20_simple_awb=1)");
-extern bool tx_isp_t20_simple_awb_enabled(void);
+	"park the recovered T20 firmware thread after its proven-good first pass (only with t20_simple_ae=1 and t20_simple_awb=1)");
+extern bool tx_isp_t20_fw_may_park(void);
 
 /*
  * True when the firmware thread parks after its first pass, i.e. the
- * frame-end event 11 never reaches the tuning FSMs (sharpening, ...).
+ * firmware events (AE statistics 1, frame end 11, ...) never reach the
+ * OEM FSMs.  Only allowed while the compact AE and AWB own the sensor and
+ * the white balance (tx_isp_t20_fw_may_park()); the vendor isp_fw_process
+ * never parks.
  */
 bool tx_isp_t20_fw_parked(void)
 {
-	return t20_park_fw_after_first_pass && tx_isp_t20_simple_awb_enabled();
+	return t20_park_fw_after_first_pass && tx_isp_t20_fw_may_park();
 }
 
 /*
@@ -884,12 +887,13 @@ static int isp_fw_process(void *data)
 		 * Until every late T20 FSM path is recovered, preserve the stable
 		 * bring-up state formerly imposed by the broken API-buffer loop.  Park
 		 * explicitly instead of burning the CPU; kthread_stop() wakes us.
-		 * Not with the OEM AWB (t20_simple_awb=0): it is driven by firmware
-		 * events (frame end 11, statistics 4) queued from the IRQ and
-		 * consumed here, so the thread keeps running as in the vendor SDK.
+		 * Not with the OEM AE (t20_simple_ae=0) or the OEM AWB
+		 * (t20_simple_awb=0): they are driven by firmware events (AE
+		 * statistics 1 -> exposure event 8, frame end 11, AWB statistics 4)
+		 * queued from the IRQ and consumed here, so the thread keeps running
+		 * as in the vendor SDK (openimp #609).
 		 */
-		if (t20_park_fw_after_first_pass &&
-		    tx_isp_t20_simple_awb_enabled()) {
+		if (tx_isp_t20_fw_parked()) {
 			do {
 				set_current_state(TASK_INTERRUPTIBLE);
 				if (kthread_should_stop())
@@ -2938,7 +2942,12 @@ static int isp_m0_show(struct seq_file *m, void *v)
 		max_isp_dgain = min_t(unsigned int,
 			stab.global_max_isp_digital_gain, 127);
 	} else {
+		/* the OEM AE clamps to the sensor limit: stab's 0xffff default
+		 * ("no limit", T10 jxh42) is not the working ceiling (#611) */
 		max_it = stab.global_max_integration_time;
+		if (attr->max_integration_time &&
+		    (!max_it || max_it > attr->max_integration_time))
+			max_it = attr->max_integration_time;
 		max_again = isp_m0_get(TSYSTEM, SYSTEM_MAX_SENSOR_ANALOG_GAIN);
 		max_dgain = isp_m0_get(TSYSTEM, SYSTEM_MAX_SENSOR_DIGITAL_GAIN);
 		max_isp_dgain = isp_m0_get(TSYSTEM, SYSTEM_MAX_ISP_DIGITAL_GAIN);

@@ -4,6 +4,14 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD[-rcN]` are set on the `aperto` branch, the same tag in open-tx-isp and OpenIMP: RC1 `v2026.10.11-rc1`, RC2 `v2026.10.25-rc2`, RC3 `v2026.11.07-rc3` (2026-11-07). Gate SoCs of RC3 and Release 1: T10, T20, T21, T23, T30, T31, T40, T41 (T32/T33 planned, QEMU only); release notes: [docs/releases/ in OpenIMP](https://github.com/Lu-Fi/openimp/blob/next/docs/releases/README.md). Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-11-15: T10/T20 t20_simple_ae=0 runs the OEM AE graph: firmware thread no longer parked (openimp #609, #611)
+
+- `driver/t20/sdk/source/apical-isp/tx-isp-core.c` (shared T10 / T20): the firmware thread parks after its first pass only when `tx_isp_t20_fw_may_park()` (new, `tx_isp_t20_firmware.c`: `t20_simple_ae && t20_simple_awb`); `tx_isp_t20_fw_parked()` and the `isp_fw_process` loop use it. Before, the gate ignored `t20_simple_ae`, so with `t20_simple_ae=0` AE event 1 was never consumed and the frame-start IRQ rewrote the init exposure (integration time 4, gain 0, black picture). The vendor `isp_fw_process` never parks. Default (`t20_simple_ae=1`) unchanged; making the OEM AE the default is open (light-box A/B).
+- isp-m0 (#611): in OEM-AE mode `SENSOR Max Integration Time` is capped at the sensor limit; stab's 0xffff default ("no limit", T10 jxh42) made the streamer's auto day/night see a tiny exposure ratio and stay in Day.
+- `tx_isp_t20_firmware.c`: stale "incomplete CMOS history" comment at the irq 7 sensor path replaced (the history is vendor-equal).
+- Tests: `tests/t20_fw` scenarios `oem-ae` (OEM AE + compact AWB / NR) and `oem-ae-park` (with the park gate) in the default list; FAIL when the OEM AE never moves the integration time (the old gate fails it: 40 writes, all 4). Docs: `driver/t20/README.md` AE / AWB owner section.
+- Proof: T10 + T20 firmware objects 443/443 SAME vs next + the new function; vdiff default / --dis / --gen 0 diffs, --mut 20 on the AE / CMOS path (9 functions) 0; make -C tests check; make delift vs next 0 (the harness references the new gate weakly, so older units still link). Device (runtime ko swap, night, IR): T10 .31 B (`t20_simple_ae=0`) Y 73.9 std 0.23, IT 224 / again 12-14, ae_compensation 220 -> Y 245 in 3 s, back in 43 s (A: Y 70.5, IT 224 / again 10); T20 .163 B Y 97.8 std 0.37, IT 1348 / again 66 (A: Y 93.1, 1348 / 64), step 98 -> 236; 330 s each, 0 oops, fps unchanged.
+
 ## 2026-11-15: docs: BEYOND_VENDOR rows of the T10/T20 divide-by-zero guards had lost two columns (openimp #599, #600)
 
 - `docs/BEYOND_VENDOR.md`: the DIS complexity test and AWB range-low rows now carry the Default (always) and Vendor-behaviour-back (none) columns like every other row. Documentation only, no driver change.

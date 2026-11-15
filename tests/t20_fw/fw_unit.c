@@ -12,6 +12,19 @@ void t20fw_set_knobs(int oem, int trace)
 	t20_trace_events = trace;
 }
 
+/* OEM AE graph, compact AWB and NR (openimp #609 scenario oem-ae) */
+void t20fw_set_oem_ae(void)
+{
+	t20_simple_ae = 0;
+	t20_simple_awb = 1;
+	t20_simple_nr = 1;
+}
+
+int t20fw_compact_ae(void)
+{
+	return t20_simple_ae;
+}
+
 /* the four Bayer gains the simple AWB holds across frame starts */
 void t20fw_awb_gains(uint32_t *g)
 {

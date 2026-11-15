@@ -12,6 +12,8 @@ int32_t apical_api_calibration(uint32_t id, uint32_t dir, void *buf, uint32_t si
 int32_t apical_sbus_i2c_init(void *sbus);
 void t20fw_set_knobs(int oem, int trace);
 void t20fw_awb_gains(uint32_t *g);
+void t20fw_set_oem_ae(void);
+int t20fw_compact_ae(void);
 int t20fw_antifog(uint32_t level);
 void t20fw_antifog_variance(int on);
 unsigned t20fw_antifog_ignored(void);

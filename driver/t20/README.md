@@ -139,3 +139,11 @@ Several early-initialization trace messages remain intentionally present. A
 build differing from the three-gate artifact only by removal of those messages
 rebooted before the userspace-ready marker, so their timing effect must be
 isolated with IRQ/state instrumentation before they can be removed safely.
+
+## AE / AWB owner and the firmware thread (T10 / T20)
+
+- `t20_simple_ae` (default 1): the compact histogram AE owns the sensor. `t20_simple_ae=0` runs the recovered OEM AE graph (AE statistics event 1 -> `ae_calculate_exposure` -> exposure event 8 -> CMOS allocators -> exposure history -> sensor writes at frame start), as the vendor firmware does.
+- `t20_simple_awb` (default 1): compact AWB; `=0` runs the OEM AWB graph.
+- `t20_park_fw_after_first_pass` (default 1): the firmware thread (`isp_fw_process`) sleeps after its first pass only while both compact controllers are active (`tx_isp_t20_fw_may_park()`); the OEM AE or AWB need the thread running, as in the vendor SDK (it wakes about every 10 ms). Before openimp #609 the gate ignored `t20_simple_ae`, so `t20_simple_ae=0` alone left the sensor at the init exposure (integration time 4, gain 0, black picture).
+- With `t20_simple_ae=0` the compact NR / sharpening / CCM / Iridix calls of the compact AE frame path do not run; the OEM FSMs do that work from the firmware events (`t20_simple_nr` then has no effect).
+- Host check: `make -C tests/t20_fw check` runs the scenarios `oem-ae` (OEM AE + compact AWB / NR) and `oem-ae-park` (the same with the park gate) and fails when the OEM AE never moves the integration time.

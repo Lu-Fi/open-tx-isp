@@ -18,6 +18,10 @@
  *   opts: v      verbose (every register access on its own line)
  *         pN     stack poison byte N (hex) before every firmware entry
  *         oem    OEM AE/AWB/NR paths (t20_simple_* = 0)
+ *         oemae  OEM AE graph with the compact AWB/NR (t20_simple_ae = 0 only)
+ *         park   t20_park_fw_after_first_pass=1: after the first pass the
+ *                firmware thread (apical_process) runs only while
+ *                tx_isp_t20_fw_may_park() says no (openimp #609)
  *         trace  t20_trace_events = 1
  */
 #include <stdint.h>
@@ -393,7 +397,13 @@ static void oem_exposure(void)
 	cur_exp_log2 = (int32_t)log2_fixed_to_fixed(cur_int_time ? cur_int_time : 1, 0, 16) +
 		       (int32_t)(cur_again_code << 12) + (2 << 16);
 }
-static void s_set_it(void *b, uint16_t t, struct h_param *p) { (void)b; (void)p; cur_int_time = t; oem_exposure(); EVF("SENS set_it %u", t); }
+static unsigned it_writes, it_moved, it_first;
+static void s_set_it(void *b, uint16_t t, struct h_param *p)
+{
+	(void)b; (void)p; cur_int_time = t; oem_exposure(); EVF("SENS set_it %u", t);
+	if (!it_writes++) it_first = t;
+	else if (t != it_first) it_moved = 1;
+}
 static void s_start(void *b, struct h_sctx *c) { (void)b; (void)c; ev("SENS start_changes"); }
 static void s_end(void *b, struct h_sctx *c) { (void)b; (void)c; ev("SENS end_changes"); }
 static void s_set_again(void *b, uint32_t v, struct h_sctx *c) { (void)b; (void)c; cur_again_code = v; oem_exposure(); EVF("SENS set_again %u", v); }
@@ -628,7 +638,14 @@ int32_t apical_custom_sequence(void)
 	return (int32_t)(uintptr_t)sensor_seq;
 }
 uint32_t apical_custom_initialization(void) { ev("custom_initialization"); return 0; }
-bool tx_isp_t20_fw_parked(void) { return 0; }
+/* tx-isp-core.c: module parameter t20_park_fw_after_first_pass ("park" option) */
+static int fw_park_param;
+/* weak: a firmware unit without the gate (make delift, older revisions) never parks */
+bool tx_isp_t20_fw_may_park(void) __attribute__((weak));
+bool tx_isp_t20_fw_parked(void)
+{
+	return fw_park_param && tx_isp_t20_fw_may_park && tx_isp_t20_fw_may_park();
+}
 unsigned char stab[60] __attribute__((aligned(4)));
 
 void t20fw_bug(const char *file, int line_no)
@@ -736,6 +753,8 @@ static void frame(void)
 	irq(12);
 	irq(0);		/* frame end */
 	/* isp_fw_process(): apical_process(); apical_cmd_process(); */
+	if (tx_isp_t20_fw_parked())
+		return;
 	process();
 	cmd_process();
 	process();
@@ -898,7 +917,7 @@ int main(int argc, char **argv)
 	char top;
 	const char *calib = 0;
 	int oem = 0, trace = 0, i, f;
-	int ext = 0, poke = 0;
+	int ext = 0, poke = 0, oemae = 0;
 
 	stack_hi_mark = &top + 4096;
 	stack_lo_mark = &top - (1 << 20);
@@ -908,6 +927,8 @@ int main(int argc, char **argv)
 		if (!strcmp(argv[i], "v")) verbose = 1;
 		else if (!strcmp(argv[i], "oem")) oem = 1;
 		else if (!strcmp(argv[i], "trace")) trace = 1;
+		else if (!strcmp(argv[i], "oemae")) oemae = 1;
+		else if (!strcmp(argv[i], "park")) fw_park_param = 1;
 		else if (!strcmp(argv[i], "ext")) ext = 1;
 		else if (!strcmp(argv[i], "poke")) ext = poke = 1;
 		else if (argv[i][0] == 'p' && argv[i][1]) poison = hexarg(argv[i] + 1);
@@ -918,6 +939,8 @@ int main(int argc, char **argv)
 	/* the extended runs feed the firmware a sensor register sequence */
 	sensor_seq_on = ext;
 	t20fw_set_knobs(oem, trace);
+	if (oemae)
+		t20fw_set_oem_ae();
 	rt_printf("T20FW harness: calib=%s oem=%d poison=%d syms=%d\n",
 		  calib ? calib : "-", oem, poison, nsyms);
 
@@ -927,11 +950,20 @@ int main(int argc, char **argv)
 
 	ENTER();
 	apical_init();
+	if (fw_park_param) {
+		/* the thread's first pass before it may park */
+		process();
+		cmd_process();
+	}
 	checkpoint("init");
 
 	/* stream on, bright daylight scene: AE/AWB converge */
 	scene_ev = 22 << 16; ct_bias = 40;
 	for (f = 0; f < 40; f++) frame();
+	/* openimp #609: the OEM AE must leave the init exposure (thread parked = stuck) */
+	if (!t20fw_compact_ae() && !it_moved)
+		rt_printf("FAIL: OEM AE never moved the integration time (%u writes, all %u)\n",
+			  it_writes, it_first);
 	checkpoint("day-converge");
 
 	/* API: AE / AWB / anti-flicker / compensation knobs */
