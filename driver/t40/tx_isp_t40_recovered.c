@@ -21437,6 +21437,17 @@ static void regtrace_t40_awb_attr_snapshot(
     /* H2: ct and start gains as last set through tisp_s_awb_attr (OEM keeps them in the AWB
      * context and the tuning attr block); before any set: ct 0, start = current gains */
     attr->ct = READ_ONCE(t40_awb_set_ct);
+    /* #576: vendor tisp_awb_get_attr (libt40-firmware 0x44be8) returns the AWB
+     * context's live colour temperature, *(u32 *)pstMainAwbOri[7] (the word the
+     * AWB process updates every frame, CT = *ctx[7] of tx_isp_t40_vawb.h).  It is
+     * valid while the translated vendor AWB chain owns pstMainAwbOri; otherwise
+     * keep the last value set through tisp_s_awb_attr. */
+    if (READ_ONCE(t40_vawb_live)) {
+        uint32_t ctp = READ_ONCE(pstMainAwbOri[7]);
+
+        if (ctp >= 0x80000000U && ctp < 0xfffff000U && !(ctp & 3U))
+            attr->ct = READ_ONCE(*(const uint32_t *)(uintptr_t)ctp);
+    }
     attr->start_enabled = READ_ONCE(t40_awb_set_start_en);
     if (attr->start_enabled == 1U) {
         attr->start.rgain = READ_ONCE(t40_awb_set_start[0]);

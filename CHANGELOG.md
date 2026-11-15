@@ -4,6 +4,11 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD[-rcN]` are set on the `aperto` branch, the same tag in open-tx-isp and OpenIMP: RC1 `v2026.10.11-rc1`, RC2 `v2026.10.25-rc2`, RC3 `v2026.11.07-rc3` (2026-11-07). Gate SoCs of RC3 and Release 1: T10, T20, T21, T23, T30, T31, T40, T41 (T32/T33 planned, QEMU only); release notes: [docs/releases/ in OpenIMP](https://github.com/Lu-Fi/openimp/blob/next/docs/releases/README.md). Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-11-15: T40 IMP_ISP_Tuning_GetAwbAttr returns the live AWB colour temperature like the vendor (openimp #576; host, device check planned)
+
+- `driver/t40/tx_isp_t40_recovered.c` `regtrace_t40_awb_attr_snapshot` (tisp_g_awb_attr / 0x8000010): the vendor `tisp_awb_get_attr` (libt40-firmware 0x44be8) returns `ct = *(u32 *)pstMainAwbOri[7]`, the colour temperature the AWB process updates every frame. Ours returned the last value set through SetAwbAttr (0 before any set), so GetAwbAttr gave ct 0 on the open stack (light-box report: vendor 2912 K / 5352 K at 3000 K / 5000 K). Now the live CT while the translated vendor AWB chain owns pstMainAwbOri (t40_vawb_live), the set value otherwise.
+- Proof: new host check `tests/check_t40_awb_ct.sh` (make `t40_awb_ct_check`, fails on the old code); make check 622/0; T40 ko builds (agg69a tree, no new warnings). Device check planned (next Eufy run): GetAwbAttr ct at 3000 K / 5000 K vs the vendor estimates.
+
 ## 2026-11-15: T10/T20 firmware: cmos_set_exposure_target and ae_calculate_exposure_ratio like the vendor (openimp #594, #595)
 
 - `driver/t20/tx_isp_t20_firmware.c` (shared T10 / T20) `cmos_set_exposure_target` (#594): on a large target change (|exposure_log2 - target| >= tuning 0x92 target_jump, unsigned compare) the exposure now starts at target + jump / 2 when the target is below the current value, else target - jump / 2 (vendor tx-isp-t10.ko 0x1f6a8..0x1f6dc: signed compare, logical shift, unscaled). The recovered code scaled the half jump by 4 (pointer arithmetic) and put it on the far side of the target with an unsigned compare.
