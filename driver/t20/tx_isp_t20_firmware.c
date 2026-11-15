@@ -9858,11 +9858,11 @@ int32_t get_quantised_integration_time(uint32_t *cmos, uint32_t time)
 int32_t get_quantised_long_integration_time(int32_t *cmos_words, int32_t time, int32_t limit)
 {
 	int32_t *params = *(int32_t **)cmos_words;
-	int32_t min_time = params[27]; /* offset 0x6c */
-	int32_t value = time;
+	uint32_t min_time = params[27]; /* offset 0x6c */
+	uint32_t value = time;	/* OEM 0x1f454: both compares unsigned (sltu) */
 
 	if (value >= min_time) {
-		if (value >= limit)
+		if (value >= (uint32_t)limit)
 			value = limit;
 		min_time = value;
 	}
@@ -11383,8 +11383,8 @@ int32_t adjust_exposure(void *isp, int32_t correction)
 	int32_t exposure_new;
 
 	for (frame = 0; frame != 8; ) {
-		cmos_get_frame_exposure_set((uintptr_t)isp + 0x118, frame);
-		exposure = 0;
+		/* OEM 0x229f8: store through the returned history slot (was NULL) */
+		exposure = cmos_get_frame_exposure_set((uintptr_t)isp + 0x118, frame);
 		frame = (void *)(uintptr_t)((uintptr_t)frame + (1));
 		exposure_new = correction + *exposure;
 		if (exposure_new < 0)

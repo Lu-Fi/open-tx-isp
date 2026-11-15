@@ -4,6 +4,14 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD[-rcN]` are set on the `aperto` branch, the same tag in open-tx-isp and OpenIMP: RC1 `v2026.10.11-rc1`, RC2 `v2026.10.25-rc2`, RC3 `v2026.11.07-rc3` (2026-11-07). Gate SoCs of RC3 and Release 1: T10, T20, T21, T23, T30, T31, T40, T41 (T32/T33 planned, QEMU only); release notes: [docs/releases/ in OpenIMP](https://github.com/Lu-Fi/openimp/blob/next/docs/releases/README.md). Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-11-15: T10/T20 firmware: adjust_exposure stores through the history slot, unsigned long-integration clamp (openimp #602, #601; #598 kept as beyond vendor)
+
+- `driver/t20/tx_isp_t20_firmware.c` (shared T10 / T20) `adjust_exposure` (#602): the 8-slot loop now writes the corrected exposure through the pointer `cmos_get_frame_exposure_set()` returns (vendor tx-isp-t10.ko 0x229f8..0x22a18); the recovered code dropped the return value and read / wrote address 0, a kernel oops when the general FSM calls it after 21 saturated frames.
+- `get_quantised_long_integration_time` (#601): both clamps compare unsigned like the vendor (`sltu`, 0x1f454); the signed compares took the limit branch for limits >= 0x80000000 (not reachable with real line counts).
+- `iridix_control_strength_calculate` (#598): the divide-by-zero guard stays (user decision 2026-11-15); listed in `docs/BEYOND_VENDOR.md`. #599 / #600 (vendor traps in validate_complexity_test / awb_range_low, ours returns) are unchanged pending a decision.
+- Harness: `KNOWN_GEN` empty, `cmos_long_exposure_update` out of `KNOWN_MUT`.
+- Proof: vdiff `--gen` 0 differences (adjust_exposure 2/2 compared, was a NULL fault), `--mut 300` cmos_long_exposure_update 0/300 (was mut179), default 378 / `--dis` 389 functions 0 differences; T10 + T20 firmware objects differ only in these 2 functions (441 SAME); `make -C tests/t20_fw delift` rc 0, mutant caught, tests check, namecheck / gotocheck. Device: T10 .31 runtime ko swap: 495 frames, 0 decode errors, 0 oops, snapshot 200, two re-inits. T20 not device-tested (same shared code, build only).
+
 ## 2026-11-15: T20 / T41 kernel 7.x fixes moved in from the firmware patches (openimp #607; 3.10 / 4.4 builds unchanged)
 
 The thingino kernel-7 branch carried these as numbered package patches (0050, 0051, 0053); they now live here, behind 7.x guards, and the firmware only bumps the pin. On 7.x the result is the same code as the patch stack.

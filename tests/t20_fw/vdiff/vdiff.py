@@ -603,12 +603,12 @@ def fmt(v):
 
 
 # findings the DIS-on scenario reaches (open issues): reported, not counted
-KNOWN_GEN = {'adjust_exposure': 602}     # --gen scenario: ours dereferences NULL where the vendor stores through the returned pointer
+KNOWN_GEN = {}     # #602 fixed (was: adjust_exposure dereferenced NULL)
 KNOWN_DIS = {}     # #582 fixed (was: gauss v2, dis_analyze, dis_analyze_stats, apical_fw_process, apical_isp_process_events)
 # findings of the mutation fuzz (--mut) with a filed issue: a diff of that function, or a vendor trap located in it
 # (reached through apical_fw_process / apical_isp_process_events), is listed as known and not counted
 KNOWN_MUT = {'iridix_control_strength_calculate': 598, 'validate_complexity_test': 599,
-             'awb_range_low': 600, 'cmos_long_exposure_update': 601}
+             'awb_range_low': 600}     # #601 fixed (was: cmos_long_exposure_update)
 # replay of a function whose state lives in partner-less statics (vendor sbss vs our array): not a finding
 STATIC_LAYOUT = ()     # was iir_filter_v2: its statics are now paired (SPLIT_STATICS)
 VONLY_STATICS = ('sp.9007', 'fsp.9008', 'csp.9009')     # vendor .sbss statics of iir_filter_v2
