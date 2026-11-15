@@ -6045,13 +6045,16 @@ static int ae0_tune2(uint32_t wmean, uint32_t q, uint32_t fifo_target,
     s2_2 = 0;
 
     if (v0_34 == 1) {
-        /* OEM HLIL resets the convergence flag before re-checking the
-         * deadband, and only seeds a stable-output shortcut when the ratio
-         * lies between the two stable_tol bounds. */
+        /* Vendor 0x506a4..0x506e0 (tx-isp-t31.ko H20221206a): stable and
+         * the ratio inside the stable_tol band -> hold: _ae_ev = current
+         * EV, stable stays 1, target s5 kept (branch to 0x50c10).  Only a
+         * ratio outside the band clears the flag and re-checks the margins
+         * (openimp #553: ours always fell through and kept re-aiming). */
         if (v0_68 < v0_6 && v0_7 < v0_68) {
             s2_2 = var_b8;
             _ae_stat.data[2] = fifo_target;
             var_cc_2 = 1;
+            goto phase_g;
         }
         _ae_stat.data[1] = 0;
         goto phase_e_check_margins;

@@ -13,5 +13,8 @@ grep -qE '^static uint32_t data_c46(b0|bc)\b' "$F" && no "separate data_c46b0 / 
 grep -q 'ev_buffer\[8\] = tisp_log2_fixed_to_fixed(tisp_ae_ctrls\[5\] + 4, 10, 5);' "$F" || no "tisp_g_ev_attr word 8 must read tisp_ae_ctrls[5]"
 grep -q 'ev_buffer\[9\] = tisp_log2_fixed_to_fixed(tisp_ae_ctrls\[8\] + 4, 10, 5);' "$F" || no "tisp_g_ev_attr word 9 must read tisp_ae_ctrls[8]"
 grep -q 'tisp_ae_ctrls\[5\] = ae_exp_th.data\[1\];' "$F" && grep -q 'tisp_ae_ctrls\[8\] = ae_exp_th.data\[3\];' "$F" || no "AE init must fill ctrls[5] / [8] from ae_exp_th"
+# openimp #553: ae0_tune2 stable + ratio inside stable_tol must hold the EV (vendor 0x506a4..0x506e0 branches to
+# 0x50c10 = _ae_ev store); falling through to the +-1 margin check keeps re-aiming and never holds like the vendor.
+awk '/if \(v0_68 < v0_6 && v0_7 < v0_68\) \{/{f=1} f{print} f&&/^        \}/{exit}' "$F" | grep -q 'goto phase_g;' || no "ae0_tune2 stable in-band case must goto phase_g (hold)"
 [ $fail = 0 ] && echo "check_t31_ae_ctrls: ok"
 exit $fail
