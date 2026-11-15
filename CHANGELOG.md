@@ -13,6 +13,7 @@ marked otherwise. Release tags `vYYYY.MM.DD[-rcN]` are set on the `aperto` branc
 
 - `driver/t31/tx_isp_t31_bcshlut.h` (new): `tiziano_bcsh_lut_parameter` as shared C (19 pointer arguments in the vendor order, the HLSP mix from the `au32clip0` control bytes, BCSH_ev >> 10), used by the driver and by the new binary oracle block `tests/t31_binoracle` `bcshlut` (make `t31_binoracle_bcshlut`). One real difference found and fixed: the vendor packs every register word `hi << 16 | lo` without a 16-bit mask, ours masked both halves (the masked version gives 194 of 200 oracle cases different).
 - Proof: bcshlut 2000 cases, 0 mismatches against `tx-isp-t31.ko` H20221206a, 17 of 17 mutations detected; make check 619/0; T31 ko builds (no new warnings). Registers change only where a half exceeds 16 bits (for example a negative word); device check planned: BCSH 0x8000..0x8070 equal to the vendor dump.
+
 ## 2026-11-15: T33 wiring group 8: TMO switch_para and frame done run the proven vendor entry points on a vendor-layout tmoInfo (openimp #99, #504; host + QEMU)
 
 - `tisp_tmo_switch_para` (`tx_isp_t33_tmoSW.h`, oracle block tmoSW) now runs at a bin switch instead of rebuilding list 8 with `t33_tmo_init`. The block state is a vendor-layout tmoInfo (10880 bytes): the driver's TMO words up to 0xab0, 2732 the section pointer (a private copy of the new section), 2736 / 3138 the u16 Y / saturation curves, 10808 / 10812 / 10816 the EV / BV words of `tisp_tmo_ev_update` (ev >> 10, ev >> 42, BV 0 as at init), DRC off as at init.
