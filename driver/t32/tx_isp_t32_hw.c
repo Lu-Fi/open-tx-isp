@@ -186,6 +186,7 @@ static u8 t33_tmo_fd_refresh, t33_tmo_fd_mulsensor;	/* tispTmoRefresh, mulsensor
 static u32 t33_list_word(const u32 *l, u32 reg);
 static void t33_bst_irq(u32 msca);	/* tx_isp_t33_bst.h: the blocks' frame-done handlers */
 static void t33_csc_fra_down(const u32 *init);	/* system irq 48: tisp_csc_fra_down_interrupt */
+static void t33_ccm_fd(void);			/* system irq 45: tisp_ccm_irq_frame_done (tx_isp_t33_ccmv.h) */
 extern u32 t33_st_isp_init_par_mode[1008];	/* stIspInitPar (word 226 = byte 904: 1) */
 int tisp_rcfg_module_cfg_trig(u32 ch, u32 mod);
 int tisp_rcfg_get_dma_state(u32 mod);
@@ -322,6 +323,8 @@ static irqreturn_t t32_isp_irq(int irq, void *dev)
 		t33_mdns_fd();
 	if (msca & (1U << 16))		/* system irq 48: tisp_csc_fra_down_interrupt */
 		t33_csc_fra_down(t33_st_isp_init_par_mode);
+	if (msca & (1U << 13))		/* system irq 45: tisp_ccm_irq_frame_done (block ccmP) */
+		t33_ccm_fd();
 #endif
 #ifdef TX_ISP_T33
 	if (msca & 2)			/* system irq 33: tisp_msca_t33_frame_done_interrupt */
@@ -1096,14 +1099,21 @@ static void t32_stats_init(void)
  */
 #ifdef TX_ISP_T33
 #include "tx_isp_t33_csc.h"
+#include "tx_isp_t33_cscQ.h"
+#include "tx_isp_t33_ccmsm.h"
 /*
  * CSC list 13 as the vendor's tisp_csc_init: section copy with bytes 98 / 99 = 0, tisp_csc_para_refresh_by_mode,
  * tisp_csc_update_para (working block = csc_cp), tisp_t33_csc_write_reg into the slots (the same words the
  * list was built from), tispCscRefresh for tisp_csc_fra_down_interrupt (system irq 48, t33_csc_fra_down).
+ * csc_para[0] (vendor layout, group 13d-1): the three blocks { section copy (tparamsP + 0x4570), csc_cp working
+ * block, csc_ap API block }; tisp_csc_get (proven port t33_csc_get, block ccmsm) on it feeds tisp_clm_init /
+ * tisp_bcsh_init and the CLM CT / switch paths; tisp_csc_fra_down_interrupt = the proven port of block cscQ.
  */
 static u8 t33_csc_sec[T32_CSC_BYTES], t33_csc_full[0x28], t33_csc_api[T32_CSC_API_BYTES];
 static u8 t33_csc_refresh, t33_csc_cfg_mode = 1;	/* tispCscRefresh, cscCfgMode */
 static const struct t33_csc_ops t33_csc_hw = { tisp_reg_write_t33, tisp_rcfg_get_dma_state };
+static u8 *t33_csc_blk[3] = { t33_csc_sec, t33_csc_full, t33_csc_api };
+static u8 *csc_para[4];
 
 static void t33_csc_init_slots(const u8 *sec)
 {
@@ -1114,19 +1124,33 @@ static void t33_csc_init_slots(const u8 *sec)
 	t32_csc_refresh_by_mode(t33_csc_sec[91], 0, t33_csc_sec);
 	t32_csc_update_para(&ctx);
 	t33_csc_write_reg(0, t33_csc_full, t33_csc_cfg_mode, &t33_csc_refresh, &t33_csc_hw);
+	csc_para[0] = (u8 *)t33_csc_blk;
 }
 
-/* tisp_csc_fra_down_interrupt (system irq 48): refresh 1 starts list 13, 2 writes the slots again */
+/* tisp_csc_get(ch, out): the 92-byte CSC set (mode word, matrices, ranges) from csc_para[ch]; -1 without one */
+static int tisp_csc_get(u32 ch, u8 *out)
+{
+	u8 *const *e = (u8 *const *)csc_para[ch & 3];
+
+	if (!e)
+		return -1;
+	return t33_csc_get(e[0], e[2], out);
+}
+
+static void t33_csc_trig(u32 ch, u32 mod)
+{
+	tisp_rcfg_module_cfg_trig(ch, mod);
+}
+
+static int t33_csc_wr(u32 ch)
+{
+	return t33_csc_write_reg(ch, t33_csc_full, t33_csc_cfg_mode, &t33_csc_refresh, &t33_csc_hw);
+}
+
+/* tisp_csc_fra_down_interrupt (system irq 48, block cscQ): refresh 1 starts list 13, 2 writes the slots again */
 static void t33_csc_fra_down(const u32 *init)
 {
-	if (init[226] != 1)
-		return;
-	if (t33_csc_refresh == 1) {
-		tisp_rcfg_module_cfg_trig(0, T33_MOD_CSC);
-		t33_csc_refresh = 0;
-	} else if (t33_csc_refresh == 2) {
-		t33_csc_write_reg(0, t33_csc_full, t33_csc_cfg_mode, &t33_csc_refresh, &t33_csc_hw);
-	}
+	t33_csc_fra_down_interrupt(0, init, &t33_csc_refresh, t33_csc_trig, t33_csc_wr);
 }
 
 /*
@@ -1188,6 +1212,9 @@ static void t32_front_init(void)
 		return;
 	}
 	off = t32_iq_section(bin, bytes, T32_IQ_SEC_CSC, &len);
+#ifdef TX_ISP_T33
+	csc_para[0] = NULL;	/* set by t33_csc_init_slots (tisp_csc_init) */
+#endif
 	if (off && T32_IQ_SEC_OK(len, T32_CSC_BYTES)) {
 		n = t32_csc_init(bin + off, w);
 		if (T32_SOC_LIST_IRQ)
@@ -1335,6 +1362,7 @@ static int t32_mdns_build(u8 *sec, u32 width, u32 height)
 /* block state of the blocks filled the vendor's way (layout + slot stores) */
 static u32 t33_dmsc_v[T33_DMSC_WORDS], t33_dpc_v[T33_DPC_WORDS], t33_ysp_v[T33_YSP_WORDS];
 static u32 t33_rdns_v[T33_RDNS_WORDS], t33_ccm_v[T33_CCM_WORDS], t33_lsc_v[T33_LSC_WORDS];
+#include "tx_isp_t33_ccmv.h"	/* CCM on the vendor ccm_para block, tispCcmRefresh (group 13d-1) */
 static struct t33_lsc t33_lsc_m;
 static u8 t33_bcsh_sec[T33_BCSH_SEC_BYTES], t33_bcsh_st[T33_BCSH_ST_BYTES];
 /*
@@ -1604,29 +1632,27 @@ static noinline_for_stack void t33_tisp_init_tone(const u8 *bin, u32 bytes)
 	}
 	off = t32_iq_section(bin, bytes, T33_SEC_CLM, &len);
 	if (off && len == T33_CLM_SEC_BYTES) {
-		u32 *buf = t33_mod_buf(T33_MOD_CLM), coff, clen;
+		u32 *buf = t33_mod_buf(T33_MOD_CLM);
 
-		/* CT 5000 K as the CCM; the colour space section for the csc set */
-		coff = t32_iq_section(bin, bytes, T32_IQ_SEC_CSC, &clen);
-		if (buf && coff && clen == T32_CSC_BYTES)
+		/* CT 5000 K as the CCM; tisp_csc_get on csc_para for the csc set */
+		if (buf)
 			t33_mod_done(T33_MOD_CLM, t33_clm_init(bin + off, bin + off + len,
 							       t32_iq_payload(bin + off, bytes - off, T33_SEC_CLM),
-							       bin + coff, T33_CCM_INIT_CT, buf, T33_SLOT_WORDS));
+							       tisp_csc_get, T33_CCM_INIT_CT, buf, T33_SLOT_WORDS));
 	}
 	off = t32_iq_section(bin, bytes, T33_SEC_BCSH, &len);
 	if (off && len == T33_BCSH_SEC_BYTES) {
-		u32 *buf = t33_mod_buf(T33_MOD_BCSH), coff, clen;
+		u32 *buf = t33_mod_buf(T33_MOD_BCSH);
 
 		/*
 		 * stIspInitPar first-frame inputs (fstframe_defaultp, no RISC-V): CT +0x3d0 = 5000 K, EV +0x398 =
-		 * 0x4000 (state word 8 = EV >> 10), words +0x3d8 / +0x3dc; the colour space section for the csc set
+		 * 0x4000 (state word 8 = EV >> 10), words +0x3d8 / +0x3dc; tisp_csc_get on csc_para for the csc set
 		 */
-		coff = t32_iq_section(bin, bytes, T32_IQ_SEC_CSC, &clen);
 		memcpy(t33_bcsh_sec, bin + off, sizeof(t33_bcsh_sec));
-		if (buf && coff && clen == T32_CSC_BYTES)
+		if (buf)
 			t33_mod_done(T33_MOD_BCSH,
 				     t33_bcsh_init(t33_bcsh_sec, bin + off + len,
-						   t32_iq_payload(bin + off, bytes - off, T33_SEC_BCSH), bin + coff,
+						   t32_iq_payload(bin + off, bytes - off, T33_SEC_BCSH), tisp_csc_get,
 						   T33_CCM_INIT_CT, T33_BCSH_INIT_EV, t33_bcsh_st, buf, T33_SLOT_WORDS));
 	}
 }
@@ -1768,6 +1794,8 @@ void t33_stats_show(struct seq_file *m)
 		   t33_blc_runs[0], t33_blc_runs[1], t33_blc_runs[2], t33_blc_runs[3], t33_blc_refresh);
 	seq_printf(m, "t33 lsc: %s init %u switch %u fd %u refresh %u count %u\n", lsc_para[0] ? "on" : "off",
 		   t33_lsc_runs[0], t33_lsc_runs[1], t33_lsc_runs[2], t33_lsc_refresh, t33_lsc_count[0]);
+	seq_printf(m, "t33 ccm: %s init %u ct %u ev %u switch %u fd %u refresh %u\n", ccm_para[0] ? "on" : "off",
+		   t33_ccm_runs[0], t33_ccm_runs[1], t33_ccm_runs[2], t33_ccm_runs[3], t33_ccm_runs[4], tispCcmRefresh);
 	seq_printf(m, "t33 dpc: %s gain %u switch %u refresh %u\n", t33_dpc_v[T33_DPC_SEC_WORD] ? "on" : "off",
 		   t33_dpc_gains, t33_swg_runs[2], t33_bst_refresh[T33_BST_DPC]);
 }
@@ -2218,19 +2246,9 @@ void t33_ev_refresh(u32 lo, u32 hi, u32 bv, u32 bvh)
 		if (t33_bcsh_ev_update(t33_bcsh_st, t33_bcsh_sec, lo, hi, bv, bvh, t33_gr_tmp))
 			t33_gr_commit(T33_MOD_BCSH, 1);
 	}
-	/* tisp_ccm_ev_update: the matrix words follow the CT here, list 10 reruns either way */
-	if (t33_gr_tmp && !(byp & 0x80) && (t33_mod_built & (1ULL << T33_MOD_CCM)) &&
-	    (buf = t33_mod_buf(T33_MOD_CCM)) && !t32_core_iq_bin(&bin, &bytes)) {
-		u32 len, off = t32_iq_section(bin, bytes, T33_SEC_CCM, &len);
-
-		if (off && len == T33_CCM_SEC_BYTES) {
-			memcpy(t33_gr_tmp, buf, T33_SLOT_WORDS * 4);
-			if (t33_ccm_ev_update(t33_ccm_v, bin + off, lo, hi, t33_gr_tmp))
-				t33_gr_commit(T33_MOD_CCM, 1);
-			else
-				t33_gr_rerun(T33_MOD_CCM);
-		}
-	}
+	/* tisp_ccm_ev_update (block ccmP) on ccm_para: the slots and tispCcmRefresh, irq 45 starts list 10 */
+	if (!(byp & 0x80))
+		t33_ccm_ev_upd(lo, hi);
 	/*
 	 * tisp_gamma_ev_update (top bypass bit 8 clear): interp_by_ev / update_curve every time, list 11 rewritten
 	 * and rerun only on a new strength (block gammaev, openimp #507)
@@ -2267,28 +2285,11 @@ void t33_ev_refresh(u32 lo, u32 hi, u32 bv, u32 bvh)
  * sec+0x1a and the state's 1, then write_reg).  BCSH / LSC CT updates
  * leave their words unchanged on PRJ008 (QEMU trace).
  */
-static u32 t33_ccm_save[T33_CCM_WORDS];
-
-/* tisp_ccm_ct_update */
+/* tisp_ccm_ct_update on ccm_para (tx_isp_t33_ccmv.h): interp_by_ct not forced, write_reg, tispCcmRefresh */
 static void t33_ctup_ccm(const u8 *bin, u32 bytes, u32 ct)
 {
-	u32 off, len, *buf;
-	int d;
-
-	off = t32_iq_section(bin, bytes, T33_SEC_CCM, &len);
-	if (off && len == T33_CCM_SEC_BYTES && (t33_mod_built & (1ULL << T33_MOD_CCM)) &&
-	    (buf = t33_mod_buf(T33_MOD_CCM))) {
-		const u8 *sec = bin + off, *lut = bin + off + len;
-
-		memcpy(t33_ccm_save, t33_ccm_v, sizeof(t33_ccm_save));
-		t33_ccm_ct(t33_ccm_v, sec, lut, ct);
-		d = (int)(ct - t33_ccm_save[4]);
-		if ((t33_ccm_v[5] == t33_ccm_save[5] && !(t33_ccm_v[5] & 1)) ||
-		    (d < 0 ? -d : d) <= (int)t32_tp_le16(sec + 0x738))
-			memcpy(t33_ccm_v, t33_ccm_save, sizeof(t33_ccm_save));
-		/* no calc_para_refresh here: write_reg stores the unchanged matrix words; tispCcmRefresh */
-		t33_gr_rerun(T33_MOD_CCM);
-	}
+	(void)bin; (void)bytes;	/* the section and knots of the last bin parse (tparamsP / stLutInfo) */
+	t33_ccm_ct_update(ct);
 }
 
 /* tisp_bcsh_ct_update (block bcshct): interp_by_ct not forced, calc_para_refresh(2), the slot stores */
@@ -2308,11 +2309,10 @@ static void t33_ctup_bcsh(const u8 *bin, u32 bytes, u32 ct)
 /* tisp_clm_ct_update (block clmct): tisp_clm_ct_interp not forced (hysteresis 1), then write_reg */
 static void t33_ctup_clm(const u8 *bin, u32 bytes, u32 ct)
 {
-	u32 off, len, coff, clen;
+	u32 off, len;
 
 	off = t32_iq_section(bin, bytes, T33_SEC_CLM, &len);
-	coff = t32_iq_section(bin, bytes, T32_IQ_SEC_CSC, &clen);
-	if (off && len == T33_CLM_SEC_BYTES && coff && clen == T32_CSC_BYTES) {
+	if (off && len == T33_CLM_SEC_BYTES) {
 		const u8 *sec = bin + off, *lut = bin + off + len;
 		u32 lb = t32_iq_payload(sec, bytes - off, T33_SEC_CLM);
 
@@ -2322,7 +2322,7 @@ static void t33_ctup_clm(const u8 *bin, u32 bytes, u32 ct)
 		if (!t33_clm_ct_gate(sec, lut, (int)ct, &t33_clm_ct_last, &t33_clm_seg_b, 1)) {
 			t33_clm_seg_last = t33_clm_seg_b;
 			memset(t33_gr_tmp, 0, T33_SLOT_WORDS * 4);
-			t33_gr_commit(T33_MOD_CLM, t33_clm_init(sec, lut, lb, bin + coff, (int)ct, t33_gr_tmp,
+			t33_gr_commit(T33_MOD_CLM, t33_clm_init(sec, lut, lb, tisp_csc_get, (int)ct, t33_gr_tmp,
 								T33_SLOT_WORDS));
 		}
 	}
@@ -2638,10 +2638,9 @@ static void t33_tisp_init(const u8 *bin, u32 bytes)
 		/* CCM: section 12 and its knots behind it, CT 5000 K, EV 0 (the vendor's init values) */
 		off = t32_iq_section(bin, bytes, T33_SEC_CCM, &len);
 		if (off && len == T33_CCM_SEC_BYTES && (buf = t33_mod_buf(T33_MOD_CCM)))
-			t33_mod_done(T33_MOD_CCM, t33_ccm_init(bin + off, bin + off + len,
-							       t32_iq_payload(bin + off, bytes - off, T33_SEC_CCM),
-							       T33_CCM_INIT_CT, T33_CCM_INIT_EV, 0, t33_ccm_v, buf,
-							       T33_SLOT_WORDS));
+			t33_mod_done(T33_MOD_CCM, t33_ccm_attach(bin + off, bin + off + len,
+								 t32_iq_payload(bin + off, bytes - off, T33_SEC_CCM),
+								 T33_CCM_INIT_CT, T33_CCM_INIT_EV, buf, T33_SLOT_WORDS));
 	}
 	off = t32_iq_section(bin, bytes, T33_SEC_GAMMA, &len);
 	if (off && len == T33_GAMMA_SEC_BYTES) {
@@ -2810,15 +2809,12 @@ static void tisp_clm_calc_para_refresh(u32 ch)
 static void tisp_clm_t33_write_reg(u32 ch)
 {
 	const u8 *sec = (const u8 *)(unsigned long)t33_swg_clm_blk[0], *bin = t33_swg_sm2.bin;
-	u32 clen, coff = t32_iq_section(bin, t33_swg_sm2.bytes, T32_IQ_SEC_CSC, &clen);
 
 	(void)ch;
-	if (!coff || clen != T32_CSC_BYTES)
-		return;
 	T33_SW_TMP();
 	t33_gr_commit(T33_MOD_CLM, t33_clm_init(sec, sec + t33_swg_sm2.len,
 						t32_iq_payload(sec, t33_swg_sm2.bytes - (u32)(sec - bin), T33_SEC_CLM),
-						bin + coff, t33_swg_clm_blk[24], t33_gr_tmp, T33_SLOT_WORDS));
+						tisp_csc_get, t33_swg_clm_blk[24], t33_gr_tmp, T33_SLOT_WORDS));
 }
 
 /* tisp_top_switch_para: tisp_top_reg_cfg into list 33, tispTopRefresh */
@@ -2876,8 +2872,9 @@ static void t33_sw_lce(const u8 *bin, u32 bytes)
  * set per call such that tparamsP + vendor offset = a private copy of the section, never the IQ bin libimp
  * handed in (its buffer is read again at the next switch and at stream-on).
  *
- * - ccm_para[0]: word 0 section, 2 / 3 EV low / high, 4 CT; the interpolation / calc callees are part of
- *   t33_ccm_init, which tisp_ccm_write_reg runs into list 10 (section copy + the bin's knot payload).
+ * - ccm_para[0]: the vendor-layout CCM block of tx_isp_t33_ccmv.h (group 13d-1): the new section copied into
+ *   its tparamsP slot, interp_by_ct (forced) at the block's own CT, interp_by_ev (forced) at its own EV words,
+ *   no_interp, calc_para_refresh, write_reg into the list 10 slots, tispCcmRefresh = 1: irq 45 starts the list.
  * - csccrInfo[0] (t33_swg_csccr_blk, set at init): the entry point writes the init gains into the list 22 slots
  *   3 / 4 / 6 / 1 (csccrCfgMode = t33_bst_cfg_mode) and sets tispCsccrRefresh: the CSCCR frame done (irq 57)
  *   starts the list; slot 7 (the UV clip of the day / night glue) stays.
@@ -2889,56 +2886,14 @@ static void t33_sw_lce(const u8 *bin, u32 bytes)
  *   tisp_lsc_tgain_update / ct_update, which the top bypass bit 0x08 skips on PRJ008, openimp #537); its
  *   write_reg writes the list 6 slots and tispLscRefresh, the LSC frame done (irq 36) starts the list.
  */
-#define T33_TP_OFF_CCM		21536U
 #define T33_TP_OFF_CSCCR	17880U
 #define T33_TP_OFF_LSC		17488U
 static u8 *t33_swg_tp8[4];
-static u8 t33_swg_ccm_sec[T33_CCM_SEC_BYTES], t33_swg_csccr_sec[T32_CSCCR_BYTES];
-static u32 t33_swg_ccm_blk[5], *t33_swg_ccm_para[4] = { t33_swg_ccm_blk };
+static u8 t33_swg_csccr_sec[T32_CSCCR_BYTES];
 static u32 *t33_swg_csccr_info[4] = { t33_swg_csccr_blk };
 static u8 t33_swg_defog_tab[3184];	/* defog_info word 4: the para3 tables (bytes 2458..3177) */
 static u32 t33_swg_defog_blk[13], *t33_swg_defog_info[4] = { t33_swg_defog_blk };
-static u8 t33_swg_ccm_refresh;		/* tispCcmRefresh: the list is committed by t33_gr_commit */
-static struct {
-	const u8 *lut;
-	u32 lutbytes;
-} t33_swg_mid;
-
-static int tisp_ccm_interp_by_ct(u32 idx, u32 ct, u32 force)
-{
-	(void)idx; (void)ct; (void)force;
-	return 0;
-}
-
-static int tisp_ccm_interp_by_ev(u32 idx, u32 pad, u32 ev_lo, u32 ev_hi, u32 force)
-{
-	(void)idx; (void)pad; (void)ev_lo; (void)ev_hi; (void)force;
-	return 0;
-}
-
-static int tisp_ccm_no_interp(u32 idx)
-{
-	(void)idx;
-	return 0;
-}
-
-static int tisp_ccm_calc_para_refresh(u32 idx)
-{
-	(void)idx;
-	return 0;
-}
-
-static int tisp_ccm_write_reg(u32 idx, u32 mode)
-{
-	const u8 *sec = (const u8 *)(unsigned long)t33_swg_ccm_blk[0];
-
-	(void)idx; (void)mode;
-	T33_SW_TMP();
-	t33_gr_commit(T33_MOD_CCM, t33_ccm_init(sec, t33_swg_mid.lut, t33_swg_mid.lutbytes,
-						t33_swg_ccm_blk[4], t33_swg_ccm_blk[2], t33_swg_ccm_blk[3],
-						t33_ccm_v, t33_gr_tmp, T33_SLOT_WORDS));
-	return 0;
-}
+/* tisp_ccm_interp_by_ct / _by_ev / no_interp / calc_para_refresh / write_reg: tx_isp_t33_ccmv.h */
 
 /* tisp_csccr_para_refresh_by_mode(mode, 0, section): the mode's range table into the section */
 static int tisp_csccr_para_refresh_by_mode(u32 mode, u32 zero)
@@ -3214,26 +3169,28 @@ static noinline_for_stack void t33_sw_tone(const u8 *bin, u32 bytes, u32 width, 
 		}
 	}
 	/* tisp_ccm_switch_para: interp_by_ct (forced) / _by_ev, calc_para_refresh, write_reg */
-	if (T33_SW_SEC(CCM)) {
-		memcpy(t33_swg_ccm_sec, bin + off, sizeof(t33_swg_ccm_sec));
-		t33_swg_mid.lut = bin + off + len;
-		t33_swg_mid.lutbytes = t32_iq_payload(bin + off, bytes - off, T33_SEC_CCM);
-		t33_swg_ccm_blk[2] = lo;
-		t33_swg_ccm_blk[3] = hi;
-		t33_swg_ccm_blk[4] = ct;
-		t33_swg_tp8[0] = t33_swg_ccm_sec - T33_TP_OFF_CCM;
-		t33_ccm_switch_para(0, t33_swg_tp8, t33_swg_ccm_para, &t33_swg_ccm_refresh);
+	if (T33_SW_SEC(CCM) && !t33_ccm_new_bin(bin + off, bin + off + len,
+						 t32_iq_payload(bin + off, bytes - off, T33_SEC_CCM))) {
+		unsigned long flags;
+
+		t33_swg_tp8[0] = t33_ccm_sec - T33_TP_OFF_CCM;
+		local_irq_save(flags);
+		t33_ccm_switch_para(0, t33_swg_tp8, t33_ccm_parap, &tispCcmRefresh);
+		local_irq_restore(flags);
+		t33_ccm_runs[3]++;
 	}
 }
 
 /* clm, bcsh */
 static noinline_for_stack void t33_sw_color(const u8 *bin, u32 bytes)
 {
-	u32 off, len, coff, clen, *buf;
+	u32 off, len, *buf;
 
-	coff = t32_iq_section(bin, bytes, T32_IQ_SEC_CSC, &clen);
-	/* tisp_clm_switch_para: ct_interp (forced) at the block's last CT (clm_info word 0x18), calc_para_refresh, write_reg */
-	if (T33_SW_SEC(CLM) && coff && clen == T32_CSC_BYTES) {
+	/*
+	 * tisp_clm_switch_para: ct_interp (forced) at the block's last CT (clm_info word 0x18), calc_para_refresh,
+	 * write_reg (the csc set: tisp_csc_get on csc_para, the init's CSC section; the vendor has no CSC switch)
+	 */
+	if (T33_SW_SEC(CLM)) {
 		t33_swg_sm2.bin = bin;
 		t33_swg_sm2.bytes = bytes;
 		t33_swg_sm2.len = len;

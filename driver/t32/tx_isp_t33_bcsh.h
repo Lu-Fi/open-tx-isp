@@ -579,21 +579,24 @@ static inline void t33_bcsh_store(const u8 *st, const u8 *sec, u32 *l)
 /*
  * Block init into list l (capacity cap words): sec a writable copy of
  * section 19 (the block clears ten flags and may fix 0x116/0x118 in it),
- * lut / lutbytes its payload, csc the colour space section (9), st
+ * lut / lutbytes its payload, csc_get the vendor's tisp_csc_get (into the
+ * ap's csc set at +0x2c), st
  * T33_BCSH_ST_BYTES of block state, ct / ev the tisp init colour
  * temperature and EV.  Returns the list length, -1 on a refused section.
  */
-T33_BCSH_FN t33_bcsh_init(u8 *sec, const u8 *lut, u32 lutbytes, const u8 *csc, int ct,
+T33_BCSH_FN t33_bcsh_init(u8 *sec, const u8 *lut, u32 lutbytes, int (*csc_get)(u32 ch, u8 *out), int ct,
 				unsigned long long ev, u8 *st, u32 *l, u32 cap)
 {
 	static const u16 clear[] = { 0x4ae, 0x4af, 0x477, 0x478, 0x471, 0x472, 0x4a8, 0x4a9, 0x4a3, 0x4a4 };
-	u8 *ap = st + 0x1cc;
+	u8 *ap = st + 0x1cc, cg[0x5c];
 	unsigned int k;
 	int len;
 
 	if (t33_le32(sec) != T33_BCSH_ID || sec[0x4a2] > 2)
 		return -1;
-	if (!(csc[0x62] == 1 || (csc[0x62] == 0 && csc[0x63] < 2)))
+	/* tisp_csc_get into the ap's csc set: bytes it does not write keep the bcsh_ap defaults */
+	memcpy(cg, t33_bcsh_ap_def + 0x2c, sizeof(cg));
+	if (csc_get(0, cg))
 		return -1;
 	if (sec[0x4a2] == 1 && (!sec[0x4bf] || lutbytes < sec[0x4bf] * 40U))
 		return -1;
@@ -603,11 +606,7 @@ T33_BCSH_FN t33_bcsh_init(u8 *sec, const u8 *lut, u32 lutbytes, const u8 *csc, i
 	memset(st, 0, T33_BCSH_ST_BYTES);
 	/* bcsh_ap defaults (user settings 128), tisp_csc_get into ap + 0x2c; bcsh_cp / sp are 0 */
 	memcpy(ap, t33_bcsh_ap_def, sizeof(t33_bcsh_ap_def));
-	t32_bcsh_p32(ap, 0x2c, csc[0x5b]);
-	memcpy(ap + 0x54, csc + 0x52, 6);
-	memcpy(ap + 0x80, csc + 0x5c, 6);
-	memcpy(ap + 0x30, csc + 4, 0x24);
-	memcpy(ap + 0x5c, csc + 0x28, 0x24);
+	memcpy(ap + 0x2c, cg, sizeof(cg));
 	for (k = 0; k < ARRAY_SIZE(clear); k++)
 		sec[clear[k]] = 0;
 	ev >>= 10;

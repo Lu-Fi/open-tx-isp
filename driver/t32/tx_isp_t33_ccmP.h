@@ -15,6 +15,7 @@
 #include "tx_isp_t33_ccm.h"
 #include "tx_isp_t33_ccmsm.h"
 
+#ifndef T33_CCMP_GLUE	/* the T33 driver maps these names (tx_isp_t33_ccmv.h) */
 extern u8 tispCcmRefresh;
 extern u32 ccm_para[4];
 extern u8 stIspInitPar[4032];
@@ -27,6 +28,7 @@ extern int tisp_rcfg_get_dma_state(u32 mod);
 extern void tisp_rcfg_module_cfg_trig(u32 ch, u32 mod);
 extern int tisp_ccm_interp_by_ct(u32 ch, const u8 *sec, u32 force);
 extern void tisp_ccm_no_interp(u32 ch);
+#endif
 
 /* tisp_ccm_ev_update: EV clamped to 0x100 << 32, interp_by_ev (not forced);
  * on success calc_para_refresh + write_reg; tispCcmRefresh = 1 when the

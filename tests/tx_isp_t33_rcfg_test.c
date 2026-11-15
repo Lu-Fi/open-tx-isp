@@ -34,6 +34,25 @@
 #include "../driver/t32/tx_isp_t33_ae.h"
 #include "../driver/t32/tx_isp_t33_awb.h"
 #include "../driver/t32/tx_isp_t33_stats.h"
+#include "../driver/t32/tx_isp_t33_ccmsm.h"
+
+/* tisp_csc_get on csc_para as tisp_csc_init leaves it: the bin's CSC section with bytes 98 / 99 = 0 */
+static u8 t_csc_sec[0x68];
+static int t_csc_get(u32 ch, u8 *out)
+{
+	(void)ch;
+	return t33_csc_get(t_csc_sec, NULL, out);
+}
+
+static void t_csc_set(const u8 *bin, u32 bytes)
+{
+	u32 clen, coff = t32_iq_section(bin, bytes, T32_IQ_SEC_CSC, &clen);
+
+	memset(t_csc_sec, 0, sizeof(t_csc_sec));
+	if (coff && clen == sizeof(t_csc_sec))
+		memcpy(t_csc_sec, bin + coff, clen);
+	t_csc_sec[98] = t_csc_sec[99] = 0;
+}
 
 static int bad;
 #define CHECK(c) do { if (!(c)) { bad++; printf("FAIL line %d: %s\n", __LINE__, #c); } } while (0)
@@ -541,16 +560,14 @@ int main(void)
 				vs_list("awbg", T33_MOD_AWBG, wl, t33_awbg_init(r, b, wl, T33_SLOT_WORDS));
 			}
 			{
-				/* CLM: CT 5000 K, the csc section */
-				u32 coff, clen;
-
+				/* CLM: CT 5000 K, the csc set of tisp_csc_get */
 				off = t32_iq_section(bin, bytes, T33_SEC_CLM, &len);
 				CHECK(off && len == T33_CLM_SEC_BYTES);
 				CHECK(t33_tp_offset(bin, T33_SEC_CLM) == 0x903c);
-				coff = t32_iq_section(bin, bytes, T32_IQ_SEC_CSC, &clen);
+				t_csc_set(bin, bytes);
 				vs_list("clm", T33_MOD_CLM, lb,
 					t33_clm_init(bin + off, bin + off + len, t32_iq_payload(bin + off, bytes - off, T33_SEC_CLM),
-						     bin + coff, 5000, lb, T33_SLOT_WORDS));
+						     t_csc_get, 5000, lb, T33_SLOT_WORDS));
 				{
 					/* between two knots the vendor's upper threshold compares unsigned
 					 * (knot CT read at stride 0x41a, 0 on PRJ008): 4174 K interpolates */
@@ -558,9 +575,9 @@ int main(void)
 					u32 lbytes = t32_iq_payload(bin + off, bytes - off, T33_SEC_CLM);
 
 					if (bin[off + 0x3b] == 3 && t32_tp_le16(bin + off + len + 2 * T33_CLM_KNOT16) == 4900) {
-						CHECK(t33_clm_init(bin + off, bin + off + len, lbytes, bin + coff, 4174, la,
+						CHECK(t33_clm_init(bin + off, bin + off + len, lbytes, t_csc_get, 4174, la,
 								   T33_SLOT_WORDS) > 0);
-						CHECK(t33_clm_init(bin + off, bin + off + len, lbytes, bin + coff, 4900, lz,
+						CHECK(t33_clm_init(bin + off, bin + off + len, lbytes, t_csc_get, 4900, lz,
 								   T33_SLOT_WORDS) > 0);
 						CHECK(memcmp(la, lz, sizeof(la)) != 0);
 					}
@@ -584,17 +601,16 @@ int main(void)
 			{
 				/* BCSH: CT 5000 K, EV 0 (T33_BCSH_CT / T33_BCSH_EV override) */
 				static u8 bsec[T33_BCSH_SEC_BYTES], bst[T33_BCSH_ST_BYTES];
-				u32 coff, clen;
 				const char *ce = getenv("T33_BCSH_CT"), *ee = getenv("T33_BCSH_EV");
 
 				off = t32_iq_section(bin, bytes, T33_SEC_BCSH, &len);
 				CHECK(off && len == T33_BCSH_SEC_BYTES);
 				CHECK(t33_tp_offset(bin, T33_SEC_BCSH) == 0x8b78);
-				coff = t32_iq_section(bin, bytes, T32_IQ_SEC_CSC, &clen);
+				t_csc_set(bin, bytes);
 				memcpy(bsec, bin + off, sizeof(bsec));
 				vs_list("bcsh", T33_MOD_BCSH, lb,
 					t33_bcsh_init(bsec, bin + off + len, t32_iq_payload(bin + off, bytes - off, T33_SEC_BCSH),
-						      bin + coff, ce ? atoi(ce) : 5000, ee ? strtoull(ee, NULL, 0) : 0, bst, lb,
+						      t_csc_get, ce ? atoi(ce) : 5000, ee ? strtoull(ee, NULL, 0) : 0, bst, lb,
 						      T33_SLOT_WORDS));
 			}
 			{

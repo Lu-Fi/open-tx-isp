@@ -33,7 +33,7 @@ static inline unsigned long long t33_ccm_single_ks(u32 a0, u32 a1, u32 a2, u32 a
 	for (s = 10; s >= 0; s--) {
 		shifted = ((unsigned long long)a1 << 32 | a0) << s;
 		num = shifted + half;
-		q = divisor ? num / divisor : 0;
+		q = divisor ? t32_tp_div64(num, divisor) : 0;	/* div64_u64 in the kernel */
 		if ((q >> 32) == 0 && (u32)q < 0x100) {
 			return ((unsigned long long)(s & 0xff) << 8) | (u32)q;
 		}

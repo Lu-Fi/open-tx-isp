@@ -155,7 +155,8 @@ static inline u32 t33_clm_r6(int x)
 
 /*
  * Block init into list l (capacity cap words): sec section 20, lut / lutbytes
- * its payload, csc the colour space section (9), ct the init colour
+ * its payload, csc_get the vendor's tisp_csc_get (the 92-byte CSC set of
+ * csc_para: mode word, matrix 1 at +4, matrix 2 at +0x30), ct the init colour
  * temperature.  Returns the list length, -1 on a refused section.
  */
 #ifdef __KERNEL__
@@ -163,14 +164,16 @@ static inline u32 t33_clm_r6(int x)
 #else
 #define T33_CLM_FN	static inline int
 #endif
-T33_CLM_FN t33_clm_init(const u8 *sec, const u8 *lut, u32 lutbytes, const u8 *csc, int ct, u32 *l, u32 cap)
+T33_CLM_FN t33_clm_init(const u8 *sec, const u8 *lut, u32 lutbytes, int (*csc_get)(u32 ch, u8 *out), int ct,
+			u32 *l, u32 cap)
 {
+	static u8 csc[0x5c];
 	static u8 b8[T33_CLM_N];	/* callers are serialised (stream-on) */
 	static u16 t16[T33_CLM_N];
 	u32 mode, v0, s0, v1, s1, r30, r31, k, j, slot;
 	int m1[9], m2[9], len, h;
 
-	if (!(csc[0x62] == 1 || (csc[0x62] == 0 && csc[0x63] < 2)))
+	if (csc_get(0, csc))
 		return -1;
 	if (t33_clm_ct(sec, lut, lutbytes, ct, b8, t16) < 0)
 		return -1;
@@ -178,10 +181,10 @@ T33_CLM_FN t33_clm_init(const u8 *sec, const u8 *lut, u32 lutbytes, const u8 *cs
 	if (len <= 0)
 		return len;
 	/* tisp_csc_get: mode, the two matrices */
-	mode = csc[0x5b];
+	mode = t33_le32(csc);
 	for (k = 0; k < 9; k++) {
 		m1[k] = t33_s32(csc + 4 + 4 * k);
-		m2[k] = t33_s32(csc + 0x28 + 4 * k);
+		m2[k] = t33_s32(csc + 0x30 + 4 * k);
 	}
 	t33_clm_recip((int)t32_tp_le16(sec + 0x14) - (int)t32_tp_le16(sec + 0x12), &v0, &s0);
 	t33_clm_recip((int)t32_tp_le16(sec + 0x18) - (int)t32_tp_le16(sec + 0x16), &v1, &s1);

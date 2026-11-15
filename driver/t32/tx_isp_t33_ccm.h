@@ -21,6 +21,7 @@
 #define TX_ISP_T33_CCM_H
 
 #include "tx_isp_t33_blk.h"
+#include "tx_isp_t33_ccmsm.h"
 
 #define T33_MOD_CCM		10
 #define T33_SEC_CCM		12
@@ -144,37 +145,21 @@ static inline int t33_ccm_ev(u32 *v, const u8 *sec, u32 ev_lo, u32 ev_hi)
 	return 0;
 }
 
-/* func_ccm_calc_single_ks: the largest shift 10..0 with ((a << s) + b / 2) / b < 0x100 */
+/* func_ccm_calc_single_ks (proven port t33_ccm_single_ks, block ccmsm): |d out| and |d in| as 64 bit */
 static inline void t33_ccm_ks(u32 a, u32 b, u32 *val, u32 *shift)
 {
-	unsigned long long q;
-	int s;
+	unsigned long long r = t33_ccm_single_ks(a, 0, b, 0);
 
-	for (s = 10; s >= 0; s--) {
-		q = t32_tp_div64(((unsigned long long)a << s) + (b >> 1), b);
-		if (q < 0x100) {
-			*val = (u32)q;
-			*shift = (u32)s;
-			return;
-		}
-	}
-	*val = 0xff;
-	*shift = 0;
+	*val = (u32)r & 0xff;
+	*shift = (u32)(r >> 8) & 0xff;
 }
 
-/* tisp_ccm_no_interp + tisp_ccm_calc_para_refresh */
-static inline void t33_ccm_para(u32 *v, const u8 *sec)
+/* tisp_ccm_calc_para_refresh */
+static inline void t33_ccm_calc(u32 *v)
 {
 	/* { first in, first out, value word, shift word } of the three slope sets */
 	static const u8 ks[3][4] = { { 0x28, 0x2c, 0x30, 0x33 }, { 0x37, 0x3b, 0x3f, 0x42 }, { 0x46, 0x4a, 0x4e, 0x51 } };
 	unsigned int k, j;
-
-	v[0x5d] = t33_le32(sec + 4);
-	v[0x5e] = t33_le32(sec + 8);
-	v[0x71] = t33_le32(sec + 0x68);
-	v[0x7e] = t33_le32(sec + 0x2ac);
-	v[0x87] = t33_le32(sec + 0x430);
-	v[0x90] = t33_le32(sec + 0x5b4);
 
 	v[6] = v[0x5d];
 	v[7] = v[0x5e];
@@ -199,6 +184,16 @@ static inline void t33_ccm_para(u32 *v, const u8 *sec)
 			if (din)	/* else the vendor prints "ccm error" and keeps the old values */
 				t33_ccm_ks((u32)t33_iabs(dout), (u32)t33_iabs(din), &v[ks[j][2] + k], &v[ks[j][3] + k]);
 		}
+}
+
+/*
+ * tisp_ccm_no_interp (proven port t33_ccm_no_interp, block ccmsm: the enables of the section as u32 words;
+ * sec u32 aligned in the driver, the tparamsP copy) + tisp_ccm_calc_para_refresh
+ */
+static inline void t33_ccm_para(u32 *v, const u8 *sec)
+{
+	t33_ccm_no_interp(v, (const u32 *)(const void *)sec);
+	t33_ccm_calc(v);
 }
 
 #define T33_CCM_P10(a, b)	((v[a] & 0x3ff) << 4 | (v[b] & 0x3ff) << 16)
@@ -263,7 +258,7 @@ static inline int t33_ccm_ev_update(u32 *v, const u8 *sec, u32 lo, u32 hi, u32 *
 		return 0;
 	if (t33_ccm_ev(v, sec, lo, hi))
 		return 0;
-	t33_ccm_para(v, sec);
+	t33_ccm_calc(v);	/* no no_interp in tisp_ccm_ev_update: the enables stay from the init / switch */
 	t33_ccm_store(v, l);
 	return 1;
 }
