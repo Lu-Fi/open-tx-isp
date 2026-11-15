@@ -4,6 +4,10 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD[-rcN]` are set on the `aperto` branch, the same tag in open-tx-isp and OpenIMP: RC1 `v2026.10.11-rc1`, RC2 `v2026.10.25-rc2`, RC3 `v2026.11.07-rc3` (2026-11-07). Gate SoCs of RC3 and Release 1: T10, T20, T21, T23, T30, T31, T40, T41 (T32/T33 planned, QEMU only); release notes: [docs/releases/ in OpenIMP](https://github.com/Lu-Fi/openimp/blob/next/docs/releases/README.md). Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-11-15: docs: BEYOND_VENDOR rows of the T10/T20 divide-by-zero guards had lost two columns (openimp #599, #600)
+
+- `docs/BEYOND_VENDOR.md`: the DIS complexity test and AWB range-low rows now carry the Default (always) and Vendor-behaviour-back (none) columns like every other row. Documentation only, no driver change.
+
 ## 2026-11-15: T33 races from the 2026-11-15 review: list copy window, IQ bin list walk (openimp #579 items 1, 3; locking only, host + QEMU)
 
 - Item 1, `t33_gr_commit` (tx_isp_t32_hw.c): between the wait for an idle list and `local_irq_save` a frame-end start (dirty bit or a block's frame-done trigger, e.g. the gamma irq 46) could run the list while its page was copied (one frame from a half-copied page). The copy now runs with the interrupts off and the list read idle inside that window (up to 3 retries, then as before). The vendor writes list slots without any wait; register and list output unchanged.
