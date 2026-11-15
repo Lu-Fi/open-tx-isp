@@ -1130,12 +1130,7 @@ static unsigned char __attribute__((aligned(4))) sensor_no[1] = {
     0x04,
 };
 typedef int (*sensor_op_t)(void *a0, int a1, void *a2);
-static const uint32_t height_set_jt[5] __attribute__((used, section(".rodata"))) = {
-    0x13, 0x14, 0x15, 0x16, 0x17
-};
-static const uint32_t height_get_jt[5] __attribute__((used, section(".rodata"))) = {
-    0x13, 0x14, 0x15, 0x16, 0x17
-};
+/* (the image_resize_height jump-table stand-ins lived here) */
 static uintptr_t apical_api_buffer_data_size;
 static unsigned char __attribute__((aligned(4))) exposure_partition_int_priority[20] = {
     0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x00,
@@ -2120,9 +2115,9 @@ extern volatile uint32_t t20_antifog_hw_want;
 static void t20_antifog_apply(void);
 static void t20_antifog_hw_apply(void);
 static void t20_mesh_scale_hw_apply(void);
-uint32_t _update_ds(uint32_t *arg1);
-int32_t _update_ds2(uint32_t *arg1);
-int32_t _update_fr(uint32_t *arg1);
+void _update_ds(struct t20_fsm_crop *fsm);
+void _update_ds2(struct t20_fsm_crop *fsm);
+void _update_fr(struct t20_fsm_crop *fsm);
 int32_t crop_fsm_process_interrupt(int32_t *arg1, char arg2);
 int32_t crop_resolution_changed(int32_t *arg1);
 int32_t crop_initialize(int32_t *arg1);
@@ -5908,351 +5903,173 @@ int32_t dvi_output(void)
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000001acb4 origin=model_output original=image_resize_enable */
+/*
+ * Window selector of the image_resize_ and image_crop_ commands (value
+ * bits 31..16): full-resolution crop, then crop and scaler of the two
+ * down-scaler pipes.
+ */
+enum {
+	T20_WIN_FR_CROP = 0x13,
+	T20_WIN_DS1_CROP = 0x14,
+	T20_WIN_DS1_SCALER = 0x15,
+	T20_WIN_DS2_CROP = 0x16,
+	T20_WIN_DS2_SCALER = 0x17,
+};
+
+static uint8_t *t20_crop_enable_field(struct t20_fsm_crop *crop, uint32_t win)
+{
+	switch (win) {
+	case T20_WIN_FR_CROP:
+		return &crop->fr.crop_enable;
+	case T20_WIN_DS1_CROP:
+		return &crop->ds1.crop_enable;
+	case T20_WIN_DS1_SCALER:
+		return &crop->ds1.scaler_enable;
+	case T20_WIN_DS2_CROP:
+		return &crop->ds2.crop_enable;
+	case T20_WIN_DS2_SCALER:
+		return &crop->ds2.scaler_enable;
+	}
+	return NULL;
+}
+
+static uint16_t *t20_crop_width_field(struct t20_fsm_crop *crop, uint32_t win)
+{
+	switch (win) {
+	case T20_WIN_FR_CROP:
+		return &crop->fr.crop.width;
+	case T20_WIN_DS1_CROP:
+		return &crop->ds1.crop.width;
+	case T20_WIN_DS1_SCALER:
+		return &crop->ds1.scaled_width;
+	case T20_WIN_DS2_CROP:
+		return &crop->ds2.crop.width;
+	case T20_WIN_DS2_SCALER:
+		return &crop->ds2.scaled_width;
+	}
+	return NULL;
+}
+
+static uint16_t *t20_crop_height_field(struct t20_fsm_crop *crop, uint32_t win)
+{
+	switch (win) {
+	case T20_WIN_FR_CROP:
+		return &crop->fr.crop.height;
+	case T20_WIN_DS1_CROP:
+		return &crop->ds1.crop.height;
+	case T20_WIN_DS1_SCALER:
+		return &crop->ds1.scaled_height;
+	case T20_WIN_DS2_CROP:
+		return &crop->ds2.crop.height;
+	case T20_WIN_DS2_SCALER:
+		return &crop->ds2.scaled_height;
+	}
+	return NULL;
+}
+
+/* only the three crop windows have an offset */
+static struct t20_crop_window *t20_crop_window_of(struct t20_fsm_crop *crop,
+						  uint32_t win)
+{
+	switch (win) {
+	case T20_WIN_FR_CROP:
+		return &crop->fr.crop;
+	case T20_WIN_DS1_CROP:
+		return &crop->ds1.crop;
+	case T20_WIN_DS2_CROP:
+		return &crop->ds2.crop;
+	}
+	return NULL;
+}
+
+/*
+ * Set (direction 0) or get (direction 1) one 16-bit window value; a get
+ * answers with the selector in the upper half.  field == NULL: the
+ * selector has no such value.
+ */
+static int32_t t20_crop_api_u16(uint16_t *field, int32_t value,
+				uint8_t direction, uint32_t *result)
+{
+	*result = 0;
+
+	if (direction > 1)
+		return 1;
+	if (!field) {
+		*result = 1;
+		return 5;
+	}
+
+	if (direction == 0)
+		*field = (uint16_t)value;
+	else
+		*result = ((uint32_t)value & 0xffff0000) | *field;
+	return 0;
+}
+
+/* value bits 15..0: 0xc = on, 0xd = off */
 int32_t image_resize_enable(void *api, int32_t value, char direction, uint32_t *result_out)
 {
-	uint32_t cmd = (uint32_t)direction;
-	uint32_t type = (uint32_t)value >> 16;
-	uint32_t sub = (uint32_t)value & 0xffff;
-	uint32_t ret;
+	struct t20_isp_ctx *ctx = api;
+	uint8_t *enable = t20_crop_enable_field(&ctx->crop, (uint32_t)value >> 16);
+	uint32_t setting = (uint32_t)value & 0xffff;
 
 	*result_out = 0;
 
-	if (cmd == 0) {
-		if (type < 0x13 || type > 0x17) {
-			*result_out = 1;
-			return 5;
-		}
-		switch (type) {
-		case 0x13:
-			if (sub == 0xc) {
-				*(uint8_t *)((char *)api + 0x14b0) = 1;
-				crop_resolution_changed((int32_t *)((char *)api + 0x14a0));
-				return 0;
-			}
-			if (sub == 0xd) {
-				*(uint8_t *)((char *)api + 0x14b0) = 0;
-				crop_resolution_changed((int32_t *)((char *)api + 0x14a0));
-				return 0;
-			}
-			*result_out = 1;
-			return 5;
-		case 0x14:
-			if (sub == 0xc) {
-				*(uint8_t *)((char *)api + 0x14be) = 1;
-				crop_resolution_changed((int32_t *)((char *)api + 0x14a0));
-				return 0;
-			}
-			if (sub == 0xd) {
-				*(uint8_t *)((char *)api + 0x14be) = 0;
-				crop_resolution_changed((int32_t *)((char *)api + 0x14a0));
-				return 0;
-			}
-			*result_out = 1;
-			return 5;
-		case 0x15:
-			if (sub == 0xc) {
-				*(uint8_t *)((char *)api + 0x14c8) = 1;
-				crop_resolution_changed((int32_t *)((char *)api + 0x14a0));
-				return 0;
-			}
-			if (sub == 0xd) {
-				*(uint8_t *)((char *)api + 0x14c8) = 0;
-				crop_resolution_changed((int32_t *)((char *)api + 0x14a0));
-				return 0;
-			}
-			*result_out = 1;
-			return 5;
-		case 0x16:
-			if (sub == 0xc) {
-				*(uint8_t *)((char *)api + 0x14d2) = 1;
-				crop_resolution_changed((int32_t *)((char *)api + 0x14a0));
-				return 0;
-			}
-			if (sub == 0xd) {
-				*(uint8_t *)((char *)api + 0x14d2) = 0;
-				crop_resolution_changed((int32_t *)((char *)api + 0x14a0));
-				return 0;
-			}
-			*result_out = 1;
-			return 5;
-		case 0x17:
-			if (sub == 0xc) {
-				*(uint8_t *)((char *)api + 0x14dc) = 1;
-				crop_resolution_changed((int32_t *)((char *)api + 0x14a0));
-				return 0;
-			}
-			if (sub == 0xd) {
-				*(uint8_t *)((char *)api + 0x14dc) = 0;
-				crop_resolution_changed((int32_t *)((char *)api + 0x14a0));
-				return 0;
-			}
-			*result_out = 1;
-			return 5;
-		}
-	} else {
-		if (cmd != 1)
-			return 1;
-		if (type < 0x13 || type > 0x17) {
-			*result_out = cmd;
-			return 5;
-		}
-		uint32_t upper = (uint32_t)value & 0xffff0000;
-		uint32_t val;
-		switch (type) {
-		case 0x13:
-			val = *(uint8_t *)((char *)api + 0x14b0);
-			break;
-		case 0x14:
-			val = *(uint8_t *)((char *)api + 0x14be);
-			break;
-		case 0x15:
-			val = *(uint8_t *)((char *)api + 0x14c8);
-			break;
-		case 0x16:
-			val = *(uint8_t *)((char *)api + 0x14d2);
-			break;
-		case 0x17:
-			val = *(uint8_t *)((char *)api + 0x14dc);
-			break;
-		default:
-			val = 0;
-			break;
-		}
-		ret = val ? 0xc : 0xd;
-		*result_out = ret | upper;
+	if ((uint8_t)direction > 1)
+		return 1;
+	if (!enable) {
+		*result_out = 1;
+		return 5;
+	}
+
+	if ((uint8_t)direction == 1) {
+		*result_out = ((uint32_t)value & 0xffff0000) | (*enable ? 0xc : 0xd);
 		return 0;
 	}
-	return 5;
+
+	if (setting != 0xc && setting != 0xd) {
+		*result_out = 1;
+		return 5;
+	}
+	*enable = setting == 0xc;
+	crop_resolution_changed((int32_t *)&ctx->crop);
+	return 0;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000001aeb0 origin=model_output original=image_resize_width */
 int32_t image_resize_width(void *api, int32_t value, char direction, uint32_t *result_out)
 {
-	uint16_t *p = (uint16_t *)api;
-	uint32_t mode = (uint32_t)direction & 0xff;
-	uint32_t w = (uint32_t)value >> 16;
-	uint32_t idx;
+	struct t20_isp_ctx *ctx = api;
 
-	*result_out = 0;
-
-	if (mode == 0) {
-		if (w - 0x13 < 5) {
-			idx = w - 0x13;
-			switch (idx) {
-			case 0:
-				p[0x14b2 / 2] = (uint16_t)value;
-				break;
-			case 1:
-				p[0x14c0 / 2] = (uint16_t)value;
-				break;
-			case 2:
-				p[0x14ca / 2] = (uint16_t)value;
-				break;
-			case 3:
-				p[0x14d4 / 2] = (uint16_t)value;
-				break;
-			case 4:
-				p[0x14de / 2] = (uint16_t)value;
-				break;
-			}
-			return 0;
-		}
-		*result_out = 1;
-		return 5;
-	}
-
-	if (mode != 1)
-		return 1;
-
-	if (w - 0x13 < 5) {
-		uint32_t hi = (uint32_t)value & 0xffff0000;
-		uint32_t lo;
-
-		idx = w - 0x13;
-		switch (idx) {
-		case 0:
-			lo = p[0x14b2 / 2];
-			break;
-		case 1:
-			lo = p[0x14c0 / 2];
-			break;
-		case 2:
-			lo = p[0x14ca / 2];
-			break;
-		case 3:
-			lo = p[0x14d4 / 2];
-			break;
-		case 4:
-			lo = p[0x14de / 2];
-			break;
-		default:
-			lo = 0;
-			break;
-		}
-		*result_out = hi | lo;
-		return 0;
-	}
-
-	*result_out = mode;
-	return 5;
+	return t20_crop_api_u16(t20_crop_width_field(&ctx->crop, (uint32_t)value >> 16),
+				value, direction, result_out);
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000001afc4 origin=model_output original=image_resize_height */
 int32_t image_resize_height(void *api, int32_t value, char direction, uint32_t *result_out)
 {
-	uint8_t *base = api;
-    uint32_t mode = (uint32_t)(uint8_t)direction;
-    uint32_t height = (uint32_t)value >> 16;
-    uint32_t idx;
+	struct t20_isp_ctx *ctx = api;
 
-    *result_out = 0;
-
-    if (mode == 0) {
-        if (height - 0x13 < 5) {
-            idx = height - 0x13;
-            /* Force jump table usage by referencing the table */
-            if (height_set_jt[idx] == height) {
-                switch (height) {
-                case 0x13:
-					*(uint16_t *)(base + 0x14b4) = (uint16_t)value;
-                    break;
-                case 0x14:
-					*(uint16_t *)(base + 0x14c2) = (uint16_t)value;
-                    break;
-                case 0x15:
-					*(uint16_t *)(base + 0x14cc) = (uint16_t)value;
-                    break;
-                case 0x16:
-					*(uint16_t *)(base + 0x14d6) = (uint16_t)value;
-                    break;
-                case 0x17:
-					*(uint16_t *)(base + 0x14e0) = (uint16_t)value;
-                    break;
-                }
-            }
-            return 0;
-        }
-        *result_out = 1;
-    } else {
-        if (mode != 1) {
-            return 1;
-        }
-        if (height - 0x13 < 5) {
-            uint32_t val;
-            idx = height - 0x13;
-            if (height_get_jt[idx] == height) {
-                switch (height) {
-                case 0x13:
-					val = *(uint16_t *)(base + 0x14b4);
-                    break;
-                case 0x14:
-					val = *(uint16_t *)(base + 0x14c2);
-                    break;
-                case 0x15:
-					val = *(uint16_t *)(base + 0x14cc);
-                    break;
-                case 0x16:
-					val = *(uint16_t *)(base + 0x14d6);
-                    break;
-                case 0x17:
-					val = *(uint16_t *)(base + 0x14e0);
-                    break;
-                default:
-                    val = 0;
-                    break;
-                }
-            } else {
-                val = 0;
-            }
-            *result_out = ((uint32_t)value & 0xffff0000) | val;
-            return 0;
-        }
-        *result_out = mode;
-    }
-
-    return 5;
+	return t20_crop_api_u16(t20_crop_height_field(&ctx->crop, (uint32_t)value >> 16),
+				value, direction, result_out);
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000001b0d8 origin=model_output original=image_crop_xoffset */
-int32_t image_crop_xoffset(void *ctx, int32_t value, char direction, uint32_t *result)
+int32_t image_crop_xoffset(void *api, int32_t value, char direction, uint32_t *result)
 {
-	uint16_t *base = (uint16_t *)ctx;
-	uint32_t code = (uint32_t)value >> 16;
-	uint32_t op = (uint32_t)direction & 0xff;
+	struct t20_isp_ctx *ctx = api;
+	struct t20_crop_window *win = t20_crop_window_of(&ctx->crop, (uint32_t)value >> 16);
 
-	*result = 0;
-
-	if (op == 0) {
-		code &= 0xffff;
-		if (code == 0x14)
-			base[0x14c4 / 2] = (uint16_t)value;
-		else if (code == 0x16)
-			base[0x14d8 / 2] = (uint16_t)value;
-		else if (code != 0x13) {
-			*result = 1;
-			return 5;
-		} else {
-			base[0x14b6 / 2] = (uint16_t)value;
-		}
-	} else {
-		if (op != 1)
-			return 1;
-
-		code &= 0xffff;
-		if (code == 0x14)
-			*result = ((uint32_t)value & 0xffff0000) | base[0x14c4 / 2];
-		else if (code == 0x16)
-			*result = ((uint32_t)value & 0xffff0000) | base[0x14d8 / 2];
-		else if (code != 0x13) {
-			*result = op;
-			return 5;
-		} else {
-			*result = ((uint32_t)value & 0xffff0000) | base[0x14b6 / 2];
-		}
-	}
-
-	return 0;
+	return t20_crop_api_u16(win ? &win->x : NULL, value, direction, result);
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000001b1a4 origin=model_output original=image_crop_yoffset */
-int32_t image_crop_yoffset(void *ctx, int32_t value, char direction, uint32_t *result)
+int32_t image_crop_yoffset(void *api, int32_t value, char direction, uint32_t *result)
 {
-	uint8_t *base = ctx;
-	uint32_t cmd = (uint32_t)direction & 0xff;
-	uint32_t code = (uint32_t)(value >> 16) & 0xffff;
+	struct t20_isp_ctx *ctx = api;
+	struct t20_crop_window *win = t20_crop_window_of(&ctx->crop, (uint32_t)value >> 16);
 
-	*result = 0;
-
-	if (cmd == 0) {
-		if (code == 0x14) {
-			*(uint16_t *)(base + 0x14c6) = (uint16_t)value;
-		} else if (code == 0x16) {
-			*(uint16_t *)(base + 0x14da) = (uint16_t)value;
-		} else if (code != 0x13) {
-			*result = 1;
-			return 5;
-		} else {
-			*(uint16_t *)(base + 0x14b8) = (uint16_t)value;
-		}
-	} else if (cmd != 1) {
-		return 1;
-	} else {
-		uint32_t hi = (uint32_t)value & 0xffff0000;
-		uint32_t lo;
-		if (code == 0x14) {
-			lo = *(uint16_t *)(base + 0x14c6);
-		} else if (code == 0x16) {
-			lo = *(uint16_t *)(base + 0x14da);
-		} else if (code != 0x13) {
-			*result = cmd;
-			return 5;
-		} else {
-			lo = *(uint16_t *)(base + 0x14b8);
-		}
-		*result = hi | lo;
-	}
-
-	return 0;
+	return t20_crop_api_u16(win ? &win->y : NULL, value, direction, result);
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000001b270 origin=fragment_seed original=sd_capture_frames */
@@ -11310,330 +11127,129 @@ int32_t iridix_update(int32_t *fsm)
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000022250 origin=model_output original=_update_ds */
-uint32_t _update_ds(uint32_t *crop_fsm)
+/*
+ * Crop stage of one output pipe (register block at reg: enable, x, y,
+ * width, height).  An enabled window is first clamped to the incoming
+ * image; width/height then carry the size that leaves the stage.
+ */
+static void t20_crop_program(uint32_t reg, uint8_t enable, struct t20_crop_window *win,
+			     uint16_t *width, uint16_t *height)
 {
-	uint8_t *crop = (uint8_t *)crop_fsm;
-	uint32_t *isp = *(uint32_t **)crop_fsm;
-	uint16_t src_width = *(uint16_t *)((char *)isp + 0x52);
-	uint16_t src_height = *(uint16_t *)((char *)isp + 0x54);
-	uint8_t crop_enable = *(uint8_t *)(crop + 0x1e);
-	uint16_t crop_x, crop_y, crop_w, crop_h;
-	uint16_t x_off;
-	uint16_t out_w;
-	uint16_t out_h;
-	uint32_t result;
+	if (enable) {
+		if (win->x >= *width)
+			win->x = *width - 1;
+		if (win->y >= *height)
+			win->y = *height - 1;
+		if (*width < win->x + win->width)
+			win->width = *width - win->x;
+		if (*height < win->y + win->height)
+			win->height = *height - win->y;
 
-	if (crop_enable) {
-		crop_x = *(uint16_t *)(crop + 0x24);
-		if (crop_x < src_width) {
-			crop_y = *(uint16_t *)(crop + 0x26);
-		} else {
-			*(uint16_t *)(crop + 0x24) = src_width - 1;
-			crop_y = *(uint16_t *)(crop + 0x26);
-		}
-
-		if (crop_y < src_height) {
-			x_off = *(uint16_t *)(crop + 0x24);
-		} else {
-			*(uint16_t *)(crop + 0x26) = src_height - 1;
-			x_off = *(uint16_t *)(crop + 0x24);
-		}
-
-		crop_w = *(uint16_t *)(crop + 0x20);
-		if (src_width >= (uint32_t)(x_off + crop_w)) {
-			crop_y = *(uint16_t *)(crop + 0x26);
-		} else {
-			*(uint16_t *)(crop + 0x20) = src_width - x_off;
-			crop_y = *(uint16_t *)(crop + 0x26);
-		}
-
-		crop_h = *(uint16_t *)(crop + 0x22);
-		if (src_height < (uint32_t)(crop_y + crop_h)) {
-			*(uint16_t *)(crop + 0x22) = src_height - crop_y;
-		}
-
-		APICAL_WRITE_32(0x604, (APICAL_READ_32(0x604) & 0xffff0000) | x_off);
-		APICAL_WRITE_32(0x608, (APICAL_READ_32(0x608) & 0xffff0000) | *(uint16_t *)(crop + 0x26));
-		APICAL_WRITE_32(0x60c, (APICAL_READ_32(0x60c) & 0xffff0000) | *(uint16_t *)(crop + 0x20));
-		APICAL_WRITE_32(0x610, (APICAL_READ_32(0x610) & 0xffff0000) | *(uint16_t *)(crop + 0x22));
-		out_w = *(uint16_t *)(crop + 0x20);
-		out_h = *(uint16_t *)(crop + 0x22);
-	} else {
-		out_w = src_width;
-		out_h = src_height;
+		APICAL_WRITE_32(reg + 0x04, (APICAL_READ_32(reg + 0x04) & 0xffff0000) | win->x);
+		APICAL_WRITE_32(reg + 0x08, (APICAL_READ_32(reg + 0x08) & 0xffff0000) | win->y);
+		APICAL_WRITE_32(reg + 0x0c, (APICAL_READ_32(reg + 0x0c) & 0xffff0000) | win->width);
+		APICAL_WRITE_32(reg + 0x10, (APICAL_READ_32(reg + 0x10) & 0xffff0000) | win->height);
+		*width = win->width;
+		*height = win->height;
 	}
 
-	APICAL_WRITE_32(0x600, (APICAL_READ_32(0x600) & 0xfffffffe) | (crop_enable & 1));
-	result = *(uint8_t *)(crop + 0x28);
+	APICAL_WRITE_32(reg, (APICAL_READ_32(reg) & 0xfffffffe) | (enable & 1));
+}
 
-	if (result) {
-		if (out_w < *(uint16_t *)(crop + 0x2a))
-			*(uint16_t *)(crop + 0x2a) = out_w;
-		if (out_h < *(uint16_t *)(crop + 0x2c))
-			*(uint16_t *)(crop + 0x2c) = out_h;
+/* input/output step of the scaler, 4.20 fixed point in 24 bits */
+static uint32_t t20_scaler_ratio(uint32_t in, uint32_t out)
+{
+	if (in < 0x1000)
+		return ((in << 20) / out) & 0xffffff;
+	return (((in << 18) / out) << 2) & 0xffffff;
+}
 
-		APICAL_WRITE_32(0x648, (APICAL_READ_32(0x648) & 0xfffff000) | (out_w & 0xfff));
-		APICAL_WRITE_32(0x64c, (APICAL_READ_32(0x64c) & 0xfffff000) | (out_h & 0xfff));
-		APICAL_WRITE_32(0x650, (APICAL_READ_32(0x650) & 0xfffff800) | (*(uint16_t *)(crop + 0x2a) & 0x7ff));
-		APICAL_WRITE_32(0x654, (APICAL_READ_32(0x654) & 0xfffff000) | (*(uint16_t *)(crop + 0x2c) & 0xfff));
+/* filter bank: by the down-scaling factor below 3, else the widest one */
+static uint32_t t20_scaler_filter(int32_t in, int32_t out)
+{
+	if (in < out * 3)
+		return ((in << 1) / out - 2) & 0xf;
+	return 3;
+}
 
-		uint16_t ds_w = *(uint16_t *)(crop + 0x2a);
-		if (ds_w) {
-			uint16_t ds_w2 = *(uint16_t *)(crop + 0x2a);
-			uint16_t ds_h = *(uint16_t *)(crop + 0x2c);
-			if (ds_h) {
-				uint32_t hi_658, lo_658, hi_660, lo_660;
-				uint32_t val_65c, val_664;
+/*
+ * Down-scaler of a DS pipe (register block at reg: sizes at +0x48,
+ * ratios and filters at +0x58).  It never scales up: the target size is
+ * limited to the incoming size first.
+ */
+static void t20_scaler_program(uint32_t reg, struct t20_crop_ds *ds,
+			       uint16_t *width, uint16_t *height)
+{
+	uint16_t in_width = *width;
+	uint16_t in_height = *height;
 
-				if (out_w < 0x1000) {
-					hi_658 = APICAL_READ_32(0x658) & 0xff000000;
-					lo_658 = (out_w << 0x14) / ds_w;
-				} else {
-					hi_658 = APICAL_READ_32(0x658) & 0xff000000;
-					lo_658 = ((out_w << 0x12) / ds_w) << 2;
-				}
-				APICAL_WRITE_32(0x658, hi_658 | (lo_658 & 0xffffff));
+	if (!ds->scaler_enable)
+		return;
 
-				if (out_h < 0x1000) {
-					hi_660 = APICAL_READ_32(0x660) & 0xff000000;
-					lo_660 = ((out_h << 0x14) / ds_h) & 0xffffff;
-				} else {
-					hi_660 = APICAL_READ_32(0x660) & 0xff000000;
-					lo_660 = (((out_h << 0x12) / ds_h) << 2) & 0xffffff;
-				}
-				APICAL_WRITE_32(0x660, hi_660 | lo_660);
+	if (in_width < ds->scaled_width)
+		ds->scaled_width = in_width;
+	if (in_height < ds->scaled_height)
+		ds->scaled_height = in_height;
 
-				uint16_t ds_w3 = *(uint16_t *)(crop + 0x2a);
-				if ((int32_t)out_w < (int32_t)(ds_w3 * 3)) {
-					val_65c = APICAL_READ_32(0x65c);
-					int32_t div_res = ((int32_t)(out_w << 1)) / (int32_t)ds_w3;
-					APICAL_WRITE_32(0x65c, (val_65c & 0xfffffff0) | ((div_res - 2) & 0xf));
-				} else {
-					APICAL_WRITE_32(0x65c, (APICAL_READ_32(0x65c) & 0xfffffff0) | 3);
-				}
+	APICAL_WRITE_32(reg + 0x48, (APICAL_READ_32(reg + 0x48) & 0xfffff000) | (in_width & 0xfff));
+	APICAL_WRITE_32(reg + 0x4c, (APICAL_READ_32(reg + 0x4c) & 0xfffff000) | (in_height & 0xfff));
+	APICAL_WRITE_32(reg + 0x50, (APICAL_READ_32(reg + 0x50) & 0xfffff800) | (ds->scaled_width & 0x7ff));
+	APICAL_WRITE_32(reg + 0x54, (APICAL_READ_32(reg + 0x54) & 0xfffff000) | (ds->scaled_height & 0xfff));
 
-				uint16_t ds_h2 = *(uint16_t *)(crop + 0x2c);
-				if ((int32_t)out_h < (int32_t)(ds_h2 * 3)) {
-					val_664 = APICAL_READ_32(0x664);
-					int32_t div_res2 = ((int32_t)(out_h << 1)) / (int32_t)ds_h2;
-					APICAL_WRITE_32(0x664, (val_664 & 0xfffffff0) | ((div_res2 - 2) & 0xf));
-				} else {
-					APICAL_WRITE_32(0x664, (APICAL_READ_32(0x664) & 0xfffffff0) | 3);
-				}
-				out_w = *(uint16_t *)(crop + 0x2a);
-			}
-		}
-		out_h = *(uint16_t *)(crop + 0x2c);
+	if (ds->scaled_width && ds->scaled_height) {
+		APICAL_WRITE_32(reg + 0x58, (APICAL_READ_32(reg + 0x58) & 0xff000000) |
+				t20_scaler_ratio(in_width, ds->scaled_width));
+		APICAL_WRITE_32(reg + 0x60, (APICAL_READ_32(reg + 0x60) & 0xff000000) |
+				t20_scaler_ratio(in_height, ds->scaled_height));
+		APICAL_WRITE_32(reg + 0x5c, (APICAL_READ_32(reg + 0x5c) & 0xfffffff0) |
+				t20_scaler_filter(in_width, ds->scaled_width));
+		APICAL_WRITE_32(reg + 0x64, (APICAL_READ_32(reg + 0x64) & 0xfffffff0) |
+				t20_scaler_filter(in_height, ds->scaled_height));
 	}
+	*width = ds->scaled_width;
+	*height = ds->scaled_height;
+}
 
-	*(uint16_t *)(crop + 0x2e) = out_w;
-	*(uint16_t *)(crop + 0x30) = out_h;
-	return result;
+/* OEM 0x21a80: first down-scaler pipe (registers 0x600..0x664) */
+void _update_ds(struct t20_fsm_crop *fsm)
+{
+	struct t20_isp_ctx *ctx = fsm->hdr.isp;
+	uint16_t width = ctx->sensor.ctrl.param.active.width;
+	uint16_t height = ctx->sensor.ctrl.param.active.height;
+
+	t20_crop_program(0x600, fsm->ds1.crop_enable, &fsm->ds1.crop, &width, &height);
+	t20_scaler_program(0x600, &fsm->ds1, &width, &height);
+	fsm->ds1.out_width = width;
+	fsm->ds1.out_height = height;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000226b8 origin=model_output original=_update_ds2 */
-int32_t _update_ds2(uint32_t *crop_fsm)
+/* second down-scaler pipe (registers 0x700..0x764); top register 0x44 bit 2 bypasses its scaler */
+void _update_ds2(struct t20_fsm_crop *fsm)
 {
-	uint8_t *crop = (uint8_t *)crop_fsm;
-	uint32_t *isp = *(uint32_t **)crop_fsm;
-	uint16_t out_w = *(uint16_t *)((uint8_t *)isp + 0x52);
-	uint16_t out_h = *(uint16_t *)((uint8_t *)isp + 0x54);
-	uint8_t crop_enable = *(uint8_t *)(crop + 0x32);
-	uint16_t x_off;
-	uint16_t y_off_new;
-	uint16_t unused_h_new;
-	uint8_t scale_enable;
-	uint16_t scale_w;
-	uint16_t scale_reg;
-	uint32_t mask;
-	uint32_t reg_val;
-	uint32_t result;
+	struct t20_isp_ctx *ctx = fsm->hdr.isp;
+	uint16_t width = ctx->sensor.ctrl.param.active.width;
+	uint16_t height = ctx->sensor.ctrl.param.active.height;
 
-	if (crop_enable) {
-		uint16_t cur = *(uint16_t *)(crop + 0x38);
-		if (cur < out_w) {
-			x_off = *(uint16_t *)(crop + 0x3a);
-		} else {
-			*(uint16_t *)(crop + 0x38) = out_w - 1;
-			x_off = *(uint16_t *)(crop + 0x3a);
-		}
-
-		if (x_off < out_h) {
-			x_off = *(uint16_t *)(crop + 0x38);
-		} else {
-			*(uint16_t *)(crop + 0x3a) = out_h - 1;
-			x_off = *(uint16_t *)(crop + 0x38);
-		}
-
-		uint16_t offset = *(uint16_t *)(crop + 0x34);
-		if ((int16_t)out_w >= (int16_t)(x_off + offset)) {
-			y_off_new = *(uint16_t *)(crop + 0x3a);
-		} else {
-			*(uint16_t *)(crop + 0x34) = out_w - x_off;
-			y_off_new = *(uint16_t *)(crop + 0x3a);
-		}
-
-		uint16_t cur36 = *(uint16_t *)(crop + 0x36);
-		if ((int16_t)out_h < (int16_t)(y_off_new + cur36)) {
-			*(uint16_t *)(crop + 0x36) = out_h - y_off_new;
-		}
-
-		mask = 0xffff0000;
-		reg_val = APICAL_READ_32(0x704);
-		APICAL_WRITE_32(0x704, (reg_val & mask) | x_off);
-		reg_val = APICAL_READ_32(0x708);
-		APICAL_WRITE_32(0x708, (reg_val & mask) | *(uint16_t *)(crop + 0x3a));
-		reg_val = APICAL_READ_32(0x70c);
-		APICAL_WRITE_32(0x70c, (reg_val & mask) | *(uint16_t *)(crop + 0x34));
-		reg_val = APICAL_READ_32(0x710);
-		APICAL_WRITE_32(0x710, (reg_val & mask) | *(uint16_t *)(crop + 0x36));
-		out_w = *(uint16_t *)(crop + 0x34);
-		out_h = *(uint16_t *)(crop + 0x36);
-	}
-
-	scale_enable = *(uint8_t *)(crop + 0x32);
-	reg_val = APICAL_READ_32(0x700);
-	APICAL_WRITE_32(0x700, (reg_val & 0xfffffffe) | (scale_enable & 1));
-
-	scale_enable = *(uint8_t *)(crop + 0x3c);
-	if (scale_enable) {
-		uint16_t cur3e = *(uint16_t *)(crop + 0x3e);
-		if (out_w < cur3e)
-			*(uint16_t *)(crop + 0x3e) = out_w;
-
-		uint16_t cur40 = *(uint16_t *)(crop + 0x40);
-		if (out_h < cur40)
-			*(uint16_t *)(crop + 0x40) = out_h;
-
-		mask = 0xfffff000;
-		reg_val = APICAL_READ_32(0x748);
-		APICAL_WRITE_32(0x748, (reg_val & mask) | (out_w & 0xfff));
-		reg_val = APICAL_READ_32(0x74c);
-		APICAL_WRITE_32(0x74c, (reg_val & mask) | (out_h & 0xfff));
-		scale_reg = *(uint16_t *)(crop + 0x3e);
-		reg_val = APICAL_READ_32(0x750);
-		APICAL_WRITE_32(0x750, (reg_val & 0xfffff800) | (scale_reg & 0x7ff));
-		scale_reg = *(uint16_t *)(crop + 0x40);
-		reg_val = APICAL_READ_32(0x754);
-		APICAL_WRITE_32(0x754, (reg_val & mask) | (scale_reg & 0xfff));
-
-		scale_w = *(uint16_t *)(crop + 0x3e);
-		if (scale_w) {
-			uint16_t h = *(uint16_t *)(crop + 0x40);
-			if (h) {
-				uint32_t div_result;
-				uint32_t upper;
-				if (out_w < 0x1000) {
-					upper = (out_w << 0x14) / scale_w;
-				} else {
-					upper = ((out_w << 0x12) / scale_w) << 2;
-				}
-				reg_val = APICAL_READ_32(0x758);
-				APICAL_WRITE_32(0x758, (reg_val & 0xff000000) | (upper & 0xffffff));
-
-				if (out_h < 0x1000) {
-					div_result = ((out_h << 0x14) / h) & 0xffffff;
-				} else {
-					div_result = (((out_h << 0x12) / h) << 2) & 0xffffff;
-				}
-				reg_val = APICAL_READ_32(0x760);
-				APICAL_WRITE_32(0x760, (reg_val & 0xff000000) | div_result);
-
-				scale_w = *(uint16_t *)(crop + 0x3e);
-				if ((int16_t)out_w < (int16_t)(scale_w * 3)) {
-					int32_t q = ((int32_t)(out_w << 1)) / (int32_t)scale_w;
-					reg_val = APICAL_READ_32(0x75c);
-					APICAL_WRITE_32(0x75c, (reg_val & 0xfffffff0) | ((q - 2) & 0xf));
-				} else {
-					reg_val = APICAL_READ_32(0x75c);
-					APICAL_WRITE_32(0x75c, (reg_val & 0xfffffff0) | 3);
-				}
-
-				h = *(uint16_t *)(crop + 0x40);
-				if ((int16_t)out_h < (int16_t)(h * 3)) {
-					int32_t q = ((int32_t)(out_h << 1)) / (int32_t)h;
-					reg_val = APICAL_READ_32(0x764);
-					APICAL_WRITE_32(0x764, (reg_val & 0xfffffff0) | ((q - 2) & 0xf));
-				} else {
-					reg_val = APICAL_READ_32(0x764);
-					APICAL_WRITE_32(0x764, (reg_val & 0xfffffff0) | 3);
-				}
-				out_w = *(uint16_t *)(crop + 0x3e);
-			}
-		}
-		out_h = *(uint16_t *)(crop + 0x40);
-		scale_enable = *(uint8_t *)(crop + 0x3c);
-	}
-
-	result = APICAL_READ_32(0x44);
-	result = (result & 0xfffffffb) | ((scale_enable < 1 ? 1 : 0) << 2);
-	APICAL_WRITE_32(0x44, result);
-	*(uint16_t *)(crop + 0x42) = out_w;
-	*(uint16_t *)(crop + 0x44) = out_h;
-	return result;
+	t20_crop_program(0x700, fsm->ds2.crop_enable, &fsm->ds2.crop, &width, &height);
+	t20_scaler_program(0x700, &fsm->ds2, &width, &height);
+	APICAL_WRITE_32(0x44, (APICAL_READ_32(0x44) & 0xfffffffb) |
+			((fsm->ds2.scaler_enable ? 0 : 1) << 2));
+	fsm->ds2.out_width = width;
+	fsm->ds2.out_height = height;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000022b50 origin=model_output original=_update_fr */
-int32_t _update_fr(uint32_t *crop_fsm)
+/* full-resolution pipe: crop only (registers 0x4c0..0x4d0) */
+void _update_fr(struct t20_fsm_crop *fsm)
 {
-	uint32_t *isp = *(uint32_t **)crop_fsm;
-	uint16_t src_width = *(uint16_t *)((char *)isp + 0x52);
-	uint16_t src_height = *(uint16_t *)((char *)isp + 0x54);
-	uint8_t crop_enable = *(uint8_t *)((char *)crop_fsm + 0x10);
-	uint16_t x_off;
-	uint16_t y_off_new;
-	uint16_t out_w;
-	uint16_t out_h;
-	int32_t result;
+	struct t20_isp_ctx *ctx = fsm->hdr.isp;
+	uint16_t width = ctx->sensor.ctrl.param.active.width;
+	uint16_t height = ctx->sensor.ctrl.param.active.height;
 
-	if (crop_enable != 0) {
-		uint16_t crop_x = *(uint16_t *)((char *)crop_fsm + 0x16);
-		uint16_t crop_y;
-
-		if (crop_x < src_width) {
-			crop_y = *(uint16_t *)((char *)crop_fsm + 0x18);
-		} else {
-			*(uint16_t *)((char *)crop_fsm + 0x16) = src_width - 1;
-			crop_y = *(uint16_t *)((char *)crop_fsm + 0x18);
-		}
-
-		if (crop_y < src_height) {
-			x_off = *(uint16_t *)((char *)crop_fsm + 0x16);
-		} else {
-			*(uint16_t *)((char *)crop_fsm + 0x18) = src_height - 1;
-			x_off = *(uint16_t *)((char *)crop_fsm + 0x16);
-		}
-
-		uint16_t crop_w = *(uint16_t *)((char *)crop_fsm + 0x12);
-
-		if ((int16_t)src_width >= (int16_t)(x_off + crop_w)) {
-			y_off_new = *(uint16_t *)((char *)crop_fsm + 0x18);
-		} else {
-			*(uint16_t *)((char *)crop_fsm + 0x12) = src_width - x_off;
-			y_off_new = *(uint16_t *)((char *)crop_fsm + 0x18);
-		}
-
-		uint16_t crop_h = *(uint16_t *)((char *)crop_fsm + 0x14);
-
-		if ((int16_t)src_height < (int16_t)(y_off_new + crop_h)) {
-			*(uint16_t *)((char *)crop_fsm + 0x14) = src_height - y_off_new;
-		}
-
-		APICAL_WRITE_32(0x4c4, (APICAL_READ_32(0x4c4) & 0xffff0000) | x_off);
-		APICAL_WRITE_32(0x4c8, (APICAL_READ_32(0x4c8) & 0xffff0000) | *(uint16_t *)((char *)crop_fsm + 0x18));
-		APICAL_WRITE_32(0x4cc, (APICAL_READ_32(0x4cc) & 0xffff0000) | *(uint16_t *)((char *)crop_fsm + 0x12));
-		APICAL_WRITE_32(0x4d0, (APICAL_READ_32(0x4d0) & 0xffff0000) | *(uint16_t *)((char *)crop_fsm + 0x14));
-		out_w = *(uint16_t *)((char *)crop_fsm + 0x12);
-		out_h = *(uint16_t *)((char *)crop_fsm + 0x14);
-	} else {
-		out_w = src_width;
-		out_h = src_height;
-	}
-
-	result = APICAL_WRITE_32(0x4c0, (APICAL_READ_32(0x4c0) & 0xfffffffe) | (*(uint8_t *)((char *)crop_fsm + 0x10) & 1));
-	*(uint16_t *)((char *)crop_fsm + 0x1a) = out_w;
-	*(uint16_t *)((char *)crop_fsm + 0x1c) = out_h;
-	return result;
+	t20_crop_program(0x4c0, fsm->fr.crop_enable, &fsm->fr.crop, &width, &height);
+	fsm->fr.out_width = width;
+	fsm->fr.out_height = height;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000022cdc origin=model_output original=crop_fsm_process_interrupt */
@@ -11645,9 +11261,9 @@ int32_t crop_fsm_process_interrupt(int32_t *fsm_ptr, char irq)
 	if (fsm->hdr.state == 2) {
 		result = 5;
 		if ((irq & 0xff) == 5) {
-			((uintptr_t (*)(uintptr_t, uintptr_t))_update_fr)((uintptr_t)fsm, 0);
-			((uintptr_t (*)(uintptr_t, uintptr_t))_update_ds)((uintptr_t)fsm, 0);
-			((uintptr_t (*)(uintptr_t, uintptr_t))_update_ds2)((uintptr_t)fsm, 0);
+			_update_fr(fsm);
+			_update_ds(fsm);
+			_update_ds2(fsm);
 			return apical_isp_raise_event(fsm->hdr.isp, 7);
 		}
 	}
@@ -11658,104 +11274,74 @@ int32_t crop_fsm_process_interrupt(int32_t *fsm_ptr, char irq)
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000022d68 origin=model_output original=crop_resolution_changed */
 int32_t crop_resolution_changed(int32_t *crop)
 {
-	((uintptr_t (*)(uintptr_t, uintptr_t))_update_ds)((uintptr_t)(crop), (uintptr_t)(0));
-	((uintptr_t (*)(uintptr_t, uintptr_t))_update_ds2)((uintptr_t)(crop), (uintptr_t)(0));
-	((uintptr_t (*)(uintptr_t, uintptr_t))_update_fr)((uintptr_t)(crop), (uintptr_t)(0));
-	return apical_isp_raise_event(*crop, 7);
+	struct t20_fsm_crop *fsm = (struct t20_fsm_crop *)crop;
+
+	_update_ds(fsm);
+	_update_ds2(fsm);
+	_update_fr(fsm);
+	return apical_isp_raise_event(fsm->hdr.isp, 7);
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000022dd0 origin=model_output original=crop_initialize */
-int32_t crop_initialize(int32_t *crop)
+/*
+ * Load the horizontal/vertical filter tables of one scaler (256 words
+ * each) and read them back; the reload bit of the scaler's control
+ * register is pulsed before and after.
+ */
+static void t20_scaler_load_filters(uint32_t ctrl_reg, uint32_t h_lut, uint32_t v_lut)
 {
-	uint8_t *fsm = (uint8_t *)crop;
-	uint8_t *dev = (uint8_t *)(uintptr_t)crop[0];
 	uint32_t i;
 
-    ((uint32_t *)crop)[3] = 0x20;
-
-    APICAL_WRITE_32(0x40, APICAL_READ_32(0x40) & 0xfdffffff);
-    APICAL_WRITE_32(0x668, APICAL_READ_32(0x668) | 1);
-    APICAL_WRITE_32(0x668, APICAL_READ_32(0x668) & 0xfffffffe);
+	APICAL_WRITE_32(ctrl_reg, APICAL_READ_32(ctrl_reg) | 1);
+	APICAL_WRITE_32(ctrl_reg, APICAL_READ_32(ctrl_reg) & 0xfffffffe);
 
 	for (i = 0; i != 0x100; i++)
-		APICAL_WRITE_32((i << 2) + 0x14000,
-				((uint32_t *)h_filter)[i]);
-
+		APICAL_WRITE_32(h_lut + (i << 2), ((uint32_t *)h_filter)[i]);
 	for (i = 0; i != 0x100; i++)
-		APICAL_WRITE_32((i << 2) + 0x16000,
-				((uint32_t *)v_filter)[i]);
-
+		APICAL_WRITE_32(v_lut + (i << 2), ((uint32_t *)v_filter)[i]);
 	for (i = 0; i != 0x100; i++)
-		APICAL_READ_32((i << 2) + 0x14000);
-
+		APICAL_READ_32(h_lut + (i << 2));
 	for (i = 0; i != 0x100; i++)
-		APICAL_READ_32((i << 2) + 0x16000);
+		APICAL_READ_32(v_lut + (i << 2));
 
-    APICAL_WRITE_32(0x668, APICAL_READ_32(0x668) | 1);
-    APICAL_WRITE_32(0x668, APICAL_READ_32(0x668) & 0xfffffffe);
-    APICAL_WRITE_32(0x44, APICAL_READ_32(0x44) & 0xfffffffb);
-    APICAL_WRITE_32(0x768, (APICAL_READ_32(0x768) & 0xfffffffe) | 1);
-    APICAL_WRITE_32(0x768, APICAL_READ_32(0x768) & 0xfffffffe);
+	APICAL_WRITE_32(ctrl_reg, APICAL_READ_32(ctrl_reg) | 1);
+	APICAL_WRITE_32(ctrl_reg, APICAL_READ_32(ctrl_reg) & 0xfffffffe);
+}
 
-	for (i = 0; i != 0x100; i++)
-		APICAL_WRITE_32((i << 2) + 0x18000,
-				((uint32_t *)h_filter)[i]);
+int32_t crop_initialize(int32_t *crop)
+{
+	struct t20_fsm_crop *fsm = (struct t20_fsm_crop *)crop;
+	struct t20_isp_ctx *ctx = fsm->hdr.isp;
+	uint16_t sensor_height = ctx->sensor.ctrl.param.active.height;
 
-	for (i = 0; i != 0x100; i++)
-		APICAL_WRITE_32((i << 2) + 0x1a000,
-				((uint32_t *)v_filter)[i]);
+	fsm->irq_mask = 0x20;
 
-	for (i = 0; i != 0x100; i++)
-		APICAL_READ_32((i << 2) + 0x18000);
+	APICAL_WRITE_32(0x40, APICAL_READ_32(0x40) & 0xfdffffff);
+	t20_scaler_load_filters(0x668, 0x14000, 0x16000);
+	APICAL_WRITE_32(0x44, APICAL_READ_32(0x44) & 0xfffffffb);
+	t20_scaler_load_filters(0x768, 0x18000, 0x1a000);
 
-	for (i = 0; i != 0x100; i++)
-		APICAL_READ_32((i << 2) + 0x1a000);
+	/* crop windows off and "as large as possible" (clamped on first use) */
+	fsm->fr.crop.width = 0xffff;
+	fsm->fr.crop.height = 0xffff;
+	fsm->ds1.crop.width = 0xffff;
+	fsm->ds1.crop.height = 0xffff;
+	fsm->fr.crop_enable = 0;
+	fsm->ds1.crop_enable = 0;
 
-    APICAL_WRITE_32(0x768, APICAL_READ_32(0x768) | 1);
-    APICAL_WRITE_32(0x768, APICAL_READ_32(0x768) & 0xfffffffe);
+	/* DS1 scales down to 1920x1080, DS2 to 1280x720, when the sensor is larger */
+	fsm->ds1.scaled_width = 1920;
+	fsm->ds1.scaled_height = 1080;
+	fsm->ds1.scaler_enable = sensor_height > 1080;
 
-	*(uint16_t *)(fsm + 0x12) = 0xffff;
-	*(uint16_t *)(fsm + 0x14) = 0xffff;
-	*(uint16_t *)(fsm + 0x20) = 0xffff;
-	*(uint16_t *)(fsm + 0x22) = 0xffff;
+	fsm->ds2.crop_enable = 0;
+	fsm->ds2.crop.width = 0xffff;
+	fsm->ds2.crop.height = 0xffff;
+	fsm->ds2.scaled_width = 1280;
+	fsm->ds2.scaled_height = 720;
+	fsm->ds2.scaler_enable = sensor_height > 720;
 
-	fsm[0x10] = 0;
-	fsm[0x1e] = 0;
-
-    {
-		uint16_t val_f2 = *(uint16_t *)(dev + 0xf2);
-		if (val_f2 != 0x438) {
-			*(uint16_t *)(fsm + 0x2a) = 0x780;
-			*(uint16_t *)(fsm + 0x2c) = 0x438;
-		} else {
-			*(uint16_t *)(fsm + 0x2a) = 0x780;
-			*(uint16_t *)(fsm + 0x2c) = val_f2;
-		}
-	}
-
-	{
-		uint16_t val_54 = *(uint16_t *)(dev + 0x54);
-		if (val_54 < 0x439)
-			fsm[0x28] = 0;
-		else
-			fsm[0x28] = 1;
-	}
-
-	fsm[0x32] = 0;
-	*(uint16_t *)(fsm + 0x34) = 0xffff;
-	*(uint16_t *)(fsm + 0x36) = 0xffff;
-	*(uint16_t *)(fsm + 0x3e) = 0x500;
-	*(uint16_t *)(fsm + 0x40) = 0x2d0;
-
-	{
-		uint16_t val_54b = *(uint16_t *)(dev + 0x54);
-		if (val_54b < 0x2d1)
-			fsm[0x3c] = 0;
-		else
-			fsm[0x3c] = 1;
-	}
-
-    return crop_request_interrupt(crop, crop[3]);
+	return crop_request_interrupt(crop, fsm->irq_mask);
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000023180 origin=model_output original=adjust_exposure */

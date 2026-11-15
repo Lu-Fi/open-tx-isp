@@ -383,9 +383,51 @@ struct t20_iir_filter {
 	};
 };
 
+/*
+ * Crop/scaler FSM: one crop window for the full-resolution pipe and a
+ * crop window plus down-scaler for each of the two DS pipes.  Written by
+ * the image_resize_ / image_crop_ commands, applied by _update_fr /
+ * _update_ds / _update_ds2.
+ */
+struct t20_crop_window {
+	uint16_t width;
+	uint16_t height;
+	uint16_t x;
+	uint16_t y;
+};
+
+struct t20_crop_fr {
+	uint8_t crop_enable;
+	struct t20_crop_window crop;
+	uint16_t out_width;		/* size leaving the pipe */
+	uint16_t out_height;
+};
+
+struct t20_crop_ds {
+	uint8_t crop_enable;
+	struct t20_crop_window crop;
+	uint8_t scaler_enable;
+	uint16_t scaled_width;		/* scaler target, never above its input */
+	uint16_t scaled_height;
+	uint16_t out_width;		/* size leaving the pipe */
+	uint16_t out_height;
+};
+
 struct t20_fsm_crop {
 	struct t20_fsm_hdr hdr;
+	uint32_t irq_mask;		/* 0x0c: interrupts requested at init */
+	struct t20_crop_fr fr;		/* 0x10 */
+	struct t20_crop_ds ds1;		/* 0x1e */
+	struct t20_crop_ds ds2;		/* 0x32 */
 };
+_Static_assert(__builtin_offsetof(struct t20_fsm_crop, fr.crop) == 0x12, "t20_fsm_crop.fr.crop");
+_Static_assert(__builtin_offsetof(struct t20_fsm_crop, fr.out_width) == 0x1a, "t20_fsm_crop.fr.out_width");
+_Static_assert(__builtin_offsetof(struct t20_fsm_crop, ds1) == 0x1e, "t20_fsm_crop.ds1");
+_Static_assert(__builtin_offsetof(struct t20_fsm_crop, ds1.scaler_enable) == 0x28, "t20_fsm_crop.ds1.scaler_enable");
+_Static_assert(__builtin_offsetof(struct t20_fsm_crop, ds1.out_width) == 0x2e, "t20_fsm_crop.ds1.out_width");
+_Static_assert(__builtin_offsetof(struct t20_fsm_crop, ds2) == 0x32, "t20_fsm_crop.ds2");
+_Static_assert(__builtin_offsetof(struct t20_fsm_crop, ds2.scaled_width) == 0x3e, "t20_fsm_crop.ds2.scaled_width");
+_Static_assert(sizeof(struct t20_fsm_crop) == 0x48, "t20_fsm_crop size");
 
 struct t20_fsm_matrix_yuv {
 	struct t20_fsm_hdr hdr;

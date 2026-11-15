@@ -195,3 +195,81 @@ def fuzz_sbus(m, n=3000, seed=3):
     env.log = []
     env.io_ret, env.i2c_ret, env.i2c_data = keep
     return out
+
+
+# crop/scaler FSM: _update_fr/_update_ds/_update_ds2 (fsm) and the window
+# API handlers (ctx, value, direction, *ret), on a private ISP context
+CROP_UPDATE = ('_update_fr', '_update_ds', '_update_ds2', 'crop_resolution_changed')
+CROP_API = ('image_resize_enable', 'image_resize_width', 'image_resize_height',
+            'image_crop_xoffset', 'image_crop_yoffset')
+CTX_SIZE, CROP_OFF, CROP_SIZE = 0x2fb8, 0x14a0, 0x48
+
+
+def fuzz_crop(m, n=3000, seed=4):
+    """random window/scaler settings and sensor sizes (incl. > 2047 and
+    the 0xffff defaults): same register writes, same FSM contents, same
+    events; API handlers: same status, answer and context bytes"""
+    fw, retp = HEAP + 0x4000, HEAP + 0x800
+    ctx = fw + 0x18
+    env = m.env
+    regs0 = bytes(env.regs)
+    out = {}
+
+    def dim(r):
+        k = r.random()
+        if k < 0.15:
+            return r.choice((0, 1, 0xffff, 0x7fff, 0x8000, 0x800, 0x1000, 0xfff))
+        if k < 0.75:
+            return r.randint(1, 2600)
+        return r.getrandbits(16)
+
+    for name in CROP_UPDATE + CROP_API:
+        if name not in m.V.sym or name not in m.O.sym:
+            continue
+        r = random.Random(seed)
+        bad = []
+        for i in range(n):
+            mem = bytearray(0x18 + CTX_SIZE)
+            struct.pack_into('<I', mem, 0x18 + 4, fw)                   # ctx->fw
+            struct.pack_into('<HH', mem, 0x18 + 0x52, r.randint(1, 2600) if r.random() < 0.9 else dim(r),
+                             r.randint(1, 2600) if r.random() < 0.9 else dim(r))
+            # event queue: empty loop buffer over event_queue_data
+            struct.pack_into('<iiii', mem, 0x18 + 0x2ea4, 0, 0, ctx + 0x2eb4, 0x100)
+            c = 0x18 + CROP_OFF
+            struct.pack_into('<Iii', mem, c, ctx, 2, 0)
+            for off in range(0x10, CROP_SIZE - 2, 2):
+                struct.pack_into('<H', mem, c + off, dim(r))
+            for off in (0x10, 0x1e, 0x28, 0x32, 0x3c):                 # enables
+                mem[c + off] = r.choice((0, 1, 1, 1, r.getrandbits(8)))
+            rr = bytes(r.getrandbits(8) for _ in range(0x800))
+            if name in CROP_API:
+                win = r.choice((0x13, 0x14, 0x15, 0x16, 0x17, 0x12, 0x18, r.getrandbits(16)))
+                low = r.choice((0xc, 0xd, r.getrandbits(16)))
+                args = [ctx, (win << 16) | low, r.choice((0, 1, 0, 1, 2, 255)), retp]
+            else:
+                args = [ctx + CROP_OFF]
+            res = []
+            for img in (m.V, m.O):
+                m.uc.mem_write(fw, bytes(mem))
+                env.regs[:] = regs0
+                env.regs[0:0x800] = rr
+                m.w32(retp, 0xdeadbeef)
+                env.log = []
+                v0 = m.call(img.sym[name][0], args, sp=SP0)[0]
+                res.append((v0 if name in CROP_API else 0, m.r32(retp), env.log,
+                            bytes(m.uc.mem_read(fw, len(mem))), bytes(env.regs[0:0x800]), bool(m.fault)))
+            if res[0] != res[1]:
+                (a, ra, la, ma, ga, fa), (b, rb, lb, mb, gb, fb) = res
+                k = 0
+                while k < min(len(la), len(lb)) and la[k] == lb[k]:
+                    k += 1
+                dm = [hex(x - 0x18) for x in range(len(mem)) if ma[x] != mb[x]][:6]
+                w = struct.unpack_from('<HH', mem, 0x18 + 0x52)
+                f = ' '.join('%x' % x for x in struct.unpack_from('<28H', mem, c + 0x10))
+                bad.append((args, 'src=%dx%d crop+0x10=[%s] ret V=0x%x O=0x%x *ret V=0x%x O=0x%x log@%d V=%s O=%s ctx bytes %s%s' % (
+                    w[0], w[1], f, a, b, ra, rb, k, la[k:k + 1], lb[k:k + 1], dm,
+                    (' fault V=%s O=%s' % (fa, fb)) if fa or fb else '')))
+        out[name] = (n, bad)
+    env.regs[:] = regs0
+    env.log = []
+    return out
