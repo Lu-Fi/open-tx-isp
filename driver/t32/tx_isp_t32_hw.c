@@ -87,6 +87,7 @@ static void t33_lcepf_ev(u32 lo, u32 hi, u32 bv);
 #ifdef TX_ISP_T33
 #include "tx_isp_t33_ldc.h"
 #include "tx_isp_t33_append.h"
+#include "tx_isp_t33_ldcB.h"	/* lib_tisp_ldc_get_par (group 12) */
 #include "tx_isp_t33_rcfg1.h"
 #include "tx_isp_t33_rcfg2.h"
 #include "tx_isp_t33_rcfg3.h"
@@ -733,13 +734,16 @@ static const u8 *t33_lsc_src(const u8 *bin, u32 bytes, u32 off, u32 len, const u
 	return bin + off;
 }
 
-/* lib_tisp_ldc_get_par: the 80 LDC parameter bytes of the bin's append data, -1 without */
+/*
+ * lib_tisp_ldc_get_par (tx_isp_t33_ldcB.h) on ldcParExist / stLdcPar (t33_app_ldc_exist / _par, filled by
+ * tisp_ldc_get_extra_par at the bin parse): the 80 LDC parameter bytes of the bin's append data, -1 without.
+ * Single sensor: an input other than 0 is refused (the vendor reads past its one-input state).
+ */
 int t33_bin_ldc_par(u32 ch, u8 *par)
 {
-	if ((ch & 0xff) || !t33_app_ldc_exist[0])
+	if (ch & 0xff)
 		return -1;
-	memcpy(par, t33_app_ldc_par, T33_LDC_PAR_BYTES);
-	return 0;
+	return t33_ldc_get_par(t33_app_ldc_exist, t33_app_ldc_par, ch, par);
 }
 #endif
 /* defog statistics area (four 2 KiB parts, 0xa210..0xa21c), written by the core */
