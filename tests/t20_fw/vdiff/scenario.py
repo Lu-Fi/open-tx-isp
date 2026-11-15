@@ -167,13 +167,17 @@ class Runner:
                     return
         elif k == 'irq':
             self.irq(st[1])
+        elif k == 'mark':
+            pass
+        elif k == 'dis_stats':
+            env.dis_stats = st[1]
         elif k == 'ct':
             env.ct_bias = st[1]
         else:
             raise Exception(k)
 
 
-def scenario(full=True):
+def scenario(full=True, dis=False):
     """List of steps, same order as harness.c main() (OEM mode)."""
     S = [('init',), ('scene', 22 << 16, 40)]
     S += [('frame',)] * 40
@@ -212,6 +216,39 @@ def scenario(full=True):
             if (i & 15) == 15:
                 S.append(('frame',))
     S += [('frame',)] * 10
+    if dis:
+        S += [('mark', 'dis')] + dis_steps()
+    return S
+
+
+def dis_steps():
+    """DIS on: DIS_MODE_ID (type 3, id 0x6b) ENABLE 0x0c / DISABLE 0x0d (the v4l2
+    1/0 values of driver_steps() are no enum values), with block statistics
+    in the DIS bank (grid 0x908 + 0x8000 + 0x570*4), so dis_analyze_stats runs
+    dis_update_settings / dis_analyze / get_gmv_gauss_* / validate_* /
+    dis_clip_gmv_vector.  Window and scaler changes in between re-run
+    dis_update_settings with other grid sizes."""
+    S = [('dis_stats', 1)]
+    cmd = lambda t, i, v, d=0: S.append(('cmd', t, i, v, d))
+    fr = lambda n=1, *irqs: S.extend([('frame',) + irqs] * n)
+    cmd(3, 0x6b, 0x0c)
+    fr(20)
+    cmd(3, 0x6b, 0, 1)
+    S.append(('scene_add', 1 << 16))
+    fr(10)
+    cmd(3, 0x6b, 0x0d)
+    fr(4)
+    cmd(3, 0x6b, 0x0c)
+    fr(10)
+    cmd(2, 0x45, 0x0f)             # WDR FS-HDR on / off while DIS runs
+    fr(4, 10)
+    cmd(2, 0x45, 0x0e)
+    fr(4)
+    S.append(('scene_add', -(2 << 16)))
+    fr(10)
+    cmd(3, 0x6b, 0x0d)
+    fr(3)
+    S.append(('dis_stats', 0))
     return S
 
 

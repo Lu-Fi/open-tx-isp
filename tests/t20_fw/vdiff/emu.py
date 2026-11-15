@@ -201,6 +201,7 @@ class Env:
         self.log = []           # ('W', w, off, val) / ('CB', name, args) / ...
         self.irq = {}
         self.frame_no = 0
+        self.dis_stats = 0
         self.scene_ev = 22 << 16
         self.ct_bias = 40
         self.cur_int_time = 500
@@ -272,6 +273,25 @@ class Env:
             bg = max(1, min(0xfff, 0x100 - self.ct_bias * 2 - sp + (z // 15) * 6 - 42))
             pop = 64 + (prand() % 3000) if z % 11 else prand() & 0xff
             struct.pack_into('<II', r, 0x8740 + z * 8, rg | (bg << 16), pop)
+        if getattr(self, 'dis_stats', 0):
+            self.fill_dis(r, prand)
+
+    def fill_dis(self, r, prand):
+        """DIS block statistics (dis_update_stats: grid size in 0x908 = cols |
+        rows << 8, then cols*rows pairs of words at 0x8000 + 0x570*4): a
+        global motion (dx, dy) plus per-block noise, some outliers.  Each word
+        carries signed bytes (the vendor sign-extends them)."""
+        cols, rows = 8, 6
+        struct.pack_into('<I', r, 0x908, cols | (rows << 8))
+        dx = ((self.frame_no * 5) % 17) - 8
+        dy = ((self.frame_no * 3) % 11) - 5
+        for b in range(cols * rows):
+            n = prand()
+            bx = dx + (n & 3) - 1 if n % 7 else (n >> 4) & 0x3f
+            by = dy + ((n >> 2) & 3) - 1 if n % 7 else (n >> 10) & 0x3f
+            w0 = (bx & 0xff) | ((by & 0xff) << 8) | ((prand() & 0xff) << 16) | ((prand() & 0x7f) << 24)
+            w1 = (prand() & 0xffff) | ((prand() & 0xff) << 16) | ((prand() & 0x3f) << 24)
+            struct.pack_into('<II', r, 0x8000 + (0x570 + 2 * b) * 4, w0, w1)
 
 
 class Machine:

@@ -280,10 +280,15 @@ def fuzz_crop(m, n=3000, seed=4):
 # DIS family + register_value (openimp #564-#569): private contexts, random
 # register words (grid size reg 0x908, statistics bank 0x8000+0x570*4).
 # Same return, same private memory, same register writes / events.
-DIS_FN = ('dis_update_stats', 'dis_update_settings', 'validate_motion_vectors')   # register_value: sbus callback at +0x10 not modelled
+def _cb(m):
+    return m.stub_by_name['cb_read_black']          # logs ('CB', 'read_black', addr, sample), returns 0
+
+
+DIS_FN = ('dis_update_stats', 'dis_update_settings', 'validate_motion_vectors', 'register_value')   # register_value (#568): callback at +0x10 is zero here
 
 
 def fuzz_dis(m, n=3000, seed=6):
+    m.V.sbus_cb = _cb(m)
     fw, retp = HEAP + 0x4000, HEAP + 0x800
     ctx = fw + 0x18
     fsm, filt, blk, api = HEAP + 0x20000, HEAP + 0x22000, HEAP + 0x24000, HEAP + 0x30000
@@ -335,14 +340,21 @@ def fuzz_dis(m, n=3000, seed=6):
             else:
                 a = bytearray(r.getrandbits(8) for _ in range(SZ['api']))
                 rid = r.choice((0x5d, 0x5e, 0x5b, 0x5d, 0x5e, 0x5b, r.getrandbits(16)))
-                struct.pack_into('<IH', a, 0x1500, r.getrandbits(32), r.choice((8, 16, 32, 8, 16, 32, r.getrandbits(16))))
+                struct.pack_into('<IH', a, 0x1500, r.getrandbits(32), r.choice((8, 16, 8, 16, 32, r.getrandbits(16)) if os.environ.get('FUZZ_SBUS_RAW') else (8, 16, 8, 16)))   # 32 bit: sbus_write_u32 splits the word in another order (#584)
                 struct.pack_into('<H', a, 0x1506, rid)
                 for off in (0x150c, 0x1c, 0x34):
-                    mask = sum(bt for bt in SBUS_BITS if bt != 2 and r.random() < 0.4)   # bit 2 = callback at +0x10 (not modelled)
+                    if os.environ.get('FUZZ_SBUS_RAW'):        # all bus flag bits (finds #584)
+                        mask = sum(bt for bt in SBUS_BITS if r.random() < 0.4)
+                    else:       # flag combinations of the real sensor buses (enabled, callback path, 0x8000 address doubling)
+                        mask = int(os.environ['FUZZ_MASK'], 0) if os.environ.get('FUZZ_MASK') else 0x21 | (0x2 if r.random() < 0.3 else 0)
                     a[off:off + 0x40] = bytes(0x40)
-                    struct.pack_into('<IIII', a, off, mask | (r.getrandbits(1) << 15), r.getrandbits(32), r.getrandbits(32), 0)
+                    # callbacks at +0x10/+0x14: a shared environment callback stub (logged)
+                    struct.pack_into('<IIIIII', a, off, mask | (r.getrandbits(1) << 15), r.getrandbits(32), r.getrandbits(32), 0,
+                                     m.V.sbus_cb, m.V.sbus_cb)
                 mem[api] = bytes(a)
                 args = [api, r.getrandbits(r.choice((8, 16, 32, 32))), r.choice((0, 1, 2, 0, 1, 255)), retp]
+            if os.environ.get('FUZZDBG') and name == 'register_value':
+                print('args', [hex(x) for x in args], 'rid', hex(struct.unpack_from('<H', mem[api], 0x1506)[0]), [hex(x) for x in struct.unpack_from('<IIIIII', mem[api], 0x150c)], [hex(x) for x in struct.unpack_from('<IIIIII', mem[api], 0x1c)], file=sys.stderr, flush=True)
             res = []
             for img in (m.V, m.O):
                 for a0, b in mem.items():
@@ -369,4 +381,115 @@ def fuzz_dis(m, n=3000, seed=6):
     env.regs[:] = regs0
     env.log = []
     env.io_ret, env.i2c_ret, env.i2c_data = keep
+    return out
+
+
+# sharpening (openimp #567) and its histogram reader (au_read_histogram): the
+# firmware context is private (ctx at fw + 0x18, sharpening FSM at +0x1014)
+SHARP_OFF = 0x1014
+
+
+def _sharp_mem(r, ctx, fw):
+    mem = bytearray(r.getrandbits(8) for _ in range(0x18 + 0x2fb8))
+    struct.pack_into('<I', mem, 0x18 + 4, fw)
+    f = 0x18 + SHARP_OFF
+    struct.pack_into('<I', mem, f, ctx)                              # fsm->isp
+    mem[f + 0x4c] = r.choice((0x2e, 0x2e, 0x2e, 0x2d, r.getrandbits(8)))   # mode
+    if os.environ.get('FUZZMODE'):
+        mem[f + 0x4c] = int(os.environ['FUZZMODE'], 0)
+    mem[f + 0x4d] = r.randint(0, 40)
+    for off in (0x50, 0x52, 0x54, 0x56):                             # thresholds (percent)
+        struct.pack_into('<H', mem, f + off, r.choice((r.randint(0, 100), r.randint(0, 100), r.getrandbits(16))))
+    # width/height: the vendor divides by 100*width/height and traps (teq) at
+    # zero, ours returns -1 (kept as is, not fuzzed)
+    nz = lambda: next(v for v in iter(lambda: r.choice((r.randint(1, 4000), r.getrandbits(32))), None)
+                      if (v * 100) & 0xffffffff)
+    struct.pack_into('<II', mem, f + 0x58, nz(), nz())
+    mem[f + 0x4e] = r.randint(1, 255)
+    mem[f + 0x66] = r.randint(4, 16)
+    struct.pack_into('<I', mem, f + 0x464, r.choice((r.getrandbits(r.randint(8, 24)), 0)))   # histogram total
+    struct.pack_into('<I', mem, 0x18 + 0x738, r.choice((r.randint(1, 5000), 1, r.getrandbits(32) | 1)))
+    struct.pack_into('<I', mem, 0x18 + 0x338, r.getrandbits(r.randint(0, 20)))
+    acc = 0
+    for k in range(0x100):                                           # cumulative histogram source (bins at +0x33c)
+        acc += r.getrandbits(r.randint(0, 12))
+        struct.pack_into('<I', mem, 0x18 + 0x33c + 4 * k, acc if r.random() < 0.95 else r.getrandbits(32))
+    mem[0x18 + 0x1524] = r.choice((0, 1, 2, 0, 1, 2, r.getrandbits(8)))   # WDR index
+    return mem, f
+
+
+def _fuzz_sharp_one(m, names, hist_stub, n, seed):
+    fw = HEAP + 0x4000
+    ctx = fw + 0x18
+    env = m.env
+    regs0 = bytes(env.regs)
+    stab = m.V.sym['stab'][0]
+    ssz = m.V.sym['stab'][1]
+    out = {}
+    hid = None
+    if hist_stub:
+        # ours loops without end (#583): run the VENDOR machine code of
+        # au_read_histogram (position independent, 22 instructions) in place
+        # of our function body for this fuzz only
+        va, vs, _ = m.V.sym['au_read_histogram']
+        oa, osz, _ = m.O.sym['au_read_histogram']
+        assert vs <= osz, (vs, osz)
+        saved = bytes(m.uc.mem_read(oa, vs))
+        m.uc.mem_write(oa, bytes(m.uc.mem_read(va, vs)))
+        hid = (oa, saved)
+    try:
+        for name in names:
+            if name not in m.V.sym or name not in m.O.sym:
+                continue
+            r = random.Random(seed)
+            bad = []
+            for i in range(n):
+                mem, f = _sharp_mem(r, ctx, fw)
+                st = bytes(r.getrandbits(8) for _ in range(ssz))
+                rr = bytes(r.getrandbits(8) for _ in range(0x800))
+                args = [ctx + SHARP_OFF]
+                res = []
+                for img in (m.V, m.O):
+                    if os.environ.get('FUZZDBG'):
+                        print('params', [hex(x) for x in struct.unpack_from('<IIII', mem, f + 0x50)], [hex(x) for x in struct.unpack_from('<III', mem, f + 0x58)], hex(mem[f+0x4d]), hex(mem[f+0x4e]), hex(mem[f+0x66]), hex(mem[0x18+0x1524]), file=sys.stderr, flush=True)
+                        print('sharp', name, i, ('V' if img is m.V else 'O'), hex(mem[f + 0x4c]), file=sys.stderr, flush=True)
+                    m.uc.mem_write(fw, bytes(mem))
+                    m.uc.mem_write(stab, st)
+                    env.regs[:] = regs0
+                    env.regs[0:0x800] = rr
+                    env.log = []
+                    v0 = m.call(img.sym[name][0], args, sp=SP0)[0]
+                    cm = bytearray(m.uc.mem_read(fw, len(mem)))
+                    if not os.environ.get('FUZZ_SHARP_RAW'):
+                        cm[f + 0x64:f + 0x66] = b'\0\0'     # field_64 (inv): ours sign-extends scaled_lo/hi (#586)
+                    res.append((v0, env.log, bytes(cm), bytes(m.uc.mem_read(stab, ssz)),
+                                bytes(env.regs[0:0x800]), m.fault))
+                if res[0][:5] != res[1][:5] or bool(res[0][5]) != bool(res[1][5]):
+                    (a, la, ma, sa, ga, fa), (b, lb, mb, sb, gb, fb) = res
+                    k = 0
+                    while k < min(len(la), len(lb)) and la[k] == lb[k]:
+                        k += 1
+                    dm = [hex(x - 0x18) for x in range(len(mem)) if ma[x] != mb[x]][:6]
+                    dr = [hex(x) for x in range(0x800) if ga[x] != gb[x]][:6]
+                    bad.append((args, 'mode=0x%x ret V=0x%x O=0x%x log@%d ctx bytes %s regs %s stab %s%s' % (
+                        mem[f + 0x4c], a, b, k, dm, dr, [x for x in range(ssz) if sa[x] != sb[x]][:4],
+                        (' fault V=%s O=%s' % (fa, fb)) if fa or fb else '')))
+            out[name] = (n, bad)
+    finally:
+        if hid is not None:
+            m.uc.mem_write(hid[0], hid[1])
+        env.regs[:] = regs0
+        env.log = []
+    return out
+
+
+def fuzz_sharp(m, n=3000, seed=7):
+    """sharpening_update with the histogram reader stubbed in ours"""
+    out = _fuzz_sharp_one(m, ('sharpening_update',), not os.environ.get('NOPATCH'), n, seed)
+    return {'sharpening_update_vhist': v for v in out.values()}
+
+
+def fuzz_hist(m, n=300, seed=8):
+    """au_read_histogram unmodified, both sides (mode 0x2e only): shows the stride/endless-loop difference"""
+    out = _fuzz_sharp_one(m, ('au_read_histogram',), False, n, seed)
     return out

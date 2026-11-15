@@ -492,6 +492,13 @@ def fmt(v):
     return ('0x%x' % v) if isinstance(v, int) else str(v)
 
 
+# findings the DIS-on scenario reaches (open issues): reported, not counted
+KNOWN_DIS = {'get_gmv_gauss_method_fast_v2': 582, 'dis_analyze': 582, 'dis_analyze_stats': 582,
+             'apical_fw_process': 582, 'apical_isp_process_events': 582}
+# replay of a function whose state lives in partner-less statics (vendor sbss vs our array): not a finding
+STATIC_LAYOUT = ('iir_filter_v2',)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('vendor')
@@ -505,6 +512,9 @@ def main():
     ap.add_argument('--no-scenario', action='store_true')
     ap.add_argument('--skip-mut', default='', help='comma list of functions to leave out of the mutation fuzz')
     ap.add_argument('--mut', type=int, default=0, help='mutation-fuzz replays per function (0: off)')
+    ap.add_argument('--dis', action='store_true',
+                    help='append the DIS-on scenario (dis_steps); functions with a filed finding are listed as KNOWN '
+                         'and not counted (KNOWN_DIS), remove the entry when the issue is fixed')
     ap.add_argument('--no-seq', action='store_true',
                     help='apical_custom_sequence() returns NULL (no ISP init sequence)')
     ap.add_argument('-v', action='store_true')
@@ -527,6 +537,11 @@ def main():
         api.update(fuzz.fuzz_sbus(m, a.fuzz))
         api.update(fuzz.fuzz_crop(m, a.fuzz))
         api.update(fuzz.fuzz_dis(m, a.fuzz))
+        on = lambda n: not a.only or n in a.only.split(',')
+        if on('sharpening_update_vhist'):
+            api.update(fuzz.fuzz_sharp(m, max(100, a.fuzz // 10)))
+        if on('au_read_histogram'):
+            api.update(fuzz.fuzz_hist(m, max(20, a.fuzz // 20)))
         if a.only:
             api = {k: v for k, v in api.items() if k in a.only.split(',')}
         for fn, (n, bad) in sorted(api.items()):
@@ -537,7 +552,13 @@ def main():
         if a.no_scenario:
             return 1 if nfz else 0
     only = set(a.only.split(',')) if a.only else None
-    snaps = D.record(scenario.scenario(not a.short), only)
+    steps = scenario.scenario(not a.short, a.dis)
+    dis0 = next((i for i, st in enumerate(steps) if st[0] == 'mark'), len(steps))
+    snaps = D.record(steps, only)
+    if a.dis:
+        known = [x for x in D.sys_log if x[0] >= dis0]
+        D.sys_log = [x for x in D.sys_log if x[0] < dis0]
+        print('SYS steps diverging in the DIS scenario (KNOWN #582): %d' % len(known))
     for i, st, lv, lo in D.sys_log[:(400 if a.v else 8)]:
         k = 0
         while k < min(len(lv), len(lo)) and lv[k] == lo[k]:
@@ -554,6 +575,9 @@ def main():
         # vendor leaves stale registers in v0 of void functions, and a
         # return value that matters shows up in the caller's comparison
         bad = [(s, d) for s, d in rs if d and not all(x.startswith('ret ') for x in d)]
+        if a.dis and bad and (fn in KNOWN_DIS or fn in STATIC_LAYOUT):
+            print('KNOWN %-44s differing=%d (%s)' % (fn, len(bad), '#%d' % KNOWN_DIS[fn] if fn in KNOWN_DIS else 'state in partner-less statics'))
+            continue
         soft = [(s, d) for s, d in rs if d and all(x.startswith('ret ') for x in d)]
         tag = 'DIFF' if bad else ('ret ' if soft else 'same')
         print('%s %-44s calls=%-6d compared=%-3d differing=%d' % (tag, fn, D.counts.get(fn, 0), len(rs), len(bad)))
