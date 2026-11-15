@@ -160,6 +160,16 @@ static u8 t33_top_refresh;		/* tispTopRefresh: 1 = list 33 at the next frame end
 static u8 t33_msca_refresh;		/* tispMscaRefresh: 1 = list 23 at the next MSCA frame done */
 static u32 t33_msca_test_num;		/* testNum of tisp_msca_t33_frame_done_interrupt */
 static u32 t33_mod_dirty;	/* lists 0..31 to run again at the next frame end (tisp*Refresh) */
+
+/* t33_mod_dirty |= bits with the frame-end irq off (it reads and clears the word; openimp #579) */
+static void t33_mod_mark(u32 bits)
+{
+	unsigned long flags;
+
+	local_irq_save(flags);
+	t33_mod_dirty |= bits;
+	local_irq_restore(flags);
+}
 static bool t33_awb_refresh;
 static bool t33_first_fe;	/* the TMO start word is still 1 */
 static u8 t33_mdns_init_flag, t33_mdns_started;	/* mdnsInit (set by the init), g_mdnsStart */
@@ -392,6 +402,8 @@ u32 t33_rcfg_runs, t33_rcfg_timeouts;
 void t33_osd_list_rebuilt(void);	/* tx_isp_t33_osd.c */
 void t33_msca_attr_stream_on(u32 w, u32 h);
 void t33_msca_attr_exit(void);
+void t33_osd_lock(void);	/* tx_isp_t33_osd.c: MSCA attribute block + list 23 words (#578), core.lock -> osd */
+void t33_osd_unlock(void);
 
 #ifdef TX_ISP_T33
 static void t33_rc_register(unsigned int id);	/* tisp_rcfg_module_register (below) */
@@ -975,7 +987,7 @@ wait:
 	 * The init's tisp*Refresh flags: the vendor runs these lists once more
 	 * at the first frame end, list 29 at the first AWB interrupt (QEMU trace).
 	 */
-	t33_mod_dirty |= lo & T33_INIT_REFRESH;
+	t33_mod_mark(lo & T33_INIT_REFRESH);
 	t33_awb_refresh = !!(lo & (1U << T33_MOD_AWB));
 	((u8 *)t33_swg_tmo_info)[T33_TMOA_FLAG] = 0;	/* tmoInfo configured flag (tisp_tmo_init) */
 	t33_first_fe = true;
@@ -1373,7 +1385,7 @@ static int t33_tmo_fd_wr(u32 ch, u32 blk, u32 reg, u32 a3)
 static int t33_tmo_fd_trig(u32 ch, u32 n)
 {
 	(void)ch;
-	t33_mod_dirty |= 1U << n;
+	t33_mod_mark(1U << n);
 	return 0;
 }
 
@@ -1580,12 +1592,14 @@ static noinline_for_stack void t33_tisp_init_tone(const u8 *bin, u32 bytes)
 		/* MSCA init list (single sensor: per-channel 0xf0048 blocks at 0xf06b4) */
 		off = t32_iq_section(bin, bytes, T33_SEC_MSCA, &len);
 		if (buf) {
+			t33_osd_lock();	/* no tuning OSD / flip call between the list build and the rebuilt words (#578) */
 			for (i = 0; i < 3; i++)
 				isp_wr(0xf0128 + 0x100 * i, 0);
 			t33_mod_done(T33_MOD_MSCA, t33_msca_init(width, height, off && len > 0x30 ? bin + off : NULL,
 								 buf, T33_SLOT_WORDS));
 			t33_msca_attr_stream_on(width, height);	/* stMscaAttr[0]: tisp_msca_t33_init (tx_isp_t33_osd.c) */
 			t33_osd_list_rebuilt();	/* OSD / mask set before a stream-off survive in the new list */
+			t33_osd_unlock();
 		}
 	}
 	off = t32_iq_section(bin, bytes, T33_SEC_CLM, &len);
@@ -1767,7 +1781,7 @@ void t33_awb_list_gain(u32 r, u32 b)
 		return;
 	T33_SW(l, 3, r);
 	T33_SW(l, 4, b);
-	t33_mod_dirty |= 1U << T33_MOD_AWBG;
+	t33_mod_mark(1U << T33_MOD_AWBG);
 }
 
 /*
@@ -1865,7 +1879,7 @@ bool t33_af_attr_set(const u8 *a)
 		return false;
 	}
 	memcpy(t33_af_sec, tmp, sizeof(tmp));
-	t33_mod_dirty |= 1U << T33_MOD_AF;
+	t33_mod_mark(1U << T33_MOD_AF);
 	return true;
 }
 

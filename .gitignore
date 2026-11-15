@@ -15,6 +15,7 @@ __pycache__/
 *.symvers
 *.checked
 *.mipsel
+*.mips
 built-in.o
 .tmp_versions/
 modules.builtin

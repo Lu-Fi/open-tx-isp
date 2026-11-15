@@ -10,8 +10,14 @@
  * _msca_api5.h, _mscastrm.h, _mscaline.h).  The register words go to MSCA
  * list 23 (tisp_reg_write_t33, mscaCfgMode 1), which runs at the next frame
  * end (tispMscaRefresh = t33_msca_list_refresh).  T33 only (the T32 module
- * keeps the ISP OSD path of tx_isp_t32_isposd.c).  Callers hold the tuning
- * lock.
+ * keeps the ISP OSD path of tx_isp_t32_isposd.c).
+ *
+ * Locking (openimp #578): every entry holds t33_osd_mutex - the tuning ids
+ * (t32_tc_lock -> osd), stream-on (core.lock -> osd, tx_isp_t32_hw.c wraps
+ * the list 23 build, t33_msca_attr_stream_on and t33_osd_list_rebuilt in
+ * t33_osd_lock / t33_osd_unlock) and rmmod (t33_msca_attr_exit).  Nothing
+ * here takes core.lock or t32_tc_lock.  The vendor module takes no lock on
+ * these paths; the lock changes no register or list word.
  *
  * Differences to the vendor:
  * - the attribute block is set up once (first stream-on or first tuning call)
@@ -35,6 +41,8 @@
 #include <linux/types.h>
 #include <linux/slab.h>
 #include <linux/string.h>
+#include <linux/mutex.h>
+#include <linux/lockdep.h>
 #include "tx_isp_t32.h"
 #include "tx_isp_t32_iq.h"
 #include "tx_isp_t33_mscaInit.h"
@@ -63,6 +71,17 @@ static u32 g_colotList[5];			/* the draw colour list: 4 colours + fill count (gl
 static u16 attr_w, attr_h;
 static bool osd_touched, mask_touched, draw_touched, flip_touched;
 static u8 last_osd, last_mask_ch, last_mask_win, last_draw;
+static DEFINE_MUTEX(t33_osd_mutex);	/* stMscaAttr[0] / msca_info[0], the stored windows, list 23 words (#578) */
+
+void t33_osd_lock(void)
+{
+	mutex_lock(&t33_osd_mutex);
+}
+
+void t33_osd_unlock(void)
+{
+	mutex_unlock(&t33_osd_mutex);
+}
 
 /* tisp_msca_t33_init's callees that tx_isp_t32_hw.c owns (see the header comment) */
 void *private_kmalloc(u32 size, u32 flags)
@@ -134,16 +153,19 @@ static u8 *attr_get(void)
 	return attr_get_size(w, h);
 }
 
-/* stream-on, after list 23 was built for the w x h input (tx_isp_t32_hw.c) */
+/* stream-on, after list 23 was built for the w x h input (tx_isp_t32_hw.c, under t33_osd_lock) */
 void t33_msca_attr_stream_on(u32 w, u32 h)
 {
+	lockdep_assert_held(&t33_osd_mutex);
 	attr_get_size(w, h);
 }
 
 void t33_msca_attr_exit(void)
 {
+	mutex_lock(&t33_osd_mutex);
 	attr_free();
 	attr_w = attr_h = 0;
+	mutex_unlock(&t33_osd_mutex);
 }
 
 static void wr23(u32 ch, u32 blk, u32 reg, u32 val)
@@ -190,7 +212,7 @@ static void ml_note(u32 what)
 
 static const struct t33_line_ops ml_ops = { ml_wr, ml_refresh, ml_note };
 
-int t32_tx_os_tisp_s_osd_attr(u32 ch, void *buf)
+static int t32_tx_os_tisp_s_osd_attr_nl(u32 ch, void *buf)
 {
 	u8 *a = ch < T33_OSD_CH ? attr_get() : NULL;
 
@@ -201,7 +223,7 @@ int t32_tx_os_tisp_s_osd_attr(u32 ch, void *buf)
 	return 0;
 }
 
-int t32_tx_os_tisp_g_osd_attr(u32 ch, void *buf)
+static int t32_tx_os_tisp_g_osd_attr_nl(u32 ch, void *buf)
 {
 	u8 *a = ch < T33_OSD_CH ? attr_get() : NULL;
 
@@ -212,7 +234,7 @@ int t32_tx_os_tisp_g_osd_attr(u32 ch, void *buf)
 	return 0;
 }
 
-int t32_tx_os_tisp_s_osd_block_attr(u32 ch, void *buf)
+static int t32_tx_os_tisp_s_osd_block_attr_nl(u32 ch, void *buf)
 {
 	u8 *a = ch < T33_OSD_CH ? attr_get() : NULL, r = 0;
 	struct t33_mo_env e;
@@ -227,7 +249,7 @@ int t32_tx_os_tisp_s_osd_block_attr(u32 ch, void *buf)
 	return 0;
 }
 
-int t32_tx_os_tisp_g_osd_block_attr(u32 ch, void *buf)
+static int t32_tx_os_tisp_g_osd_block_attr_nl(u32 ch, void *buf)
 {
 	u8 *a = ch < T33_OSD_CH ? attr_get() : NULL, *p = buf;
 
@@ -243,7 +265,7 @@ int t32_tx_os_tisp_g_osd_block_attr(u32 ch, void *buf)
 	return 0;
 }
 
-int t32_tx_os_tisp_s_mscaler_mask_block_attr(u32 ch, void *buf)
+static int t32_tx_os_tisp_s_mscaler_mask_block_attr_nl(u32 ch, void *buf)
 {
 	u8 *a = ch < T33_OSD_CH ? attr_get() : NULL, r = 0;
 	struct t33_mo_env e;
@@ -259,7 +281,7 @@ int t32_tx_os_tisp_s_mscaler_mask_block_attr(u32 ch, void *buf)
 	return 0;
 }
 
-int t32_tx_os_tisp_g_mscaler_mask_block_attr(u32 ch, void *buf)
+static int t32_tx_os_tisp_g_mscaler_mask_block_attr_nl(u32 ch, void *buf)
 {
 	u8 *a = ch < T33_OSD_CH ? attr_get() : NULL, *p = buf;
 
@@ -274,7 +296,7 @@ int t32_tx_os_tisp_g_mscaler_mask_block_attr(u32 ch, void *buf)
 	return 0;
 }
 
-int t32_tx_os_tisp_s_draw_block_attr(u32 ch, void *buf)
+static int t32_tx_os_tisp_s_draw_block_attr_nl(u32 ch, void *buf)
 {
 	u8 *a = ch < T33_OSD_CH ? attr_get() : NULL;
 
@@ -288,7 +310,7 @@ int t32_tx_os_tisp_s_draw_block_attr(u32 ch, void *buf)
 	return 0;
 }
 
-int t32_tx_os_tisp_g_draw_block_attr(u32 ch, void *buf)
+static int t32_tx_os_tisp_g_draw_block_attr_nl(u32 ch, void *buf)
 {
 	u8 *a = ch < T33_OSD_CH ? attr_get() : NULL, *p = buf;
 
@@ -303,7 +325,7 @@ int t32_tx_os_tisp_g_draw_block_attr(u32 ch, void *buf)
 }
 
 /* tisp_s_hv_flip -> tisp_msca_t33_api_set_mirr_flip: byte 0 bits 0..1 the output, bits 2..7 its flags */
-int t33_msca_hv_flip_set(u32 ch, void *flags)
+static int t33_msca_hv_flip_set_nl(u32 ch, void *flags)
 {
 	u8 *a = ch < T33_OSD_CH ? attr_get() : NULL, r = 0;
 
@@ -315,7 +337,7 @@ int t33_msca_hv_flip_set(u32 ch, void *flags)
 	return 0;
 }
 
-int t33_msca_hv_flip_get(u32 ch, void *flags)
+static int t33_msca_hv_flip_get_nl(u32 ch, void *flags)
 {
 	u8 *a = ch < T33_OSD_CH ? attr_get() : NULL;
 
@@ -325,17 +347,42 @@ int t33_msca_hv_flip_get(u32 ch, void *flags)
 	return 0;
 }
 
+/* the tuning entries: t33_osd_mutex around each (#578) */
+#define T33_OSD_LOCKED(name)						\
+int name(u32 ch, void *buf)						\
+{									\
+	int r;								\
+									\
+	mutex_lock(&t33_osd_mutex);					\
+	r = name##_nl(ch, buf);						\
+	mutex_unlock(&t33_osd_mutex);					\
+	return r;							\
+}
+
+T33_OSD_LOCKED(t32_tx_os_tisp_s_osd_attr)
+T33_OSD_LOCKED(t32_tx_os_tisp_g_osd_attr)
+T33_OSD_LOCKED(t32_tx_os_tisp_s_osd_block_attr)
+T33_OSD_LOCKED(t32_tx_os_tisp_g_osd_block_attr)
+T33_OSD_LOCKED(t32_tx_os_tisp_s_mscaler_mask_block_attr)
+T33_OSD_LOCKED(t32_tx_os_tisp_g_mscaler_mask_block_attr)
+T33_OSD_LOCKED(t32_tx_os_tisp_s_draw_block_attr)
+T33_OSD_LOCKED(t32_tx_os_tisp_g_draw_block_attr)
+T33_OSD_LOCKED(t33_msca_hv_flip_set)
+T33_OSD_LOCKED(t33_msca_hv_flip_get)
+
 /*
  * The MSCA list (23) is built again at every stream-on (the vendor keeps its
  * list memory): put the stored OSD windows / mask / draw words and the
  * mirror / flip bits back (tisp_msca_t33_api_set_osd_reg / _set_mask_reg /
  * tisp_msca_t33_set_line_reg / _api_set_mirr_flip).  Channel 0 only (single sensor list).
+ * Caller holds t33_osd_lock.
  */
 void t33_osd_list_rebuilt(void)
 {
 	u8 *a = stMscaAttr[0], r = 0;
 	struct t33_mo_env e;
 
+	lockdep_assert_held(&t33_osd_mutex);
 	if (!a)
 		return;
 	mo_env(&e, a, &r);

@@ -1501,6 +1501,13 @@ t40_tstp_host:
 t33_lcepf_host:
 	./t33_lcepf_host.sh
 
+# T33 MSCA attribute block race (openimp #578): stream-on with a size change in one thread, OSD / mask / flip
+# tuning calls in another, on an allocator that unmaps every kfree'd block (t33_osd_race_shim).  The port stores
+# pointers in 32-bit words: mipsel only (T33_CC or T40_CC, else SKIP); run the binary in the T33 QEMU guest
+# (PASS line, rc 0; the pre-#578 osd.c faults).
+t33_osd_race_mips:
+	./t33_osd_race.sh
+
 # T33 binary oracle, block "leaf": small T33-only helpers vs the vendor tx-isp-t33.ko instructions (Unicorn, needs
 # T33_OEM_KO and T33_CC / T40_CC, else SKIP; openimp #99).  Other blocks: tests/t33_binoracle/<block>.conf
 t33_binoracle_leaf:
