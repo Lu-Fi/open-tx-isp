@@ -1281,6 +1281,32 @@ static void t32_isp_soft_reset(void)
 		}
 		msleep(2);
 	}
+#ifdef TX_ISP_T33
+	/*
+	 * openimp #544 (beyond vendor): on the T33L the ISP sometimes never sets
+	 * bit 20 after a reboot (more often the longer the stop request comes
+	 * after the clocks are switched on).  A soft reset pulse with the stop
+	 * request still held (bit 22 for 2 ms, then bit 21 dropped) brings it
+	 * back; the second stop request is then acknowledged at once and the
+	 * normal reset follows.  The vendor returns -1 here and never streams.
+	 */
+	writel(readl(srbc) | (1u << 22), srbc);
+	msleep(2);
+	writel(readl(srbc) & ~(1u << 22), srbc);
+	msleep(2);
+	writel(readl(srbc) & ~(1u << 21), srbc);
+	msleep(2);
+	writel(readl(srbc) | (1u << 21), srbc);
+	for (tries = 500; tries; tries--) {
+		if (readl(srbc) & (1u << 20)) {
+			writel((readl(srbc) & ~(1u << 21)) | (1u << 22), srbc);
+			writel(readl(srbc) & ~(1u << 22), srbc);
+			pr_warn("tx-isp-t32: ISP stop acknowledged after a held reset pulse (#544)\n");
+			return;
+		}
+		msleep(2);
+	}
+#endif
 	writel(readl(srbc) & ~(1u << 21), srbc);
 	pr_warn("tx-isp-t32: ISP stop (SRBC bit 20) not acknowledged\n");
 }
