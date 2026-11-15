@@ -54,7 +54,7 @@ SPEC: one function per line (from the block's .conf, FUNCS=):
                                 point at parameter blocks
                                 q:OFF:N[:z][:bB=V1,V2..][:@O2=N2]..  (several allowed): like p:, z = zero bytes instead
                                 of random (large list pages); bB=..: byte B of the block one of the values (flags);
-                                @O2=N2[/B=V1,V2..]: the LE u32 at byte O2 of the block points to N2 random bytes (nested, compared; /B=..: byte B of the nested block one of the values);
+                                @O2=N2[/B=V1,V2..]: the LE u32 at byte O2 of the block points to N2 random bytes (nested, compared; /B=..: byte B of the nested block one of the values; /pOFF=R1,R2..: the LE u32 at byte OFF of the nested block points R bytes into that block, one of the values: self pointers such as blc_para's channel pointers);
                                 @O2=N2f: the same from one randbytes call (fast, for large blocks such as a register window)
 Exit 0 = all cases equal, 1 = mismatch (first 5 printed), 2 = setup error.
 Nothing of the vendor module is stored here; point it at your own copy.
@@ -295,8 +295,10 @@ def run_one(e, fn, args, gl_init, gl_syms, gl_ptrs=(), vendor=False):
         e.write(e.addr(sym), data)
     for sym, off, data, *sub in gl_ptrs:
         data = bytearray(data)
-        for o2, d2 in (sub[0] if sub else ()):      # q: nested blocks first, their address into the outer block
+        for o2, d2, *sp in (sub[0] if sub else ()):      # q: nested blocks first, their address into the outer block
             a2 = e.alloc(len(d2) + 16, d2 + bytes(16)); ptrs.append((a2, len(d2)))
+            for so, rel in (sp[0] if sp else ()):         # /pOFF=R: pointers into the nested block itself
+                e.write(a2 + so, struct.pack('<I', (a2 + rel) & M32))
             data[o2:o2 + 4] = struct.pack('<I', a2)
         data = bytes(data)
         ad = e.alloc(len(data) + 16, data + bytes(16)); ptrs.append((ad, len(data)))
@@ -386,12 +388,17 @@ def main():
                                 o2, _, n2 = x[1:].partition('=')
                                 n2, *nb = n2.split('/')
                                 d2 = rnd.randbytes(int(n2[:-1], 0)) if n2.endswith('f') else bytes(rnd.getrandbits(8) for _ in range(int(n2, 0)))
+                                selfp = []
                                 if nb:
                                     d2 = bytearray(d2)
                                     for y in nb:
-                                        bb, vv = y.split('='); d2[int(bb, 0)] = rnd.choice([int(v, 0) for v in vv.split(',')]) & 0xff
+                                        bb, vv = y.split('=')
+                                        if bb.startswith('p'):      # pOFF=R1,..: the LE u32 at OFF = the block's address + R
+                                            selfp.append((int(bb[1:], 0), rnd.choice([int(v, 0) for v in vv.split(',')])))
+                                        else:
+                                            d2[int(bb, 0)] = rnd.choice([int(v, 0) for v in vv.split(',')]) & 0xff
                                     d2 = bytes(d2)
-                                sub.append((int(o2, 0), d2))
+                                sub.append((int(o2, 0), d2, selfp))
                         gpv.append((vs, off, bytes(pd), sub)); gpo.append((os_, off, bytes(pd), sub))
                         continue
                     if kind == 'p':

@@ -1580,7 +1580,7 @@ t33_binoracle_gammaev:
 # The port-loop T33 binary-oracle blocks (openimp #99): intp, math, rcfg1..10, msca-api1..4, top, ldc, irq, fd-*, dnglue, rdnspar
 # (tests/t33_binoracle/<block>.conf; SKIP without T33_OEM_KO / T33_CC).  Other blocks have their own targets above.
 t33_binoracle_blocks:
-	@for c in t33_binoracle/*.conf; do b=$$(basename $$c .conf); case $$b in intp|math|rcfg*|msca-api*|top|ldc|irq|fd-*|dnglue|rdnspar|tmo1s|mipi|t33mem|fdmisc|attr*|misc1|aeldc|sw-*|binapp|append|mipiphy|bin|mcside|clkp|deinit|deinitto|linkd|chfd|chfdx|cscmisc|drvver|intp2|ccmsm|blcsw|swsm2|swmid|lscmisc|msca-strm|msca-osd|msca-line|aemisc|aeint|ldcA|ldcB|tmoA|tmoSW|mdnsA|mdnsMem|rdnsEv|awbL|mscaInit|defbin|awbm|getA|getB) ./t33_binoracle/run.sh $$b || exit 1;; esac; done
+	@for c in t33_binoracle/*.conf; do b=$$(basename $$c .conf); case $$b in intp|math|rcfg*|msca-api*|top|ldc|irq|fd-*|dnglue|rdnspar|tmo1s|mipi|t33mem|fdmisc|attr*|misc1|aeldc|sw-*|binapp|append|mipiphy|bin|mcside|clkp|deinit|deinitto|linkd|chfd|chfdx|cscmisc|drvver|intp2|ccmsm|blcsw|blcwr|swsm2|swmid|lscmisc|msca-strm|msca-osd|msca-line|aemisc|aeint|ldcA|ldcB|tmoA|tmoSW|mdnsA|mdnsMem|rdnsEv|awbL|mscaInit|defbin|awbm|getA|getB) ./t33_binoracle/run.sh $$b || exit 1;; esac; done
 
 # T32 MSCA done address FIFO read (openimp #529): tisp_msca_addr_fifo_read of the vendor tx-isp-t32.ko vs
 # driver/t32/tx_isp_t32_msca_fifo.h (the t33_binoracle harness on the T32 module; SKIP without T32_OEM_KO / T33_CC)

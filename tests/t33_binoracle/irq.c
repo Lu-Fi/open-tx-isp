@@ -19,6 +19,9 @@ extern void tisp_rcfg_module_cfg_trig(u32 a0, u32 id);
 extern void tisp_blc_write_reg(void);
 extern void tisp_clm_t33_write_reg(void);
 
-int bo_tisp_blc_t33_frame_done_interrupt(u32 a0) { return t33_blc_frame_done(a0); }
+int bo_tisp_blc_t33_frame_done_interrupt(u32 a0)
+{
+	return t33_blc_frame_done_st(a0, stIspInitPar, &tispBlcRefresh, t33_irq_trig, t33_irq_blc_write_reg);
+}
 int bo_tisp_defog_t33_frame_done_interrupt(u32 a0) { return t33_defog_frame_done(a0); }
 int bo_tisp_clm_irq_frame_done(u32 a0) { return t33_clm_frame_done(a0); }

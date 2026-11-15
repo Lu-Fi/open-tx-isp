@@ -87,6 +87,58 @@ static inline void t33_blc_interp(struct t33_blc_info *b, u32 tgain)
 	t33_blc_st16(cp + 10, g);
 }
 
+/* list / register services of tisp_blc_write_reg and the frame-done handler */
+struct t33_blc_hw {
+	int (*dma_state)(u32 mod);			/* tisp_rcfg_get_dma_state */
+	int (*wr)(u32 ch, u32 mod, u32 reg, u32 val);	/* tisp_reg_write_t33 */
+	int (*trig)(u32 ch, u32 mod);			/* tisp_rcfg_module_cfg_trig */
+};
+
+static inline u32 t33_blc_pair(const u8 *cp, u32 k)
+{
+	const u8 *lo = (const u8 *)(unsigned long)t33_le32(cp + 8 * k);
+	const u8 *hi = (const u8 *)(unsigned long)t33_le32(cp + 8 * k + 4);
+
+	return (t32_tp_le16(hi) & 0xfff) << 16 | (t32_tp_le16(lo) & 0xfff);
+}
+
+/*
+ * tisp_blc_write_reg: list 4 busy -> refresh 2 (the frame done writes later), else the four level
+ * pairs through the eight channel pointers, the gain, the enable bit and 0x3010 = 3 (cfg mode:
+ * slot indexes 3, 4, 8, 5, 6, 7, 1), refresh 1 (the frame done starts the list).
+ */
+static inline int t33_blc_write_reg(u32 ch, struct t33_blc_info *b, u8 cfg, u8 *refresh, const struct t33_blc_hw *hw)
+{
+	if (hw->dma_state(4)) {
+		*refresh = 2;
+		return 0;
+	}
+	hw->wr(ch, 4, cfg ? 3 : 0x3044, t33_blc_pair(b->cp, 0));
+	hw->wr(ch, 4, cfg ? 4 : 0x3048, t33_blc_pair(b->cp, 1));
+	hw->wr(ch, 4, cfg ? 8 : 0x3058, t32_tp_le16(b->cp + 42) & 0x1fff);
+	hw->wr(ch, 4, cfg ? 5 : 0x304c, t33_blc_pair(b->cp, 2));
+	hw->wr(ch, 4, cfg ? 6 : 0x3050, t33_blc_pair(b->cp, 3));
+	hw->wr(ch, 4, cfg ? 7 : 0x3054, b->sec[128] & 1);
+	hw->wr(ch, 4, cfg ? 1 : 0x3010, 3);
+	*refresh = 1;
+	return 0;
+}
+
+/* tisp_blc_t33_frame_done_interrupt (system irq 40): initpar = stIspInitPar, write_reg = tisp_blc_write_reg */
+static inline int t33_blc_frame_done_st(u32 a0, const u8 *initpar, u8 *refresh, int (*trig)(u32, u32),
+					void (*write_reg)(u32))
+{
+	if (t33_le32(initpar + 904) != 1)
+		return 0;
+	if (*refresh == 1) {
+		trig(a0 & 0xff, 4);
+		*refresh = 0;
+	} else if (*refresh == 2) {
+		write_reg(a0);
+	}
+	return 0;
+}
+
 /* tisp_blc_tgain_update */
 static inline int t33_blc_tgain_update(u32 ch, struct t33_blc_info *b, u32 tgain, void (*write_reg)(u32))
 {

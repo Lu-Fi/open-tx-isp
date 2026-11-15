@@ -221,6 +221,118 @@ static void t33_bst_fd(unsigned int b)
 }
 
 /*
+ * BLC (openimp #99 group 13a): the vendor's blc_para[0] (struct t33_blc_info of tx_isp_t33_blcsw.h, oracle
+ * blocks blcsw / blcwr / irq) instead of a list rebuilt from the section:
+ * - tparamsP's BLC section (+17640) is t33_blc_sec, the bin's section copied at every bin parse (init, day /
+ *   night) like the vendor's tisp_bin_data_parse into its own parameter struct; tisp_blc_interp_by_tgain
+ *   writes into it (bytes 129 / 130 at the init, the u16 levels at +118), never into libimp's bin buffer;
+ * - tisp_blc_init (t33_blc_attach: stIspInitPar word 1 bayer, word 232 the init gain), tisp_blc_tgain_update
+ *   (t33_blc_gain, every gain refresh), tisp_blc_switch_para (t33_blc_switch);
+ * - tisp_blc_write_reg: the slots of list 4 (blcCfgMode = t33_bst_cfg_mode) and tispBlcRefresh
+ *   (t33_blc_refresh); tisp_blc_t33_frame_done_interrupt (system irq 40, interrupt status 0x300a8 bit 8):
+ *   refresh 1 starts list 4, refresh 2 writes the slots once it is idle.
+ * The list layout itself still comes from the init builder (t33_blc_init, the same words; tisp_rcfg reg_init
+ * checks it).  The blc_ip / cp / sp / ap defaults are zero: every byte tisp_blc_init copies from them is
+ * written again before it is read (sp is not read by any BLC function of the module).
+ */
+#include "tx_isp_t33_blcsw.h"
+#define T33_TP_OFF_BLC		17640U
+#define T33_BLC_BIT		8	/* system irq 40 */
+static struct t33_blc_info t33_blc_blk, *blc_para[4];
+static u8 t33_blc_sec[T33_BLC_SEC_BYTES];	/* tparamsP[0] + 17640 */
+static u8 t33_blc_refresh;			/* tispBlcRefresh */
+static u32 t33_blc_isp[233];			/* the stIspInitPar words tisp_blc_init reads */
+static const u8 t33_blc_dflt[44];
+u32 t33_blc_runs[4];				/* init, gain updates, switches, frame dones with a refresh */
+
+static const struct t33_blc_hw t33_blc_hw = { tisp_rcfg_get_dma_state, tisp_reg_write_t33, tisp_rcfg_module_cfg_trig };
+
+static void tisp_blc_write_reg(u32 ch)
+{
+	if (blc_para[ch & 3])
+		t33_blc_write_reg(ch, blc_para[ch & 3], t33_bst_cfg_mode, &t33_blc_refresh, &t33_blc_hw);
+}
+
+static int t33_blc_reg0(u32 ch)
+{
+	(void)ch;
+	return 0;	/* list 4 is registered and built (t33_mod_set_tmpl) before */
+}
+
+static void *t33_blc_alloc(u32 size)
+{
+	(void)size;
+	memset(&t33_blc_blk, 0, sizeof(t33_blc_blk));
+	return &t33_blc_blk;
+}
+
+static void t33_blc_log(u32 line, int val)
+{
+	isp_printf(2, "[ISP][tisp_blc_init, %u]: error %d\n", line, val);
+}
+
+static void t33_blc_irq_set(u32 ch)
+{
+	(void)ch;	/* irq 40 is dispatched by t33_bst_irq */
+}
+
+static const struct t33_blc_ops t33_blc_ops = {
+	tisp_blc_write_reg, t33_blc_reg0, t33_blc_alloc, t33_blc_log, t33_blc_irq_set,
+	t33_blc_dflt, t33_blc_dflt, t33_blc_dflt, t33_blc_dflt,
+};
+
+static u8 *t33_blc_tparams(const u8 *sec)
+{
+	memcpy(t33_blc_sec, sec, T33_BLC_SEC_BYTES);
+	return t33_blc_sec - T33_TP_OFF_BLC;
+}
+
+/* tisp_blc_init (channel 0) on the bin's BLC section, list 4 built */
+static void t33_blc_attach(const u8 *sec, u32 bayer, u32 gain)
+{
+	unsigned long flags;
+	u8 *tp = t33_blc_tparams(sec);
+
+	t33_blc_isp[1] = bayer;
+	t33_blc_isp[232] = gain;
+	local_irq_save(flags);
+	blc_para[0] = NULL;
+	t33_blc_refresh = 0;
+	t33_blc_init_ch(0, (const u8 *)t33_blc_isp, tp, &blc_para[0], &t33_blc_ops);
+	local_irq_restore(flags);
+	t33_blc_runs[0]++;
+}
+
+/* tisp_blc_tgain_update */
+static void t33_blc_gain(u32 gain)
+{
+	unsigned long flags;
+
+	if (!blc_para[0])
+		return;
+	local_irq_save(flags);
+	t33_blc_tgain_update(0, blc_para[0], gain, tisp_blc_write_reg);
+	local_irq_restore(flags);
+	t33_blc_runs[1]++;
+	t33_gr_runs[T33_MOD_BLC]++;
+}
+
+/* tisp_blc_switch_para on the new bin's section */
+static void t33_blc_switch(const u8 *sec)
+{
+	unsigned long flags;
+	u8 *tp;
+
+	if (!blc_para[0])
+		return;
+	local_irq_save(flags);
+	tp = t33_blc_tparams(sec);
+	t33_blc_switch_para(0, blc_para[0], tp, tisp_blc_write_reg);
+	local_irq_restore(flags);
+	t33_blc_runs[2]++;
+}
+
+/*
  * CSCCR day / night (openimp #507): lib_tisp_set_csccr from SET_TIZIANO_PAR
  * (update_csccr) and tisp_csccr_t33_frame_done_interrupt (system irq 57,
  * block fd-csccr), with the vendor's glue (tx_isp_t33_dnglue.h, block
@@ -279,6 +391,12 @@ static void t33_bst_irq(u32 msca)
 			t33_bst_fd(b);
 			t33_bst_fd_runs[b]++;
 		}
+	if (msca & (1U << T33_BLC_BIT)) {
+		if (t33_blc_refresh)
+			t33_blc_runs[3]++;
+		t33_blc_frame_done_st(0, (const u8 *)t33_bst_initpar, &t33_blc_refresh, tisp_rcfg_module_cfg_trig,
+				      tisp_blc_write_reg);
+	}
 	if (msca & (1U << T33_CSCCR_BIT)) {
 		t33_csccr_frame_done(0, (const u8 *)t33_bst_initpar, &t33_csccr_refresh, t33_csccr_cnt,
 				     t33_csccr_cur, t33_csccr_cur2);

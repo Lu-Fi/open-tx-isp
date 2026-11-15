@@ -1764,6 +1764,8 @@ void t33_stats_show(struct seq_file *m)
 		   t33_lcepf_irq30s, t33_lcepf_curves, t33_lcepf_lce_runs, t33_lcepf_lsf_runs, t33_lcepf_evs);
 	seq_printf(m, "t33 tmo oneshot: disable %u enable %u tick %u\n", t33_tmo1s_runs[0], t33_tmo1s_runs[1],
 		   t33_tmo1s_runs[2]);
+	seq_printf(m, "t33 blc: %s init %u gain %u switch %u fd %u refresh %u\n", blc_para[0] ? "on" : "off",
+		   t33_blc_runs[0], t33_blc_runs[1], t33_blc_runs[2], t33_blc_runs[3], t33_blc_refresh);
 }
 
 /* for ../t33/tx_isp_t33_awbc.c: register read, and the per-frame AWB results into lists 7 / 29 */
@@ -2064,11 +2066,6 @@ static u32 t33_list_word(const u32 *l, u32 reg)
 	return 0;
 }
 
-static int t33_gr_tmpl(const struct t33_tcmd *t, unsigned int nt, int n)
-{
-	return n > 0 ? t33_rcfg_build_tmpl(t33_gr_tmp, T33_SLOT_WORDS, t, nt, tisp_w, (unsigned int)n) : n;
-}
-
 /* skip: modules whose switch_para already ran (t33_refresh_para) */
 static void t33_gr_refresh(u32 gain, u64 skip)
 {
@@ -2084,8 +2081,8 @@ static void t33_gr_refresh(u32 gain, u64 skip)
 	if (!t33_gr_tmp)
 		goto out;
 #define T33_GR_SEC(BLK)	((off = t32_iq_section(bin, bytes, T33_SEC_##BLK, &len)) && len == T33_##BLK##_SEC_BYTES)
-	/* tisp_blc_tgain_update: write_reg sets tispBlcRefresh at every update (PRJ008: same words) */
-	t33_gr_rerun(T33_MOD_BLC);
+	/* tisp_blc_tgain_update at every update (tx_isp_t33_bst.h: blc_para, list 4 slots, tispBlcRefresh) */
+	t33_blc_gain(gain);
 	/* tisp_dpc_l_gain_update: every change */
 	/*
 	 * The info-struct blocks (tx_isp_t33_bst.h): the info struct at the new gain (the init builders fill
@@ -2577,8 +2574,12 @@ static void t33_tisp_init(const u8 *bin, u32 bytes)
 	t33_tisp_init_awb(bin, bytes);
 	off = t32_iq_section(bin, bytes, T33_SEC_BLC, &len);
 	if (off && len == T33_BLC_SEC_BYTES && !t32_core_sensor_mbus(&code) && t32_mbus_to_bayer(code) >= 0)
+	{
 		t33_mod_set_tmpl(T33_MOD_BLC, T33_TMPL(t33_blc_tmpl), tisp_w,
 				 t33_blc_init(bin + off, (u32)t32_mbus_to_bayer(code), T33_INIT_GAIN, tisp_w));
+		if (t33_mod_built & (1ULL << T33_MOD_BLC))
+			t33_blc_attach(bin + off, (u32)t32_mbus_to_bayer(code), T33_INIT_GAIN);	/* tisp_blc_init */
+	}
 	off = t32_iq_section(bin, bytes, T33_SEC_YDNS, &len);
 	if (off && len == T33_YDNS_SEC_BYTES)
 	{
@@ -3317,10 +3318,9 @@ void t33_refresh_para(u32 mode)
 	t33_sw_top(bin, bytes, width, height, bayer);
 	/* tisp_dpc / ydns / sdns / cdns / dmsc / ysp / mdns_switch_para (tx_isp_t33_swglue.h) */
 	sw = t33_swg_small(bin, bytes);
-	/* tisp_blc_switch_para: interp_by_tgain at the current gain, write_reg */
-	if (T33_SW_SEC(BLC) && bayer >= 0)
-		t33_gr_commit(T33_MOD_BLC, t33_gr_tmpl(T33_TMPL(t33_blc_tmpl),
-						       t33_blc_init(bin + off, (u32)bayer, gain, tisp_w)));
+	/* tisp_blc_switch_para: the new section, interp_by_tgain at blc_para's gain, write_reg (tx_isp_t33_bst.h) */
+	if (T33_SW_SEC(BLC))
+		t33_blc_switch(bin + off);
 	t33_sw_tone(bin, bytes, width, height, gain, ct, lo, hi);
 	t33_sw_color(bin, bytes);
 	t33_sw_space(bin, bytes, width, height);
