@@ -122,9 +122,11 @@ struct t20_sensor_control {
 
 struct t20_fsm_sensor {
 	struct t20_fsm_hdr hdr;
-	uint8_t pad_0c[0x1c];
+	uint8_t pad_0c[4];
+	struct t20_sbus isp_sbus;	/* 0x10: ISP register bus (context 0x1c) */
 	struct t20_sensor_control ctrl;	/* 0x28 (context 0x34) */
-	uint8_t pad_d0[4];
+	uint8_t field_d0;
+	uint8_t pad_d1[3];
 	int32_t field_d4;
 	uint8_t field_d8;
 	uint8_t pad_d9;
@@ -239,6 +241,11 @@ struct t20_fsm_ae {
 			uint32_t exposure_correction_lo;	/* 0x18 */
 			uint32_t exposure_correction_hi;	/* 0x1c */
 		};
+		struct {
+			uint8_t pad_10i[0x10];
+			int32_t integrator_a;	/* 0x20: set_integrator_ae */
+			int32_t integrator_b;	/* 0x24 */
+		};
 	};
 	uint32_t field_28;
 	uint32_t field_2c;
@@ -305,7 +312,11 @@ struct t20_fsm_awb {
 
 struct t20_fsm_color_matrix {
 	struct t20_fsm_hdr hdr;
-	uint8_t pad_0c[5];
+	union {
+		uint8_t pad_0c[4];
+		uint32_t irq_mask;	/* 0x0c: interrupts requested at init */
+	};
+	uint8_t pad_10;
 	uint8_t field_11;
 	uint8_t saturation;		/* 0x12: 0x80 at init */
 	uint8_t pad_13[0x13];
@@ -395,8 +406,14 @@ enum t20_api_value {
 
 struct t20_fsm_iridix {
 	struct t20_fsm_hdr hdr;
-	uint8_t pad_0c[4];
-	uint16_t field_10;
+	union {
+		uint8_t pad_0c[4];
+		uint32_t irq_mask;	/* 0x0c: interrupts requested at init */
+	};
+	union {
+		uint16_t field_10;
+		uint8_t strength_target;	/* 0x10: initial Iridix strength */
+	};
 	uint8_t pad_12[2];
 	uint32_t field_14;
 	union {
@@ -407,7 +424,9 @@ struct t20_fsm_iridix {
 
 struct t20_fsm_sharpening {
 	struct t20_fsm_hdr hdr;
-	uint8_t pad_0c[20];
+	uint8_t pad_0c[16];
+	uint8_t field_1c;
+	uint8_t pad_1d[3];
 	uint16_t field_20;
 	uint8_t field_22;
 	uint8_t pad_23[41];
@@ -426,25 +445,39 @@ struct t20_fsm_sharpening {
 	uint16_t field_62;
 	uint16_t field_64;
 	uint8_t field_66;
+	uint8_t pad_67;
+	union {
+		uint32_t hist[256];	/* 0x68: luminance histogram */
+		struct {
+			uint32_t pad_hist[255];
+			uint32_t hist_total;	/* 0x464: pixel count */
+		};
+	};
 };
 
 struct t20_fsm_flash {
 	struct t20_fsm_hdr hdr;
-	uint8_t pad_0c[5];
-	uint8_t field_11;
+	uint8_t pad_0c[4];
+	uint8_t state;			/* 0x10: 0x59 on, 0x5a sequence */
+	uint8_t field_11;		/* sequence step */
+	uint8_t pad_12[2];
+	int32_t ref_val;		/* 0x14 */
+	int32_t last_val;		/* 0x18 */
+	uint16_t count;			/* 0x1c */
 };
 
 struct t20_fsm_general {
 	struct t20_fsm_hdr hdr;
-	uint8_t pad_0c[6];
+	uint32_t irq_mask;		/* 0x0c: interrupts requested at init */
+	uint16_t field_10;
 	uint16_t scene_mode;		/* 0x12 */
 	uint8_t pad_14[4];
-	uint32_t field_18;
-	uint16_t field_1c;
-	uint16_t field_1e;
+	uint32_t field_18;		/* register API address */
+	uint16_t field_1c;		/* register API access size, bits */
+	uint16_t field_1e;		/* register API bus id */
 	uint16_t field_20;
 	uint16_t field_22;
-	uint8_t pad_24[24];
+	struct t20_sbus sbus;		/* 0x24: bus id 0x5d */
 	uint8_t wdr_mode;		/* 0x3c (context 0x1524) */
 	uint8_t field_3d;
 	uint8_t antifog_on;		/* 0x3e (context 0x1526) */
@@ -470,6 +503,8 @@ struct t20_fsm_dis {
 	uint32_t out_h;			/* 0x1838 */
 	uint32_t field_183c;		/* copy of field_1c */
 	uint32_t field_1840;
+	uint32_t field_1844;
+	/* sizeof is 0x1848: the slot of T20_CTX_FSM(t20_fsm_dis) */
 };
 
 /* Default settings block filled by dis_get_default_settings. */
@@ -483,6 +518,15 @@ struct t20_dis_settings {
 	int32_t word_18;
 	int32_t word_1c;
 };
+
+/* DIS context opened by dis_open (dis_global_static). */
+struct t20_dis_ctx {
+	uint32_t word_00;
+	struct t20_dis_settings settings;	/* 0x04: word_04 cols, word_08 rows */
+	int32_t (*method)(void *ctx, void *blocks, int32_t cols,
+			  int32_t rows, int32_t *gmv);	/* 0x24 */
+};
+_Static_assert(__builtin_offsetof(struct t20_dis_ctx, method) == 0x24, "t20_dis_ctx.method");
 
 /* DIS IIR filter state cleared by iir_filter_reset. */
 struct t20_iir_filter {
@@ -545,15 +589,31 @@ _Static_assert(sizeof(struct t20_fsm_crop) == 0x48, "t20_fsm_crop size");
 
 struct t20_fsm_matrix_yuv {
 	struct t20_fsm_hdr hdr;
-	uint8_t pad_0c[0x94];
+	union {
+		uint8_t pad_0c[0x94];
+		struct {
+			uint8_t pad_0c_m[4];
+			int16_t saturation_matrix[12];	/* 0x10 */
+			int16_t contrast_matrix[12];	/* 0x28 */
+			int16_t brightness_matrix[12];	/* 0x40 */
+			int16_t hue_matrix[12];		/* 0x58 */
+			int16_t mode_matrix[12];	/* 0x70 */
+			int16_t mono_coef[12];		/* 0x88 */
+		};
+	};
 	uint16_t field_a0;
 	uint8_t strength[3];		/* 0xa2: 0x80 = neutral */
 	uint8_t pad_a5[3];
 	uint8_t field_a8;
-	uint8_t pad_a9[0x19];
+	uint8_t pad_a9;
+	int16_t transform_aa[12];	/* 0xaa */
 	uint8_t field_c2;
-	uint8_t pad_c3[0x19];
+	uint8_t pad_c3;
+	int16_t transform_c4[12];	/* 0xc4 */
 	uint8_t field_dc;
+	uint8_t pad_dd;
+	int16_t transform_de[12];	/* 0xde */
+	uint16_t color_mode;		/* 0xf6: COLOR_MODE API value */
 };
 
 /* Coefficient/gain view of the matrix_yuv FSM written by matrix_yuv_initialize. */
@@ -569,24 +629,91 @@ struct __attribute__((packed, aligned(2))) t20_matrix_yuv_regs {
 	uint8_t field_a5;
 	uint8_t field_a6;
 	uint8_t field_a7;
-	uint8_t pad_a8[2];
-	uint16_t coef_aa[12];
-	uint8_t pad_c2[2];
-	uint16_t coef_c4[12];
-	uint8_t pad_dc[2];
-	uint16_t coef_de[12];
+	uint8_t mode_a8;
+	uint8_t pad_a9;
+	union {
+		uint16_t coef_aa[12];
+		struct {
+			uint16_t coef_aa_u[9];
+			int16_t off_aa[3];	/* 0xbc: signed offsets */
+		};
+	};
+	uint8_t mode_c2;
+	uint8_t pad_c3;
+	union {
+		uint16_t coef_c4[12];
+		struct {
+			uint16_t coef_c4_u[9];
+			int16_t off_c4[3];	/* 0xd6 */
+		};
+	};
+	uint8_t mode_dc;
+	uint8_t pad_dd;
+	union {
+		uint16_t coef_de[12];
+		struct {
+			uint16_t coef_de_u[9];
+			int16_t off_de[3];	/* 0xf0 */
+		};
+	};
 	uint16_t field_f6;
 };
 
 struct t20_fsm_defect_pixel {
 	struct t20_fsm_hdr hdr;
-	uint8_t pad_0c[6];
+	uint8_t pad_0c[4];
+	uint8_t countdown;	/* 0x10 */
+	uint8_t pad_11;
 	uint16_t threshold;	/* 0x12 */
 	uint8_t field_14;	/* (context 0x2fc) non-zero: cmos_set_exposure_target does nothing */
+	uint8_t pad_15[3];
+	int32_t saved_target;	/* 0x18 */
 };
 
 struct t20_fsm_noise_reduction {
 	struct t20_fsm_hdr hdr;		/* body: struct tx_isp_t20_nr_state */
+	uint8_t pad_0c[4];
+	uint8_t temper_strength;	/* 0x10: register 0x2c8 */
+	uint8_t pad_11;
+	uint8_t dpc_strength;		/* 0x12: register 0x2c4 */
+	uint8_t pad_13;
+	int16_t sinter_thresh_short;	/* 0x14: register 0x2a8 */
+	int16_t sinter_thresh_long;	/* 0x16: register 0x2a4 */
+	uint8_t pad_18[4];
+	uint8_t sinter_threshold;	/* 0x1c */
+	uint8_t pad_1d[3];
+	uint16_t sinter_offset;		/* 0x20 */
+	uint8_t sinter_enable;		/* 0x22 */
+	uint8_t temper_enable;		/* 0x23 */
+};
+
+/* One 24-byte DIS motion block (validate_motion_vectors). */
+struct t20_motion_block {
+	int32_t f_00;
+	int32_t f_04;
+	int32_t base;		/* 0x08 */
+	int32_t f_0c;
+	int32_t value;		/* 0x10 */
+	int32_t valid;		/* 0x14 */
+};
+
+/* One AWB statistics zone as stored by awb_read_statistics. */
+struct t20_awb_stat_zone {
+	uint16_t inv_r;
+	uint16_t inv_b;
+	uint32_t count;
+};
+
+/* AWB FSM as awb_read_statistics sees it. */
+struct t20_awb_stats_view {
+	uint8_t pad_00[0x10];
+	uint16_t zone_count;	/* 0x10 */
+	uint8_t pad_12[2];
+	uint32_t count_sum;	/* 0x14 */
+	uint16_t r_scale;	/* 0x18 */
+	uint16_t b_scale;	/* 0x1a */
+	uint8_t pad_1c[0x3c];
+	struct t20_awb_stat_zone zones[];	/* 0x58 */
 };
 
 /* Event loop buffer header (apical_loop_buffer_init), 0x10 bytes. */
@@ -640,9 +767,9 @@ struct t20_fw_outer {
 	uint32_t word_08;
 	void *event_sem;		/* 0x0c */
 	uint8_t sw_state;		/* 0x10: software run/pause state */
-	uint8_t pad_11;
+	uint8_t flip_pending;		/* 0x11 */
 	uint8_t hflip;			/* 0x12 */
-	uint8_t pad_13;
+	uint8_t saved_2cc;		/* 0x13 */
 	uint8_t vflip;			/* 0x14 */
 	uint8_t pad_15[3];
 	struct t20_isp_ctx isp[1];	/* 0x18 */
@@ -717,6 +844,18 @@ T20_CTX_AT(general.antifog_on, 0x1526);
 T20_CTX_AT(matrix_yuv, 0x2d74);
 T20_CTX_AT(event_queue, 0x2ea4);
 T20_CTX_AT(event_queue_data, 0x2eb4);
+T20_CTX_AT(sensor.isp_sbus, 0x1c);
+T20_CTX_AT(sensor.field_d0, 0xdc);
+T20_CTX_AT(sensor.ctrl.set_wdr_mode, 0xc8);
+T20_CTX_AT(sensor.ctrl.disable_isp, 0xd4);
+T20_CTX_AT(sensor.ctrl.param.integration_time_long_max, 0x74);
+T20_CTX_AT(ae.integrator_a, 0x328);
+T20_CTX_AT(general.irq_mask, 0x14f4);
+T20_CTX_AT(general.field_18, 0x1500);
+T20_CTX_AT(general.field_1c, 0x1504);
+T20_CTX_AT(general.sbus, 0x150c);
+T20_CTX_AT(general.field_3f, 0x1527);
+T20_CTX_AT(matrix_yuv.color_mode, 0x2e6a);
 _Static_assert(sizeof(struct t20_isp_ctx) == 0x2fb8, "t20_isp_ctx size");
 
 /* Ring entry "frame" steps after the newest one (negative = older). */
