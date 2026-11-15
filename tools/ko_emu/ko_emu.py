@@ -87,7 +87,9 @@ class KoEmu:
             else: a = self.secbase.get(sh, None); a = None if a is None else a + sym["st_value"]
             if sym["st_info"]["type"] == "STT_SECTION" and isinstance(sh, int): a = self.secbase.get(sh)
             self.syms.append((sym.name, a))
-            if sym.name and a is not None and sym["st_info"]["type"] != "STT_SECTION": self.symaddr.setdefault(sym.name, a)
+            if sym.name and a is not None and sym["st_info"]["type"] != "STT_SECTION":
+                self.symaddr.setdefault(sym.name, a)
+                self.symaddr.setdefault("%s@%x" % (sym.name, sym["st_value"]), a)   # duplicate local names: NAME@st_value
 
     def _stub(self, name):
         if name not in self.stubs:

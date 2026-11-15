@@ -2298,11 +2298,6 @@ static uint32_t adr_block_hist_120[120] = {0}; /* OEM: per-block histogram (0xa7
 static uint32_t data_c00c8 = 0;
 static uint32_t data_c00cc = 0;
 static uint32_t data_980b0[512] = {0};  /* Normalized histogram */
-/* ADR algorithm control (OEM: data_9ce4c, data_9ce70, etc.) */
-static uint32_t data_9ce4c;  /* OEM default: keep the loaded CTC map-to-cut curve */
-static uint32_t data_9ce6c = 0;  /* Smoothing iteration count */
-static uint32_t data_9ce70 = 0;  /* OEM default: temporal smoothing disabled */
-static uint32_t data_9ce74 = 0x32;  /* OEM default smoothing step size */
 static int adr_grid_debug_budget;
 static const uint32_t adr_init_curve11[11] = {
 	0x20, 0x40, 0x80, 0xc0, 0x100, 0x180, 0x200, 0x300, 0x400, 0x600, 0x800
@@ -2313,11 +2308,6 @@ static const uint32_t adr_init_ctc_y[8] = {
 /* ADR constants for tisp_adr_set_params (OEM: data_9f0a8, data_9f0cc) */
 static uint32_t data_9f0a8 = 0x800;
 static uint32_t data_9f0cc = 0x400;
-/* OEM parameter data refs for tiziano_adr_algorithm */
-static uint32_t data_9f79c = 0x40;
-static uint32_t data_9f7bc = 0x600;
-static uint32_t data_9f7d0 = 0x6;
-static uint32_t data_9f7f0 = 0xb;
 /* ADR FPGA struct pointer (OEM: TizianoAdrFpgaStructMe) */
 static void *TizianoAdrFpgaStructMe = NULL;
 /* FPGA call argument pointers (OEM: data_c03cc..data_c0404) */
@@ -27504,37 +27494,12 @@ static void tiziano_adr_get_data(uint32_t *buf)
     }
 }
 
-/* adr_ev_interpolate - Linear interpolation helper for ADR EV-based parameter blending.
+/* adr_ev_interpolate (now in tx_isp_t31_adralgo.h) - Linear interpolation helper for ADR EV-based parameter blending.
  * OEM pattern: interpolate between val_lo and val_hi based on ev_now's position
  * between ev_lo and ev_hi. All values are unsigned 32-bit.
  * When val_hi >= val_lo: result = abs(ev_now - ev_lo) * (val_hi - val_lo) / abs(ev_hi - ev_lo) + val_lo
  * When val_hi < val_lo:  result = val_lo - abs(ev_now - ev_lo) * (val_lo - val_hi) / abs(ev_hi - ev_lo)
  */
-static uint32_t adr_ev_interpolate(uint32_t ev_val, uint32_t ev_lo, uint32_t ev_hi,
-				   uint32_t val_lo, uint32_t val_hi)
-{
-	uint32_t ev_delta, ev_range;
-
-	/* abs(ev_now - ev_lo) */
-	if (ev_lo < ev_val)
-		ev_delta = ev_val - ev_lo;
-	else
-		ev_delta = ev_lo - ev_val;
-
-	/* abs(ev_hi - ev_lo) */
-	if (ev_hi < ev_lo)
-		ev_range = ev_lo - ev_hi;
-	else
-		ev_range = ev_hi - ev_lo;
-
-	if (ev_range == 0)
-		return val_lo;
-
-	if (val_hi >= val_lo)
-		return ev_delta * (val_hi - val_lo) / ev_range + val_lo;
-	else
-		return val_lo - ev_delta * (val_lo - val_hi) / ev_range;
-}
 
 /* ========================================================================
  * ADR FPGA helper functions — OEM-exact ports from binary decompilation
@@ -29137,159 +29102,9 @@ static int Tiziano_adr_fpga(void *arg1, uint32_t *arg2, uint32_t *arg3,
 	return result;
 }
 
-/* tiziano_adr_algorithm - OEM-exact ADR algorithm
- * Phase 1: Find EV bracket index in adr_ev_list_now[0..8]
- * Phase 2: Interpolate 8 parameter arrays based on EV position
- * Phase 3: CTC interpolation (when data_9ce4c == 1)
- * Phase 4: Set up FPGA pointers and call Tiziano_adr_fpga()
- * Phase 5: Temporal smoothing of map_kneepoint_y toward map_kneepoint_y_pre
- */
-static int tiziano_adr_algorithm(void)
+/* tiziano_adr_algorithm: vendor 0x476cc in tx_isp_t31_adralgo.h (oracle block adralgo; openimp #563) */
+static void adr_algo_log_ctrl(uint32_t ev_val, int idx)
 {
-	uint32_t ev_val;
-	uint32_t ev_lo, ev_hi;
-	int idx;
-	int i, j, blk;
-	uint16_t *gam_y_16;
-	uint32_t val_lo, val_hi;
-	uint32_t rate, max_diff, smooth_updated;
-
-	if (ev_changed != 1)
-		return 0;
-
-	ev_changed = 0;
-	ev_val = ev_now;
-
-	/* === Phase 1: Find EV bracket index === */
-	/* Search adr_ev_list_now[0..8] for first entry >= ev_val */
-	idx = 0;
-	while (idx < 9) {
-		if (adr_ev_list_now[idx] >= ev_val)
-			break;
-		idx++;
-	}
-
-	/* === Phase 2: Interpolate 8 parameter arrays === */
-	if (idx == 0) {
-		/* Below first EV level: use first-entry defaults */
-		adr_map_mode_now[0] = data_9f79c;
-		adr_map_mode_now[2] = data_9f7d0;
-		adr_map_mode_now[5] = adr_blp2_list_now[0];
-		adr_light_end_now[28] = adr_ligb_list_now[0];
-		adr_block_light_now[10] = adr_mapb1_list_now[0];
-		adr_block_light_now[11] = adr_mapb2_list_now[0];
-		adr_block_light_now[12] = adr_mapb3_list_now[0];
-		adr_block_light_now[13] = adr_mapb4_list_now[0];
-	} else if (idx == 9) {
-		/* Past last EV level: use last-entry defaults */
-		adr_map_mode_now[0] = data_9f7bc;
-		adr_map_mode_now[2] = data_9f7f0;
-		adr_map_mode_now[5] = adr_blp2_list_now[8];
-		adr_light_end_now[28] = adr_ligb_list_now[8];
-		adr_block_light_now[10] = adr_mapb1_list_now[8];
-		adr_block_light_now[11] = adr_mapb2_list_now[8];
-		adr_block_light_now[12] = adr_mapb3_list_now[8];
-		adr_block_light_now[13] = adr_mapb4_list_now[8];
-	} else if (adr_ev_list_now[idx] == adr_ev_list_now[idx - 1]) {
-		/* Equal EV values: no interpolation needed, use idx values directly */
-		adr_map_mode_now[0] = param_adr_min_kneepoint_array[idx + 1];
-		adr_map_mode_now[2] = param_adr_min_kneepoint_array[idx + 14];
-		adr_map_mode_now[5] = adr_blp2_list_now[idx];
-		adr_light_end_now[28] = adr_ligb_list_now[idx];
-		adr_block_light_now[10] = adr_mapb1_list_now[idx];
-		adr_block_light_now[11] = adr_mapb2_list_now[idx];
-		adr_block_light_now[12] = adr_mapb3_list_now[idx];
-		adr_block_light_now[13] = adr_mapb4_list_now[idx];
-	} else {
-		/* Interpolate between ev_list[idx-1] and ev_list[idx] */
-		ev_lo = adr_ev_list_now[idx - 1];
-		ev_hi = adr_ev_list_now[idx];
-
-		/* 1) adr_map_mode_now[0] from param_adr_min_kneepoint_array[idx] / [idx+1] */
-		adr_map_mode_now[0] = adr_ev_interpolate(ev_val, ev_lo, ev_hi,
-			param_adr_min_kneepoint_array[idx],
-			param_adr_min_kneepoint_array[idx + 1]);
-
-		/* 2) adr_map_mode_now[2] from param_adr_min_kneepoint_array[idx+0xd] / [idx+0xe] */
-		adr_map_mode_now[2] = adr_ev_interpolate(ev_val, ev_lo, ev_hi,
-			param_adr_min_kneepoint_array[idx + 0xd],
-			param_adr_min_kneepoint_array[idx + 0xe]);
-
-		/* 3) adr_map_mode_now[5] from adr_blp2_list_now[idx-1] / [idx] */
-		adr_map_mode_now[5] = adr_ev_interpolate(ev_val, ev_lo, ev_hi,
-			adr_blp2_list_now[idx - 1], adr_blp2_list_now[idx]);
-
-		/* 4) adr_light_end_now[28] from adr_ligb_list_now[idx-1] / [idx] */
-		adr_light_end_now[28] = adr_ev_interpolate(ev_val, ev_lo, ev_hi,
-			adr_ligb_list_now[idx - 1], adr_ligb_list_now[idx]);
-
-		/* 5) adr_block_light_now[10] from adr_mapb1_list_now[idx-1] / [idx] */
-		adr_block_light_now[10] = adr_ev_interpolate(ev_val, ev_lo, ev_hi,
-			adr_mapb1_list_now[idx - 1], adr_mapb1_list_now[idx]);
-
-		/* 6) adr_block_light_now[11] from adr_mapb2_list_now[idx-1] / [idx] */
-		adr_block_light_now[11] = adr_ev_interpolate(ev_val, ev_lo, ev_hi,
-			adr_mapb2_list_now[idx - 1], adr_mapb2_list_now[idx]);
-
-		/* 7) adr_block_light_now[12] from adr_mapb3_list_now[idx-1] / [idx] */
-		adr_block_light_now[12] = adr_ev_interpolate(ev_val, ev_lo, ev_hi,
-			adr_mapb3_list_now[idx - 1], adr_mapb3_list_now[idx]);
-
-		/* 8) adr_block_light_now[13] from adr_mapb4_list_now[idx-1] / [idx] */
-		adr_block_light_now[13] = adr_ev_interpolate(ev_val, ev_lo, ev_hi,
-			adr_mapb4_list_now[idx - 1], adr_mapb4_list_now[idx]);
-	}
-
-	/* === Phase 3: CTC interpolation (when data_9ce4c == 1) === */
-	/* OEM gam_y array has 9 CTC entries per EV level, but levels are not
-	 * uniformly spaced. Level base offsets (in uint16_t indices):
-	 * Level: 0   1   2   3   4   5   6   7   8
-	 * Base:  0  10  20  32  42  52  64  74  84
-	 * These are hardcoded in the OEM unrolled code. */
-	if (data_9ce4c == 1) {
-		static const int ctc_level_base[9] = {
-			0, 10, 20, 32, 42, 52, 64, 74, 84
-		};
-		gam_y_16 = (uint16_t *)param_adr_gam_y_array;
-
-		if (idx == 0) {
-			/* Below first EV: use level 0 entries directly */
-			for (j = 0; j < 9; j++)
-				adr_ctc_map2cut_y_now[j] = (uint32_t)gam_y_16[ctc_level_base[0] + j];
-		} else if (idx == 9) {
-			/* Past last EV: use level 8 entries directly */
-			for (j = 0; j < 9; j++)
-				adr_ctc_map2cut_y_now[j] = (uint32_t)gam_y_16[ctc_level_base[8] + j];
-		} else {
-			/* Interpolate CTC between level[idx-1] and level[idx] */
-			ev_lo = adr_ev_list_now[idx - 1];
-			ev_hi = adr_ev_list_now[idx];
-
-			if (ev_lo == ev_hi) {
-				for (j = 0; j < 9; j++)
-					adr_ctc_map2cut_y_now[j] = (uint32_t)gam_y_16[ctc_level_base[idx] + j];
-			} else {
-				for (j = 0; j < 9; j++) {
-					val_lo = (uint32_t)gam_y_16[ctc_level_base[idx - 1] + j];
-					val_hi = (uint32_t)gam_y_16[ctc_level_base[idx] + j];
-					adr_ctc_map2cut_y_now[j] = adr_ev_interpolate(
-						ev_val, ev_lo, ev_hi, val_lo, val_hi);
-				}
-			}
-		}
-	}
-
-	/* === Phase 3.5: Copy param arrays to working arrays === */
-	/* OEM copies param_adr_min_kneepoint_array_def → min_kneepoint_x,
-	 *            param_adr_map_kneepoint_array → map_kneepoint_x,
-	 *            param_adr_ctc_kneepoint_array → ctc_kneepoint_x */
-	for (i = 0; i < 11; i++) {
-		min_kneepoint_x[i] = param_adr_min_kneepoint_array_def[i];
-		map_kneepoint_x[i] = param_adr_map_kneepoint_array[i];
-		if (i < 9)
-			ctc_kneepoint_x[i] = param_adr_ctc_kneepoint_array[i];
-	}
-
 	{
 		static int adr_ctrl_log;
 
@@ -29343,7 +29158,10 @@ static int tiziano_adr_algorithm(void)
 		adr_x_log++;
 	}
 
-	/* === Phase 4: Set up FPGA struct pointers and call Tiziano_adr_fpga === */
+}
+
+static void adr_algo_fpga(void)
+{
 	TizianoAdrFpgaStructMe = ctc_kneepoint_x;
 	data_c03e0 = adr_hist;
 	data_c03e4 = adr_block_y;
@@ -29369,73 +29187,16 @@ static int tiziano_adr_algorithm(void)
 			 data_c03f8, data_c03fc,
 			 data_c0400, data_c0404);
 
-	/* === Phase 5: Temporal smoothing of map_kneepoint_y === */
-	if (data_9ce70 == 1) {
-		rate = data_9ce74;
-		smooth_updated = 0;
+}
 
-		for (blk = 0; blk < 24; blk++) {
-			/* Find max difference in this block between map_kneepoint_y and _pre */
-			max_diff = 0;
-			for (j = 0; j < 11; j++) {
-				uint32_t cur = map_kneepoint_y[blk * 11 + j];
-				uint32_t pre = map_kneepoint_y_pre[blk * 11 + j];
-				uint32_t diff = (pre >= cur) ? (pre - cur) : (cur - pre);
-				if ((int32_t)max_diff < (int32_t)diff)
-					max_diff = diff;
-			}
-
-			/* Clamp rate and handle special cases */
-			if (rate >= 0x201) {
-				smooth_updated = 1;
-				rate = 0x200;
-			} else if (data_9ce6c != 9 && rate == 0) {
-				rate = 1;
-				smooth_updated = 1;
-			}
-
-			if (rate < max_diff) {
-				/* Blend: gradually move map_kneepoint_y toward _pre
-				 * scale = (rate << 21) / max_diff
-				 * OEM: s/ 0x200000 (signed div, but values always positive here) */
-				uint32_t scale = (rate << 21) / max_diff;
-				for (j = 0; j < 11; j++) {
-					uint32_t cur = map_kneepoint_y[blk * 11 + j];
-					uint32_t pre = map_kneepoint_y_pre[blk * 11 + j];
-					uint32_t clamp_max = 0xff5 + (uint32_t)j;
-					uint32_t blended;
-
-					if (pre >= cur) {
-						blended = pre - ((pre - cur) * scale + 0x100000) / 0x200000;
-					} else {
-						blended = ((cur - pre) * scale + 0x100000) / 0x200000 + pre;
-					}
-					if (clamp_max < blended)
-						blended = clamp_max;
-					map_kneepoint_y[blk * 11 + j] = blended;
-					map_kneepoint_y_pre[blk * 11 + j] = blended;
-				}
-			} else {
-				/* Difference within rate: snap to current, clamp per-entry */
-				for (j = 0; j < 11; j++) {
-					uint32_t clamp_max = 0xff5 + (uint32_t)j;
-					if (clamp_max < map_kneepoint_y[blk * 11 + j])
-						map_kneepoint_y[blk * 11 + j] = clamp_max;
-					map_kneepoint_y_pre[blk * 11 + j] = map_kneepoint_y[blk * 11 + j];
-				}
-			}
-		}
-
-		if (smooth_updated)
-			data_9ce74 = rate;
-	}
-
+static void adr_algo_log_final(void)
+{
 	{
 		static int adr_final_log;
 
 		if (adr_final_log < 5 || (adr_final_log % 300) == 0) {
 			pr_info("ADR_FINAL11[%d]: smooth=%u rate=%u mean0=%d mean5=%d mean12=%d mean23=%d\n",
-				adr_final_log, data_9ce70, data_9ce74,
+				adr_final_log, param_adr_tool_control_array[12], param_adr_tool_control_array[13],
 				block_mean_y[0], block_mean_y[5],
 				block_mean_y[12], block_mean_y[23]);
 			adr_log_curve11("ADR_FBLK11", adr_final_log, 0, &map_kneepoint_y[0 * 11]);
@@ -29446,7 +29207,16 @@ static int tiziano_adr_algorithm(void)
 		adr_final_log++;
 	}
 
-	return 0;
+}
+
+#define T31_ADR_LOG_CTRL(ev, idx)	adr_algo_log_ctrl((ev), (idx))
+#define T31_ADR_FPGA()		adr_algo_fpga()
+#define T31_ADR_LOG_FINAL()	adr_algo_log_final()
+#include "tx_isp_t31_adralgo.h"
+
+static int tiziano_adr_algorithm(void)
+{
+	return t31_adr_algorithm();
 }
 
 /* tisp_adr_process - Binary Ninja EXACT: ADR processing callback (event 2) */
