@@ -148,9 +148,8 @@ static u32 drv_sensor(u32 off, u32 arg, u8 *info)
 	return 0;
 }
 
-static void drv_event(u32 ch, const u32 *ev)
+static void drv_event_run(const u32 *ev)
 {
-	(void)ch;
 	st.events++;
 	if (ev[2] == 4) {
 		st.tgain = ev[4];
@@ -171,6 +170,38 @@ static void drv_event(u32 ch, const u32 *ev)
 			ev_last[1] = ev[5];
 		}
 	}
+}
+
+/*
+ * The vendor's tisp_ae_long_ev_alloc (system irq 4, interrupt context) writes the DG list (slots 3 / 4, list 5)
+ * and only queues its events (tisp_event_push); the ISP event thread runs the tgain / EV block updates after
+ * the interrupt, so func_rdns_para_update already reads the new DG.  Our chain emits the events inside the
+ * allocation and the DG word is applied afterwards (t33_dg_list_set): the events of the allocation wait in
+ * aec_evq until the DG list is written (openimp #618).
+ */
+#define AEC_EVQ_N	4
+static u32 aec_evq[AEC_EVQ_N][8];
+static unsigned int aec_evn;
+static bool aec_ev_defer;
+
+static void drv_event(u32 ch, const u32 *ev)
+{
+	(void)ch;
+	if (aec_ev_defer && aec_evn < AEC_EVQ_N) {
+		memcpy(aec_evq[aec_evn++], ev, sizeof(aec_evq[0]));
+		return;
+	}
+	drv_event_run(ev);
+}
+
+static void aec_ev_flush(void)
+{
+	unsigned int i;
+
+	aec_ev_defer = false;
+	for (i = 0; i < aec_evn; i++)
+		drv_event_run(aec_evq[i]);
+	aec_evn = 0;
 }
 
 static void drv_warn(u32 line)
@@ -377,6 +408,8 @@ static void aec_work_fn(struct work_struct *w)
 	/* system irq 4: tisp_ae_interrupt_static -> tisp_normal_ae_interrupt_hist (long EV alloc, histogram index) */
 	t32_aec_bind(&aec);
 	aec.n = 0;
+	aec_evn = 0;
+	aec_ev_defer = true;
 	t33_ae_int_hist(0, (u8 *)ae_cache[0], stat_num, &aw_ops4);
 	n = aec.n;
 	front.zidx = stat_num[0];
@@ -388,6 +421,7 @@ static void aec_work_fn(struct work_struct *w)
 		st.dg_sets++;
 		st.dg = dg;
 	}
+	aec_ev_flush();	/* the allocation's events after the DG write, as the vendor's event thread */
 	/* event 1: tisp_normal_ae_calc_process (zeratul_open = 0: no debug tail) */
 	t33_ae_tagerr = front.zbad != zb0 || front.hbad != hb0;
 	aec.n = 0;
