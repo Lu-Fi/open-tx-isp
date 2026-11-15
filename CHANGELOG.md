@@ -4,6 +4,15 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD[-rcN]` are set on the `aperto` branch, the same tag in open-tx-isp and OpenIMP: RC1 `v2026.10.11-rc1`, RC2 `v2026.10.25-rc2`, RC3 `v2026.11.07-rc3` (2026-11-07). Gate SoCs of RC3 and Release 1: T10, T20, T21, T23, T30, T31, T40, T41 (T32/T33 planned, QEMU only); release notes: [docs/releases/ in OpenIMP](https://github.com/Lu-Fi/openimp/blob/next/docs/releases/README.md). Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-11-15: T33 ISP stop not acknowledged: soft reset pulse and a second stop request (openimp #544, beyond vendor)
+
+- `driver/t32/tx_isp_t32_core.c` (`TX_ISP_T33` only): when the ISP stop request gets no ack (SRBC bit 20), bit 22 is pulsed for 2 ms with bit 21 held, bit 21 is dropped and raised again, and the stop is re-requested; the ack then comes at once and the normal core reset follows. The vendor returns -1 here and never streams. Row in `docs/BEYOND_VENDOR.md`.
+- Proof: T33L, 20/20 planned reboots stream (14 needed the pulse), 0 stop timeouts, 0 oops, 5/5 timps restarts; `tx-isp-t32.ko` code identical.
+
+## 2026-11-15: T31 ADR EV interpolation guard (openimp #563, beyond vendor)
+
+- `adr_ev_interpolate` (`tx_isp_t31_adralgo.h`) returns the lower node's value when two neighbouring IQ-bin EV nodes are equal; the vendor divides by zero. Row in `docs/BEYOND_VENDOR.md`.
+
 ## 2026-11-15: T33 AE: sensor attribute syncs after stream-on reach the AE like the vendor (openimp #574, #99; host + QEMU)
 
 - `driver/t32/tx_isp_t32_core.c` (T33 build only) / `driver/t33/tx_isp_t33_aec.c`: a TX_ISP_EVENT_SYNC_SENSOR_ATTR after stream-on (the sensor's set_fps, also the AE's own frame-rate changes) now runs lib_tisp_sync_sensor_attr's AE part like the vendor ispcore_sync_sensor_attr: the run-time sensor fields go into the AE's sensor copy and tisp_normal_ae_par_sensor_trig sets ae_cache + 0x505, so the next AE calc runs tisp_ae_par_update_trig. Unlocked like the vendor (the AE work calls the sensor's set_fps under aec_lock). `/proc` t33 ae line: `syncs` counter.
