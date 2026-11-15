@@ -56,6 +56,7 @@ static void t33_lcepf_ev(u32 lo, u32 hi, u32 bv);
 #include "tx_isp_t33_af.h"
 #include "tx_isp_t33_bcsh.h"
 #include "tx_isp_t33_tmo.h"
+#include "tx_isp_t33_tmoA.h"
 #include "tx_isp_t33_clm.h"
 #include "tx_isp_t33_msca.h"
 #include "tx_isp_t33_msca_curve.h"
@@ -161,6 +162,14 @@ static u32 t33_mod_dirty;	/* lists 0..31 to run again at the next frame end (tis
 static bool t33_awb_refresh;
 static bool t33_first_fe;	/* the TMO / MDNS start words are still 1 */
 static void t33_first_frame_words(void);
+/*
+ * tmoInfo[0] in the vendor layout (10880 bytes; tisp_tmo_switch_para below fills it): byte 10845 the
+ * "configured" flag of tisp_tmo_t33_frame_done_interrupt (cleared at every init, as tisp_tmo_init does).
+ */
+#define T33_TMOINFO_BYTES	10880U
+static u32 t33_swg_tmo_info[T33_TMOINFO_BYTES / 4];
+static u8 t33_tmo_fd_refresh, t33_tmo_fd_mulsensor;	/* tispTmoRefresh, mulsensornum (frame done) */
+
 static u32 t33_list_word(const u32 *l, u32 reg);
 static void t33_bst_irq(u32 msca);	/* tx_isp_t33_bst.h: the blocks' frame-done handlers */
 static void t33_csc_fra_down(const u32 *init);	/* system irq 48: tisp_csc_fra_down_interrupt */
@@ -948,25 +957,11 @@ wait:
 	 */
 	t33_mod_dirty |= lo & T33_INIT_REFRESH;
 	t33_awb_refresh = !!(lo & (1U << T33_MOD_AWB));
+	((u8 *)t33_swg_tmo_info)[T33_TMOA_FLAG] = 0;	/* tmoInfo configured flag (tisp_tmo_init) */
 	t33_first_fe = true;
 #endif
 }
 
-#ifdef TX_ISP_T33
-static void t33_first_frame_words(void)
-{
-	u32 *l, w;
-
-	if ((t33_mod_built & (1ULL << T33_MOD_TMO)) && (l = t33_mod_buf(T33_MOD_TMO)) &&
-	    (w = t33_list_word(l, T33_TMO_START_REG))) {
-		l[w] = 0;
-		t33_mod_dirty |= 1U << T33_MOD_TMO;
-	}
-	if ((t33_mod_built & (1ULL << T33_MOD_MDNS)) && (l = t33_mod_buf(T33_MOD_MDNS)) &&
-	    (w = t33_list_word(l, T33_MDNS_START_REG)))
-		l[w] = 0;
-}
-#endif
 
 static unsigned int lsc_ct = 5000;
 module_param(lsc_ct, uint, 0644);
@@ -1347,6 +1342,43 @@ static void t33_gamma_state(const u8 *sec, const u8 *tab, u32 tabbytes, int clea
 static u32 t33_tmo_v[T33_TMO_WORDS], t33_mdns_v[T33_MDNS_WORDS];
 #define tispTopRefresh t33_top_refresh	/* the vendor name of the TOP refresh state (tx_isp_t33_top.h) */
 #include "tx_isp_t33_bst.h"
+
+static int t33_tmo_fd_wr(u32 ch, u32 blk, u32 reg, u32 a3)
+{
+	return tisp_reg_write_t33(ch, blk, reg, a3);
+}
+
+/* tisp_rcfg_module_cfg_trig: run the list at this frame end (the dirty refresh below, no list runs here) */
+static int t33_tmo_fd_trig(u32 ch, u32 n)
+{
+	(void)ch;
+	t33_mod_dirty |= 1U << n;
+	return 0;
+}
+
+static int t33_tmo_fd_nop(u32 idx)
+{
+	(void)idx;	/* tisp_tmo_ramV_vi23_reg_ctrl / _refresh: sensor modes >= 2 only (not supported) */
+	return 0;
+}
+
+static const struct t33_tmo_fd_ops t33_tmo_fd_ops = { t33_tmo_fd_wr, t33_tmo_fd_trig, t33_tmo_fd_nop, t33_tmo_fd_nop };
+
+static void t33_first_frame_words(void)
+{
+	u8 *info[4] = { (u8 *)t33_swg_tmo_info }, *tp[4] = { NULL };
+	u32 *l, w;
+
+	/* tisp_tmo_t33_frame_done_interrupt (oracle block tmoA): start word 0x70f0 (slot 32) = 0, tispTmoRefresh */
+	if ((t33_mod_built & (1ULL << T33_MOD_TMO)) && t33_mod_buf(T33_MOD_TMO)) {
+		t33_tmo_fd_refresh = !!(t33_mod_dirty & (1U << T33_MOD_TMO));
+		t33_tmo_frame_done(&t33_tmo_fd_ops, info, tp, t33_st_isp_init_par_mode[226], t33_bst_cfg_mode,
+				   &t33_tmo_fd_mulsensor, &t33_tmo_fd_refresh, 0);
+	}
+	if ((t33_mod_built & (1ULL << T33_MOD_MDNS)) && (l = t33_mod_buf(T33_MOD_MDNS)) &&
+	    (w = t33_list_word(l, T33_MDNS_START_REG)))
+		l[w] = 0;
+}
 #include "tx_isp_t33_swglue.h"
 #include "tx_isp_t33_tmo1s.h"
 
@@ -2972,6 +3004,115 @@ static int tisp_lsc_write_reg(u32 idx, u32 mode)
 }
 
 #include "tx_isp_t33_swmid.h"
+#include "tx_isp_t33_tmoSW.h"
+
+/*
+ * tisp_tmo_switch_para (oracle block tmoSW) on a vendor-layout tmoInfo block (t33_swg_tmo_info, 10880 bytes):
+ * words 0..0xab0 the driver's TMO state (t33_tmo_v), 2732 the section pointer (a private copy of the new
+ * section, tparamsP + 10140), 2736 / 3138 the u16 Y / saturation curves, 10808 / 10812 / 10816 the EV and BV
+ * of tisp_tmo_ev_update (ev >> 10, ev >> 42, BV 0 as at init), 10840 / 10844 DRC off (as at init).
+ * Callees: func_bin_para_update / func_tmo_ic_para_update = the oracle-proven tmoA ports;
+ * tisp_tmo_tmo_lumcurve_ev_interp / _satcurve_ev_interp = the curve blend of t33_tmo_init (both curves also
+ * as u16 like the vendor); tisp_tmo_ramY_vi0_reg_refresh = tisp_tmo_drc_ctrl (DRC off: no change) and the
+ * Y curve slots 91..195 (cfg mode) from the u16 curve; tisp_reg_write_t33 = the slot into a copy of list 8,
+ * committed after the call (t33_gr_commit); system_reg_write = the direct register write.
+ */
+static u8 t33_swg_tmo_sec[T33_TMO_SEC_BYTES], t33_swg_tmo_refresh;
+#define T33_TI(o_)	t33_swg_tmo_info[(o_) / 4]
+#define T33_TI16(o_)	((u16 *)t33_swg_tmo_info)[(o_) / 2]
+
+static void t33_swg_tmo_bin(u32 ch)
+{
+	(void)ch;
+	t33_tmo_bin_para(t33_swg_tmo_info, (const u8 *)(unsigned long)T33_TI(T33_TMOA_SEC_PTR));
+}
+
+static void t33_swg_tmo_curve(u32 ch, int sat)
+{
+	static const u16 lt[11] = { 0x124a, 0x13dc, 0x428, 0x5ba, 0x74c, 0x8de, 0xa70, 0xc02, 0xd94, 0xf26, 0x10b8 };
+	const u8 *s = (const u8 *)(unsigned long)T33_TI(T33_TMOA_SEC_PTR);
+	u32 f, k, i, a, b, r;
+
+	(void)ch;
+	t33_tmo_curve_pick(s, T33_TI(10808), T33_TI(10812), T33_TI(10816), &f, &k);
+	for (i = 0; i < (sat ? 25U : 201U); i++) {
+		a = t32_tp_le16(s + (sat ? 0x1a4 + 0x32 * k : lt[k]) + 2 * i);
+		b = t32_tp_le16(s + (sat ? 0x1d6 + 0x32 * k : lt[k + 1]) + 2 * i);
+		r = (u32)((int)(a * f + (0x100 - f) * b) / 0x100) & 0xffff;
+		T33_TI((sat ? 0x8c : 0x1c0) + 4 * i) = r;
+		T33_TI16((sat ? 3138 : 2736) + 2 * i) = (u16)r;
+	}
+}
+
+static void t33_swg_tmo_lum(u32 ch)
+{
+	t33_swg_tmo_curve(ch, 0);
+}
+
+static void t33_swg_tmo_sat(u32 ch)
+{
+	t33_swg_tmo_curve(ch, 1);
+}
+
+static void t33_swg_tmo_ic(u32 ch)
+{
+	(void)ch;
+	t33_tmo_ic_para(t33_swg_tmo_info);
+}
+
+static void t33_swg_tmo_wr(u32 ch, u32 blk, u32 reg, u32 val)
+{
+	if (!t33_bst_cfg_mode)
+		tisp_reg_write_t33(ch, blk, reg, val);
+	else if (reg + 1 <= t33_gr_tmp[0] && reg + 1 < T33_SLOT_WORDS)	/* bounds of tisp_reg_write_t33 */
+		T33_SW(t33_gr_tmp, reg, val);
+	else
+		t33_bst_bad++;
+}
+
+/* tisp_tmo_ramY_vi0_reg_refresh: tisp_tmo_drc_ctrl (u16 10840 != 1: DRC off, curve kept), slots 91 / 93..193 / 195 */
+static void t33_swg_tmo_y(u32 ch)
+{
+	u32 i, base = t33_bst_cfg_mode ? 93 : 0x32274;
+
+	t33_swg_tmo_wr(ch, 8, t33_bst_cfg_mode ? 91 : 0x32270, 0x101);
+	for (i = 0; i < 100; i++)
+		t33_swg_tmo_wr(ch, 8, base + i, (T33_TI16(2736 + 4 * i + 2) & 0x1fff) << 16 |
+						 (T33_TI16(2736 + 4 * i) & 0x1fff));
+	t33_swg_tmo_wr(ch, 8, base + 100, (T33_TI16(3136) & 0x1fff) << 16 | (T33_TI16(3136) & 0x1fff));
+	t33_swg_tmo_wr(ch, 8, t33_bst_cfg_mode ? 195 : 0x32270, 0x10102);
+}
+
+static void t33_swg_tmo_sysw(u32 reg, u32 val)
+{
+	isp_wr(reg, val);
+}
+
+static const struct t33_tmosw_ops t33_swg_tmo_ops = {
+	t33_swg_tmo_bin, t33_swg_tmo_lum, t33_swg_tmo_sat, t33_swg_tmo_ic, t33_swg_tmo_y, t33_swg_tmo_wr,
+	t33_swg_tmo_sysw,
+};
+
+static noinline_for_stack void t33_swg_tmo(const u8 *sec, unsigned long long ev)
+{
+	u32 *buf;
+
+	if (!(t33_mod_built & (1ULL << T33_MOD_TMO)) || !(buf = t33_mod_buf(T33_MOD_TMO)) ||
+	    t32_tp_le16(sec + 0x1634) != 0)	/* static curve mode: no list 8 (t33_tmo_init) */
+		return;
+	memcpy(t33_swg_tmo_sec, sec, sizeof(t33_swg_tmo_sec));
+	memcpy(t33_swg_tmo_info, t33_tmo_v, sizeof(t33_tmo_v));
+	T33_TI(10808) = (u32)(ev >> 10);
+	T33_TI(10812) = (u32)(ev >> 42);
+	T33_TI(10816) = 0;
+	memcpy(t33_gr_tmp, buf, T33_SLOT_WORDS * 4);
+	t33_tmo_switch_para(&t33_swg_tmo_ops, 0, t33_swg_tmo_sec - T33_TMOSW_SEC_OFF, t33_swg_tmo_info,
+			    t33_bst_cfg_mode, &t33_swg_tmo_refresh);
+	memcpy(t33_tmo_v, t33_swg_tmo_info, sizeof(t33_tmo_v));
+	t33_gr_commit(T33_MOD_TMO, 1);
+}
+#undef T33_TI
+#undef T33_TI16
 
 static noinline_for_stack void t33_sw_tone(const u8 *bin, u32 bytes, u32 width, u32 height, u32 gain, u32 ct, u32 lo,
 					   u32 hi)
@@ -3000,13 +3141,9 @@ static noinline_for_stack void t33_sw_tone(const u8 *bin, u32 bytes, u32 width, 
 		t33_swg_tp8[0] = t33_swg_lsc_sec - T33_TP_OFF_LSC;
 		t33_lsc_switch_para(0, t33_swg_tp8, t33_swg_lsc_para);
 	}
-	/* tisp_tmo_switch_para */
-	if (T33_SW_SEC(TMO) && t33_tmo_pages) {
-		T33_SW_TMP();
-		t33_gr_commit(T33_MOD_TMO, t33_tmo_init(bin + off, width, height, ev,
-							(u32)virt_to_phys((void *)t33_tmo_pages), t33_tmo_v,
-							t33_gr_tmp, T33_SLOT_WORDS));
-	}
+	/* tisp_tmo_switch_para (tx_isp_t33_tmoSW.h) on the vendor-layout tmoInfo block */
+	if (T33_SW_SEC(TMO) && t33_tmo_pages)
+		t33_swg_tmo(bin + off, ev);
 	/* tisp_gamma_switch_para: interp_by_ev (forced), update_curve, transform / API curve, write_lut */
 	if (T33_SW_SEC(GAMMA)) {
 		u32 *buf;
