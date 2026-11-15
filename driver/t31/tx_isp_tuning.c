@@ -874,7 +874,11 @@ static uint32_t bcsh_Sstep0, bcsh_Sstep1;
 static uint32_t bcsh_HDPslope, bcsh_HBPslope, bcsh_HLSPslope;
 static uint32_t bcsh_OffsetYUVy[2] = { 0x03C0, 0x0440 }; /* OEM: 0x9a6d8 */
 static uint32_t bcsh_OffsetRGB2yuv[3] = { 0x0400, 0x0400, 0x0400 }; /* OEM: 0x9a668..0x9a670 */
-static uint32_t bcsh_clip0[4] = { 0x0000, 0x03ff, 0x0000, 0x03ff }; /* OEM: tisp_BCSH_au32clip 0x9a6c8 */
+/* vendor tx-isp-t31.ko keeps two arrays here (openimp #550): tisp_BCSH_au32clip = the constant clip {0, 0x3ff, 0, 0x3ff}
+ * (never written; registers 0x8000 / 0x800c) and tisp_BCSH_au32clip0 = the IQ bin words, used by
+ * tiziano_bcsh_lut_parameter only as HLSP control bytes (enable, low index, tail enable, high index). */
+static const uint32_t bcsh_clip[4] = { 0x0000, 0x03ff, 0x0000, 0x03ff };
+static uint32_t bcsh_clip0[4] = { 0x0000, 0x03ff, 0x0000, 0x03ff }; /* OEM: tisp_BCSH_au32clip0 (IQ bin) */
 static uint32_t bcsh_clip1[4] = { 0x0000, 0x036c, 0x0040, 0x03bc }; /* OEM: tisp_BCSH_au32clip1 0x9a6b8 */
 static uint32_t bcsh_clip2[4] = { 0x0040, 0x03ac, 0x0040, 0x03bc }; /* OEM: tisp_BCSH_au32clip2 0x9a6a8 */
 
@@ -911,9 +915,6 @@ static uint32_t bcsh_Offset1[3] = { 0x0440, 0x0400, 0x0400 };
 static uint32_t bcsh_ev_current;
 static uint32_t bcsh_ct_current;
 /* OEM data_b53d4/data_b53d8/data_b53dc drive the optional 0x8050 HLSP ramp. */
-static uint8_t bcsh_hlsp_lo_idx;
-static uint8_t bcsh_hlsp_tail_enable;
-static uint8_t bcsh_hlsp_hi_idx;
 static uint8_t bcsh_hue_scaled = 0x3c;
 
 static void tiziano_bcsh_select_active_bank(void)
@@ -2223,7 +2224,7 @@ static void tiziano_bcsh_lut_parameter(void *tisp_bcsh, void *clip1, void *clip2
 static void tiziano_bcsh_reg_apply(struct isp_tuning_data *tuning)
 {
 	(void)tuning;
-	tiziano_bcsh_lut_parameter(bcsh_clip0, bcsh_clip1, bcsh_clip2, bcsh_Offset0);
+	tiziano_bcsh_lut_parameter((void *)bcsh_clip, bcsh_clip1, bcsh_clip2, bcsh_Offset0);
 }
 
 /* ADR (Adaptive Dynamic Range) Variables */
@@ -8113,7 +8114,7 @@ static int apical_isp_ev_g_attr(struct tx_isp_dev *dev, struct isp_core_ctrl *ct
 #define T31_BU_RGB2YUV()	tiziano_bcsh_Tccm_RGB2YUV(bcsh_HMatrix, tisp_BCSH_as32CCMMatrix)
 #define T31_BU_TOFFSET()	tiziano_bcsh_Toffset_RGB2YUV((int32_t *)bcsh_OffsetRGB2yuv, (const int32_t *)bcsh_OffsetRGB_now)
 #define T31_BU_TRANSIT()	tiziano_bcsh_TransitParam()
-#define T31_BU_LUT()		tiziano_bcsh_lut_parameter(bcsh_clip0, bcsh_clip1, bcsh_clip2, bcsh_Offset0)
+#define T31_BU_LUT()		tiziano_bcsh_lut_parameter((void *)bcsh_clip, bcsh_clip1, bcsh_clip2, bcsh_Offset0)
 #define T31_BU_REAL_CLEAR()	(BCSH_real = 0)
 #include "tx_isp_t31_bcshup.h"
 
@@ -29792,9 +29793,6 @@ int tiziano_bcsh_init(void)
     bcsh_brightness_user = 0x80;
     bcsh_contrast_user = 0x80;
     bcsh_saturation_user = 0x80;
-    bcsh_hlsp_lo_idx = 0;
-    bcsh_hlsp_tail_enable = 0;
-    bcsh_hlsp_hi_idx = 0;
     tiziano_bcsh_params_refresh();
     tiziano_bcsh_Tccm_Comp2Orig();
     memcpy(tisp_BCSH_as32CCMMatrix, tisp_BCSH_as32CCMMatrix_d,
@@ -32550,11 +32548,15 @@ static void tiziano_bcsh_lut_parameter(void *tisp_bcsh, void *clip1, void *clip2
     uint32_t *clip1_now = clip1;
     uint32_t *clip2_now = clip2;
     uint32_t *offset0_now = offset0;
-    uint32_t hlsp_mix = ((bcsh_HLSP_now[2] & 0xffff) << 16) |
-                        (bcsh_HLSP_now[1] & 0xffff);
-    uint32_t lo_idx = bcsh_hlsp_lo_idx;
-    uint32_t hi_idx = bcsh_hlsp_hi_idx;
+    /* vendor 0x28304..0x2855c (openimp #550): default mix HLSP[2] << 16 | HLSP[1] (no mask); the control bytes
+     * come from tisp_BCSH_au32clip0 (IQ bin): [0] enable, [1] low index, [2] tail enable, [3] high index */
+    uint32_t hlsp_mix = (bcsh_HLSP_now[2] << 16) | bcsh_HLSP_now[1];
+    uint32_t hlsp_en = (uint8_t)bcsh_clip0[0];
+    uint32_t lo_idx = (uint8_t)bcsh_clip0[1];
+    uint32_t hlsp_tail = (uint8_t)bcsh_clip0[2];
+    uint32_t hi_idx = (uint8_t)bcsh_clip0[3];
     uint32_t ev_now = bcsh_ev_current >> 10;
+    int hlsp_done = 0;
 
 #define PACK16(hi, lo) ((((uint32_t)(hi) & 0xffff) << 16) | ((uint32_t)(lo) & 0xffff))
 
@@ -32568,46 +32570,29 @@ static void tiziano_bcsh_lut_parameter(void *tisp_bcsh, void *clip1, void *clip2
     else if (hi_idx == 0)
         hi_idx = 1;
 
-    if (clip0[0] == 1) {
-        uint32_t ev_limit = bcsh_EvList_now[lo_idx - 1];
+    if (hlsp_en == 1 && ev_now < bcsh_EvList_now[lo_idx - 1]) {
+        uint32_t lim = bcsh_EvList_now[lo_idx - 1];
+        uint32_t n = ev_now < 2 ? 1 - ev_now : ev_now - 1;
+        uint32_t den = lim ? lim - 1 : 1;
 
-        if (ev_now < ev_limit) {
-            uint32_t low_num = clip0[0] - ev_now;
-            uint32_t high_num = ev_now - 1;
-            uint32_t high_den = (ev_limit == 0) ? clip0[0] : (ev_limit - 1);
-            uint32_t low_den = (ev_limit == 0) ? 1 : (ev_limit - 1);
+        hlsp_mix = ((n * bcsh_HLSP_now[2] / den) << 16) | (n * bcsh_HLSP_now[1] / den);
+        hlsp_done = 1;
+    }
+    if (!hlsp_done && hlsp_tail == 1) {
+        uint32_t lim = bcsh_EvList_now[8];
 
-            if (ev_now >= 2)
-                low_num = ev_now - 1;
-            else
-                high_num = clip0[0] - ev_now;
+        if (!(ev_now < lim)) {
+            hlsp_mix = 0;
+        } else {
+            uint32_t st = bcsh_EvList_now[hi_idx - 1];
 
-            hlsp_mix = ((high_num * bcsh_HLSP_now[2] / high_den) << 16) |
-                       (low_num * bcsh_HLSP_now[1] / low_den);
-        }
-    } else if (bcsh_hlsp_tail_enable == 1) {
-        uint32_t ev_limit = bcsh_EvList_now[8];
+            if (st < ev_now) {
+                uint32_t range = lim < st ? st - lim : lim - st;
+                uint32_t h = bcsh_HLSP_now[2], l = bcsh_HLSP_now[1], hp = 0;
 
-        if (ev_now < ev_limit) {
-            uint32_t ev_start = bcsh_EvList_now[hi_idx - 1];
-
-            if (ev_start < ev_now) {
-                uint32_t hlsp_hi = bcsh_HLSP_now[2];
-                uint32_t hlsp_lo = bcsh_HLSP_now[1];
-                uint32_t range = (ev_limit >= ev_start) ?
-                                 (ev_limit - ev_start) : (ev_start - ev_limit);
-                uint32_t hi_part = 0;
-
-                if (hlsp_hi != 0)
-                    hi_part = (hlsp_hi - ((ev_now - ev_start) * hlsp_hi / range)) << 16;
-
-                if (hlsp_lo == 0) {
-                    hlsp_mix = hi_part;
-                } else {
-                    uint32_t lo_part = hlsp_lo - ((ev_now - ev_start) * hlsp_lo / range);
-
-                    hlsp_mix = hi_part | (lo_part & 0xffff);
-                }
+                if (h)
+                    hp = (h - (ev_now - st) * h / range) << 16;
+                hlsp_mix = l ? (hp | (l - (ev_now - st) * l / range)) : hp;
             }
         }
     }
@@ -32805,12 +32790,13 @@ static void tiziano_bcsh_TransitParam(void)
         bcsh_Cslope1 = 0;
     }
 
-    if (bcsh_ai32_C[2] < bcsh_clip0[1]) {
-        uint32_t diff = (bcsh_ai32_C[4] >= bcsh_clip0[1]) ?
-            (bcsh_ai32_C[4] - bcsh_clip0[1]) : (bcsh_clip0[1] - bcsh_ai32_C[4]);
-        bcsh_Cslope2 = (diff << 10) / (bcsh_clip0[1] - bcsh_ai32_C[2]);
+    /* vendor 0x29d0c: Cslope2 and its clamp use tisp_BCSH_au32clip1[1] (openimp #550) */
+    if (bcsh_ai32_C[2] < bcsh_clip1[1]) {
+        uint32_t diff = (bcsh_ai32_C[4] >= bcsh_clip1[1]) ?
+            (bcsh_ai32_C[4] - bcsh_clip1[1]) : (bcsh_clip1[1] - bcsh_ai32_C[4]);
+        bcsh_Cslope2 = (diff << 10) / (bcsh_clip1[1] - bcsh_ai32_C[2]);
     } else {
-        bcsh_ai32_C[2] = bcsh_clip0[1];
+        bcsh_ai32_C[2] = bcsh_clip1[1];
         bcsh_Cslope2 = 0;
     }
 
