@@ -350,6 +350,20 @@ static int t32_sensor_stream(struct t32_vi *vi, int on)
 /* MEMORY_MALLOC / FREE: physically contiguous buffers libimp maps     */
 /* through /dev/mem (IQ bins for SET_TIZIANO_PAR)                      */
 
+/*
+ * T33: the list is changed under core.lock (ioctls, release) but t32_core_iq_bin walks it from the AE / AWB event
+ * work without core.lock (the block refreshes, t33_gr_lock): the changes and that walk take t32_alloc_lock
+ * (openimp #579).  The vendor keeps the parsed bin in its own tparamsP copy (no list walk).  T32 build: no-ops.
+ */
+#ifdef TX_ISP_T33
+static DEFINE_SPINLOCK(t32_alloc_lock);
+#define T32_ALLOC_LOCK()	spin_lock(&t32_alloc_lock)
+#define T32_ALLOC_UNLOCK()	spin_unlock(&t32_alloc_lock)
+#else
+#define T32_ALLOC_LOCK()	do { } while (0)
+#define T32_ALLOC_UNLOCK()	do { } while (0)
+#endif
+
 static struct t32_alloc *t32_alloc_find_kva(u32 kva)
 {
 	struct t32_alloc *a;
@@ -389,7 +403,9 @@ static int t32_malloc(struct t32_buf_info *bi)
 	a->kva = (void *)p;
 	a->pa = virt_to_phys(a->kva);
 	a->size = bi->size;
+	T32_ALLOC_LOCK();
 	list_add_tail(&a->node, &core.allocs);
+	T32_ALLOC_UNLOCK();
 	bi->word0 = (u32)p;
 	bi->word1 = a->pa;
 	return 0;
@@ -401,9 +417,11 @@ static int t32_free(const struct t32_buf_info *bi)
 
 	if (!a)
 		return -EINVAL;
+	T32_ALLOC_LOCK();
 	if (core.tiziano_pa >= a->pa && core.tiziano_pa < a->pa + a->size)
 		core.tiziano_pa = 0;
 	list_del(&a->node);
+	T32_ALLOC_UNLOCK();
 	free_pages((unsigned long)a->kva, a->order);
 	kfree(a);
 	return 0;
@@ -414,11 +432,15 @@ static void t32_free_all(void)
 	struct t32_alloc *a, *n;
 
 	list_for_each_entry_safe(a, n, &core.allocs, node) {
+		T32_ALLOC_LOCK();
 		list_del(&a->node);
+		T32_ALLOC_UNLOCK();
 		free_pages((unsigned long)a->kva, a->order);
 		kfree(a);
 	}
+	T32_ALLOC_LOCK();
 	core.tiziano_pa = 0;
+	T32_ALLOC_UNLOCK();
 }
 
 static int t32_set_tiziano_par(const struct t32_tiziano_par *par)
@@ -1589,6 +1611,22 @@ u32 t32_core_sensor_fps(void)
  * up to the end of its buffer; -ENOENT when there is none */
 int t32_core_iq_bin(const u8 **bin, u32 *bytes)
 {
+#ifdef TX_ISP_T33
+	struct t32_alloc *a;
+	int r = -ENOENT;
+
+	T32_ALLOC_LOCK();
+	if (core.tiziano_pa)
+		list_for_each_entry(a, &core.allocs, node)
+			if (core.tiziano_pa >= a->pa && core.tiziano_pa < a->pa + a->size) {
+				*bin = (const u8 *)CKSEG1ADDR(core.tiziano_pa);
+				*bytes = a->pa + a->size - core.tiziano_pa;
+				r = 0;
+				break;
+			}
+	T32_ALLOC_UNLOCK();
+	return r;
+#else
 	struct t32_alloc *a;
 
 	if (!core.tiziano_pa)
@@ -1600,6 +1638,7 @@ int t32_core_iq_bin(const u8 **bin, u32 *bytes)
 			return 0;
 		}
 	return -ENOENT;
+#endif
 }
 
 /* the sensor's media bus code (input_mbus_fmt) of the running input */

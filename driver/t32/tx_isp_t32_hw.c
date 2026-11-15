@@ -2117,12 +2117,22 @@ static void t33_gr_commit(unsigned int id, int len)
 {
 	unsigned long flags;
 	u32 *buf;
-	unsigned int i;
+	unsigned int i, tries;
 
 	if (len <= 0 || !(t33_mod_built & (1ULL << id)) || !(buf = t33_mod_buf(id)))
 		return;
-	t32_wait_clear(T33_RCFG_TRIG, 1U << id, 2000);	/* the core reads the page while the list runs */
-	local_irq_save(flags);
+	/*
+	 * the core reads the page while the list runs: copy with the interrupts off and the list seen idle in that
+	 * window (a frame-end start between the wait and the copy would read a half-copied page; openimp #579).
+	 * The vendor writes list slots without any wait; this only removes the mixed-page frame.
+	 */
+	for (tries = 0;; tries++) {
+		t32_wait_clear(T33_RCFG_TRIG, 1U << id, 2000);
+		local_irq_save(flags);
+		if (!(isp_rd(T33_RCFG_TRIG) & (1U << id)) || tries >= 3)
+			break;
+		local_irq_restore(flags);
+	}
 	for (i = 0; i < T33_SLOT_WORDS; i++)
 		if (buf[i] != t33_gr_tmp[i])
 			buf[i] = t33_gr_tmp[i];
