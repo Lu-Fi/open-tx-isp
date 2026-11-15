@@ -16,6 +16,7 @@ usage: vdiff.py VENDOR.ko OURS.o [--calib FILE] [--only f1,f2] [--max N] [-v]
 import argparse
 import os
 import sys
+import time
 import zlib
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -24,6 +25,7 @@ import scenario  # noqa: E402
 from emu import UC_MIPS_REG_SP, A, CALIB, HEAP, STACK, STACK_SIZE, u32  # noqa: E402
 
 TOP = STACK + STACK_SIZE
+VBASE_END = emu.OBASE
 
 # functions not compared: scenario entry points (compared through their
 # callees), environment, or functions whose replay needs the caller's context
@@ -89,6 +91,9 @@ class Diff:
         self.sdk = sdk
         self.seq = True
         self.void = void_functions()
+        self.skip_mut = set()
+        self.maxins = 50_000_000
+        self.mut_budget = 120
         self.stack_args = stack_arg_counts()
 
     def machine(self, oem=True):
@@ -221,7 +226,7 @@ class Diff:
             args = s.args
             addr = m.V.sym[s.fn][0]
         pre = self.read_mem(m, s, side)
-        v0, v1 = m.call(addr, args, sp=s.sp, maxins=50_000_000)
+        v0, v1 = m.call(addr, args, sp=s.sp, maxins=self.maxins)
         out = {'ret': self.norm(m, v0), 'fault': m.fault,
                'log': [tuple(self.norm(m, x) for x in e) for e in m.env.log if e[0] != 'PRINTK'],
                'heapp': m.env.heapp}
@@ -256,6 +261,8 @@ class Diff:
     def compare(self, m, a, b, fname):
         import struct
         d = []
+        if a['fault'] and b['fault']:
+            return d            # both ran into wild accesses (mutated state): addresses differ per image
         if a['ret'] != b['ret'] and fname not in self.void:
             d.append('ret V=%s O=%s' % (fmt(a['ret']), fmt(b['ret'])))
         if a['fault'] != b['fault']:
@@ -300,6 +307,152 @@ class Diff:
                     e.fn, e.patch, e.label = fn, p, label
                     out.append(e)
         return out
+
+    # ------------------------------------------------------------ mutation fuzz
+    def probe_machine(self):
+        """separate machine whose vendor code is traced instruction by instruction: every load
+        (lb/lh/lw/lbu/lhu) is recorded as (address, width)"""
+        import struct as st
+        from unicorn import UC_HOOK_CODE
+        from unicorn import mips_const as mc
+        m = self.machine()
+        com = [(va, va + size) for n, va, oa, size in m.common]
+        m.seen = {}
+        regs = [getattr(mc, 'UC_MIPS_REG_%d' % i) for i in range(32)]
+        width = {0x20: 1, 0x24: 1, 0x21: 2, 0x25: 2, 0x23: 4}
+        vb = m.V.base
+
+        def hook(uc, addr, size, ud):
+            w = st.unpack_from('<I', m.V.mem, addr - vb)[0] if False else int.from_bytes(uc.mem_read(addr, 4), 'little')
+            n = width.get(w >> 26)
+            if n is None:
+                return
+            off = w & 0xffff
+            if off & 0x8000:
+                off -= 0x10000
+            a = (uc.reg_read(regs[(w >> 21) & 31]) + off) & 0xffffffff
+            if any(x <= a < y for x, y in com) or HEAP <= a < HEAP + emu.HEAP_SIZE or CALIB <= a < CALIB + emu.CALIB_SIZE:
+                m.seen[(a, n)] = 1
+        m.uc.hook_add(UC_HOOK_CODE, hook, begin=vb, end=vb + m.V.size - 1)
+        return m
+
+    def read_set(self, pm, s):
+        """(addr, width) of the firmware-state words and (reg, width) of the ISP registers
+        the vendor function reads when replayed from snapshot s"""
+        pm.seen = {}
+        pm.read_trace = []
+        self.run_side(pm, s, 'V')
+        regs = pm.read_trace
+        pm.read_trace = None
+        return sorted(pm.seen), sorted(set(regs))
+
+    @staticmethod
+    def mutate_value(r, old, w):
+        mx = (1 << (8 * w)) - 1
+        k = r.choice((0, 1, 2, 3, 7, 10)) if os.environ.get('MUTMOD') else r.randrange(12)
+        if k == 0:
+            v = 0
+        elif k == 1:
+            v = 1
+        elif k == 2:
+            v = old + 1
+        elif k == 3:
+            v = old - 1
+        elif k == 4:
+            v = mx
+        elif k == 5:
+            v = mx >> 1
+        elif k == 6:
+            v = (mx >> 1) + 1
+        elif k == 7:
+            v = r.randrange(256)
+        elif k == 8:
+            v = old ^ (1 << r.randrange(8 * w))
+        elif k == 9:
+            v = r.randrange(1 << r.randint(1, 8 * w))
+        elif k == 10:
+            v = old + r.randint(-16, 16)
+        else:
+            v = r.getrandbits(8 * w)
+        return v & mx
+
+    def mutfuzz(self, snaps, n, seed=5, only=None, per_fn_snaps=4):
+        """mutation fuzz: replay recorded calls with a few of the words the vendor function reads
+        (firmware state, calibration, ISP registers) replaced by boundary/random values"""
+        import random
+        m = self.machine()
+        pm = self.probe_machine()
+        by = {}
+        for s in snaps:
+            by.setdefault(s.fn, []).append(s)
+        res = {}
+        for fn in sorted(by):
+            if only and fn not in only:
+                continue
+            if fn in self.skip_mut:
+                continue
+            print('MUT start %s' % fn, file=sys.stderr, flush=True)
+            ss = by[fn]
+            pick = sorted({0, 1, len(ss) // 2, len(ss) - 1} & set(range(len(ss))))[:per_fn_snaps]
+            bases = []
+            for i in pick:
+                mem, regs = self.read_set(pm, ss[i])
+                bases.append((ss[i], mem, regs))
+            if not any(b[1] or b[2] for b in bases):
+                continue
+            r = random.Random(seed)
+            out = []
+            self.maxins = 3_000_000
+            t0 = time.time()
+            for it in range(n):
+                if time.time() - t0 > self.mut_budget:
+                    break
+                s0, mem, regs = bases[it % len(bases)]
+                if not (mem or regs):
+                    continue
+                edits = []
+                for _ in range(r.choice((1, 1, 1, 2, 2, 3, 5))):
+                    if regs and (not mem or r.random() < 0.3):
+                        edits.append(('R',) + r.choice(regs) + (r.getrandbits(30),))
+                    else:
+                        edits.append(('M',) + r.choice(mem) + (r.getrandbits(30),))
+
+                def patch(mm, a0, edits=edits):
+                    for kind, a, w, sd in edits:
+                        if os.environ.get('MUTONLY') and kind != os.environ['MUTONLY']:
+                            continue
+                        rr = random.Random(sd)
+                        if kind == 'R':
+                            old = int.from_bytes(mm.env.regs[a:a + w], 'little')
+                            mm.env.regs[a:a + w] = self.mutate_value(rr, old, w).to_bytes(w, 'little')
+                        else:
+                            old = int.from_bytes(bytes(mm.uc.mem_read(a, w)), 'little')
+                            v = self.mutate_value(rr, old, w)
+                            if w == 4 and any(emu.VBASE <= x < emu.OBASE + 0x1000000 or HEAP <= x < STACK + STACK_SIZE
+                                              for x in (old, v)):
+                                continue            # never fabricate or destroy pointers
+                            mm.uc.mem_write(a, v.to_bytes(w, 'little'))
+                e = Snap()
+                for k in Snap.__slots__:
+                    setattr(e, k, getattr(s0, k, None))
+                e.patch, e.label = patch, 'mut%d:%s' % (it, ' '.join('%s%x/%d' % x[:3] for x in edits))
+                if os.environ.get('MUTTRACE'):
+                    print('MUTIT %s %s' % (fn, e.label), file=sys.stderr, flush=True)
+                    e.sides = 'V'
+                a = self.run_side(m, e, 'V')
+                if os.environ.get('MUTTRACE'):
+                    print('MUTIT V done', file=sys.stderr, flush=True)
+                b = self.run_side(m, e, 'O')
+                d = self.compare(m, a, b, fn)
+                out.append((e, d))
+            self.maxins = 50_000_000
+            res[fn + '[mut]'] = out
+            nb = sum(1 for e, d in out if d and not all(x.startswith('ret ') for x in d))
+            print('MUTRES %s %d/%d differing' % (fn, nb, len(out)), flush=True)
+            if nb:
+                e, d = [(e, d) for e, d in out if d and not all(x.startswith('ret ') for x in d)][0]
+                print('   first: %s | %s' % (e.label, ' ; '.join(d[:3])[:300]), flush=True)
+        return res
 
     def replay(self, snaps):
         m = self.machine()
@@ -350,12 +503,15 @@ def main():
     ap.add_argument('--sys', action='store_true', help='(default, kept for compatibility)')
     ap.add_argument('--fuzz', type=int, default=3000, help='random calls per pure helper (0: off)')
     ap.add_argument('--no-scenario', action='store_true')
+    ap.add_argument('--skip-mut', default='', help='comma list of functions to leave out of the mutation fuzz')
+    ap.add_argument('--mut', type=int, default=0, help='mutation-fuzz replays per function (0: off)')
     ap.add_argument('--no-seq', action='store_true',
                     help='apical_custom_sequence() returns NULL (no ISP init sequence)')
     ap.add_argument('-v', action='store_true')
     a = ap.parse_args()
     D = Diff(a.vendor, a.ours, a.calib, a.v, a.sdk)
     D.seq = not a.no_seq
+    D.skip_mut = set(filter(None, a.skip_mut.split(',')))
     nfz = 0
     if a.fuzz:
         import fuzz
@@ -388,6 +544,8 @@ def main():
         print('SYS step %d %s: first diff at event %d/%d: V=%s O=%s' % (i, st, k, len(lv), lv[k:k + 4], lo[k:k + 4]))
     print('SYS steps with divergent register/sensor traffic: %d' % len(D.sys_log))
     res = D.replay(snaps)
+    if a.mut:
+        res.update(D.mutfuzz(snaps, a.mut, only=only))
     ndiff = 0
     for fn in sorted(res):
         rs = res[fn]

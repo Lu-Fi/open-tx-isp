@@ -34,6 +34,12 @@ marked otherwise. Release tags `vYYYY.MM.DD[-rcN]` are set on the `aperto` branc
 - Vendor entry points write into their own `tparamsP` copy (CCM byte 0x75b, CSCCR byte 14 and ranges, defog bytes 4 / 0xbe / 0xc0 and weights, LSC 0x58 / 0x59). The driver now points `tparamsP` at private section copies, so the IQ bin buffer libimp handed in stays unchanged (group 6 cleared CCM byte 0x75b in it; no reader in the vendor module or ours, fixed anyway).
 - Proof: QEMU -M ingenic-t33 day + night vs a fresh vendor run: lists 6 / 12 / 22 equal day and night (night: list 12 word 6 and list 22 UV slot switch as the vendor), the other differences as group 6 (CT / EV timing, known items); rmmod / insmod ok, 0 oops; oracle block swmid passes; `tx-isp-t32.ko` code identical; make check passes.
 
+## 2026-11-15: T10/T20 firmware de-lift: 26 more Apical firmware functions on named struct fields, vdiff mutation fuzz (openimp #539; host + T10 cam, planned)
+
+- 38 FSM / API functions (cmos_*, ae_*, awb_*, color_matrix_*, iridix, flash_*, *_mode, *_strength, isp_system_state, apical_fw_init ...) rewritten on `struct t20_isp_ctx` / per-FSM fields, machine code identical (T10 and T20 firmware objects: 443 of 443 functions SAME); 26 of them now pass the readability counters, 12 remain machine-like.
+- New `tests/t20_fw/vdiff` `--mut N`: mutation fuzz of recorded vendor calls (words the vendor function reads in firmware state, calibration and ISP registers replaced by boundary / random values, replayed old-vs-vendor). Run before each rewrite: the functions rewritten here were fuzz-clean against the vendor (0 of 3000).
+- Proof: vdiff 0 (378 functions), oracle identical, mutant caught, tests check 0 failures, T10 cam .31 runtime swap PASS (495 frames, 0 oops/rejects).
+
 ## 2026-11-15: T10/T20 firmware de-lift: crop / down-scaler FSM as readable C, scaler ratio and window clamp like the vendor (openimp #539; host + T10 cam, planned)
 
 - `driver/t20/tx_isp_t20_fsm.h`: `struct t20_fsm_crop` now describes the whole FSM (full-resolution crop window, crop window + scaler of DS1 and DS2, sizes leaving each pipe) instead of the bare header.

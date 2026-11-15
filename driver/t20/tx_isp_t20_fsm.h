@@ -127,7 +127,9 @@ struct t20_fsm_sensor {
 	uint8_t pad_d0[4];
 	int32_t field_d4;
 	uint8_t field_d8;
-	uint8_t pad_d9[5];
+	uint8_t pad_d9;
+	uint16_t field_da;		/* awb_normalise: 0x1000 - value */
+	uint8_t pad_dc[2];
 	uint8_t calibrate_count_de;
 	uint8_t pad_df;
 	uint32_t field_e0;
@@ -137,7 +139,7 @@ struct t20_fsm_sensor {
 	int32_t black_again_reg;	/* 0xe8: analog gain register value */
 	int32_t black_again_log2;	/* 0xec: analog gain, log2 Q4 */
 	uint8_t field_f0;
-	uint8_t pad_f1;
+	uint8_t field_f1;		/* apical_fw_init writes 0x1e */
 	uint8_t field_f2;
 };
 
@@ -189,7 +191,7 @@ struct t20_fsm_cmos {
 	uint16_t antiflicker_freq;		/* 0x1b4: Hz << 8, 0 = off */
 	uint8_t pad_1b6[6];
 	uint32_t field_1bc;
-	uint8_t pad_1c0[4];
+	uint32_t field_1c0;
 	uint16_t field_1c4;
 	uint16_t field_1c6;
 	uint16_t field_1c8;
@@ -198,7 +200,8 @@ struct t20_fsm_cmos {
 	int32_t sensor_dgain_log2;	/* 0x1d0 */
 	int32_t isp_dgain_log2;		/* 0x1d4 */
 	uint32_t field_1d8;
-	uint8_t pad_1dc[8];
+	uint32_t field_1dc;
+	uint8_t pad_1e0[4];
 	uint32_t field_1e4;
 };
 
@@ -247,15 +250,24 @@ struct t20_fsm_awb {
 	uint32_t field_40;
 	uint8_t pad_44[1820];
 	int32_t wb_log2[4];		/* 0x760: output gains, log2 */
-	uint16_t field_770;
-	uint16_t field_772;
-	uint16_t field_774;
-	uint16_t field_776;
-	uint32_t field_778;
+	union {
+		struct {
+			uint16_t field_770;
+			uint16_t field_772;
+			uint16_t field_774;
+			uint16_t field_776;
+		};
+		uint16_t static_gain[4];	/* 0x770: static WB gains */
+	};
+	union {
+		uint32_t field_778;
+		int32_t color_temp;	/* 0x778: colour temperature, K */
+	};
 	uint8_t field_77c;		/* last reported light source */
 	uint8_t light_source_cand;	/* 0x77d: candidate light source */
 	uint8_t field_77e;		/* hold counter */
-	uint8_t pad_77f[5];
+	uint8_t pad_77f;
+	int32_t api_mode;		/* 0x780: last AWB_MODE API value */
 	uint32_t field_784;
 	uint32_t field_788;
 	uint16_t field_78c;
@@ -269,17 +281,80 @@ struct t20_fsm_awb {
 
 struct t20_fsm_color_matrix {
 	struct t20_fsm_hdr hdr;
-	uint8_t pad_0c[0x50];
+	uint8_t pad_0c[5];
+	uint8_t field_11;
+	uint8_t saturation;		/* 0x12: 0x80 at init */
+	uint8_t pad_13[0x13];
+	uint16_t out_matrix[9];		/* 0x26 */
+	int16_t active_matrix[9];	/* 0x38: CCM in use */
+	int16_t sat_matrix[9];		/* 0x4a: saturation matrix */
 	uint8_t field_5c;
 	uint8_t field_5d;
 	uint8_t field_5e;
 	uint8_t field_5f;
 	uint8_t field_60;
-	uint8_t field_61;
-	uint8_t pad_62[0x4c];
+	uint8_t field_61;		/* CCM transition countdown */
+	int16_t ccm_mode1[9];		/* 0x62 */
+	int16_t ccm_mode2[9];		/* 0x74 */
+	int16_t ccm_mode3[9];		/* 0x86 */
+	int16_t ccm_identity[9];	/* 0x98 */
+	union {
+		uint16_t cm_blend;	/* 0xaa: written to the bytes of 0x398 */
+		uint8_t cm_blend_lo;
+	};
+	uint8_t field_ac;
+	uint8_t cm_stage;		/* 0xad */
 	uint8_t field_ae;		/* manual matrix enable */
 	uint8_t pad_af;
 	uint16_t manual_matrix[9];	/* 0xb0 */
+	uint8_t pad_c2[2];
+	/* 0xc4..0xe0: colour temperature thresholds of color_matrix_update */
+	int32_t cm_mode0_below;		/* 0xc4 */
+	int32_t cm_mode1_from;		/* 0xc8 */
+	int32_t cm_mode1_to;		/* 0xcc */
+	int32_t cm_mode2_above;		/* 0xd0 */
+	int32_t cm_blend01_from;	/* 0xd4 */
+	int32_t cm_blend01_to;		/* 0xd8 */
+	int32_t cm_blend12_from;	/* 0xdc */
+	int32_t cm_blend12_to;		/* 0xe0 */
+};
+
+/* Exposure control tuning entry, calibration table 0x92 (per WDR mode). */
+struct t20_exposure_tuning {
+	uint32_t word_00;
+	uint32_t word_04;
+	uint32_t word_08;
+	uint32_t hist_ratio_scale;	/* 0x0c */
+	uint32_t ratio_damping;		/* 0x10 */
+	int32_t target_jump;		/* 0x14 */
+	int32_t antiflicker_step;	/* 0x18 */
+};
+
+/* AWB preset gain pair, calibration entry 0xff indexed by get_awb_idx. */
+struct t20_awb_preset_gain {
+	uint16_t red;
+	uint16_t blue;
+};
+
+/* Apical API command values handled by the *_mode command functions. */
+enum t20_api_value {
+	T20_API_OFF = 0x03,
+	T20_API_AE_AUTO = 0x25,
+	T20_API_AE_FULL_MANUAL = 0x26,
+	T20_API_AE_MANUAL_GAIN = 0x27,
+	T20_API_AE_MANUAL_EXPOSURE_TIME = 0x28,
+	T20_API_ANTIFOG_OFF = 0x2d,
+	T20_API_ANTIFOG_ON = 0x2e,
+	T20_API_AWB_AUTO = 0x32,
+	T20_API_AWB_MANUAL = 0x33,
+	T20_API_AWB_PRESET_FIRST = 0x34,
+	T20_API_AWB_PRESET_LAST = 0x3a,
+	T20_API_IRIDIX_MANUAL = 0x3b,
+	T20_API_IRIDIX_3C = 0x3c,
+	T20_API_IRIDIX_3D = 0x3d,
+	T20_API_IRIDIX_3E = 0x3e,
+	T20_API_IRIDIX_3F = 0x3f,
+	T20_API_IRIDIX_40 = 0x40,
 };
 
 struct t20_fsm_iridix {
@@ -288,7 +363,10 @@ struct t20_fsm_iridix {
 	uint16_t field_10;
 	uint8_t pad_12[2];
 	uint32_t field_14;
-	uint32_t field_18;
+	union {
+		uint32_t field_18;
+		int32_t api_mode;	/* 0x18: last IRIDIX API value */
+	};
 };
 
 struct t20_fsm_sharpening {
@@ -525,7 +603,8 @@ struct t20_fw_outer {
 	uint32_t irq_locked;		/* 0x04: caller already holds the IRQ lock */
 	uint32_t word_08;
 	void *event_sem;		/* 0x0c */
-	uint8_t pad_10[2];
+	uint8_t sw_state;		/* 0x10: software run/pause state */
+	uint8_t pad_11;
 	uint8_t hflip;			/* 0x12 */
 	uint8_t pad_13;
 	uint8_t vflip;			/* 0x14 */
@@ -585,6 +664,20 @@ T20_CTX_AT(awb.field_40, 0x788);
 T20_CTX_AT(awb.light_source_cand, 0xec5);
 T20_CTX_AT(awb.field_798, 0xee0);
 T20_CTX_AT(dis, 0x152c);
+T20_CTX_AT(sensor.field_da, 0xe6);
+T20_CTX_AT(sensor.field_f1, 0xfd);
+T20_CTX_AT(cmos.field_10, 0x110);
+T20_CTX_AT(awb.field_12, 0x75a);
+T20_CTX_AT(awb.static_gain, 0xeb8);
+T20_CTX_AT(awb.api_mode, 0xec8);
+T20_CTX_AT(awb.field_784, 0xecc);
+T20_CTX_AT(color_matrix.saturation, 0xefa);
+T20_CTX_AT(color_matrix.out_matrix, 0xf0e);
+T20_CTX_AT(color_matrix.cm_blend, 0xf92);
+T20_CTX_AT(color_matrix.cm_mode0_below, 0xfac);
+T20_CTX_AT(color_matrix.cm_blend12_to, 0xfc8);
+T20_CTX_AT(iridix.field_18, 0xfec);
+T20_CTX_AT(general.field_3e, 0x1526);
 T20_CTX_AT(matrix_yuv, 0x2d74);
 T20_CTX_AT(event_queue, 0x2ea4);
 T20_CTX_AT(event_queue_data, 0x2eb4);

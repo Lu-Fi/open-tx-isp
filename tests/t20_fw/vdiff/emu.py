@@ -352,6 +352,7 @@ class Machine:
         uc.hook_add(UC_HOOK_INTR, self._hook_intr)
         self.fault = None
         self.entry_hooks = {}
+        self.read_trace = None
 
     # ---------------------------------------------------------------- memory
     def r32(self, a):
@@ -430,6 +431,8 @@ class Machine:
         if n.startswith('system_isp_read_'):
             w = int(n[16:]) // 8
             v = int.from_bytes(env.regs[a0:a0 + w], 'little') if a0 + w <= len(env.regs) else 0
+            if self.read_trace is not None:
+                self.read_trace.append((a0, w))
             if a0 <= 0x134 < a0 + w:
                 # frame stitch buffer status: busy bits 0..2 read as idle
                 # (apical_wdr_fs_isp_setup() polls them after the reset)
