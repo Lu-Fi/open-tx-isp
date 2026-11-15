@@ -2651,7 +2651,7 @@ static void t33_sw_commit_w(unsigned int id, unsigned int n)
  * section, word 0x18: last CT), tparamsP is set per call such that tparamsP + vendor offset = our section.  The
  * vendor-named callees are the driver's builders: tisp_af_par_init = the section copy, all_reg_write = t33_af_init
  * into list 31; tisp_clm_ct_interp = t33_clm_seg at the CT, calc_para_refresh + t33_write_reg = t33_clm_init
- * into list 20; tisp_top_reg_write = the refresh state above (list 33 built by t33_sw_top).
+ * into list 19; tisp_top_reg_write = the refresh state above (list 33 built by t33_sw_top).
  */
 #define T33_TP_OFF_AF	0x9fecU
 #define T33_TP_OFF_CLM	0x903cU
