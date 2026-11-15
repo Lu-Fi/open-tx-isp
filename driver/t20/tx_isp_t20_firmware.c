@@ -1327,7 +1327,34 @@ struct matrix_yuv_irq_ctx {
 };
 static inline uint32_t apical_byte_swap16(uint32_t x)
 {
-	return ((x & 0xffff) << 8) | ((x >> 8) & 0xff);
+	/* vendor inline form: andi 0xffff, swap, andi 0xffff */
+	x &= 0xffff;
+	return ((x << 8) | (x >> 8)) & 0xffff;
+}
+
+/* Bus address mapping shared by every vendor apical_sbus_{read,write}_u*
+ * (0x2902c..0x29a28): 0x20 clear -> 16-bit swap if 0x410 both set;
+ * 0x20|0x400 -> swap both halves (0x800 selects which half goes high);
+ * 0x20 only -> half-word rotate if 0x200. All shifts logical. */
+static inline uint32_t apical_sbus_map_addr(uint32_t flags, uint32_t addr)
+{
+	uint32_t lo_sw, hi_sw;
+
+	if (!(flags & 0x20)) {
+		if ((flags & 0x410) == 0x410)
+			addr = apical_byte_swap16(addr);
+		return addr;
+	}
+	if (!(flags & 0x400)) {
+		if (flags & 0x200)
+			addr = (addr << 16) | (addr >> 16);
+		return addr;
+	}
+	lo_sw = apical_byte_swap16(addr);
+	hi_sw = apical_byte_swap16(addr >> 16);
+	if (flags & 0x800)
+		return (lo_sw << 16) | hi_sw;
+	return (hi_sw << 16) | lo_sw;
 }
 typedef int32_t (*sbus_write_fn)(int32_t *dev, uint32_t addr, uint32_t val, uint32_t size);
 struct apical_sbus_dev {
@@ -2325,8 +2352,8 @@ int32_t validate_motion_vectors(int32_t arg1, void *arg2, int32_t arg3, int32_t 
 int32_t get_exp(uint32_t a0, uintptr_t a1);
 int32_t get_gmv_gauss_init(void **arg1, int32_t arg2);
 static int32_t get_gmv_gauss_method_fast_v1(void *arg1, int32_t *arg2, int32_t arg3, int32_t arg4, int32_t *arg5);
-int32_t get_gmv_gauss_method_fast_v2(void *arg1, int32_t arg2, int32_t *arg3);
-static int32_t get_gmv_gauss_method_fast_v3(void *arg1, int32_t arg2, int32_t *arg3);
+int32_t get_gmv_gauss_method_fast_v2(void *arg1, int32_t *arg2, int32_t arg3, int32_t arg4, int32_t *arg5);
+static int32_t get_gmv_gauss_method_fast_v3(void *arg1, int32_t arg2, int32_t arg3, int32_t arg4, int32_t *arg5);
 int32_t iir_filter_reset(void *arg1);
 int32_t iir_filter_v2(int32_t arg1, int32_t arg2, int32_t arg3, int32_t *arg4);
 static int32_t iir_filter_v4(int32_t arg1, int32_t arg2, int32_t arg3, int32_t *arg4);
@@ -15320,10 +15347,12 @@ uint32_t apical_sbus_read_u16(uint32_t *dev, uint32_t addr)
     uint32_t result = ((uint32_t (*)(uint32_t *, uint32_t, uint32_t))
                        (dev[4]))(dev, val, 2);
 
+    /* vendor 0x291d0: andi 0xffff before the optional byte swap */
+    result &= 0xffff;
     if (*dev & 0x100)
         return ((result << 8) | (result >> 8)) & 0xffff;
 
-    return result & 0xffff;
+    return result;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000029a20 origin=model_output original=apical_sbus_read_u32 */
@@ -15492,175 +15521,94 @@ static int32_t apical_sbus_read_data_u32(uintptr_t sbus, uint32_t addr, uintptr_
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000029e74 origin=model_output original=apical_sbus_write_u8 */
 int32_t apical_sbus_write_u8(int32_t *bus, int32_t addr, char value)
 {
-    int32_t result = *bus;
+	/* Vendor 0x296a4: every enabled path tail-calls the bus write
+	 * callback (bus + 0x14) with (bus, mapped address, sample, 1). */
+	uint32_t flags = (uint32_t)*bus;
+	int32_t write_fn = bus[5];
+	uint32_t mapped;
 
-    if ((result & 1) == 0)
-        return result;
+	if (!(flags & 1))
+		return (int32_t)flags;
 
-    value &= 0xff;
+	mapped = apical_sbus_map_addr(flags, (uint32_t)addr);
+	if (mapped == 0x2108 || write_fn == 0)
+		printk(KERN_INFO "T20FW sbus_write8 bus=%p addr=0x%x val=0x%x fn=%p\n",
+		       bus, mapped, (uint32_t)(uint8_t)value, (void *)write_fn);
 
-    if ((result & 0x20) == 0) {
-        if ((result & 0x410) != 0x410)
-            goto done;
-        addr &= 0xffff;
-        addr = ((addr << 8) | (addr >> 8)) & 0xffff;
-        goto done;
-    }
-
-    {
-        int32_t write_fn = *(int32_t *)((char *)bus + 0x14);
-
-		if ((uint32_t)addr == 0x2108 || write_fn == 0)
-			printk(KERN_INFO "T20FW sbus_write8 bus=%p addr=0x%x val=0x%x fn=%p\n",
-			       bus, addr, (uint32_t)(uint8_t)value, (void *)write_fn);
-
-        if ((result & 0x400) != 0) {
-            int32_t lo = addr & 0xffff;
-            int32_t hi = addr >> 16;
-            int32_t lo_sw = ((lo << 8) | (lo >> 8)) & 0xffff;
-            int32_t hi_sw = ((hi << 8) | (hi >> 8)) & 0xffff;
-
-            if ((result & 0x800) != 0) {
-                lo_sw <<= 16;
-                hi_sw <<= 16;
-            } else {
-                hi_sw <<= 16;
-            }
-            addr = hi_sw | lo_sw;
-        } else {
-            if ((result & 0x200) != 0) {
-                int32_t hi = addr >> 16;
-                addr = (addr << 16) | hi;
-            }
-        }
-
-		/* OEM 0x29f18 tail-calls write_sample with the standard sbus ABI:
-		 * a0=bus, a1=address, a2=sample, a3=sample size. */
-		((sbus_write_fn)write_fn)(bus, (uint32_t)addr,
-			(uint32_t)(uint8_t)value, 1);
-	}
-
-done:
-    return result;
+	return ((sbus_write_fn)write_fn)(bus, mapped, (uint32_t)(uint8_t)value, 1);
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000029f28 origin=model_output original=apical_sbus_write_u16 */
 int32_t apical_sbus_write_u16(int32_t *bus, uint32_t addr_in, int16_t value)
 {
-	int32_t result = *bus;
+	/* Vendor 0x29758. */
+	uint32_t flags = (uint32_t)*bus;
 	uint32_t val = (uint32_t)(uint16_t)value;
-	uint32_t addr = addr_in;
 
 	if (addr_in == 0x2108 || bus[5] == 0)
 		printk(KERN_INFO "T20FW sbus_write16 bus=%p addr=0x%x val=0x%x fn=%p\n",
-		       bus, addr_in, (uint32_t)(uint16_t)value, (void *)bus[5]);
+		       bus, addr_in, val, (void *)bus[5]);
 
-	if ((result & 0x2) == 0) {
-		uint32_t hi = (val >> 8) & 0xff;
-		uint32_t lo = val & 0xff;
+	if (!(flags & 0x2)) {
+		uint32_t first = val & 0xff;
+		uint32_t second = (val >> 8) & 0xff;
 
-		if ((result & 0xc0) != 0)
-			return result;
-
-		if ((result & 0x100) == 0) {
-			uint32_t tmp = lo;
-			lo = hi;
-			hi = tmp;
+		if (flags & 0xc0)
+			return (int32_t)flags;
+		if (flags & 0x100) {
+			first = (val >> 8) & 0xff;
+			second = val & 0xff;
 		}
-
-		apical_sbus_write_u8(bus, addr, hi);
-		return apical_sbus_write_u8(bus, addr + 1, lo);
+		apical_sbus_write_u8(bus, (int32_t)addr_in, (char)first);
+		return apical_sbus_write_u8(bus, (int32_t)(addr_in + 1), (char)second);
 	}
 
-	if ((result & 0x100) != 0)
-		val = ((val << 8) | (val >> 8)) & 0xffff;
+	if (flags & 0x100)
+		val = apical_byte_swap16(val);
 
-	if ((result & 0x20) == 0) {
-		if ((result & 0x410) == 0x410) {
-			uint32_t *addr_lo = addr & 0xffff;
-			addr = (((uintptr_t)addr_lo << 8) | ((uintptr_t)addr_lo >> 8)) & 0xffff;
-		}
-	} else if ((result & 0x400) != 0) {
-		uint32_t lo = addr & 0xffff;
-		uint32_t hi = addr >> 16;
-		uint32_t lo_sw = ((lo << 8) | (lo >> 8)) & 0xffff;
-		uint32_t hi_sw = ((hi << 8) | (hi >> 8)) & 0xffff;
-
-		if ((result & 0x800) == 0)
-			hi_sw <<= 16;
-		else
-			lo_sw <<= 16;
-
-		addr = hi_sw | lo_sw;
-	} else if ((result & 0x200) != 0) {
-		addr = (addr >> 16) | (addr << 16);
-	}
-
-	if ((result & 0x410) == 0x410) {
-		uint32_t *addr_lo = addr & 0xffff;
-		addr = (((uintptr_t)addr_lo << 8) | ((uintptr_t)addr_lo >> 8)) & 0xffff;
-	}
-
-	return ((sbus_write_fn)bus[5])(bus, addr, val, 2);
+	return ((sbus_write_fn)bus[5])(bus, apical_sbus_map_addr(flags, addr_in), val, 2);
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000002a0b0 origin=model_output original=apical_sbus_write_u32 */
 int32_t apical_sbus_write_u32(struct apical_sbus_dev *dev, uint32_t reg, uint32_t val)
 {
-    uint32_t flags = dev->flags;
-    uint32_t r;
+	/* Vendor 0x298e0. */
+	uint32_t flags = dev->flags;
 
 	if (reg == 0x2108 || dev->write_fn == 0)
 		printk(KERN_INFO "T20FW sbus_write32 bus=%p reg=0x%x val=0x%x fn=%p\n",
 		       dev, reg, val, (void *)dev->write_fn);
 
-    if ((flags & 0x4) == 0) {
-        uint32_t hi = val >> 16;
-        uint32_t lo = (uint16_t)val;
-        uint32_t off;
+	if ((flags & 0x4) == 0) {
+		uint32_t first = val & 0xffff;
+		uint32_t second = val >> 16;
+		uint32_t off;
 
-        if (flags & 0x80)
-            return (int32_t)flags;
+		if (flags & 0x80)
+			return (int32_t)flags;
+		if (flags & 0x200) {
+			first = val >> 16;
+			second = val & 0xffff;
+		}
+		apical_sbus_write_u16((int32_t *)dev, reg, (int16_t)first);
+		off = (dev->flags & 0x40) ? 1 : 2;
+		return apical_sbus_write_u16((int32_t *)dev, reg + off, (int16_t)second);
+	}
 
-        if (flags & 0x200) {
-            apical_sbus_write_u16(dev, reg, lo);
-            off = 1;
-        } else {
-            apical_sbus_write_u16(dev, reg, hi);
-            off = 2;
-        }
-        if ((dev->flags & 0x40) == 0)
-            off = 2;
-        return apical_sbus_write_u16(dev, reg + off, hi);
-    }
+	if (flags & 0x100) {
+		uint32_t lo_sw = apical_byte_swap16(val);
+		uint32_t hi_sw = apical_byte_swap16(val >> 16);
 
-    if ((flags & 0x100) == 0) {
-        if (flags & 0x200)
-            val = (val << 16) | (val >> 16);
-    } else {
-        val = apical_swap_bytes16(val);
-        if ((flags & 0x200) == 0)
-            val = (val & 0xffff) | ((val & 0xffff0000) << 16);
-        else
-            val = ((val & 0xffff) << 16) | (val & 0xffff0000);
-    }
+		if (flags & 0x200)
+			val = (lo_sw << 16) | hi_sw;
+		else
+			val = (hi_sw << 16) | lo_sw;
+	} else if (flags & 0x200) {
+		val = (val << 16) | (val >> 16);
+	}
 
-    if ((flags & 0x20) == 0) {
-        if ((flags & 0x410) == 0x410)
-            reg = apical_swap_bytes16_lo(reg);
-    } else if (flags & 0x400) {
-        reg = apical_swap_bytes16(reg);
-        if ((flags & 0x800) == 0)
-            reg = (reg & 0xffff) | ((reg & 0xffff0000) << 16);
-        else
-            reg = ((reg & 0xffff) << 16) | (reg & 0xffff0000);
-    } else if (flags & 0x200) {
-        reg = (reg << 16) | (reg >> 16);
-    }
-
-    r = ((uint32_t (*)(struct apical_sbus_dev *, uint32_t, uint32_t, uint32_t))dev->write_fn)(
-        dev, reg, val, 4);
-    return r;
+	return ((uint32_t (*)(struct apical_sbus_dev *, uint32_t, uint32_t, uint32_t))dev->write_fn)(
+		dev, apical_sbus_map_addr(flags, reg), val, 4);
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000002a28c origin=model_output original=apical_sbus_write_data_u8 */
@@ -19389,22 +19337,23 @@ uint32_t histogramspace_to_gamma_space(int32_t value)
 /* WHOLE_DRIVER_CANDIDATE fn_000000000002f4f8 origin=model_output original=au_read_histogram */
 int32_t au_read_histogram(int32_t *fsm)
 {
-    int32_t *base = *fsm;
-    uint32_t divisor = *(uint32_t *)((char *)base + 0x738);
-    uint32_t scale = 0x989680 / divisor;
-    uint32_t offset = *(uint32_t *)((char *)base + 0x338);
-    int32_t *src = (int32_t *)((char *)base + 0x308);
-    int32_t *bin;
+	/* Vendor 0x2ed28: cumulative histogram of the 256 AE bins at isp+0x338
+	 * scaled by 10000000 / isp[0x738]: fsm[26] = bin 0, fsm[27 + n] =
+	 * fsm[26 + n] + bin n+1 for 255 bins (byte counter 0..1020, step 4). */
+	uint32_t *isp = (uint32_t *)(uintptr_t)fsm[0];
+	uint32_t scale = 10000000u / isp[0x738 / 4];
+	uint32_t *bins = (uint32_t *)((char *)isp + 0x338);
+	uint32_t *cum = (uint32_t *)&fsm[26];
+	int32_t off;
 
-    ((void **)fsm)[0x1a] = (int32_t)(scale * offset);
+	cum[0] = scale * bins[0];
+	for (off = 0; off != 1020; off += 4) {
+		cum[1] = scale * bins[1] + cum[0];
+		bins++;
+		cum++;
+	}
 
-    for (bin = 0; (uintptr_t)bin != 0x3fc; bin += 4) {
-        int32_t val = *(int32_t *)((uintptr_t)src + (uintptr_t)bin + 0x34);
-        ((void **)fsm)[0x1b] = (int32_t)(scale * val) + fsm[0x1a];
-        fsm++;
-    }
-
-    return bin;
+	return off;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000002f558 origin=fragment_seed original=setup_parameters_to_default */
@@ -19558,7 +19507,7 @@ int32_t sharpening_update(int32_t *fsm)
 
 		idx1 = 0;
 		while (idx1 < 0x100) {
-			if ((uint32_t)fsm[idx1 * 4 + 0x1a] >= (uint32_t)thresh1 * (uint32_t)hist_val / (uint32_t)(width * 0x64))
+			if ((uint32_t)fsm[0x1a + idx1] >= (uint32_t)thresh1 * (uint32_t)hist_val / (uint32_t)(width * 0x64))
 				break;
 			idx1++;
 		}
@@ -19567,7 +19516,7 @@ int32_t sharpening_update(int32_t *fsm)
 
 		idx2 = 0;
 		while (idx2 < 0x100) {
-			if ((uint32_t)fsm[idx2 * 4 + 0x1a] >= (uint32_t)thresh3 * (uint32_t)hist_val / (uint32_t)(width * 0x64))
+			if ((uint32_t)fsm[0x1a + idx2] >= (uint32_t)thresh3 * (uint32_t)hist_val / (uint32_t)(width * 0x64))
 				break;
 			idx2++;
 		}
@@ -19576,7 +19525,7 @@ int32_t sharpening_update(int32_t *fsm)
 
 		idx3 = 0;
 		while (idx3 < 0x100) {
-			if ((uint32_t)fsm[idx3 * 4 + 0x1a] >= (uint32_t)hist_val - (uint32_t)thresh4 * (uint32_t)hist_val / (uint32_t)(height * 0x64))
+			if ((uint32_t)fsm[0x1a + idx3] >= (uint32_t)hist_val - (uint32_t)thresh4 * (uint32_t)hist_val / (uint32_t)(height * 0x64))
 				break;
 			idx3++;
 		}
@@ -19586,7 +19535,7 @@ int32_t sharpening_update(int32_t *fsm)
 		idx4 = 0;
 		flag = 0;
 		while (idx4 < 0x100) {
-			if ((uint32_t)fsm[idx4 * 4 + 0x1a] >= (uint32_t)hist_val - (uint32_t)thresh2 * (uint32_t)hist_val / (uint32_t)(height * 0x64)) {
+			if ((uint32_t)fsm[0x1a + idx4] >= (uint32_t)hist_val - (uint32_t)thresh2 * (uint32_t)hist_val / (uint32_t)(height * 0x64)) {
 				flag = (*(uint8_t *)((char *)fsm + 0x4d) < idx1) ? 1 : 0;
 				break;
 			}
@@ -19627,7 +19576,8 @@ int32_t sharpening_update(int32_t *fsm)
 		}
 
 		shift = *(uint8_t *)((char *)fsm + 0x66) - 0xa;
-		scaled_lo = (uint32_t)((int16_t)((int32_t)avg_lo >> (shift & 0x1f)));
+		/* vendor 0x2f340..0x2f3b4: srav then andi 0xffff (zero extension) */
+		scaled_lo = (uint32_t)((int32_t)avg_lo >> (shift & 0x1f)) & 0xffff;
 
 		if (val != 0xff) {
 			avg_hi = ((uint32_t)lut[gamma_hi] + (uint32_t)lut[gamma_hi + 1]) >> 1;
@@ -19635,10 +19585,10 @@ int32_t sharpening_update(int32_t *fsm)
 			avg_hi = (uint32_t)lut[gamma_hi];
 		}
 
-		scaled_hi = (uint32_t)((int16_t)((int32_t)avg_hi >> (shift & 0x1f)));
+		scaled_hi = (uint32_t)((int32_t)avg_hi >> (shift & 0x1f)) & 0xffff;
 
 		if ((int32_t)(scaled_lo << 1) >= (int32_t)scaled_hi)
-			max_val = (uint32_t)((uint16_t)(scaled_lo << 1) + 1);
+			max_val = ((scaled_lo << 1) + 1) & 0xffff;
 		else
 			max_val = scaled_hi;
 
@@ -19650,7 +19600,7 @@ int32_t sharpening_update(int32_t *fsm)
 			if (diff == 0)
 				return -1;
 			inv = (uint16_t)(0x3ff0000 / (diff << 8));
-			result = (uint16_t)((scaled_lo * 0x3ff) / diff);
+			result = (uint16_t)((int32_t)(scaled_lo * 0x3ff) / (int32_t)diff);
 		}
 
 		neg_result = -(int32_t)result;
@@ -20185,36 +20135,31 @@ int32_t dis_clip_gmv_vector(void *ctx, int32_t *gmv)
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000030acc origin=model_output original=dis_analyze */
 int32_t dis_analyze(void *ctx, void *blocks, int32_t *filtered_out, int32_t *raw_out)
 {
-	int32_t *raw_x = 0;
-	int32_t raw_y = 0;
-	int32_t filtered_x = 0;
-	int32_t filtered_y = 0;
-	int32_t ret;
+	/* Vendor 0x302fc: raw and filtered vectors are two-word stack
+	 * arrays (sp+32 / sp+24); the method and iir_filter_v2 /
+	 * dis_clip_gmv_vector write both words. Separate scalars let the
+	 * method's second word miss raw_y (y written 0 to 0x904). */
+	int32_t raw[2] = { 0, 0 };
+	int32_t filtered[2] = { 0, 0 };
 	int32_t cols, rows;
-	int32_t valid_ret, method_ret;
+	int32_t ret;
 
-	if (ctx != 0) {
-		cols = *(int32_t *)((uintptr_t)ctx + 8);
-		rows = *(int32_t *)((uintptr_t)ctx + 12);
+	if (ctx == 0)
+		return -1;
+	cols = *(int32_t *)((uintptr_t)ctx + 8);
+	rows = *(int32_t *)((uintptr_t)ctx + 12);
+	if (validate_motion_vectors(ctx, blocks, cols, rows) != 0)
+		return -1;
+	if ((*(int32_t (**)(void *, void *, int32_t, int32_t, int32_t *))
+	     ((uintptr_t)ctx + 0x24))(ctx, blocks, cols, rows, raw) != 0)
+		return -1;
 
-		valid_ret = validate_motion_vectors(ctx, blocks, cols, rows);
-		if (valid_ret == 0) {
-			method_ret = (*(int32_t (**)(void *, void *, int32_t, int32_t, int32_t *))
-			       ((uintptr_t)ctx + 0x24))(ctx, blocks, cols, rows, &raw_x);
-			if (method_ret == 0) {
-				iir_filter_v2(ctx, raw_x, raw_y, &filtered_x);
-				dis_clip_gmv_vector(ctx, &filtered_x);
-				*filtered_out = filtered_x;
-				((void **)filtered_out)[1] = filtered_y;
-				*raw_out = raw_x;
-				((void **)raw_out)[1] = raw_y;
-				ret = 0;
-				goto out;
-			}
-		}
-	}
-	ret = -1;
-out:
+	ret = iir_filter_v2((int32_t)(uintptr_t)ctx, raw[0], raw[1], filtered);
+	dis_clip_gmv_vector(ctx, filtered);
+	filtered_out[0] = filtered[0];
+	filtered_out[1] = filtered[1];
+	raw_out[0] = raw[0];
+	raw_out[1] = raw[1];
 	return ret;
 }
 
@@ -20540,67 +20485,74 @@ static int32_t get_gmv_gauss_method_fast_v1(void *dis, int32_t *entries, int32_t
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000311b0 origin=model_output original=get_gmv_gauss_method_fast_v2 */
-int32_t get_gmv_gauss_method_fast_v2(void *ctx, int32_t blocks, int32_t *gmv_out)
+int32_t get_gmv_gauss_method_fast_v2(void *ctx, int32_t *blocks, int32_t cols, int32_t rows, int32_t *gmv_out)
 {
-    int32_t *base = (int32_t *)ctx;
-    int32_t count = *(uintptr_t *)((uintptr_t)base + 2) * *(uintptr_t *)((uintptr_t)base + 3);
-    if (count >= 257)
-        count = 256;
+	/* Vendor 0x309e0: cols/rows/threshold/LUT come from the context
+	 * (words 2, 3, 64, 63), the result is the 5th argument; the cols/rows
+	 * arguments are not used. Sums and distances compare unsigned. */
+	int32_t *base = (int32_t *)ctx;
+	int32_t count = base[2] * base[3];
+	uint32_t best_sum = 0;
+	uint32_t total_sum = 0;
+	int32_t best_idx = -1;
+	int32_t i;
 
-    int32_t best_sum = 0;
-    int32_t total_sum = 0;
-    int32_t best_idx = -1;
-    int32_t *i = 0;
+	(void)cols;
+	(void)rows;
+	if (count >= 257)
+		count = 256;
 
-    while (i < count) {
-        int32_t *row = (int32_t *)((uintptr_t)blocks + (uintptr_t)i * 24);
-        int32_t x0 = row[0];
-        int32_t y0 = row[1];
-        int32_t inner_sum = 0;
-        int32_t j = 0;
+	for (i = 0; i < count; i++) {
+		int32_t *row = (int32_t *)((uintptr_t)blocks + (uintptr_t)i * 24);
+		int32_t x0 = row[0];
+		int32_t y0 = row[1];
+		uint32_t inner_sum = 0;
+		uint32_t self_dist;
+		int32_t j;
 
-        while (j < count) {
-            if (j != i) {
-                int32_t *other = (int32_t *)(blocks + j * 24);
-                int32_t dx = other[0] - x0;
-                int32_t dy = other[1] - y0;
-                int32_t dist_sq = dx * dx + dy * dy;
+		for (j = 0; j < count; j++) {
+			int32_t *other;
+			uint32_t dx, dy, dist;
 
-                if (dist_sq < *(uintptr_t *)((uintptr_t)base + 0x100 / 4)) {
-                    inner_sum += *(int32_t *)(*(uintptr_t *)((uintptr_t)base + 0xfc / 4) + dist_sq * 4);
-                }
-            }
-            j++;
-        }
+			if (j == i)
+				continue;
+			other = (int32_t *)((uintptr_t)blocks + (uintptr_t)j * 24);
+			dy = (uint32_t)other[1] - (uint32_t)y0;
+			dx = (uint32_t)other[0] - (uint32_t)x0;
+			dist = dy * dy + dx * dx;
+			if (dist < (uint32_t)base[64])
+				inner_sum += ((uint32_t *)(uintptr_t)base[63])[dist];
+		}
 
-        if (best_sum < inner_sum || (best_sum == inner_sum && best_idx < 0)) {
-            best_sum = inner_sum;
-            best_idx = i;
-        }
+		if (best_sum < inner_sum || best_idx < 0) {
+			best_sum = inner_sum;
+			best_idx = i;
+		}
 
-        int32_t self_dist = x0 * x0 + y0 * y0;
-        i++;
+		self_dist = (uint32_t)y0 * (uint32_t)y0 + (uint32_t)x0 * (uint32_t)x0;
+		if (self_dist < (uint32_t)base[64])
+			total_sum += ((uint32_t *)(uintptr_t)base[63])[self_dist];
+	}
 
-        if (self_dist < *(uintptr_t *)((uintptr_t)base + 0x100 / 4)) {
-            total_sum += *(int32_t *)(*(uintptr_t *)((uintptr_t)base + 0xfc / 4) + self_dist * 4);
-        }
-    }
+	if (best_sum < (total_sum * 3) >> 1) {
+		gmv_out[1] = 0;
+		gmv_out[0] = 0;
+	} else {
+		int32_t *best_row = (int32_t *)((uintptr_t)blocks + (uintptr_t)best_idx * 24);
 
-    if (best_sum >= (total_sum * 3) / 2) {
-        int32_t *best_row = (int32_t *)(blocks + best_idx * 24);
-        ((void **)gmv_out)[0] = best_row[0];
-        ((void **)gmv_out)[1] = best_row[1];
-    } else {
-        ((void **)gmv_out)[0] = 0;
-        ((void **)gmv_out)[1] = 0;
-    }
+		gmv_out[0] = best_row[0];
+		gmv_out[1] = best_row[1];
+	}
 
-    return 0;
+	return 0;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000003131c origin=model_output original=get_gmv_gauss_method_fast_v3 */
-static int32_t get_gmv_gauss_method_fast_v3(void *dis, int32_t entries, int32_t *gmv)
+static int32_t get_gmv_gauss_method_fast_v3(void *dis, int32_t entries, int32_t cols, int32_t rows, int32_t *gmv)
 {
+	/* Vendor 0x30b4c: result pointer is the 5th argument (lw 80(sp)). */
+	(void)cols;
+	(void)rows;
 	int32_t *base = (int32_t *)dis;
 	int32_t count = base[2] * base[3];
 

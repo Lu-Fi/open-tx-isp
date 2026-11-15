@@ -340,10 +340,10 @@ def fuzz_dis(m, n=3000, seed=6):
             else:
                 a = bytearray(r.getrandbits(8) for _ in range(SZ['api']))
                 rid = r.choice((0x5d, 0x5e, 0x5b, 0x5d, 0x5e, 0x5b, r.getrandbits(16)))
-                struct.pack_into('<IH', a, 0x1500, r.getrandbits(32), r.choice((8, 16, 8, 16, 32, r.getrandbits(16)) if os.environ.get('FUZZ_SBUS_RAW') else (8, 16, 8, 16)))   # 32 bit: sbus_write_u32 splits the word in another order (#584)
+                struct.pack_into('<IH', a, 0x1500, r.getrandbits(32), r.choice((8, 16, 8, 16) if os.environ.get('FUZZ_SBUS_REAL') else (8, 16, 8, 16, 32, r.getrandbits(16))))   # all sizes since #584 (FUZZ_SBUS_REAL=1: 8/16 only)
                 struct.pack_into('<H', a, 0x1506, rid)
                 for off in (0x150c, 0x1c, 0x34):
-                    if os.environ.get('FUZZ_SBUS_RAW'):        # all bus flag bits (finds #584)
+                    if not os.environ.get('FUZZ_SBUS_REAL'):   # all bus flag bits (default since #584 was fixed)
                         mask = sum(bt for bt in SBUS_BITS if r.random() < 0.4)
                     else:       # flag combinations of the real sensor buses (enabled, callback path, 0x8000 address doubling)
                         mask = int(os.environ['FUZZ_MASK'], 0) if os.environ.get('FUZZ_MASK') else 0x21 | (0x2 if r.random() < 0.3 else 0)
@@ -428,9 +428,9 @@ def _fuzz_sharp_one(m, names, hist_stub, n, seed):
     out = {}
     hid = None
     if hist_stub:
-        # ours loops without end (#583): run the VENDOR machine code of
-        # au_read_histogram (position independent, 22 instructions) in place
-        # of our function body for this fuzz only
+        # HISTSTUB=1: run the VENDOR machine code of au_read_histogram
+        # (position independent, 22 instructions) in place of ours, to
+        # isolate sharpening_update (was needed until #583 was fixed)
         va, vs, _ = m.V.sym['au_read_histogram']
         oa, osz, _ = m.O.sym['au_read_histogram']
         assert vs <= osz, (vs, osz)
@@ -460,8 +460,6 @@ def _fuzz_sharp_one(m, names, hist_stub, n, seed):
                     env.log = []
                     v0 = m.call(img.sym[name][0], args, sp=SP0)[0]
                     cm = bytearray(m.uc.mem_read(fw, len(mem)))
-                    if not os.environ.get('FUZZ_SHARP_RAW'):
-                        cm[f + 0x64:f + 0x66] = b'\0\0'     # field_64 (inv): ours sign-extends scaled_lo/hi (#586)
                     res.append((v0, env.log, bytes(cm), bytes(m.uc.mem_read(stab, ssz)),
                                 bytes(env.regs[0:0x800]), m.fault))
                 if res[0][:5] != res[1][:5] or bool(res[0][5]) != bool(res[1][5]):
@@ -484,12 +482,11 @@ def _fuzz_sharp_one(m, names, hist_stub, n, seed):
 
 
 def fuzz_sharp(m, n=3000, seed=7):
-    """sharpening_update with the histogram reader stubbed in ours"""
-    out = _fuzz_sharp_one(m, ('sharpening_update',), not os.environ.get('NOPATCH'), n, seed)
-    return {'sharpening_update_vhist': v for v in out.values()}
+    """sharpening_update incl. its histogram reader (HISTSTUB=1: vendor au_read_histogram on both sides)"""
+    return _fuzz_sharp_one(m, ('sharpening_update',), bool(os.environ.get('HISTSTUB')), n, seed)
 
 
 def fuzz_hist(m, n=300, seed=8):
-    """au_read_histogram unmodified, both sides (mode 0x2e only): shows the stride/endless-loop difference"""
+    """au_read_histogram unmodified, both sides (#583 stride/endless loop)"""
     out = _fuzz_sharp_one(m, ('au_read_histogram',), False, n, seed)
     return out

@@ -194,6 +194,15 @@ class Diff:
                     return '&%s+%x' % (emu.ALIASES.get(s[0], s[0]), s[1])
         return w
 
+    def vonly_static(self, m):
+        """vendor address ranges of the statics of STATIC_LAYOUT functions (iir_filter_v2:
+        sp/fsp/csp in .sbss; ours keeps the same state in iir_filter_v2_state, no
+        same-name partner): their callers' replays must not compare them"""
+        if getattr(m, '_vonly', None) is None:
+            m._vonly = [(a, a + n) for k, (a, n, t) in m.V.sym.items()
+                        if t == 'O' and k in VONLY_STATICS]
+        return m._vonly
+
     def restore_common(self, m, s, side):
         put(m, m.V.writable, s.vw)
         if s.heap:
@@ -217,6 +226,12 @@ class Diff:
             for n, va, oa, size in m.common:
                 b = bytes(m.uc.mem_read(va, size))
                 m.uc.mem_write(oa, self.xlate_bytes(m, b) if size >= 4 else b)
+            for on, parts in SPLIT_STATICS.items():      # vendor statics kept in one array of ours
+                if on in m.O.sym:
+                    for vn, word in parts:
+                        if vn in m.V.sym:
+                            va, vs, _ = m.V.sym[vn]
+                            m.uc.mem_write(m.O.sym[on][0] + 4 * word, bytes(m.uc.mem_read(va, vs)))
             for n in ('t20_simple_ae', 't20_simple_awb', 't20_simple_nr', 't20_trace_events'):
                 if n in m.O.sym:
                     m.w32(m.O.sym[n][0], 0)
@@ -285,7 +300,10 @@ class Diff:
             vx = struct.unpack_from('<%dI' % n, px)
             vy = struct.unpack_from('<%dI' % n, py)
             offs = []
+            kb = int(key[6:], 16) if key.startswith('vdata@') else None
             for i in range(n):
+                if kb is not None and any(lo <= kb + 4 * i < hi for lo, hi in self.vonly_static(m)):
+                    continue        # vendor-only static of a STATIC_LAYOUT function (ours keeps it elsewhere)
                 if wx[i] != wy[i] and (wx[i] != vx[i] or wy[i] != vy[i]):
                     nx, ny = self.norm(m, wx[i]), self.norm(m, wy[i])
                     if nx != ny:
@@ -493,10 +511,12 @@ def fmt(v):
 
 
 # findings the DIS-on scenario reaches (open issues): reported, not counted
-KNOWN_DIS = {'get_gmv_gauss_method_fast_v2': 582, 'dis_analyze': 582, 'dis_analyze_stats': 582,
-             'apical_fw_process': 582, 'apical_isp_process_events': 582}
+KNOWN_DIS = {}     # #582 fixed (was: gauss v2, dis_analyze, dis_analyze_stats, apical_fw_process, apical_isp_process_events)
 # replay of a function whose state lives in partner-less statics (vendor sbss vs our array): not a finding
-STATIC_LAYOUT = ('iir_filter_v2',)
+STATIC_LAYOUT = ()     # was iir_filter_v2: its statics are now paired (SPLIT_STATICS)
+VONLY_STATICS = ('sp.9007', 'fsp.9008', 'csp.9009')     # vendor .sbss statics of iir_filter_v2
+# ours keeps them in one array: replays copy the vendor values in (word index in our array)
+SPLIT_STATICS = {'iir_filter_v2_state': (('fsp.9008', 0), ('csp.9009', 2), ('sp.9007', 5))}
 
 
 def main():
@@ -538,7 +558,7 @@ def main():
         api.update(fuzz.fuzz_crop(m, a.fuzz))
         api.update(fuzz.fuzz_dis(m, a.fuzz))
         on = lambda n: not a.only or n in a.only.split(',')
-        if on('sharpening_update_vhist'):
+        if on('sharpening_update'):
             api.update(fuzz.fuzz_sharp(m, max(100, a.fuzz // 10)))
         if on('au_read_histogram'):
             api.update(fuzz.fuzz_hist(m, max(20, a.fuzz // 20)))
@@ -555,10 +575,10 @@ def main():
     steps = scenario.scenario(not a.short, a.dis)
     dis0 = next((i for i, st in enumerate(steps) if st[0] == 'mark'), len(steps))
     snaps = D.record(steps, only)
-    if a.dis:
+    if a.dis and KNOWN_DIS:
         known = [x for x in D.sys_log if x[0] >= dis0]
         D.sys_log = [x for x in D.sys_log if x[0] < dis0]
-        print('SYS steps diverging in the DIS scenario (KNOWN #582): %d' % len(known))
+        print('SYS steps diverging in the DIS scenario (KNOWN %s): %d' % (sorted(set(KNOWN_DIS.values())), len(known)))
     for i, st, lv, lo in D.sys_log[:(400 if a.v else 8)]:
         k = 0
         while k < min(len(lv), len(lo)) and lv[k] == lo[k]:
