@@ -305,22 +305,22 @@ static inline int t32_awb_lg_gate(struct t32_awb *a, struct t32_awb_lg *l)
 		u32 dr = (u16)(st->avg[4] > st->avg[0] ? st->avg[4] - st->avg[0] : st->avg[0] - st->avg[4]);
 		u32 db = (u16)(st->avg[5] > st->avg[1] ? st->avg[5] - st->avg[1] : st->avg[1] - st->avg[5]);
 
-		if (st->lg_calm == 1 && (u16)(dr + db) < l->still && !(t32_awb_u32at(st->raw, 107596) & 0x00ff00ffU))
+		if (st->lg_calm == 1 && (u16)(dr + db) < l->still && !(t32_awb_u32at(st->raw, T32_AWB_SO(107596)) & 0x00ff00ffU))
 			return 1;
 	}
 	st->avg[4] = st->avg[0];
 	st->avg[5] = st->avg[1];
-	memset(st->raw + 79228, 0, 784);
-	memset(st->raw + 80012, 0, 784);
-	memset(st->raw + 80796, 0, 784);
-	memset(st->raw + 81188, 0, 144);
-	memset(st->raw + 81332, 0, 720);
-	memset(st->raw + 82052, 0, 960);
-	memset(st->raw + 87108, 0, 4096);
-	memset(st->raw + 91204, 0, 4096);
-	memset(st->raw + 95300, 0, 4096);
-	memset(st->raw + 99396, 0, 4096);
-	memset(st->raw + 103492, 0, 4096);
+	memset(st->raw + T32_AWB_SO(79228), 0, 784);
+	memset(st->raw + T32_AWB_SO(80012), 0, 784);
+	memset(st->raw + T32_AWB_SO(80796), 0, 784);
+	memset(st->raw + T32_AWB_SO(81188), 0, 144);
+	memset(st->raw + T32_AWB_SO(81332), 0, 720);
+	memset(st->raw + T32_AWB_SO(82052), 0, 960);
+	memset(st->raw + T32_AWB_SO(87108), 0, 4096);
+	memset(st->raw + T32_AWB_SO(91204), 0, 4096);
+	memset(st->raw + T32_AWB_SO(95300), 0, 4096);
+	memset(st->raw + T32_AWB_SO(99396), 0, 4096);
+	memset(st->raw + T32_AWB_SO(103492), 0, 4096);
 	return 0;
 }
 
@@ -398,7 +398,7 @@ static inline int t32_awb_lg_apply(struct t32_awb *a, struct t32_awb_lg *l)
 		st->lg_calm = 0;
 		win = l->win = 1;
 	} else if (st->ring_r[13] == st->ring_r[14] && st->ring_b[13] == st->ring_b[14] &&
-		   !(t32_awb_u32at(st->raw, 107596) & 0x00ff00ffU) && par->lg_gr == par->wb_r && par->lg_gb == par->wb_b) {
+		   !(t32_awb_u32at(st->raw, T32_AWB_SO(107596)) & 0x00ff00ffU) && par->lg_gr == par->wb_r && par->lg_gb == par->wb_b) {
 		st->lg_calm = 1;
 		return 1;
 	}

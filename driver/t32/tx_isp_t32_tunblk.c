@@ -59,6 +59,10 @@
 #undef ioremap
 #undef iounmap
 #include "tx_isp_t32_tuning.h"
+#ifdef TX_ISP_T33
+#define T33_ATTRAWB_STATIC
+#include "tx_isp_t33_attrAWB.h"
+#endif
 #pragma pop_macro("iounmap")
 #pragma pop_macro("ioremap")
 
@@ -552,6 +556,47 @@ int t32_tx_os_awb_attr_s_attr(u32 ch, u32 user)
 	return t32_isra_awb_attr_s(&o, ch, user, tb_io, tb_loc);
 }
 
+#ifdef TX_ISP_T33
+/*
+ * T33: the oracle-proven vendor glue of tx_isp_awb_only_read_attr /
+ * tx_isp_awb_weight_g_attr / tx_isp_awb_weight_s_attr (tx_isp_t33_attrAWB.h,
+ * block attrAWB) on the tisp_[gs]_awb_* entry points above (openimp #99
+ * wiring group 10b).
+ */
+static const char *tb_awa_fn;
+static int tb_awa_g_awb(u32 ch, u8 *buf) { return tb_g_awb_attr(ch, buf); }
+static int tb_awa_g_weight(u32 ch, u8 *buf) { return tb_g_awb_weight_attr(ch, buf); }
+static int tb_awa_s_weight(u32 ch, const u8 *buf) { return tb_s_awb_weight_attr(ch, (u8 *)buf); }
+static int tb_awa_g_ccm(u32 ch, u8 *buf) { (void)ch; (void)buf; return 0; }	/* not used here */
+static int tb_awa_out(u32 user, const u8 *src, u32 n) { return (int)t32_tx_os_copy_to_user(user, src, n); }
+static int tb_awa_in(u8 *dst, u32 user, u32 n) { return (int)t32_tx_os_copy_from_user(dst, user, n); }
+static void tb_awa_print(u32 level)
+{
+	isp_printf(level, level == 2 ? "[ %s ] copy error!!!\n" : "[ %s ] control failed!!!\n", tb_awa_fn);
+}
+static const struct t33_awbattr_ops tb_awa_ops = {
+	tb_awa_g_awb, tb_awa_g_weight, tb_awa_s_weight, tb_awa_g_ccm, tb_awa_out, tb_awa_in, tb_awa_print,
+};
+
+int t32_tx_os_awb_only_read_attr(u32 ch, u32 arg)
+{
+	tb_clear();
+	tb_awa_fn = "tx_isp_awb_only_read_attr";
+	return t33_awb_only_read_attr(&tb_awa_ops, ch, tb_user(arg));
+}
+
+int t32_tx_os_awb_weight_g_attr(u32 ch, u32 arg)
+{
+	tb_awa_fn = "tx_isp_awb_weight_g_attr";
+	return t33_awb_weight_g_attr(&tb_awa_ops, ch, tb_user(arg));
+}
+
+int t32_tx_os_awb_weight_s_attr(u32 ch, u32 user)
+{
+	tb_awa_fn = "tx_isp_awb_weight_s_attr";
+	return t33_awb_weight_s_attr(&tb_awa_ops, ch, user);
+}
+#else
 int t32_tx_os_awb_only_read_attr(u32 ch, u32 arg)
 {
 	static const struct tb_call c = { "tx_isp_awb_only_read_attr", { tb_g_awb_attr } };
@@ -580,6 +625,8 @@ int t32_tx_os_awb_weight_s_attr(u32 ch, u32 user)
 	memset(w, 0, sizeof(w));
 	return t32_isra_awb_weight_s(&o, ch, user, w);
 }
+
+#endif
 
 int t32_tx_os_ae_weight_g_attr(u32 ch, u32 arg)
 {

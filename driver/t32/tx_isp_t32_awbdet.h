@@ -378,7 +378,7 @@ static inline int t32_awb_ct_detect_norm(struct t32_awb *a, struct t32_awb_ctd *
 	struct t32_awb_state *st = a->st;
 	u32 fp = par->fp_shift, rows = par->zones_h, cols = par->zones_w;
 	u32 zmax = 0, row, col, tail = cols & ~3u;
-	u32 *gw = (u32 *)(st->raw + 87108), *t2 = (u32 *)(st->raw + 24576);
+	u32 *gw = (u32 *)(st->raw + T32_AWB_SO(87108)), *t2 = (u32 *)(st->raw + 24576);
 
 	if ((u16)(par->sat_mode - 1) >= 2)
 		return 0;

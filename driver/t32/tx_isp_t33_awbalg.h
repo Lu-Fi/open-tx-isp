@@ -34,6 +34,8 @@
 #include "tx_isp_t32_awbinit.h"
 #include "tx_isp_t32_tp.h"
 #include "tx_isp_t33_stats.h"
+#include "tx_isp_t33_awbL.h"
+#include "tx_isp_t33_awb.h"
 
 /* the flat zone records of one statistics buffer into the T32 per-zone tables (z = row * 32 + col) */
 static inline void t33_awb_load(struct t32_awb_state *st, const u8 *buf, u32 rows, u32 cols)
@@ -178,6 +180,166 @@ static inline int t33_awb_process(struct t32_awb *a, struct t32_awb_ctd *d, u32 
 	next = *counter + 1;
 	*counter = next < 101 ? next : 0;
 	return 0;
+}
+
+/*
+ * The vendor-layout AWB frame (openimp #99 wiring group 10b): tisp_awb_process
+ * with the oracle-proven tisp_t33_awb_long_alogrithm (tx_isp_t33_awbL.h,
+ * block awbL) in place of the T32 long algorithm phases above (which stay
+ * as the host reference, tests/tx_isp_t33_awb_test.c).  The run state is the
+ * T33 vendor layout (T32_AWB_SO), so the T32 port's long_par_update,
+ * spec_calculate, ct_detect and set_gain run on the same block.
+ *
+ * pst_awb_ct_detect (the 192 byte table "d" of the vendor): the words
+ * tisp_awb_long_par_update leaves (0 par + 3322, 8 st.vec, 12 st.pair,
+ * 16 par + table) and the state table addresses (132 .. 188, see
+ * tx_isp_t32_awbdet.h) that tisp_t33_awb_long_alogrithm clears before the
+ * detection.  The table holds 32 bit addresses (MIPS32; the host test maps
+ * its blocks below 4 GiB).
+ */
+struct t33_awbv {
+	struct t32_awb *a;
+	struct t32_awb_ctd *ctd;	/* the T32 port's ct_detect working set */
+	u32 (*rd)(void *, u32);		/* AWB register read (0x1608c, the spec statistics) */
+	void *rdp;
+	u32 ctd_bad;			/* ct_detect refused its input (grid / axis check of the port) */
+};
+
+static inline u32 t33_awbv_addr(const void *p)
+{
+	return (u32)(unsigned long)p;
+}
+
+static inline void t33_awb_tbl_set(u8 *tbl, struct t32_awb_state *st)
+{
+	static const u32 slot[14][2] = {
+		{ 132, 0 }, { 136, 16384 }, { 140, 24576 }, { 144, 79228 }, { 148, 80012 }, { 152, 80796 },
+		{ 156, 81188 }, { 160, 81332 }, { 164, 82052 }, { 172, 87108 }, { 176, 91204 },
+		{ 180, 95300 }, { 184, 99396 }, { 188, 103492 },
+	};
+	unsigned int k;
+
+	for (k = 0; k < 14; k++)
+		t33_aL_w32(tbl, slot[k][0], t33_awbv_addr(st->raw + T32_AWB_SO(slot[k][1])));
+}
+
+/* the callees of tisp_t33_awb_long_alogrithm; t33_awbv_now = the frame's context (serialised by the caller) */
+static struct t33_awbv *t33_awbv_now;
+
+static inline u32 t33_awbv_rd(u32 reg)
+{
+	return t33_awbv_now->rd(t33_awbv_now->rdp, reg);
+}
+
+static inline u32 t33_awbv_mult(u32 bits, u32 a, u32 b)
+{
+	return t33_fpm2_32(bits, a, b);
+}
+
+static inline unsigned long long t33_awbv_div(u32 bits, unsigned long long num, unsigned long long den)
+{
+	return t32_awb_fixdiv64(bits, num, den);
+}
+
+static inline void t33_awbv_mxu_begin(u32 mask) { (void)mask; }
+static inline void t33_awbv_mxu_end(void) { }
+
+/* tisp_awb_ct_detect_simd_3: the T32 port on the parameter table of word 16 */
+static inline void t33_awbv_ct(u8 *d, u32 *rb, u32 *flag)
+{
+	const u32 *tbl = (const u32 *)(unsigned long)t33_aL_r32(d, 16);
+
+	if (t32_awb_ct_detect(t33_awbv_now->a, t33_awbv_now->ctd, tbl, rb, flag))
+		t33_awbv_now->ctd_bad++;
+}
+
+static const struct t33_awbL_ops t33_awbv_ops = {
+	t33_awbv_rd, t33_awbv_mult, t33_awbv_div, t33_awbv_mxu_begin, t33_awbv_ct, t33_awbv_mxu_end,
+};
+
+/*
+ * tisp_awb_process on the vendor blocks: tbl = pst_awb_ct_detect[ch], bufs =
+ * stAwbStatBuff[ch] word 1 (the four statistics buffers), num = num_stat[ch]
+ * (the buffer index of tisp_awb_interrupt_static), drops = awbInfo[ch] + 20.
+ * rc 2: the buffer's closing tag did not match (drops counted).  Returns -1
+ * for a grid over 32 x 32 (the vendor would run past its tables).
+ */
+static inline int t33_awb_process_v(struct t33_awbv *v, u8 *tbl, const u8 *bufs, u32 num, u8 *drops,
+				    u16 *counter, struct t33_awb_out *o)
+{
+	struct t32_awb *a = v->a;
+	struct t32_stats_write w[T32_AWB_MAX_WRITES];
+	struct t32_awb_lp lp;
+	unsigned int n, i;
+	u32 next, d0;
+
+	if (a->par->zones_h > T33_AWB_GRID_MAX || a->par->zones_w > T33_AWB_GRID_MAX)
+		return -1;
+	t32_awb_long_par_update(a, &lp);
+	t33_aL_w32(tbl, 0, t33_awbv_addr(a->par->raw + 3322));
+	t33_aL_w32(tbl, 8, t33_awbv_addr(a->st->vec));
+	t33_aL_w32(tbl, 12, t33_awbv_addr(a->st->pair));
+	t33_aL_w32(tbl, 16, t33_awbv_addr(a->par->raw + lp.tbl));
+	o->nspec = t32_awb_spec_calculate(a, v->rd, v->rdp, o->spec);
+	o->path = 0;
+	d0 = t33_aL_r32(drops, 0);
+	t33_awbv_now = v;
+	t33_awbL_long(&t33_awbv_ops, tbl, a->par->raw, a->st->raw, a->hw->raw, drops, bufs, num & 3);
+	t33_awbv_now = NULL;
+	o->rc = t33_aL_r32(drops, 0) != d0 ? 2 : 0;
+	n = t32_awb_set_gain(a, w);
+	a->st->hist[0] = a->hw->inv_r;
+	a->st->hist[1] = a->hw->inv_b;
+	o->gain_set = 0;
+	for (i = 0; i < n; i++) {
+		if (w[i].reg == 0x6040) {
+			o->gain_r = w[i].val;
+			o->gain_set = 1;
+		} else if (w[i].reg == 0x6044) {
+			o->gain_b = w[i].val & 0xffff;
+		}
+	}
+	o->ct = a->par->ct;
+	next = *counter + 1;
+	*counter = next < 101 ? next : 0;
+	return 0;
+}
+
+/*
+ * tisp_awb_init's hardware parameter block awbInfo[ch] + 8 (0x9a bytes; the
+ * vendor fills it after tisp_awb_params_refresh, and again in
+ * tisp_awb_interrupt_static for tispAwbRefresh 2): zone start x / y, the
+ * zone sizes of the section words 0xc78 .. 0xcb2 (low bytes, scattered),
+ * the zone counts.  Bytes 126 / 127 / 143 are tisp_awb_malloc_info's.
+ */
+static inline void t33_awb_aux_fill(const u8 *par, u8 *aux)
+{
+	static const u8 pos[30] = {
+		0x68, 0x79, 0x70, 0x6e, 0x94, 0x5b, 0x8d, 0x81, 0x86, 0x59, 0x58, 0x7a, 0x6d, 0x7d, 0x93,
+		0x80, 0x91, 0x5e, 0x71, 0x90, 0x69, 0x62, 0x76, 0x82, 0x95, 0x8e, 0x85, 0x63, 0x77, 0x5d,
+	};
+	unsigned int k;
+
+	t33_aL_w16(aux, 0x18, t33_aL_r16(par, 0xc74));
+	t33_aL_w16(aux, 0xc, t33_aL_r16(par, 0xc70));
+	for (k = 0; k < 30; k++)
+		aux[pos[k]] = (u8)t33_aL_r16(par, 0xc78 + 2 * k);
+	aux[0x75] = (u8)t33_aL_r16(par, 0xc76);
+	aux[0x8c] = (u8)t33_aL_r16(par, 0xc72);
+}
+
+/* tisp_awb_set_hardware_param's own list 29 words (slots 3, 4, 0xf, 0x2a) from that block */
+#define T33_AWB_HW_SLOTS	4U
+static inline void t33_awb_hw_slots(const u8 *aux, u8 *slot, u32 *val)
+{
+	slot[0] = 3;
+	val[0] = (t33_aL_r16(aux, 0x18) & 0xfff) << 16 | (t33_aL_r16(aux, 0xc) & 0xfff);
+	slot[1] = 4;
+	val[1] = (u32)(aux[0x8c] & 0x3f) << 8 | (aux[0x75] & 0x3f);
+	slot[2] = 0xf;
+	val[2] = (aux[0x7e] & 3) | 0x1010100U;
+	slot[3] = 0x2a;
+	val[3] = (u32)(aux[0x80] & 0x7f) << 16 | (aux[0x68] & 0x7f);
 }
 
 /*

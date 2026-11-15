@@ -41,6 +41,9 @@
 #include <linux/sched.h>
 #include <linux/jiffies.h>
 
+#ifdef TX_ISP_T33
+#include "tx_isp_t33_attrAWB.h"
+#endif
 #include "tx_isp_t32.h"
 #include "tx_isp_t32_txsctrl.h"
 #include "tx_isp_t32_txgctrl.h"
@@ -382,6 +385,18 @@ int t32_tx_os_tisp_g_af_metric_attr(u32 ch, void *buf)
 
 /* ---- tiziano_isp_ccm_attr_g_ctrl (the AE / AWB .isra wrappers are in tx_isp_t32_tunblk.c) ---- */
 
+#ifdef TX_ISP_T33
+/* T33: the oracle-proven vendor glue (tx_isp_t33_attrAWB.h, block attrAWB): always 0, a failed copy only prints */
+static int t33_tc_g_ccm(u32 ch, u8 *buf) { memcpy(buf, t32_tc[ch].ccm, T33_CCM_ATTR_BYTES); return 0; }
+static int t33_tc_out(u32 user, const u8 *src, u32 n) { return (int)t32_tx_os_copy_to_user(user, src, n); }
+static void t33_tc_print(u32 level) { t32_tx_os_isp_printf(level, "[ %s:%d ] copy error!!!\n", "tiziano_isp_ccm_attr_g_ctrl", 0); }
+static const struct t33_awbattr_ops t33_tc_ccm_ops = { NULL, NULL, NULL, t33_tc_g_ccm, t33_tc_out, NULL, t33_tc_print };
+
+int t32_tx_os_ccm_attr_g_ctrl(u32 ch, u32 arg)
+{
+	return t33_ccm_attr_g_ctrl(&t33_tc_ccm_ops, ch, t32_tx_ld(arg, 0));
+}
+#else
 static int t32_tc_out(u32 arg, const u8 *src, u32 n, const char *fn)
 {
 	if (!t32_tx_os_copy_to_user(t32_tx_ld(arg, 0), src, n))
@@ -394,6 +409,7 @@ int t32_tx_os_ccm_attr_g_ctrl(u32 ch, u32 arg)
 {
 	return t32_tc_out(arg, t32_tc[ch].ccm, 40, "tiziano_isp_ccm_attr_g_ctrl");
 }
+#endif
 
 /* isp_frame_done_wait: wait (ms, 0 = none) for the next frame end, count = the channel's frames */
 int t32_tx_os_isp_frame_done_wait(u32 ch, u32 wait, void *count)

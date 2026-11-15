@@ -64,6 +64,22 @@ typedef uint16_t u16;
 #else
 #define T32_AER_HI(o)		(o)
 #endif
+
+/*
+ * AWB run state (st, 0x1d48c B on the T32) offsets on the T33: the vendor
+ * T33 module keeps the T32 layout without the 40980 bytes of unpacked zone
+ * tables (T32 38056 .. 79035; tisp_t33_awb_long_alogrithm reads the flat
+ * statistics records itself): T32 offsets from 79036 sit 40980 lower (lg_have
+ * 0x94a8, update 0x10438, api_ct 0x13458; the vendor block is 0x1345c B).
+ * The T32-only words after api_ct (face block, spec ring) follow the vendor
+ * block, the zone tables are parked after them (tx_isp_t33_awbc.c).  The
+ * state keeps its T32 size.  T32: identity.
+ */
+#ifdef TX_ISP_T33
+#define T32_AWB_SO(o)		((o) < 38056U ? (o) : (o) < 79036U ? (o) + 40912U : (o) - 40980U)
+#else
+#define T32_AWB_SO(o)		(o)
+#endif
 #define T32_AE_BUF_BYTES	0x6000U		/* 4 zone buffers of 4 KiB + 4 histograms of 2 KiB */
 #define T32_AWB_BUF_BYTES	0x1c000U	/* 4 buffers of 0x7000 */
 #define T32_STATS_ID		0x0134da11U
@@ -798,19 +814,19 @@ static inline unsigned int t32_ae_wake_up(const u8 *tune, const u8 *buf, u32 buf
  * tisp_awb_set_gain, which is a hook here (priv, ch, in, in[1], in[0]).
  * tisp_awb_set_mode: modes >= 10 only print in the vendor and change nothing.
  */
-#define T32_AWB_SEC_FLAG	0x1a44cU
-#define T32_AWB_SEC_FRZ		0x1a44dU
-#define T32_AWB_SEC_MODE	0x1a44eU
-#define T32_AWB_SEC_CT		0x1a450U
-#define T32_AWB_SEC_M1		0x1a454U
-#define T32_AWB_SEC_M2		0x1a456U
-#define T32_AWB_SEC_A0		0x1a458U
-#define T32_AWB_SEC_A1		0x1a45aU
-#define T32_AWB_SEC_B0		0x1a464U
-#define T32_AWB_SEC_B1		0x1a466U
-#define T32_AWB_SEC_ZONE	0x1a46cU
-#define T32_AWB_SEC_API_CT	0x1d46cU
-#define T32_AWB_SEC_WCLR	0x134bcU
+#define T32_AWB_SEC_FLAG	T32_AWB_SO(0x1a44cU)
+#define T32_AWB_SEC_FRZ		T32_AWB_SO(0x1a44dU)
+#define T32_AWB_SEC_MODE	T32_AWB_SO(0x1a44eU)
+#define T32_AWB_SEC_CT		T32_AWB_SO(0x1a450U)
+#define T32_AWB_SEC_M1		T32_AWB_SO(0x1a454U)
+#define T32_AWB_SEC_M2		T32_AWB_SO(0x1a456U)
+#define T32_AWB_SEC_A0		T32_AWB_SO(0x1a458U)
+#define T32_AWB_SEC_A1		T32_AWB_SO(0x1a45aU)
+#define T32_AWB_SEC_B0		T32_AWB_SO(0x1a464U)
+#define T32_AWB_SEC_B1		T32_AWB_SO(0x1a466U)
+#define T32_AWB_SEC_ZONE	T32_AWB_SO(0x1a46cU)
+#define T32_AWB_SEC_API_CT	T32_AWB_SO(0x1d46cU)
+#define T32_AWB_SEC_WCLR	T32_AWB_SO(0x134bcU)
 #define T32_AWB_T_WEIGHT	5714U
 #define T32_AWB_T_LOC		3184U
 
@@ -982,7 +998,7 @@ static inline void t32_awb_set_statis_localtion(const struct t32_awb_ctx *c, con
  * tune + 3064 plus two u16 at tune + 3088 / 3092, and setting it raises the
  * flag byte at sec + 0x1a44c.
  */
-#define T32_AWB_SEC_FACE	0x1d470U
+#define T32_AWB_SEC_FACE	T32_AWB_SO(0x1d470U)
 #define T32_AWB_T_CTTR		3064U
 #define T32_AWB_T_CTTR_A	3088U
 
@@ -2364,7 +2380,7 @@ static inline void t32_aea_long_process(const struct t32_aea_ctx *c)
 #define T32_AWB_SEC_FACE_H	28692U
 #define T32_AWB_SEC_FACE_EN	28706U
 #define T32_AWB_SEC_FACE_EN2	28707U
-#define T32_AWB_SEC_FACE_CNT	119940U
+#define T32_AWB_SEC_FACE_CNT	T32_AWB_SO(119940U)
 #define T32_AWB_FACE_REG_Y	90336U
 #define T32_AWB_FACE_REG_X	90340U
 #define T32_AWB_FACE_OFF	0x20002U

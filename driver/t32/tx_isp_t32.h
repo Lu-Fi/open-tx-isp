@@ -262,6 +262,8 @@ void t33_stats_show(struct seq_file *m);	/* tx_isp_t32_hw.c */
 void t33_tmo_oneshot(u32 op);	/* tx_isp_t32_hw.c: 0 disable, 1 enable, 2 tick (tisp_tmo_oneshot_*) */
 /* ../t33/tx_isp_t33_awbc.c: per-frame AWB */
 int t33_awbc_attach(const u8 *sec, u32 len, u32 width, u32 height, const u8 *bufs);
+int t33_awbc_malloc_info(u32 *list, unsigned long pages);	/* tisp_awb_malloc_info (awbInfo, stAwbStatBuff) */
+void t33_awbc_dn_refresh(const u8 *sec, u32 len);	/* bin switch: tisp_awb_dn_params_refresh */
 void t33_awbc_detach(void);
 void t33_awbc_kick(void);
 void t33_awbc_show(struct seq_file *m);

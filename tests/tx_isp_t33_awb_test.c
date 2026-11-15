@@ -8,13 +8,18 @@
  * one engine buffer; default: uniform grey zones); prints the AWBG list 7
  * words per frame with T33_AWB_PRINT=1.  With T33_AWBG_REF (lines "r b" in
  * hex: the vendor's list 7 words per run, consecutive repeats dropped) the
- * de-duplicated sequence must equal it.
+ * de-duplicated sequence must equal it.  With T33_IQ_BIN also the
+ * vendor-layout frame (t33_awb_process_v: the proven tisp_t33_awb_long_alogrithm
+ * on the T33 state layout) against the T32-phase reference path, frame by
+ * frame on changing statistics: gains, ct, spec words, the history block and
+ * the state words both write must be equal.
  */
 #define TX_ISP_T33
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/mman.h>
 typedef uint64_t u64;	/* host: the AWB headers take the kernel type */
 #include "../driver/t32/tx_isp_t32_rcfg33.h"
 #include "../driver/t32/tx_isp_t32_iq.h"
@@ -28,7 +33,14 @@ static int bad;
 
 static uint8_t bin[0x40000], stat[T33_STAT_HEAD + 32 * 32 * T33_AWB_ZONE_BYTES + 64];
 
-static void *h_alloc(void *p, u32 size) { (void)p; return calloc(1, size); }
+/* below 4 GiB: the vendor-layout blocks keep 32 bit addresses (pst_awb_ct_detect) */
+static void *h_alloc(void *p, u32 size)
+{
+	void *m = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_32BIT, -1, 0);
+
+	(void)p;
+	return m == MAP_FAILED ? NULL : m;
+}
 static void h_nop(void *p, u32 ch) { (void)p; (void)ch; }
 static void h_nop2(void *p, u32 ch, u32 v) { (void)p; (void)ch; (void)v; }
 static void h_print(void *p, int ok) { (void)p; (void)ok; }
@@ -69,6 +81,91 @@ static void unit(void)
 	CHECK(t33_awb_slot(0x16078) == 0xb && t33_awb_slot(0x160b8) == 0x1b && t33_awb_slot(0x16090) == 0x11);
 	CHECK(t33_awb_slot(0x16040) == 3 && t33_awb_slot(0x16064) == 6 && t33_awb_slot(0x6040) == -1);
 	free(st);
+}
+
+
+/* the two paths from the same init on frames whose zone sums move (frame f, buffer f & 3) */
+static void cmp_paths(const u8 *sec, u32 frames)
+{
+	struct t32_stats_write w[T32_AWB_MAX_WRITES];
+	struct t32_awb_init ai[2];
+	struct t33_awb_out o[2];
+	struct t33_awbv v;
+	struct t32_awb_ctd *d0 = calloc(1, sizeof(*d0)), *d1 = calloc(1, sizeof(*d1));
+	u8 *par[2], *bufs = h_alloc(NULL, 4 * T33_AWB_STAT_ONE);
+	u32 drops0 = 0, drops1 = 0, f, k, rows, cols, diff = 0, changes = 0, lr = 0, lb = 0;
+	u16 c0 = 0, c1 = 0;
+	static const u32 st_words[][2] = { { 79036, 1 }, { 79044, 1 }, { 79048, 180 }, { 107608, 12 }, { 107620, 8 } };
+
+	for (k = 0; k < 2; k++) {
+		par[k] = h_alloc(NULL, sizeof(struct t32_awb_par));
+		memcpy(par[k], sec, sizeof(struct t32_awb_par));
+		CHECK(t32_awb_init(&ai[k], 0, par[k], 1920, 1080, 0, &ops, w) == 6);
+		ai[k].a.st->hist[0] = ai[k].a.hw->inv_r;
+		ai[k].a.st->hist[1] = ai[k].a.hw->inv_b;
+	}
+	t33_awb_tbl_set(ai[1].tbl, ai[1].a.st);
+	v.a = &ai[1].a;
+	v.ctd = d1;
+	v.rd = h_rd;
+	v.rdp = NULL;
+	v.ctd_bad = 0;
+	rows = ai[0].a.par->zones_h;
+	cols = ai[0].a.par->zones_w;
+	for (f = 0; f < frames; f++) {
+		u8 *b = bufs + (f & 3) * T33_AWB_STAT_ONE;
+		u32 r, c;
+
+		/* a light change every 10 frames, a dropped (bad tag) buffer every 37 */
+		synth(rows, cols, f + 1);
+		for (r = 0; r < rows; r++)
+			for (c = 0; c < cols; c++) {
+				uint8_t *z = stat + T33_STAT_HEAD + r * t33_awb_row_bytes(cols) + c * T33_AWB_ZONE_BYTES;
+				u32 g = 30000 + 900 * ((f / 10) % 7) + 37 * ((r * 7 + c * 3 + f / 10) % 11);
+
+				put32(z + 12, g + (f / 10 % 3) * 4000); put32(z + 16, 50000 + 100 * (r ^ c));
+				put32(z + 20, 70000 - g / 2); put32(z + 8, 60000 + 50 * c);
+				put16(z + 26, 600 + 13 * ((r + c + f / 10) % 9));
+			}
+		if (f % 37 == 36)
+			put16(stat + t33_awb_tag_off(rows, cols), 0x7777);
+		memcpy(b, stat, sizeof(stat) < T33_AWB_STAT_ONE ? sizeof(stat) : T33_AWB_STAT_ONE);
+		t33_awb_load(ai[0].a.st, b, rows, cols);
+		CHECK(!t33_awb_process(&ai[0].a, d0, h_rd, NULL, b, &c0, &drops0, &o[0]));
+		CHECK(!t33_awb_process_v(&v, ai[1].tbl, bufs, f & 3, (u8 *)&drops1, &c1, &o[1]));
+		if (o[0].gain_set != o[1].gain_set || o[0].gain_r != o[1].gain_r || o[0].gain_b != o[1].gain_b ||
+		    o[0].ct != o[1].ct || o[0].nspec != o[1].nspec || c0 != c1 || drops0 != drops1 ||
+		    memcmp(o[0].spec, o[1].spec, o[0].nspec * sizeof(o[0].spec[0])) ||
+		    memcmp(ai[0].a.hw->raw, ai[1].a.hw->raw, sizeof(ai[0].a.hw->raw)) || memcmp(par[0], par[1], 64)) {
+			if (!diff)
+				for (k = 0; k < sizeof(ai[0].a.hw->raw); k += 2)
+					if (memcmp(ai[0].a.hw->raw + k, ai[1].a.hw->raw + k, 2) && k < 4400)
+						printf("  frame %u hw +%u: %u / %u\n", f, k, ai[0].a.hw->raw[k] | ai[0].a.hw->raw[k + 1] << 8,
+						       ai[1].a.hw->raw[k] | ai[1].a.hw->raw[k + 1] << 8);
+			if (!diff)
+				for (k = 0; k < 64; k += 4)
+					if (memcmp(par[0] + k, par[1] + k, 4))
+						printf("  frame %u par +%u: %u / %u\n", f, k, t33_aL_r32(par[0], k), t33_aL_r32(par[1], k));
+			diff++;
+		}
+		for (k = 0; k < sizeof(st_words) / sizeof(st_words[0]); k++)
+			if (memcmp(ai[0].a.st->raw + T32_AWB_SO(st_words[k][0]), ai[1].a.st->raw + T32_AWB_SO(st_words[k][0]),
+				   st_words[k][1])) {
+				if (diff < 3)
+					printf("  frame %u st %u differs\n", f, st_words[k][0]);
+				diff++;
+			}
+		if (diff && diff < 4)
+			printf("  path diff at frame %u: r 0x%x/0x%x b 0x%x/0x%x ct %u/%u drops %u/%u\n", f, o[0].gain_r,
+			       o[1].gain_r, o[0].gain_b, o[1].gain_b, o[0].ct, o[1].ct, drops0, drops1);
+		if (o[1].gain_r != lr || o[1].gain_b != lb)
+			changes++;
+		lr = o[1].gain_r;
+		lb = o[1].gain_b;
+	}
+	printf("vendor-layout path vs reference: %u frames, %u gain changes, %u drops, %u differences, ctd_bad %u\n",
+	       frames, changes, drops1, diff, v.ctd_bad);
+	CHECK(!diff && drops1 == frames / 37);
 }
 
 int main(void)
@@ -154,6 +251,7 @@ int main(void)
 			seq[1][ns++] = o.gain_b;
 		}
 	}
+	cmp_paths(bin + off, 400);
 	printf("awbg sequence: %u distinct steps, last r 0x%x b 0x%x, drops %u\n", ns, seq[0][ns - 1], seq[1][ns - 1], drops);
 	if (rp) {
 		u32 r, b, k = 0, miss = 0;

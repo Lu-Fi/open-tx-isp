@@ -38,6 +38,8 @@
 
 /* A field of type 'decl' at byte offset 'off' inside a union with a raw byte image */
 #define T32_AWB_AT(off, decl) struct { u8 pad_##off[off]; decl; }
+/* a run state member: T32 offset, placed at T32_AWB_SO(off) (T33 vendor layout) */
+#define T32_AWB_ATS(off, decl) struct { u8 pad_##off[T32_AWB_SO(off)]; decl; }
 
 /* IQ section 2, the vendor's "par" (offsets in the section) */
 struct t32_awb_par {
@@ -110,84 +112,84 @@ struct t32_awb_par {
 struct t32_awb_state {
 	union {
 		u8 raw[0x1d48c];
-		T32_AWB_AT(0, u32 zstat[2][2][1024]);	/* zone statistics [mode][r, b][row * 32 + col] */
-		T32_AWB_AT(16384, u32 zw_raw[1024]);	/* ct_detect input: per zone value, normalised to zw_norm */
-		T32_AWB_AT(24576, u32 zt2[1024]);	/* ct_detect: second per zone table (weights the gw_map entries in phase 3) */
-		T32_AWB_AT(91204, u32 zdist[1024]);	/* ct_detect: squared distance of each zone's r, b from the weighted mean */
-		T32_AWB_AT(95300, u32 zwt3[1024]);	/* ct_detect: gw_map weight reduced by that distance */
-		T32_AWB_AT(99396, u32 zw_norm[1024]);
-		T32_AWB_AT(29800, u32 zs2[2][1024]);	/* ct_detect: second per zone statistics r, b for the limit rectangles */
-		T32_AWB_AT(103492, u32 zlim[1024]);	/* ct_detect: rectangle of each zone (nlim = none, kept between frames) */
-		T32_AWB_AT(79228, u32 cell_r[196]);	/* ct_detect: per cell of the 14 x 14 ct grid, sum of the zones' r, */
-		T32_AWB_AT(80012, u32 cell_b[196]);	/* ... of their b */
-		T32_AWB_AT(80796, u16 cell_n[196]);	/* ... and their count */
-		T32_AWB_AT(81188, u32 top_x[12]);	/* ct_detect: the 12 fullest cells of the ct grid: column, ... */
-		T32_AWB_AT(81236, u32 top_y[12]);	/* ... row, ... */
-		T32_AWB_AT(81284, u32 top_n[12]);	/* ... count (kept between frames) */
-		T32_AWB_AT(81332, u32 pt_r[60]);	/* five (r, b) points per cell: corners and centre */
-		T32_AWB_AT(81572, u32 pt_b[60]);
-		T32_AWB_AT(82052, u32 cl_x[60]);	/* ct_detect: merged candidate points (clusters), kept between frames: r, ... */
-		T32_AWB_AT(82292, u32 cl_y[60]);	/* ... b, ... */
-		T32_AWB_AT(82772, u32 cl_w[60]);	/* ... weights of the zones around it */
-		T32_AWB_AT(82532, u32 cl_n[60]);	/* ... weight (0 once taken; later the number of zones around it, then its weight) */
-		T32_AWB_AT(81812, u32 pt_n[60]);	/* zones near each point at its last refinement pass */
-		T32_AWB_AT(37992, u16 lim_a[7]);	/* ct_detect: 3 + 4 entries, copied to its working set */
-		T32_AWB_AT(38012, u16 lim_b[7]);
-		T32_AWB_AT(28672, u32 out_id);		/* copies of the four par values, out_w / in_w scaled */
-		T32_AWB_AT(28676, u32 out_w);
-		T32_AWB_AT(28680, u32 in_id);
-		T32_AWB_AT(28684, u32 in_w);
-		T32_AWB_AT(28688, u8 sel_a);
-		T32_AWB_AT(28689, u8 sel_b);
-		T32_AWB_AT(28706, u8 spec_run);		/* sampling active */
-		T32_AWB_AT(28707, u8 spec_cnt);		/* frames sampled, saturates at 2 */
-		T32_AWB_AT(28708, u8 spec_flags[10]);	/* copy of par 5704..5713 */
-		T32_AWB_AT(28718, u16 spec_r0);		/* calibrated current ratios */
-		T32_AWB_AT(28738, u16 spec_b0);
-		T32_AWB_AT(28728, u16 spec_rs[5]);	/* calibrated stored ratios */
-		T32_AWB_AT(28748, u16 spec_bs[5]);
-		T32_AWB_AT(119944, int spec_ring);	/* last stored sample slot */
-		T32_AWB_AT(28764, u16 gw_tab[514]);	/* gray world: class by squared distance */
-		T32_AWB_AT(87108, u32 gw_map[1024]);	/* gray world: zone class weights, 32 per row */
-		T32_AWB_AT(28760, u32 last_ct);		/* ct of the last offset selection */
-		T32_AWB_AT(38032, u32 vec[4]);		/* long_par_update: blended four-value set */
-		T32_AWB_AT(38048, u32 pair[2]);		/* ... and (id, weight) */
-		T32_AWB_AT(29792, u32 off_r);		/* selected gain offsets */
-		T32_AWB_AT(29796, u32 off_b);
-		T32_AWB_AT(107588, u32 ev);		/* exposure measure of the algorithm */
-		T32_AWB_AT(107596, u8 update);		/* force the offset selection, cleared by set_gain */
-		T32_AWB_AT(107597, u8 frz);		/* freeze: no register writes */
-		T32_AWB_AT(107598, u8 mode);		/* 0 auto, 1..8 fixed ct table, 9 scaled, 10 api ct */
-		T32_AWB_AT(107600, u32 man_ct);		/* ct of the fixed modes */
-		T32_AWB_AT(107604, u16 man_r);		/* red / blue gain of the fixed modes */
-		T32_AWB_AT(107606, u16 man_b);
-		T32_AWB_AT(107620, u16 hist[4]);	/* last two (r, b) pairs, newest first */
-		T32_AWB_AT(119916, u32 api_ct);		/* ct set through the API (mode 10) */
+		T32_AWB_ATS(0, u32 zstat[2][2][1024]);	/* zone statistics [mode][r, b][row * 32 + col] */
+		T32_AWB_ATS(16384, u32 zw_raw[1024]);	/* ct_detect input: per zone value, normalised to zw_norm */
+		T32_AWB_ATS(24576, u32 zt2[1024]);	/* ct_detect: second per zone table (weights the gw_map entries in phase 3) */
+		T32_AWB_ATS(91204, u32 zdist[1024]);	/* ct_detect: squared distance of each zone's r, b from the weighted mean */
+		T32_AWB_ATS(95300, u32 zwt3[1024]);	/* ct_detect: gw_map weight reduced by that distance */
+		T32_AWB_ATS(99396, u32 zw_norm[1024]);
+		T32_AWB_ATS(29800, u32 zs2[2][1024]);	/* ct_detect: second per zone statistics r, b for the limit rectangles */
+		T32_AWB_ATS(103492, u32 zlim[1024]);	/* ct_detect: rectangle of each zone (nlim = none, kept between frames) */
+		T32_AWB_ATS(79228, u32 cell_r[196]);	/* ct_detect: per cell of the 14 x 14 ct grid, sum of the zones' r, */
+		T32_AWB_ATS(80012, u32 cell_b[196]);	/* ... of their b */
+		T32_AWB_ATS(80796, u16 cell_n[196]);	/* ... and their count */
+		T32_AWB_ATS(81188, u32 top_x[12]);	/* ct_detect: the 12 fullest cells of the ct grid: column, ... */
+		T32_AWB_ATS(81236, u32 top_y[12]);	/* ... row, ... */
+		T32_AWB_ATS(81284, u32 top_n[12]);	/* ... count (kept between frames) */
+		T32_AWB_ATS(81332, u32 pt_r[60]);	/* five (r, b) points per cell: corners and centre */
+		T32_AWB_ATS(81572, u32 pt_b[60]);
+		T32_AWB_ATS(82052, u32 cl_x[60]);	/* ct_detect: merged candidate points (clusters), kept between frames: r, ... */
+		T32_AWB_ATS(82292, u32 cl_y[60]);	/* ... b, ... */
+		T32_AWB_ATS(82772, u32 cl_w[60]);	/* ... weights of the zones around it */
+		T32_AWB_ATS(82532, u32 cl_n[60]);	/* ... weight (0 once taken; later the number of zones around it, then its weight) */
+		T32_AWB_ATS(81812, u32 pt_n[60]);	/* zones near each point at its last refinement pass */
+		T32_AWB_ATS(37992, u16 lim_a[7]);	/* ct_detect: 3 + 4 entries, copied to its working set */
+		T32_AWB_ATS(38012, u16 lim_b[7]);
+		T32_AWB_ATS(28672, u32 out_id);		/* copies of the four par values, out_w / in_w scaled */
+		T32_AWB_ATS(28676, u32 out_w);
+		T32_AWB_ATS(28680, u32 in_id);
+		T32_AWB_ATS(28684, u32 in_w);
+		T32_AWB_ATS(28688, u8 sel_a);
+		T32_AWB_ATS(28689, u8 sel_b);
+		T32_AWB_ATS(28706, u8 spec_run);		/* sampling active */
+		T32_AWB_ATS(28707, u8 spec_cnt);		/* frames sampled, saturates at 2 */
+		T32_AWB_ATS(28708, u8 spec_flags[10]);	/* copy of par 5704..5713 */
+		T32_AWB_ATS(28718, u16 spec_r0);		/* calibrated current ratios */
+		T32_AWB_ATS(28738, u16 spec_b0);
+		T32_AWB_ATS(28728, u16 spec_rs[5]);	/* calibrated stored ratios */
+		T32_AWB_ATS(28748, u16 spec_bs[5]);
+		T32_AWB_ATS(119944, int spec_ring);	/* last stored sample slot */
+		T32_AWB_ATS(28764, u16 gw_tab[514]);	/* gray world: class by squared distance */
+		T32_AWB_ATS(87108, u32 gw_map[1024]);	/* gray world: zone class weights, 32 per row */
+		T32_AWB_ATS(28760, u32 last_ct);		/* ct of the last offset selection */
+		T32_AWB_ATS(38032, u32 vec[4]);		/* long_par_update: blended four-value set */
+		T32_AWB_ATS(38048, u32 pair[2]);		/* ... and (id, weight) */
+		T32_AWB_ATS(29792, u32 off_r);		/* selected gain offsets */
+		T32_AWB_ATS(29796, u32 off_b);
+		T32_AWB_ATS(107588, u32 ev);		/* exposure measure of the algorithm */
+		T32_AWB_ATS(107596, u8 update);		/* force the offset selection, cleared by set_gain */
+		T32_AWB_ATS(107597, u8 frz);		/* freeze: no register writes */
+		T32_AWB_ATS(107598, u8 mode);		/* 0 auto, 1..8 fixed ct table, 9 scaled, 10 api ct */
+		T32_AWB_ATS(107600, u32 man_ct);		/* ct of the fixed modes */
+		T32_AWB_ATS(107604, u16 man_r);		/* red / blue gain of the fixed modes */
+		T32_AWB_ATS(107606, u16 man_b);
+		T32_AWB_ATS(107620, u16 hist[4]);	/* last two (r, b) pairs, newest first */
+		T32_AWB_ATS(119916, u32 api_ct);		/* ct set through the API (mode 10) */
 		/* long algorithm per zone input / working tables (z = row * 32 + col): zones of group 0 and 1 each have the sums of two
 		 * statistics, a divisor and a weight */
-		T32_AWB_AT(20480, u32 zw_raw2[1024]);	/* weight of the zones of group 1 */
-		T32_AWB_AT(38056, u32 g1_n_r[1024]);
-		T32_AWB_AT(42152, u32 g1_den[1024]);
-		T32_AWB_AT(46248, u32 g1_n_b[1024]);
-		T32_AWB_AT(54440, u32 g1_w[1024]);
-		T32_AWB_AT(58536, u32 g0_n_r[1024]);
-		T32_AWB_AT(62632, u32 g0_den[1024]);
-		T32_AWB_AT(66728, u32 g0_n_b[1024]);
-		T32_AWB_AT(74920, u32 g0_w[1024]);
-		T32_AWB_AT(79036, u8 lg_have);		/* the history below holds real detections */
-		T32_AWB_AT(79044, u8 lg_calm);		/* the last frame was calm (no change of the zone averages) */
-		T32_AWB_AT(79048, u32 ring_r[15]);	/* last 15 detected red / blue gains and colour temperatures, oldest first */
-		T32_AWB_AT(79108, u32 ring_b[15]);
-		T32_AWB_AT(79168, u32 ring_ct[15]);
-		T32_AWB_AT(107608, u16 avg[6]);		/* mean red / blue of the zones: now, one frame ago (107612), reference (107616) */
-		T32_AWB_AT(107628, u32 k_r[1024]);	/* group 1 shares: n_r / w, den / w, n_b / w */
-		T32_AWB_AT(111724, u32 k_d[1024]);
-		T32_AWB_AT(115820, u32 k_b[1024]);
-		T32_AWB_AT(50344, u32 g1_p[1024]);	/* get_statistics: 4th field of group 1 */
-		T32_AWB_AT(70824, u32 g0_p[1024]);	/* ... and of group 0 */
-		T32_AWB_AT(79037, u8 lg_reset);		/* set by dn_params_refresh (day/night switch) */
-		T32_AWB_AT(79040, u32 frame_cnt);	/* statistics interrupts seen, wraps at 0xffffffff */
-		T32_AWB_AT(107592, u32 tgain);		/* target gain from tgain_update */
+		T32_AWB_ATS(20480, u32 zw_raw2[1024]);	/* weight of the zones of group 1 */
+		T32_AWB_ATS(38056, u32 g1_n_r[1024]);
+		T32_AWB_ATS(42152, u32 g1_den[1024]);
+		T32_AWB_ATS(46248, u32 g1_n_b[1024]);
+		T32_AWB_ATS(54440, u32 g1_w[1024]);
+		T32_AWB_ATS(58536, u32 g0_n_r[1024]);
+		T32_AWB_ATS(62632, u32 g0_den[1024]);
+		T32_AWB_ATS(66728, u32 g0_n_b[1024]);
+		T32_AWB_ATS(74920, u32 g0_w[1024]);
+		T32_AWB_ATS(79036, u8 lg_have);		/* the history below holds real detections */
+		T32_AWB_ATS(79044, u8 lg_calm);		/* the last frame was calm (no change of the zone averages) */
+		T32_AWB_ATS(79048, u32 ring_r[15]);	/* last 15 detected red / blue gains and colour temperatures, oldest first */
+		T32_AWB_ATS(79108, u32 ring_b[15]);
+		T32_AWB_ATS(79168, u32 ring_ct[15]);
+		T32_AWB_ATS(107608, u16 avg[6]);		/* mean red / blue of the zones: now, one frame ago (107612), reference (107616) */
+		T32_AWB_ATS(107628, u32 k_r[1024]);	/* group 1 shares: n_r / w, den / w, n_b / w */
+		T32_AWB_ATS(111724, u32 k_d[1024]);
+		T32_AWB_ATS(115820, u32 k_b[1024]);
+		T32_AWB_ATS(50344, u32 g1_p[1024]);	/* get_statistics: 4th field of group 1 */
+		T32_AWB_ATS(70824, u32 g0_p[1024]);	/* ... and of group 0 */
+		T32_AWB_ATS(79037, u8 lg_reset);		/* set by dn_params_refresh (day/night switch) */
+		T32_AWB_ATS(79040, u32 frame_cnt);	/* statistics interrupts seen, wraps at 0xffffffff */
+		T32_AWB_ATS(107592, u32 tgain);		/* target gain from tgain_update */
 	};
 };
 
@@ -234,8 +236,8 @@ T32_AWB_CHK(struct t32_awb_par, ct_last, 48);
 T32_AWB_CHK(struct t32_awb_par, ev_set, 180);
 T32_AWB_CHK(struct t32_awb_par, gw_en, 3448);
 T32_AWB_CHK(struct t32_awb_par, zone_flag, 5714);
-T32_AWB_CHK(struct t32_awb_state, gw_tab, 28764);
-T32_AWB_CHK(struct t32_awb_state, gw_map, 87108);
+T32_AWB_CHK(struct t32_awb_state, gw_tab, T32_AWB_SO(28764));
+T32_AWB_CHK(struct t32_awb_state, gw_map, T32_AWB_SO(87108));
 T32_AWB_CHK(struct t32_awb_par, ct_axis_r, 60);
 T32_AWB_CHK(struct t32_awb_par, ct_axis_b, 120);
 T32_AWB_CHK(struct t32_awb_par, ct_grid, 2164);
@@ -245,26 +247,26 @@ T32_AWB_CHK(struct t32_awb_par, in_id, 236);
 T32_AWB_CHK(struct t32_awb_par, in_w, 240);
 T32_AWB_CHK(struct t32_awb_par, sel_a, 5702);
 T32_AWB_CHK(struct t32_awb_par, sel_b, 5703);
-T32_AWB_CHK(struct t32_awb_state, out_id, 28672);
-T32_AWB_CHK(struct t32_awb_state, zstat, 0);
-T32_AWB_CHK(struct t32_awb_state, zw_raw, 16384);
-T32_AWB_CHK(struct t32_awb_state, zw_norm, 99396);
-T32_AWB_CHK(struct t32_awb_state, zdist, 91204);
-T32_AWB_CHK(struct t32_awb_state, zwt3, 95300);
+T32_AWB_CHK(struct t32_awb_state, out_id, T32_AWB_SO(28672));
+T32_AWB_CHK(struct t32_awb_state, zstat, T32_AWB_SO(0));
+T32_AWB_CHK(struct t32_awb_state, zw_raw, T32_AWB_SO(16384));
+T32_AWB_CHK(struct t32_awb_state, zw_norm, T32_AWB_SO(99396));
+T32_AWB_CHK(struct t32_awb_state, zdist, T32_AWB_SO(91204));
+T32_AWB_CHK(struct t32_awb_state, zwt3, T32_AWB_SO(95300));
 T32_AWB_CHK(struct t32_awb_par, var_en, 244);
 T32_AWB_CHK(struct t32_awb_par, var_hi, 248);
 T32_AWB_CHK(struct t32_awb_par, var_lo, 252);
-T32_AWB_CHK(struct t32_awb_state, zt2, 24576);
-T32_AWB_CHK(struct t32_awb_state, top_x, 81188);
-T32_AWB_CHK(struct t32_awb_state, top_y, 81236);
-T32_AWB_CHK(struct t32_awb_state, top_n, 81284);
-T32_AWB_CHK(struct t32_awb_state, pt_r, 81332);
-T32_AWB_CHK(struct t32_awb_state, pt_b, 81572);
-T32_AWB_CHK(struct t32_awb_state, pt_n, 81812);
-T32_AWB_CHK(struct t32_awb_state, cl_x, 82052);
-T32_AWB_CHK(struct t32_awb_state, cl_y, 82292);
-T32_AWB_CHK(struct t32_awb_state, cl_n, 82532);
-T32_AWB_CHK(struct t32_awb_state, cl_w, 82772);
+T32_AWB_CHK(struct t32_awb_state, zt2, T32_AWB_SO(24576));
+T32_AWB_CHK(struct t32_awb_state, top_x, T32_AWB_SO(81188));
+T32_AWB_CHK(struct t32_awb_state, top_y, T32_AWB_SO(81236));
+T32_AWB_CHK(struct t32_awb_state, top_n, T32_AWB_SO(81284));
+T32_AWB_CHK(struct t32_awb_state, pt_r, T32_AWB_SO(81332));
+T32_AWB_CHK(struct t32_awb_state, pt_b, T32_AWB_SO(81572));
+T32_AWB_CHK(struct t32_awb_state, pt_n, T32_AWB_SO(81812));
+T32_AWB_CHK(struct t32_awb_state, cl_x, T32_AWB_SO(82052));
+T32_AWB_CHK(struct t32_awb_state, cl_y, T32_AWB_SO(82292));
+T32_AWB_CHK(struct t32_awb_state, cl_n, T32_AWB_SO(82532));
+T32_AWB_CHK(struct t32_awb_state, cl_w, T32_AWB_SO(82772));
 T32_AWB_CHK(struct t32_awb_par, zr2, 304);
 T32_AWB_CHK(struct t32_awb_par, cl_mix, 5686);
 T32_AWB_CHK(struct t32_awb_par, cl_r2, 300);
@@ -274,36 +276,36 @@ T32_AWB_CHK(struct t32_awb_par, cand_iter, 312);
 T32_AWB_CHK(struct t32_awb_par, cand_mode, 292);
 T32_AWB_CHK(struct t32_awb_par, lim_en, 316);
 T32_AWB_CHK(struct t32_awb_par, ct_lim2, 5166);
-T32_AWB_CHK(struct t32_awb_state, zs2, 29800);
-T32_AWB_CHK(struct t32_awb_state, zlim, 103492);
-T32_AWB_CHK(struct t32_awb_state, lim_a, 37992);
-T32_AWB_CHK(struct t32_awb_state, cell_r, 79228);
-T32_AWB_CHK(struct t32_awb_state, cell_b, 80012);
-T32_AWB_CHK(struct t32_awb_state, cell_n, 80796);
-T32_AWB_CHK(struct t32_awb_state, lim_b, 38012);
+T32_AWB_CHK(struct t32_awb_state, zs2, T32_AWB_SO(29800));
+T32_AWB_CHK(struct t32_awb_state, zlim, T32_AWB_SO(103492));
+T32_AWB_CHK(struct t32_awb_state, lim_a, T32_AWB_SO(37992));
+T32_AWB_CHK(struct t32_awb_state, cell_r, T32_AWB_SO(79228));
+T32_AWB_CHK(struct t32_awb_state, cell_b, T32_AWB_SO(80012));
+T32_AWB_CHK(struct t32_awb_state, cell_n, T32_AWB_SO(80796));
+T32_AWB_CHK(struct t32_awb_state, lim_b, T32_AWB_SO(38012));
 T32_AWB_CHK(struct t32_awb_par, ct_lim, 5126);
-T32_AWB_CHK(struct t32_awb_state, out_w, 28676);
-T32_AWB_CHK(struct t32_awb_state, in_id, 28680);
-T32_AWB_CHK(struct t32_awb_state, in_w, 28684);
-T32_AWB_CHK(struct t32_awb_state, sel_a, 28688);
-T32_AWB_CHK(struct t32_awb_state, sel_b, 28689);
-T32_AWB_CHK(struct t32_awb_state, vec, 38032);
-T32_AWB_CHK(struct t32_awb_state, pair, 38048);
-T32_AWB_CHK(struct t32_awb_state, ev, 107588);
+T32_AWB_CHK(struct t32_awb_state, out_w, T32_AWB_SO(28676));
+T32_AWB_CHK(struct t32_awb_state, in_id, T32_AWB_SO(28680));
+T32_AWB_CHK(struct t32_awb_state, in_w, T32_AWB_SO(28684));
+T32_AWB_CHK(struct t32_awb_state, sel_a, T32_AWB_SO(28688));
+T32_AWB_CHK(struct t32_awb_state, sel_b, T32_AWB_SO(28689));
+T32_AWB_CHK(struct t32_awb_state, vec, T32_AWB_SO(38032));
+T32_AWB_CHK(struct t32_awb_state, pair, T32_AWB_SO(38048));
+T32_AWB_CHK(struct t32_awb_state, ev, T32_AWB_SO(107588));
 T32_AWB_CHK(struct t32_awb_par, spec_ctl, 324);
 T32_AWB_CHK(struct t32_awb_par, spec_slot_ctl, 344);
 T32_AWB_CHK(struct t32_awb_par, spec_r, 3460);
 T32_AWB_CHK(struct t32_awb_par, spec_b, 3480);
 T32_AWB_CHK(struct t32_awb_par, spec_en, 5704);
 T32_AWB_CHK(struct t32_awb_par, spec_slot_en, 5709);
-T32_AWB_CHK(struct t32_awb_state, spec_run, 28706);
-T32_AWB_CHK(struct t32_awb_state, spec_cnt, 28707);
-T32_AWB_CHK(struct t32_awb_state, spec_flags, 28708);
-T32_AWB_CHK(struct t32_awb_state, spec_r0, 28718);
-T32_AWB_CHK(struct t32_awb_state, spec_b0, 28738);
-T32_AWB_CHK(struct t32_awb_state, spec_rs, 28728);
-T32_AWB_CHK(struct t32_awb_state, spec_bs, 28748);
-T32_AWB_CHK(struct t32_awb_state, spec_ring, 119944);
+T32_AWB_CHK(struct t32_awb_state, spec_run, T32_AWB_SO(28706));
+T32_AWB_CHK(struct t32_awb_state, spec_cnt, T32_AWB_SO(28707));
+T32_AWB_CHK(struct t32_awb_state, spec_flags, T32_AWB_SO(28708));
+T32_AWB_CHK(struct t32_awb_state, spec_r0, T32_AWB_SO(28718));
+T32_AWB_CHK(struct t32_awb_state, spec_b0, T32_AWB_SO(28738));
+T32_AWB_CHK(struct t32_awb_state, spec_rs, T32_AWB_SO(28728));
+T32_AWB_CHK(struct t32_awb_state, spec_bs, T32_AWB_SO(28748));
+T32_AWB_CHK(struct t32_awb_state, spec_ring, T32_AWB_SO(119944));
 T32_AWB_CHK(struct t32_awb_par, wb_r, 24);
 T32_AWB_CHK(struct t32_awb_par, wb_b, 28);
 T32_AWB_CHK(struct t32_awb_par, ct, 44);
@@ -316,17 +318,17 @@ T32_AWB_CHK(struct t32_awb_par, ct_lo, 3088);
 T32_AWB_CHK(struct t32_awb_par, ct_hi, 3092);
 T32_AWB_CHK(struct t32_awb_par, fp_shift, 3306);
 T32_AWB_CHK(struct t32_awb_par, out_shift, 3308);
-T32_AWB_CHK(struct t32_awb_state, last_ct, 28760);
-T32_AWB_CHK(struct t32_awb_state, off_r, 29792);
-T32_AWB_CHK(struct t32_awb_state, off_b, 29796);
-T32_AWB_CHK(struct t32_awb_state, update, 107596);
-T32_AWB_CHK(struct t32_awb_state, frz, 107597);
-T32_AWB_CHK(struct t32_awb_state, mode, 107598);
-T32_AWB_CHK(struct t32_awb_state, man_ct, 107600);
-T32_AWB_CHK(struct t32_awb_state, man_r, 107604);
-T32_AWB_CHK(struct t32_awb_state, man_b, 107606);
-T32_AWB_CHK(struct t32_awb_state, hist, 107620);
-T32_AWB_CHK(struct t32_awb_state, api_ct, 119916);
+T32_AWB_CHK(struct t32_awb_state, last_ct, T32_AWB_SO(28760));
+T32_AWB_CHK(struct t32_awb_state, off_r, T32_AWB_SO(29792));
+T32_AWB_CHK(struct t32_awb_state, off_b, T32_AWB_SO(29796));
+T32_AWB_CHK(struct t32_awb_state, update, T32_AWB_SO(107596));
+T32_AWB_CHK(struct t32_awb_state, frz, T32_AWB_SO(107597));
+T32_AWB_CHK(struct t32_awb_state, mode, T32_AWB_SO(107598));
+T32_AWB_CHK(struct t32_awb_state, man_ct, T32_AWB_SO(107600));
+T32_AWB_CHK(struct t32_awb_state, man_r, T32_AWB_SO(107604));
+T32_AWB_CHK(struct t32_awb_state, man_b, T32_AWB_SO(107606));
+T32_AWB_CHK(struct t32_awb_state, hist, T32_AWB_SO(107620));
+T32_AWB_CHK(struct t32_awb_state, api_ct, T32_AWB_SO(119916));
 T32_AWB_CHK(struct t32_awb_hw, inv_r4, 144);
 T32_AWB_CHK(struct t32_awb_hw, inv_b4, 146);
 T32_AWB_CHK(struct t32_awb_hw, ct_prev, 148);
@@ -339,24 +341,24 @@ T32_AWB_CHK(struct t32_awb_hw, inv_b, 4276);
 T32_AWB_CHK(struct t32_awb_hw, gain_r, 4282);
 T32_AWB_CHK(struct t32_awb_hw, gain_b, 4284);
 T32_AWB_CHK(struct t32_awb_hw, ct_out, 4290);
-T32_AWB_CHK(struct t32_awb_state, zw_raw2, 20480);
-T32_AWB_CHK(struct t32_awb_state, g1_n_r, 38056);
-T32_AWB_CHK(struct t32_awb_state, g1_den, 42152);
-T32_AWB_CHK(struct t32_awb_state, g1_n_b, 46248);
-T32_AWB_CHK(struct t32_awb_state, g1_w, 54440);
-T32_AWB_CHK(struct t32_awb_state, g0_n_r, 58536);
-T32_AWB_CHK(struct t32_awb_state, g0_den, 62632);
-T32_AWB_CHK(struct t32_awb_state, g0_n_b, 66728);
-T32_AWB_CHK(struct t32_awb_state, g0_w, 74920);
-T32_AWB_CHK(struct t32_awb_state, lg_have, 79036);
-T32_AWB_CHK(struct t32_awb_state, lg_calm, 79044);
-T32_AWB_CHK(struct t32_awb_state, ring_r, 79048);
-T32_AWB_CHK(struct t32_awb_state, ring_b, 79108);
-T32_AWB_CHK(struct t32_awb_state, ring_ct, 79168);
-T32_AWB_CHK(struct t32_awb_state, avg, 107608);
-T32_AWB_CHK(struct t32_awb_state, k_r, 107628);
-T32_AWB_CHK(struct t32_awb_state, k_d, 111724);
-T32_AWB_CHK(struct t32_awb_state, k_b, 115820);
+T32_AWB_CHK(struct t32_awb_state, zw_raw2, T32_AWB_SO(20480));
+T32_AWB_CHK(struct t32_awb_state, g1_n_r, T32_AWB_SO(38056));
+T32_AWB_CHK(struct t32_awb_state, g1_den, T32_AWB_SO(42152));
+T32_AWB_CHK(struct t32_awb_state, g1_n_b, T32_AWB_SO(46248));
+T32_AWB_CHK(struct t32_awb_state, g1_w, T32_AWB_SO(54440));
+T32_AWB_CHK(struct t32_awb_state, g0_n_r, T32_AWB_SO(58536));
+T32_AWB_CHK(struct t32_awb_state, g0_den, T32_AWB_SO(62632));
+T32_AWB_CHK(struct t32_awb_state, g0_n_b, T32_AWB_SO(66728));
+T32_AWB_CHK(struct t32_awb_state, g0_w, T32_AWB_SO(74920));
+T32_AWB_CHK(struct t32_awb_state, lg_have, T32_AWB_SO(79036));
+T32_AWB_CHK(struct t32_awb_state, lg_calm, T32_AWB_SO(79044));
+T32_AWB_CHK(struct t32_awb_state, ring_r, T32_AWB_SO(79048));
+T32_AWB_CHK(struct t32_awb_state, ring_b, T32_AWB_SO(79108));
+T32_AWB_CHK(struct t32_awb_state, ring_ct, T32_AWB_SO(79168));
+T32_AWB_CHK(struct t32_awb_state, avg, T32_AWB_SO(107608));
+T32_AWB_CHK(struct t32_awb_state, k_r, T32_AWB_SO(107628));
+T32_AWB_CHK(struct t32_awb_state, k_d, T32_AWB_SO(111724));
+T32_AWB_CHK(struct t32_awb_state, k_b, T32_AWB_SO(115820));
 T32_AWB_CHK(struct t32_awb_hw, lg_ra, 150);
 T32_AWB_CHK(struct t32_awb_hw, lg_ba, 2198);
 T32_AWB_CHK(struct t32_awb_hw, avg_r, 4278);
@@ -373,11 +375,11 @@ T32_AWB_CHK(struct t32_awb_par, lg_win, 3310);
 T32_AWB_CHK(struct t32_awb_par, lg_p3312, 3312);
 T32_AWB_CHK(struct t32_awb_par, lg_small, 3314);
 T32_AWB_CHK(struct t32_awb_par, lg_still, 3316);
-T32_AWB_CHK(struct t32_awb_state, g1_p, 50344);
-T32_AWB_CHK(struct t32_awb_state, g0_p, 70824);
-T32_AWB_CHK(struct t32_awb_state, lg_reset, 79037);
-T32_AWB_CHK(struct t32_awb_state, frame_cnt, 79040);
-T32_AWB_CHK(struct t32_awb_state, tgain, 107592);
+T32_AWB_CHK(struct t32_awb_state, g1_p, T32_AWB_SO(50344));
+T32_AWB_CHK(struct t32_awb_state, g0_p, T32_AWB_SO(70824));
+T32_AWB_CHK(struct t32_awb_state, lg_reset, T32_AWB_SO(79037));
+T32_AWB_CHK(struct t32_awb_state, frame_cnt, T32_AWB_SO(79040));
+T32_AWB_CHK(struct t32_awb_state, tgain, T32_AWB_SO(107592));
 
 #define T32_AWB_MAX_WRITES	24
 

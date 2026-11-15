@@ -57,8 +57,11 @@ The vendor T33 dispatcher (`isp_core_tunning_default_ioctl` 0x1aea8,
 `tx_isp_core_ops_s_ctrl` 0x18170, `tx_isp_core_ops_g_ctrl` 0x19dfc of the
 vendor module) serves the T32 id set minus 0x9b (BCSH RGB offset: no
 `tisp_s/g_coefft_wb` call). The AE / AWB / statistics ids run on the live T33
-AE / AWB blocks (`tx_isp_t33_aec.c`, `tx_isp_t33_awbc.c`: the same T32 block
-layout; an AWB start gain goes to list 7). The AE 5-bin histogram bounds of a
+AE / AWB blocks (`tx_isp_t33_aec.c`, `tx_isp_t33_awbc.c`: the vendor-layout
+ae_cache / stAeInfo and awbInfo / stAwbStatBuff blocks since wiring groups
+10a / 10b, the AWB run state in the T33 layout via `T32_AWB_SO`; an AWB start
+gain goes to list 7). The AWB attribute ids (only-read, weight get / set) and
+the CCM get run the oracle-proven attrAWB glue. The AE 5-bin histogram bounds of a
 new AE context come from the statistics config (vendor
 `tisp_ae_hist_last + 0x414`). Mask / draw / OSD ids (0x74, 0xa0..0xa2) are
 stored and read back as the vendor's, not drawn (no MSCA OSD path yet); AF ids

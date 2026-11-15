@@ -26,6 +26,13 @@ struct t33_awbattr_ops {
 #define T33_AWBW_BYTES	1024U
 #define T33_CCM_ATTR_BYTES	40U
 
+/* the 1 KiB weight block: the vendor's stack frame; static in the driver (callers hold the tuning lock) */
+#ifdef T33_ATTRAWB_STATIC
+#define T33_AWBW_STORE	static
+#else
+#define T33_AWBW_STORE
+#endif
+
 /* tx_isp_awb_only_read_attr: the word at +16 of the AWB attribute to the user */
 static inline int t33_awb_only_read_attr(const struct t33_awbattr_ops *ops, u32 ch, u32 user)
 {
@@ -44,7 +51,7 @@ static inline int t33_awb_only_read_attr(const struct t33_awbattr_ops *ops, u32 
 /* tx_isp_awb_weight_g_attr */
 static inline int t33_awb_weight_g_attr(const struct t33_awbattr_ops *ops, u32 ch, u32 user)
 {
-	u8 buf[T33_AWBW_BYTES];
+	T33_AWBW_STORE u8 buf[T33_AWBW_BYTES];
 	int r, rc;
 
 	r = ops->g_weight(ch, buf);
@@ -63,7 +70,7 @@ static inline int t33_awb_weight_g_attr(const struct t33_awbattr_ops *ops, u32 c
 /* tx_isp_awb_weight_s_attr */
 static inline int t33_awb_weight_s_attr(const struct t33_awbattr_ops *ops, u32 ch, u32 user)
 {
-	u8 buf[T33_AWBW_BYTES];
+	T33_AWBW_STORE u8 buf[T33_AWBW_BYTES];
 	int rc;
 
 	rc = ops->from_user(buf, user, T33_AWBW_BYTES);

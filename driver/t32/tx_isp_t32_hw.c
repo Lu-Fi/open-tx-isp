@@ -1906,10 +1906,15 @@ static noinline_for_stack void t33_tisp_init_awb(const u8 *bin, u32 bytes)
 	if (!t33_awb_stat_pages)
 		t33_awb_stat_pages = t32_dma_zpages(get_order(T33_AWB_STAT_BYTES));
 	buf = t33_mod_buf(T33_MOD_AWB);
-	if (buf && t33_awb_stat_pages)
-		t33_mod_done(T33_MOD_AWB, t33_awb_init(bin + off, width, height, T33_AWB_INIT_TGAIN,
-						       (u32)virt_to_phys((void *)t33_awb_stat_pages), buf,
-						       T33_SLOT_WORDS));
+	if (buf && t33_awb_stat_pages) {
+		int n = t33_awb_init(bin + off, width, height, T33_AWB_INIT_TGAIN,
+				     (u32)virt_to_phys((void *)t33_awb_stat_pages), buf, T33_SLOT_WORDS);
+
+		/* tisp_awb_malloc_info: awbInfo / stAwbStatBuff and list 29 slots 11..14 */
+		if (n > 0 && t33_awbc_malloc_info(buf, t33_awb_stat_pages))
+			n = -ENOMEM;
+		t33_mod_done(T33_MOD_AWB, n);
+	}
 	{
 		u32 zs;
 
@@ -3307,6 +3312,9 @@ void t33_refresh_para(u32 mode)
 		t33_aec_switch_sec(bin + off, len);
 		t33_ae_switch_para(0);
 	}
+	/* tisp_awb_dn_params_refresh (vendor: after the AE): the new AWB section, list 29 at the next AWB irq */
+	if ((off = t32_iq_section(bin, bytes, T33_SEC_AWB, &len)) && len >= T33_AWB_SEC_MIN)
+		t33_awbc_dn_refresh(bin + off, len);
 	t33_gr_refresh(gain, sw);
 	isp_printf(0, "tx-isp-t33: IQ bin switch (mode %u): lists rebuilt at gain %#x ct %u ev %#x:%#x, switch_para %#llx\n",
 		   mode, gain, ct, hi, lo, (unsigned long long)sw);
