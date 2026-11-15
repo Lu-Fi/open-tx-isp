@@ -18,6 +18,6 @@ awk '/^static void tiziano_bcsh_TransitParam\(/,/^}/' "$F" | grep -q 'memcpy(bcs
 grep -q '^static const uint32_t bcsh_clip\[4\] = { 0x0000, 0x03ff, 0x0000, 0x03ff };' "$F" || no "the constant clip (vendor tisp_BCSH_au32clip) is missing"
 [ "$(grep -c 'tiziano_bcsh_lut_parameter((void \*)bcsh_clip, bcsh_clip1, bcsh_clip2, bcsh_Offset0)' "$F")" = 2 ] || no "the LUT must get the constant clip, not the IQ bin clip0"
 grep -q 'bcsh_Cslope2 = (diff << 10) / (bcsh_clip1\[1\] - bcsh_ai32_C\[2\]);' "$F" || no "Cslope2 must use clip1[1] like the vendor"
-grep -q 'uint32_t hlsp_en = (uint8_t)bcsh_clip0\[0\];' "$F" || no "HLSP control bytes must come from clip0"
+grep -q 'bcsh_HLSP_now, &bcsh_HLSPslope, bcsh_ev_current, bcsh_clip0, bcsh_EvList_now, bcsh_HLSP_now);' "$F" || no "HLSP control bytes must come from clip0 (t31_bcsh_lut control argument)"
 [ $fail = 0 ] && echo "check_t31_bcsh_c: ok"
 exit $fail

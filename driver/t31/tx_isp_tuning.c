@@ -8120,6 +8120,8 @@ static int apical_isp_ev_g_attr(struct tx_isp_dev *dev, struct isp_core_ctrl *ct
 #define T31_BU_LUT()		tiziano_bcsh_lut_parameter((void *)bcsh_clip, bcsh_clip1, bcsh_clip2, bcsh_Offset0)
 #define T31_BU_REAL_CLEAR()	(BCSH_real = 0)
 #include "tx_isp_t31_bcshup.h"
+#define T31_BL_W(r, v)	system_reg_write((r), (v))
+#include "tx_isp_t31_bcshlut.h"
 
 static int tiziano_bcsh_update(struct isp_tuning_data *tuning)
 {
@@ -32547,90 +32549,13 @@ static void tiziano_bcsh_reg2para(int32_t *dst, const uint32_t *src)
  * TransitParam computes all the parameter arrays. */
 static void tiziano_bcsh_lut_parameter(void *tisp_bcsh, void *clip1, void *clip2, void *offset0)
 {
-    uint32_t *clip0 = tisp_bcsh;
-    uint32_t *clip1_now = clip1;
-    uint32_t *clip2_now = clip2;
-    uint32_t *offset0_now = offset0;
-    /* vendor 0x28304..0x2855c (openimp #550): default mix HLSP[2] << 16 | HLSP[1] (no mask); the control bytes
-     * come from tisp_BCSH_au32clip0 (IQ bin): [0] enable, [1] low index, [2] tail enable, [3] high index */
-    uint32_t hlsp_mix = (bcsh_HLSP_now[2] << 16) | bcsh_HLSP_now[1];
-    uint32_t hlsp_en = (uint8_t)bcsh_clip0[0];
-    uint32_t lo_idx = (uint8_t)bcsh_clip0[1];
-    uint32_t hlsp_tail = (uint8_t)bcsh_clip0[2];
-    uint32_t hi_idx = (uint8_t)bcsh_clip0[3];
-    uint32_t ev_now = bcsh_ev_current >> 10;
-    int hlsp_done = 0;
+    /* vendor tiziano_bcsh_lut_parameter, proven by tests/t31_binoracle bcshlut (openimp #550) */
+    const uint32_t sstep[2] = { bcsh_Sstep0, bcsh_Sstep1 };
 
-#define PACK16(hi, lo) ((((uint32_t)(hi) & 0xffff) << 16) | ((uint32_t)(lo) & 0xffff))
-
-    if (lo_idx >= 0xa)
-        lo_idx = 9;
-    else if (lo_idx == 0)
-        lo_idx = 1;
-
-    if (hi_idx >= 0xa)
-        hi_idx = 9;
-    else if (hi_idx == 0)
-        hi_idx = 1;
-
-    if (hlsp_en == 1 && ev_now < bcsh_EvList_now[lo_idx - 1]) {
-        uint32_t lim = bcsh_EvList_now[lo_idx - 1];
-        uint32_t n = ev_now < 2 ? 1 - ev_now : ev_now - 1;
-        uint32_t den = lim ? lim - 1 : 1;
-
-        hlsp_mix = ((n * bcsh_HLSP_now[2] / den) << 16) | (n * bcsh_HLSP_now[1] / den);
-        hlsp_done = 1;
-    }
-    if (!hlsp_done && hlsp_tail == 1) {
-        uint32_t lim = bcsh_EvList_now[8];
-
-        if (!(ev_now < lim)) {
-            hlsp_mix = 0;
-        } else {
-            uint32_t st = bcsh_EvList_now[hi_idx - 1];
-
-            if (st < ev_now) {
-                uint32_t range = lim < st ? st - lim : lim - st;
-                uint32_t h = bcsh_HLSP_now[2], l = bcsh_HLSP_now[1], hp = 0;
-
-                if (h)
-                    hp = (h - (ev_now - st) * h / range) << 16;
-                hlsp_mix = l ? (hp | (l - (ev_now - st) * l / range)) : hp;
-            }
-        }
-    }
-
-    system_reg_write(0x8000, PACK16(clip0[0], clip0[1]));
-    system_reg_write(0x8004, PACK16(clip1_now[0], clip1_now[1]));
-    system_reg_write(0x8008, PACK16(clip2_now[0], clip2_now[1]));
-    system_reg_write(0x800c, PACK16(clip0[2], clip0[3]));
-    system_reg_write(0x8010, PACK16(clip1_now[2], clip1_now[3]));
-    system_reg_write(0x8014, PACK16(clip2_now[2], clip2_now[3]));
-    system_reg_write(0x8018, PACK16(bcsh_Offset1[0], offset0_now[0]));
-    system_reg_write(0x801c, PACK16(bcsh_Offset1[1], offset0_now[1]));
-    system_reg_write(0x8020, PACK16(bcsh_Offset1[2], offset0_now[2]));
-    system_reg_write(0x8024, PACK16(bcsh_HMatrix[1], bcsh_HMatrix[0]));
-    system_reg_write(0x8028, bcsh_HMatrix[2]);
-    system_reg_write(0x802c, PACK16(bcsh_HMatrix[4], bcsh_HMatrix[3]));
-    system_reg_write(0x8030, bcsh_HMatrix[5]);
-    system_reg_write(0x8034, PACK16(bcsh_HMatrix[7], bcsh_HMatrix[6]));
-    system_reg_write(0x8038, bcsh_HMatrix[8]);
-    system_reg_write(0x803c, PACK16(bcsh_HDPslope, bcsh_HDP_now[0]));
-    system_reg_write(0x8040, PACK16(bcsh_HDP_now[2], bcsh_HDP_now[1]));
-    system_reg_write(0x8044, PACK16(bcsh_HBPslope, bcsh_HBP_now[0]));
-    system_reg_write(0x8048, PACK16(bcsh_HBP_now[2], bcsh_HBP_now[1]));
-    system_reg_write(0x804c, PACK16(bcsh_HLSPslope, bcsh_HLSP_now[0]));
-    system_reg_write(0x8050, hlsp_mix);
-    system_reg_write(0x8054, PACK16(bcsh_Cslope0, bcsh_ai32_C[0]));
-    system_reg_write(0x8058, PACK16(bcsh_Cslope2, bcsh_Cslope1));
-    system_reg_write(0x805c, PACK16(bcsh_ai32_C[2], bcsh_ai32_C[1]));
-    system_reg_write(0x8060, PACK16(bcsh_ai32_C[4], bcsh_ai32_C[3]));
-    system_reg_write(0x8064, PACK16(bcsh_Sstep1, (bcsh_Sstep0 << 3) | bcsh_Sthres_now[0]));
-    system_reg_write(0x8068, PACK16(bcsh_Sthres_now[2], bcsh_Sthres_now[1]));
-    system_reg_write(0x806c, PACK16(bcsh_ai32_Svalue[0], bcsh_ai32_Svalue[1]));
-    system_reg_write(0x8070, PACK16(bcsh_ai32_Svalue[2], bcsh_ai32_Svalue[3]));
-
-#undef PACK16
+    t31_bcsh_lut(tisp_bcsh, clip1, clip2, offset0, bcsh_Offset1, bcsh_ai32_C,
+                 &bcsh_Cslope0, &bcsh_Cslope1, &bcsh_Cslope2, bcsh_Sthres_now, bcsh_ai32_Svalue, sstep,
+                 (const uint32_t *)bcsh_HMatrix, bcsh_HDP_now, &bcsh_HDPslope, bcsh_HBP_now, &bcsh_HBPslope,
+                 bcsh_HLSP_now, &bcsh_HLSPslope, bcsh_ev_current, bcsh_clip0, bcsh_EvList_now, bcsh_HLSP_now);
 }
 
 /* OEM: tiziano_bcsh_dump — one-shot BCSH register dump. OEM at 0x2a8d0. */
