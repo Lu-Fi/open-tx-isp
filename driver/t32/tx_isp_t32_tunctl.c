@@ -213,6 +213,59 @@ int t32_tx_os_tisp_g_gamma(u32 ch, void *buf)
 	return t32_tc_put(buf, t32_tc[ch].gamma, 264);
 }
 
+#ifdef TX_ISP_T33
+/*
+ * T33 (openimp #608, group 13d-2): tx_isp_gamma_s_attr / _g_attr are the proven attr2 ports (tx_isp_t33_attr2.h)
+ * around tisp_s_Gamma / tisp_g_Gamma on the gamma block gamma_para (tx_isp_t32_hw.c t33_tisp_s_gamma: the curve
+ * reaches list 11 at the next irq 46, as the vendor).  Before the ISP init (no block yet) the T32 store above.
+ */
+#include "tx_isp_t33_attr2.h"
+
+int t33_tisp_s_gamma(u32 ch, void *buf);
+int t33_tisp_g_gamma(u32 ch, void *buf);
+
+static int t33_tc_s_gamma(u32 ch, void *buf)
+{
+	if (!t33_tisp_s_gamma(ch, buf))
+		return 0;
+	t32_tx_os_tisp_s_gamma(ch, buf);
+	return 0;	/* tisp_s_Gamma ignores tisp_gamma_api_set's result */
+}
+
+static int t33_tc_g_gamma(u32 ch, void *buf)
+{
+	if (!t33_tisp_g_gamma(ch, buf))
+		return 0;
+	return t32_tx_os_tisp_g_gamma(ch, buf);
+}
+
+static int t33_tc_copy_from(void *to, void *from, unsigned long n)
+{
+	return (int)t32_tx_os_copy_from_user(to, (u32)(uintptr_t)from, (u32)n);
+}
+
+static int t33_tc_copy_to(void *to, void *from, unsigned long n)
+{
+	return (int)t32_tx_os_copy_to_user((u32)(uintptr_t)to, from, (u32)n);
+}
+
+static int t33_tc_attr_pr(int level, const char *msg, const char *fn, int line)
+{
+	t32_tx_os_isp_printf((u32)level, "[ %s:%d ] %s!!!\n", fn, line, msg);
+	return 0;
+}
+
+int t33_tx_gamma_s_attr(u32 ch, u32 user)
+{
+	return t33_gamma_s_attr(ch, user, t33_tc_s_gamma, t33_tc_copy_from, t33_tc_attr_pr);
+}
+
+int t33_tx_gamma_g_attr(u32 ch, u32 arg)
+{
+	return t33_gamma_g_attr(ch, (const u8 *)T32_TX_P(arg), t33_tc_g_gamma, t33_tc_copy_to, t33_tc_attr_pr);
+}
+#endif
+
 /*
  * tisp_g_autozoom_control -> tisp_msca_api_get_autozoom: the five crop words of the three
  * MSCA output sets (start x, y, ..., width, height at +6 / +8 of each set), here the

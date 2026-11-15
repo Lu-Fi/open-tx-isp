@@ -29,6 +29,9 @@ int t32_tx_os_awb_attr_g_attr(u32 ch, u32 arg);
 int t32_tx_os_awb_weight_g_attr(u32 ch, u32 arg);
 int t32_tx_os_awb_only_read_attr(u32 ch, u32 arg);
 int t32_tx_os_ae_weight_g_attr(u32 ch, u32 arg);
+#ifdef TX_ISP_T33
+int t33_tx_gamma_g_attr(u32 ch, u32 arg);	/* tx_isp_t32_tunctl.c (openimp #608) */
+#endif
 int t32_tx_os_ae_expoinfo_g_attr(u32 ch, u32 arg);
 int t32_tx_os_ae_scence_g_attr(u32 ch, u32 arg);
 int t32_tx_os_ae_explist_g_attr(u32 ch, u32 arg);
@@ -209,7 +212,11 @@ static inline int t32_tx_core_ops_g_ctrl(u32 ch, u32 isp, u32 ctrl)
 		return t32_tx_gc_statis(ch, ctrl, t32_tx_os_tisp_g_ae_statis_attr, 1934, 1, "tx_isp_ae_statis_g_attr", 1050);
 	case 0x23: return t32_tx_os_ae_expoinfo_g_attr(ch, ctrl + 4);
 	case 0x24: return t32_tx_os_ae_scence_g_attr(ch, ctrl + 4);
+#ifdef TX_ISP_T33
+	case 0x25: return t33_tx_gamma_g_attr(ch, ctrl + 4);	/* tx_isp_t33_attr2.h (openimp #608) */
+#else
 	case 0x25: return t32_tx_gamma_g_attr(ch, ctrl + 4);
+#endif
 	case 0x26: return t32_tx_gc_get(ch, ctrl, t32_tx_os_tisp_g_antiflick, 8, "tx_isp_flicker_g_attr", 607, 2, NULL);
 	case 0x27: return t32_tx_os_ae_explist_g_attr(ch, ctrl + 4);
 	case 0x28: return t32_tx_gc_get(ch, ctrl, t32_tx_os_tisp_g_ae_flicker_flag, 8, "tx_isp_ae_g_flicker_flag", 1773, 2, NULL);

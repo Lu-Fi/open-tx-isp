@@ -34,6 +34,9 @@ typedef int (*t32_tx_sc_ev_fn)(u32 sd, u32 ev, void *msg);
 /* provided by the driver glue (kernel) or by the oracle (host) */
 extern u32 t32_tx_link_mode;		/* d9014 */
 int t32_tx_os_awb_attr_s_attr(u32 ch, u32 user);
+#ifdef TX_ISP_T33
+int t33_tx_gamma_s_attr(u32 ch, u32 user);	/* tx_isp_t32_tunctl.c (openimp #608) */
+#endif
 int t32_tx_os_awb_weight_s_attr(u32 ch, u32 user);
 int t32_tx_os_ae_weight_s_attr(u32 ch, u32 user);
 int t32_tx_os_ae_expoinfo_s_attr(u32 ch, u32 user);
@@ -308,7 +311,11 @@ static inline int t32_tx_core_ops_s_ctrl(u32 ch, u32 isp, u32 ctrl)
 	case 0x23: return t32_tx_os_ae_expoinfo_s_attr(ch, user);
 	case 0x24:
 		return t32_tx_sc_set(ch, ctrl, t32_tx_os_tisp_s_ae_scence_attr, 40, "tx_isp_ae_scence_s_attr", 956, NULL, 0);
+#ifdef TX_ISP_T33
+	case 0x25: return t33_tx_gamma_s_attr(ch, user);	/* tx_isp_t33_attr2.h (openimp #608) */
+#else
 	case 0x25: return t32_tx_gamma_s_attr(ch, user);
+#endif
 	case 0x26:
 		return t32_tx_sc_set(ch, ctrl, t32_tx_os_tisp_s_antiflick, 8, "tx_isp_flicker_s_attr", 590,
 				     "[ %s:%d ] set control failed!!!\n", 594);

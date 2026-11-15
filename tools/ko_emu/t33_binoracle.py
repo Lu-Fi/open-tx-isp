@@ -41,6 +41,8 @@ SPEC: one function per line (from the block's .conf, FUNCS=):
   CALLS ... !ARG:LEN[:OFF=V1,V2..]   (after the NAME item, repeatable) the callee FILLS the LEN bytes ARG points to with
                                 deterministic pseudo-random bytes (the LE u32 at each OFF one of the values), the same
                                 on both sides: copy_from_user style callees whose result the code under test reads
+  NOP NAME ...                  (line) vendor module functions (spin lock wrappers around a block state) that return 0
+                                without running or being recorded; ours does not call them
   VEC VENDOR V1 V2 ...          (line) fixed values for the scalar arguments of VENDOR (pointer arguments
                                 generated as usual), run before the random cases
   More than four argument words go to the stack (o32).
@@ -92,6 +94,7 @@ EDGE32 = [0, 1, 2, 3, 0x7fffffff, 0x80000000, 0xffffffff, 0xfffffffe, 0x100, 0x1
 
 
 calls = {}   # CALLS: name -> (return values, nargs, derefs)
+nops = set()  # NOP: module functions (spin lock wrappers) that return 0 unrecorded on the vendor side
 caseno = [0]
 calllog = []
 
@@ -125,7 +128,7 @@ def _derefrec(e, p, x):
 
 def parse(path):
     fns, gl, vec = [], [], {}
-    calls.clear()
+    calls.clear(); nops.clear()
     for ln in open(path):
         t = ln.split('#', 1)[0].split()
         if not t:
@@ -145,6 +148,8 @@ def parse(path):
                     q = f.split(':')
                     fl.append((int(q[0], 0), int(q[1], 0), [(int(o.split('=')[0], 0), [int(v, 0) for v in o.split('=')[1].split(',')]) for o in q[2:]]))
                 calls[n] = ([int(v, 0) for v in rv.split(',')] if rv else [0], int(na) if na else 4, [_deref(d) for d in deref], fl, hold)
+        elif t[0] == 'NOP':
+            nops.update(t[1:])
         elif t[0] == 'VEC':
             vec.setdefault(t[1], []).append([int(x, 0) for x in t[2:]])
         else:
@@ -346,6 +351,10 @@ def main():
                     return r[(caseno[0] + (_r(e, 0) if hd == '^' else 0 if hd else len(calllog))) % len(r)]
                 return h
             emu.hle[n] = mk(n, rv, na, dr, fl, hold)
+    for n in nops:                              # NOP: trap the vendor function's entry, return 0, not recorded
+        if n not in oem.symaddr:
+            print('t33_binoracle: NOP %s not found on the vendor side' % n); return 2
+        oem.stubname[oem.symaddr[n]] = n; oem.hle[n] = lambda e: 0
     for v, o, sz, _w in gl:
         if v not in oem.symaddr or o not in our.symaddr:
             print('t33_binoracle: global %s / %s missing' % (v, o)); return 2
