@@ -11,18 +11,15 @@
 
 #include "tx_isp_t33_blk.h"
 
-#ifndef T33_SW_GLUE	/* the driver maps the CCM names (tx_isp_t32_hw.c, before t33_sw_tone) */
+#ifndef T33_SW_GLUE	/* the driver maps the callee names (tx_isp_t32_hw.c, before t33_sw_tone) */
 extern int tisp_ccm_interp_by_ct(u32 idx, u32 ct, u32 force);
 extern int tisp_ccm_interp_by_ev(u32 idx, u32 pad, u32 ev_lo, u32 ev_hi, u32 force);
 extern int tisp_ccm_no_interp(u32 idx);
 extern int tisp_ccm_calc_para_refresh(u32 idx);
 extern int tisp_ccm_write_reg(u32 idx, u32 mode);
-#endif
 extern int tisp_csccr_para_refresh_by_mode(u32 mode, u32 zero);
 extern int tisp_csccr_sync_api_para(u32 idx, u32 one);
 extern int tisp_csccr_bin_par_update(u32 idx);
-extern int t33_swmid_reg_write(u32 idx, u32 list, u32 slot, u32 val) __asm__("tisp_reg_write_t33");
-extern int t33_swmid_printf(int lvl, const char *fmt, ...) __asm__("isp_printf");
 extern int defog_count_weight35abc(u32 idx, u32 a, u32 b, u32 c, u8 *p0, u8 *p1, u8 *p2, u8 *p3,
 				   u8 *p4, u8 *p5, u8 *p6);
 extern int tisp_defog_write_reg_para1(u32 idx);
@@ -37,6 +34,9 @@ extern int tisp_lsc_interp_by_tgain(u32 idx, u32 gain, u32 force);
 extern int tisp_lsc_interp_by_ct(u32 idx, u32 ct, u32 force);
 extern int func_lsc_para_update(u32 idx);
 extern int tisp_lsc_write_reg(u32 idx, u32 mode);
+#endif
+extern int t33_swmid_reg_write(u32 idx, u32 list, u32 slot, u32 val) __asm__("tisp_reg_write_t33");
+extern int t33_swmid_printf(int lvl, const char *fmt, ...) __asm__("isp_printf");
 
 static inline u32 t33_swmid_w(const void *p)
 {
