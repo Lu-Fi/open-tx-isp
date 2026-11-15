@@ -137,3 +137,61 @@ def fuzz_api(m, n=200, seed=2):
                     a, b, ra, rb, diff[:4], (' fault V=%s O=%s' % (fa, fb)) if fa or fb else '')))
         out[name] = (n, bad)
     return out
+
+
+# sensor bus sample functions (apical_sbus_i2c / apical_sbus_spi):
+# (bus, addr[, sample], sample_size); the transfers end in the environment
+# stubs I2C_write/I2C_read/spi_rw32/spi_rw48, whose arguments and buffers
+# are logged
+SBUS = ('i2c_io_read_sample', 'i2c_io_write_sample', 'spi_io_read_sample', 'spi_io_write_sample')
+SBUS_BITS = (1, 2, 8, 0x10, 0x20, 0x400, 0x1000, 0x2000, 0x4000, 0x8000, 0x10000)
+
+
+def fuzz_sbus(m, n=3000, seed=3):
+    """bus mode flags x lock state x sample size: same transfers (order,
+    arguments, buffer bytes, interrupt bracketing) and same read result"""
+    bus, lock = HEAP + 0x2000, HEAP + 0x2040
+    env = m.env
+    keep = env.io_ret, env.i2c_ret, env.i2c_data
+    out = {}
+    for name in SBUS:
+        if name not in m.V.sym or name not in m.O.sym:
+            continue
+        r = random.Random(seed)
+        rd = '_read_' in name
+        bad = []
+        for i in range(n):
+            mask = sum(b for b in SBUS_BITS if r.random() < 0.4)
+            if r.random() < 0.1:
+                mask |= r.getrandbits(32)
+            words = (mask, r.getrandbits(8) | (r.getrandbits(24) << 8), r.getrandbits(32),
+                     r.choice((0, lock)))
+            lockw = (r.getrandbits(32), r.choice((0, 0, 1, r.getrandbits(32))))
+            addr = r.getrandbits(r.randint(0, 32))
+            sample = r.getrandbits(r.randint(0, 32))
+            size = r.choice((1, 2, 4, 4, 1, 2, 0, 3))
+            args = [bus, addr, size] if rd else [bus, addr, sample, size]
+            env.io_ret = r.choice((r.getrandbits(32), r.getrandbits(32), 0xffffffff, 0))
+            env.i2c_ret = (r.choice((0, 0, 0, 1)), r.choice((0, 0, 0, 2)))
+            env.i2c_data = bytes(r.getrandbits(8) for _ in range(8))
+            res = []
+            for img in (m.V, m.O):
+                for k, w in enumerate(words):
+                    m.w32(bus + 4 * k, w)
+                m.w32(lock, lockw[0])
+                m.w32(lock + 4, lockw[1])
+                env.log = []
+                v0 = m.call(img.sym[name][0], args, sp=SP0)[0]
+                res.append((v0 if rd else 0, env.log, m.fault))
+            if res[0] != res[1]:
+                (a, la, fa), (b, lb, fb) = res
+                k = 0
+                while k < min(len(la), len(lb)) and la[k] == lb[k]:
+                    k += 1
+                bad.append((args, 'mask=0x%x lock=%s ret V=0x%x O=0x%x calls V=%s O=%s%s' % (
+                    mask, 'none' if not words[3] else hex(lockw[1]), a, b, la[k:k + 2], lb[k:k + 2],
+                    (' fault V=%s O=%s' % (fa, fb)) if fa or fb else '')))
+        out[name] = (n, bad)
+    env.log = []
+    env.io_ret, env.i2c_ret, env.i2c_data = keep
+    return out

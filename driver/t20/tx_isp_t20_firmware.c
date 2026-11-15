@@ -1774,8 +1774,9 @@ uint32_t system_isp_read_8(uint32_t offset);
 void system_isp_write_32(uint32_t offset, uint32_t value);
 int16_t * system_isp_write_16(uint32_t offset, uint16_t value);
 char * system_isp_write_8(uint32_t offset, uint8_t value);
-int32_t spi_rw32(void);
-int32_t spi_rw48(void);
+uint32_t spi_rw32(uint32_t sel_mask, uint32_t control, uint32_t data, uint8_t data_size);
+uint32_t spi_rw48(uint32_t sel_mask, uint32_t control, uint32_t addr, uint8_t addr_size,
+		  uint32_t data, uint8_t data_size);
 int32_t spi_init_access(void);
 uint32_t system_timer_timestamp(void);
 int32_t system_timer_frequency(void);
@@ -1886,12 +1887,12 @@ int32_t apical_loop_buffer_write_u8(int32_t *arg1, int32_t arg2, char arg3);
 int32_t isp_io_write_sample(int32_t arg1, int32_t arg2, int32_t arg3, char arg4);
 uint32_t isp_io_read_sample(int32_t arg1, int32_t arg2, char arg3);
 int32_t apical_sbus_isp_init(void *arg1);
-int32_t i2c_io_read_sample(int32_t *arg1, uint32_t arg2, char arg3);
-int32_t i2c_io_write_sample(uintptr_t a0, uint32_t a1, uint32_t a2, uint32_t a3);
+uint32_t i2c_io_read_sample(struct t20_sbus *bus, uint32_t addr, uint8_t sample_size);
+void i2c_io_write_sample(struct t20_sbus *bus, uint32_t addr, uint32_t sample, uint8_t sample_size);
 int32_t apical_sbus_i2c_init(void *arg1);
 static int32_t i2c_init_access(void);
-int32_t spi_io_write_sample(uintptr_t a0, uint32_t a1, uint32_t a2, uint32_t a3);
-int32_t spi_io_read_sample(uint32_t *arg1, uint32_t arg2, char arg3);
+void spi_io_write_sample(struct t20_sbus *bus, uint32_t addr, uint32_t sample, uint8_t sample_size);
+uint32_t spi_io_read_sample(struct t20_sbus *bus, uint32_t addr, uint8_t sample_size);
 int32_t apical_sbus_spi_init(void *arg1);
 void sensor_write_data(int32_t *dev, int32_t reg, char *buf, int32_t len);
 static int64_t sequence_read_u16(uintptr_t a0);
@@ -3891,155 +3892,95 @@ int32_t apical_sbus_isp_init(void *bus_ptr)
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000017a10 origin=model_output original=i2c_io_read_sample */
-int32_t i2c_io_read_sample(int32_t *bus, uint32_t addr, char sample_size)
+/*
+ * The bus owner may already run with the ISP interrupts masked
+ * (irq_masked set in its control block); only then the sample
+ * transfer is not bracketed by disable/enable here.
+ */
+static inline void t20_sbus_irq_disable(struct t20_sbus_lock *lock)
 {
-	int32_t flags = *bus;
-	uint32_t count = (uint32_t)sample_size & 0xff;
-	uint32_t reg = (uint32_t)bus[1] & 0xff;
-	int32_t *dev = (int32_t *)bus[3];
-	int32_t nbytes;
-	unsigned char buf[8];
-	int32_t *i;
-	int32_t ret;
-	int32_t result;
-	uint32_t idx;
+	if (lock && !lock->irq_masked)
+		system_hw_interrupts_disable();
+}
 
-	if (!(flags & 0x1000)) {
-		if (!(flags & 0x10)) {
-			nbytes = 2;
-		} else {
-			nbytes = 4;
-		}
-	} else {
-		nbytes = (flags & 0x20) ? 0 : 1;
-	}
+static inline void t20_sbus_irq_enable(struct t20_sbus_lock *lock)
+{
+	if (lock && !lock->irq_masked)
+		system_hw_interrupts_enable();
+}
 
-	for (i = 0; i < nbytes; i++) {
-		((void **)buf)[(uintptr_t)i] = (unsigned char)addr;
+/* register address bytes on the wire, from the bus mode flags */
+static inline uint32_t t20_sbus_i2c_addr_size(uint32_t mask)
+{
+	if (mask & 0x1000)
+		return 0;
+	if (mask & 0x10)
+		return 2;
+	if (mask & 0x20)
+		return 4;
+	return 1;
+}
+
+/* OEM 0x17240 (apical_sbus_i2c read_sample): 0 on a bus error */
+uint32_t i2c_io_read_sample(struct t20_sbus *bus, uint32_t addr,
+			    uint8_t sample_size)
+{
+	uint8_t device = bus->device;
+	struct t20_sbus_lock *lock = bus->p_control;
+	uint32_t addr_size = t20_sbus_i2c_addr_size(bus->mask);
+	uint8_t buf[8];
+	uint32_t sample;
+	uint32_t i;
+	int32_t err;
+
+	/* register address, LSB first */
+	for (i = 0; i < addr_size; i++) {
+		buf[i] = addr;
 		addr >>= 8;
 	}
 
-	if (dev && !dev[1])
-		system_hw_interrupts_disable();
+	t20_sbus_irq_disable(lock);
+	err = 0;
+	if (addr_size)
+		err = I2C_write(device, (char *)buf, addr_size);
+	if (!err)
+		err = I2C_read(device, (uintptr_t)buf, sample_size);
+	t20_sbus_irq_enable(lock);
 
-	if (nbytes)
-		I2C_write(reg, buf, nbytes);
-
-	ret = I2C_read(reg, buf, count);
-
-	if (dev && !dev[1]) {
-		system_hw_interrupts_enable();
-		ret = 0;
-	}
-
-	if (ret)
+	if (err)
 		return 0;
 
-	result = 0;
-	idx = count;
-	while (1) {
-		idx = (uint32_t)((char)(idx - 1)) & 0xff;
-		if (idx == 0xff)
-			break;
-		result = (result << 8) + (int32_t)buf[idx];
-	}
+	/* sample bytes arrive LSB first */
+	sample = 0;
+	while (sample_size--)
+		sample = (sample << 8) + buf[sample_size];
 
-	return result;
+	return sample;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000017b60 origin=fragment_seed original=i2c_io_write_sample */
-int32_t i2c_io_write_sample(uintptr_t bus, uint32_t addr, uint32_t data, uint32_t size)
+/* OEM 0x17390 (apical_sbus_i2c write_sample) */
+void i2c_io_write_sample(struct t20_sbus *bus, uint32_t addr, uint32_t sample,
+			 uint8_t sample_size)
 {
-	/* OEM 0x17200: 8-byte address+data buffer at sp+16 (written
-	 * through &buf below; a single word overflowed into the
-	 * neighbouring stack slots, which only stayed harmless at -O0) */
-	uint32_t buf[2] = { 0, 0 };
-	uint32_t saved_ctrl = 0;
-	uint32_t saved_bus_ptr = 0;
-	uint32_t saved_total_len = 0;
-	uint32_t saved_return = 0;
-	uint32_t return_addr = 0;
-	uintptr_t *ctrl = 0;
-	uintptr_t *bus_ptr = 0;
-	uint32_t *total_len = 0;
-	uint32_t buf_base = 0;
-	uintptr_t addr_len = 0;
-	uint32_t flags = 0;
+	struct t20_sbus_lock *lock = bus->p_control;
+	uint32_t addr_size = t20_sbus_i2c_addr_size(bus->mask);
+	uint8_t buf[8];
+	uint32_t i;
 
-	flags = *(uint32_t *)((char *)bus + 0);
-	saved_bus_ptr = bus_ptr;
-	saved_ctrl = ctrl;
-	bus_ptr = bus;
-	ctrl = *(uint32_t *)((char *)bus + 12);
-	bus = flags & 4096;
-	saved_return = return_addr;
-	saved_total_len = total_len;
-	size = size & 255;
+	/* register address, then the sample, both LSB first */
+	for (i = 0; i < addr_size; i++) {
+		buf[i] = addr;
+		addr >>= 8;
+	}
+	for (i = 0; i < sample_size; i++) {
+		buf[addr_size + i] = sample;
+		sample >>= 8;
+	}
 
-	/* register address bytes, LSB first (none when flag 0x1000 is set) */
-	addr_len = 0;
-	do {
-		if (bus != 0)
-			break;
-
-		bus = flags & 16;
-		addr_len = 2;
-		do {
-			if (bus != 0)
-				break;
-			flags = flags & 32;
-			addr_len = 4;
-			bus = 1;
-			if (flags == 0)
-				addr_len = bus;
-		} while (0);
-
-		flags = 0;
-		buf_base = (uintptr_t)&buf;
-		do {
-			bus = buf_base + flags;
-			flags = flags + 1;
-			*(uint8_t *)((char *)bus + 0) = addr;
-			bus = flags < addr_len;
-			addr = addr >> 8;
-		} while (bus != 0);
-	} while (0);
-
-	/* the data bytes are never copied: the recovered copy loop is
-	 * unreachable and the build keeps it that way */
-	bus = (uintptr_t)&buf;
-	flags = 0;
-	addr = bus + addr_len;
-	bus = flags & 255;
-	bus = addr + flags;
-	total_len = addr_len + size;
-
-	do {
-		if (ctrl == 0)
-			break;
-		addr_len = *(uint32_t *)((char *)ctrl + 4);
-		int ctrl_has_lock = addr_len != 0;
-		addr_len = (uintptr_t)&I2C_write;
-		if (ctrl_has_lock)
-			break;
-		addr_len = (uintptr_t)((uintptr_t (*)(uintptr_t))(uintptr_t)system_hw_interrupts_disable)(bus);
-	} while (0);
-	addr_len = (uintptr_t)&I2C_write;
-
-	addr_len = (uintptr_t)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)I2C_write)(*(uint8_t *)((char *)(bus_ptr) + 4), &buf, total_len);
-
-	do {
-		if (ctrl == 0)
-			break;
-		addr_len = *(uint32_t *)((char *)ctrl + 4);
-		total_len = saved_total_len;
-		if (addr_len != 0)
-			return 0;
-		addr_len = (uintptr_t)((uintptr_t (*)(uintptr_t))(uintptr_t)system_hw_interrupts_enable)(bus);
-		return (int32_t)addr_len;
-	} while (0);
-
-	return (int32_t)addr_len;
+	t20_sbus_irq_disable(lock);
+	I2C_write(bus->device, (char *)buf, addr_size + sample_size);
+	t20_sbus_irq_enable(lock);
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000017c6c origin=model_output original=apical_sbus_i2c_init */
@@ -4047,8 +3988,8 @@ int32_t apical_sbus_i2c_init(void *bus_ptr)
 {
 	struct t20_sbus *bus = bus_ptr;
 
-	*(uintptr_t *)&bus->read_sample = (uintptr_t)&i2c_io_read_sample;
-	*(uintptr_t *)&bus->write_sample = (uintptr_t)&i2c_io_write_sample;
+	bus->read_sample = i2c_io_read_sample;
+	bus->write_sample = i2c_io_write_sample;
 	return (int32_t)(uintptr_t)&i2c_io_write_sample;
 }
 
@@ -4059,304 +4000,133 @@ static int32_t i2c_init_access(void)
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000017ca0 origin=fragment_seed original=spi_io_write_sample */
-int32_t spi_io_write_sample(uintptr_t bus, uint32_t addr, uint32_t data, uint32_t size)
+/* OEM 0x174d0 (apical_sbus_spi write_sample) */
+void spi_io_write_sample(struct t20_sbus *bus, uint32_t addr, uint32_t sample,
+			 uint8_t sample_size)
 {
-    uint32_t *saved_slot0 = 0;
-    uint32_t saved_slot1 = 0;
-    uint32_t saved_slot2 = 0;
-    uint32_t saved_slot3 = 0;
-    uint32_t saved_slot4 = 0;
-    uint32_t saved_slot5 = 0;
-    uint32_t saved_slot6 = 0;
-    uint32_t saved_slot7 = 0;
-    uint32_t saved_s6 = 0;
-    uint32_t saved_slot9 = 0;
-    uint32_t ra = 0;
-    uintptr_t *ctrl = 0;
-    uint32_t *addr_word = 0;
-    uintptr_t *bus_ptr = 0;
-    uint32_t *data_word = 0;
-    uint32_t xfer_size = 0;
-    uint32_t addr_width = 0;
-    uint32_t cs_mask = 0;
-    uint32_t tail_target = 0;
-    uintptr_t ret = 0;
-    uint32_t flags = 0;
+	uint32_t mask = bus->mask;
+	uint32_t sel_mask = 1u << bus->device;
+	struct t20_sbus_lock *lock = bus->p_control;
+	uint8_t addr_size;
 
-    /* fragment 0: Prologue */
-    /* function prologue: stack frame and callee-saved register setup */
+	if (sample_size == 4) {
+		/* 4-byte sample: address and data go out as two fields */
+		if (mask & 0x8)
+			addr_size = 1;
+		else if (mask & 0x10)
+			addr_size = 2;
+		else if (mask & 0x20)
+			addr_size = 4;
+		else
+			addr_size = 0;
 
-    /* fragment 1: MemoryAccess */
-    flags = *(uint8_t *)((char *)bus + 4);
-    cs_mask = 1;
-    cs_mask = cs_mask << flags;
-    xfer_size = size & 255;
-    flags = 4;
-    bus_ptr = bus;
-    addr_word = addr;
-    data_word = data;
-    ret = *(uint32_t *)((char *)bus + 0);
+		t20_sbus_irq_disable(lock);
+		spi_rw48(sel_mask, bus->control, addr, addr_size, sample, 4);
+	} else {
+		/* address and data packed into one 32-bit word */
+		if ((mask & 0x8400) == 0x8000)
+			addr >>= 1;
 
-    /* fragment 2: Branch */
-    ctrl = *(uint32_t *)((char *)(bus) + 12);
-    if (xfer_size != flags) { goto spi_io_write_sample0x100; }
+		if (mask & 0x10000) {
+			if (mask & 0x10)
+				sample <<= 16;
+			else if (mask & 0x8)
+				sample <<= 8;
+			else
+				return;
+		} else if (mask & 0x2) {
+			addr <<= 16;
+		} else if (mask & 0x1) {
+			addr <<= 8;
+		} else {
+			return;
+		}
 
-    /* fragment 3: Arithmetic */
-    flags = ret & 8;
+		addr |= sample;
+		if (mask & 0x4000)
+			addr = ~addr;
 
-    /* fragment 4: Branch */
-    addr_width = 1;
-    if (flags != 0) { goto spi_io_write_sample0x74; }
+		t20_sbus_irq_disable(lock);
+		spi_rw32(sel_mask, bus->control, addr, sample_size);
+	}
 
-    /* fragment 5: Arithmetic */
-    flags = ret & 16;
-
-    /* fragment 6: Branch */
-    addr_width = 2;
-    if (flags != 0) { goto spi_io_write_sample0x74; }
-
-    /* fragment 7: Arithmetic */
-    ret = ret & 32;
-    addr_width = xfer_size;
-    if (ret == 0) { addr_width = 0; }
-
-spi_io_write_sample0x74:
-    /* fragment 8: Branch */
-    ret = 4;
-    if (ctrl == 0) { goto spi_io_write_sample0x9c; }
-
-    /* fragment 9: MemoryAccess */
-    ret = *(uint32_t *)((char *)ctrl + 4);
-
-    /* fragment 10: Branch */
-    int ctrl_has_lock = ret != 0;
-    ret = 4;
-    if (ctrl_has_lock) { goto spi_io_write_sample0x9c; }
-
-    /* fragment 11: CallSetup */
-    ret = (uintptr_t)((uintptr_t (*)(uintptr_t))(uintptr_t)system_hw_interrupts_disable)(bus); /* jalr target resolved by relocation */
-
-    /* fragment 12: CallSetup */
-    ret = 4;
-
-spi_io_write_sample0x9c:
-    /* fragment 13: CallSetup */
-    saved_slot1 = ret;
-    ret = (uintptr_t)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)spi_rw48)(cs_mask, *(uint32_t *)((char *)(bus_ptr) + 8), addr_word, addr_width); /* jalr target resolved by relocation */
-
-spi_io_write_sample0xc0:
-    /* fragment 14: Branch */
-    if (ctrl == 0) { goto spi_io_write_sample0x1b0; }
-
-    /* fragment 15: MemoryAccess */
-    ret = *(uint32_t *)((char *)ctrl + 4);
-
-    /* fragment 16: Branch */
-    cs_mask = saved_slot7;
-    if (ret != 0) { goto spi_io_write_sample0x1b4; }
-
-    /* fragment 17: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    /* fragment 18: ConstantLoad */
-    tail_target = 0x0;
-
-    /* fragment 19: IndirectTailCall */
-    return system_hw_interrupts_enable();
-
-spi_io_write_sample0x100:
-    /* fragment 20: Arithmetic */
-    bus = ret & 33792;
-    flags = addr >> 1;
-    bus = bus ^ 32768;
-    if (bus == 0) { addr_word = flags; }
-    flags = 65536;
-    flags = ret & flags;
-
-    /* fragment 21: Branch */
-    int no_16bit_flag = flags == 0;
-    flags = ret & 2;
-    if (no_16bit_flag) { goto spi_io_write_sample0x140; }
-
-    /* fragment 22: Arithmetic */
-    flags = ret & 16;
-
-    /* fragment 23: Branch */
-    data_word = data << 16;
-    if (flags != 0) { goto spi_io_write_sample0x158; }
-
-    /* fragment 24: Arithmetic */
-    flags = ret & 8;
-
-    /* fragment 25: Branch */
-    data_word = data << 8;
-    if (flags != 0) { goto spi_io_write_sample0x158; }
-
-    /* fragment 26: Branch */
-    goto spi_io_write_sample0x1b0;
-
-spi_io_write_sample0x140:
-    /* fragment 27: Branch */
-    int no_flag2 = flags == 0;
-    flags = ret & 1;
-    if (no_flag2) { goto spi_io_write_sample0x150; }
-
-    /* fragment 28: Branch */
-    addr_word = (uintptr_t)addr_word << 16;
-    goto spi_io_write_sample0x158;
-
-spi_io_write_sample0x150:
-    /* fragment 29: Branch */
-    addr_word = (uintptr_t)addr_word << 8;
-    if (flags == 0) { goto spi_io_write_sample0x1ac; }
-
-spi_io_write_sample0x158:
-    /* fragment 30: Arithmetic */
-    addr_word = (uintptr_t)addr_word | (uintptr_t)data_word;
-    ret = ret & 16384;
-    flags = ~(0 | (uintptr_t)addr_word);
-
-    /* fragment 31: Branch */
-    if (ctrl == 0) { goto spi_io_write_sample0x188; }
-
-    /* fragment 32: CallSetup */
-    ret = (uintptr_t)((uintptr_t (*)(uintptr_t))(uintptr_t)system_hw_interrupts_disable)(bus); /* jalr target resolved by relocation */
-
-spi_io_write_sample0x188:
-    /* fragment 33: CallSetup */
-    ret = (uintptr_t)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)spi_rw32)(cs_mask, *(uint32_t *)((char *)(bus_ptr) + 8), addr_word, xfer_size); /* jalr target resolved by relocation */
-
-    /* fragment 34: Branch */
-    goto spi_io_write_sample0xc0;
-
-spi_io_write_sample0x1ac:
-    /* fragment 35: Epilogue */
-    /* function epilogue: restore registers and return */
-    return (int32_t)ret;
-
-spi_io_write_sample0x1b0:
-    /* fragment 36: Epilogue */
-    /* function epilogue: restore registers and return */
-    return (int32_t)ret;
-
-spi_io_write_sample0x1b4:
-    /* fragment 37: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    return 0;
+	t20_sbus_irq_enable(lock);
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000017e74 origin=model_output original=spi_io_read_sample */
-int32_t spi_io_read_sample(uint32_t *bus, uint32_t addr, char size)
+/* OEM 0x176a4 (apical_sbus_spi read_sample); 0xffffffff = unsupported bus mode */
+uint32_t spi_io_read_sample(struct t20_sbus *bus, uint32_t addr,
+			    uint8_t sample_size)
 {
-	struct t20_sbus *sbus = (struct t20_sbus *)bus;
-	uint32_t status = sbus->mask;
-	/*
-	 * Address of the p_control slot (not its value); the "lock" word
-	 * tested below is therefore the word after it.  Kept as compiled.
-	 */
-	uint32_t *irq_ctrl = (uint32_t *)((char *)bus +
-					  __builtin_offsetof(struct t20_sbus, p_control));
-	uint32_t sample_size = (uint32_t)size & 0xff;
-	uint32_t shift = sbus->device;
-	uint32_t bit_mask = 1u << shift;
-	uint32_t cmd;
-	uint32_t result;
-	uint32_t irq_state;
+	uint32_t mask = bus->mask;
+	uint32_t sel_mask = 1u << bus->device;
+	struct t20_sbus_lock *lock = bus->p_control;
+	uint8_t addr_size;
 	uint32_t data;
 
-	cmd = addr;
-	if ((status & 0x8400) == 0x8000)
-		cmd = (addr >> 1) | 0x80;
-	else
-		cmd = addr;
+	if ((mask & 0x8400) == 0x8000)
+		addr >>= 1;
 
-	if (status & 0x2000) {
-		do {
-			if (status & 8)
-				continue;
-			if ((status & 0x410) == 0x410) {
-				cmd |= 0x8000;
-				continue;
-			}
-			cmd |= 0x80;
-			/* as recovered: XOR binds weaker than == */
-			if ((status & 0x410) ^ (0x10 == 0))
-				cmd |= 0x8000;
-		} while (0);
+	/* read flag: bit 7 of the address byte, or bit 15 of a 16-bit address */
+	if (mask & 0x2000) {
+		if (mask & 0x8)
+			addr |= 0x80;
+		else if ((mask & 0x410) == 0x410)
+			addr |= 0x80;
+		else if ((mask & 0x410) == 0x10)
+			addr |= 0x8000;
 	}
 
-	/* every path leaves this block with the raw result set */
-	do {
-		if (sample_size == 4) {
-			if ((status & 8) || (status & 0x10) || (status & 0x20)) {
-				if (irq_ctrl && *(irq_ctrl + 1) == 0)
-					system_hw_interrupts_disable();
-				data = spi_rw48();
-				result = 0;
-				if (irq_ctrl && *(irq_ctrl + 1) == 0)
-					system_hw_interrupts_enable();
-				result = data;
-				continue;
-			}
-			result = 0;
-			continue;
-		}
+	if (sample_size == 4) {
+		if (mask & 0x8)
+			addr_size = 1;
+		else if (mask & 0x10)
+			addr_size = 2;
+		else if (mask & 0x20)
+			addr_size = 4;
+		else
+			addr_size = 0;
 
-		if (status & 0x10000) {
-			if ((status & 3) == 0) {
-				result = -1;
-				continue;
-			}
-			cmd = ~(cmd & 0xffff);
-			if (status & 0x4000)
-				cmd = ~cmd;
-			if (status & 0x10) {
-				if (irq_ctrl && *(irq_ctrl + 1) == 0)
-					system_hw_interrupts_disable();
-				data = spi_rw32();
-				cmd = data >> 16;
-				if (irq_ctrl && *(irq_ctrl + 1) == 0)
-					system_hw_interrupts_enable();
-				result = cmd;
-				continue;
-			}
-			if ((status & 8) == 0) {
-				result = -1;
-				continue;
-			}
-			if (irq_ctrl && *(irq_ctrl + 1) == 0)
-				system_hw_interrupts_disable();
-			data = spi_rw32();
-			cmd = data >> 16;
-			if (irq_ctrl && *(irq_ctrl + 1) == 0)
-				system_hw_interrupts_enable();
-			result = cmd;
-			continue;
-		}
+		t20_sbus_irq_disable(lock);
+		data = spi_rw48(sel_mask, bus->control, addr, addr_size, 0, 4);
+		t20_sbus_irq_enable(lock);
+		return data;
+	}
 
-		if (irq_ctrl && *(irq_ctrl + 1) == 0)
-			system_hw_interrupts_disable();
-		data = spi_rw48();
-		result = 0;
-		if (irq_ctrl && *(irq_ctrl + 1) == 0)
-			system_hw_interrupts_enable();
-		result = data;
-		continue;
-	} while (0);
+	if (mask & 0x10000) {
+		/* data comes back in the upper half of the word */
+		if (mask & 0x4000)
+			addr = ~addr;
+		if (!(mask & 0x18))
+			return 0xffffffff;
 
-	do {
-		if (result == -1)
-			continue;
-		if (sample_size == 1)
-			result &= 0xffff;
-		else if (sample_size == 2)
-			result &= 0xff;
-		else if (sample_size ^ (2 == 0))	/* as recovered */
-			result = 0;
-	} while (0);
+		t20_sbus_irq_disable(lock);
+		data = spi_rw32(sel_mask, bus->control, addr, sample_size) >> 16;
+		t20_sbus_irq_enable(lock);
+	} else {
+		if (mask & 0x2)
+			addr <<= 16;
+		else if (mask & 0x1)
+			addr <<= 8;
+		else
+			return 0xffffffff;
 
-	return (int32_t)result;
+		if (mask & 0x4000)
+			addr = ~addr;
+
+		t20_sbus_irq_disable(lock);
+		data = spi_rw32(sel_mask, bus->control, addr, sample_size);
+		t20_sbus_irq_enable(lock);
+		if (data == 0xffffffff)
+			return data;
+	}
+
+	if (sample_size == 1)
+		data &= 0xff;
+	else if (sample_size == 2)
+		data &= 0xffff;
+
+	return data;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000001816c origin=model_output original=apical_sbus_spi_init */
@@ -4364,8 +4134,8 @@ int32_t apical_sbus_spi_init(void *bus_ptr)
 {
 	struct t20_sbus *bus = bus_ptr;
 
-	*(void **)&bus->read_sample = (void *)spi_io_read_sample;
-	*(void **)&bus->write_sample = (void *)spi_io_write_sample;
+	bus->read_sample = spi_io_read_sample;
+	bus->write_sample = spi_io_write_sample;
 	return spi_init_access();
 }
 
@@ -7935,159 +7705,134 @@ int32_t register_value(void *api, char data, char direction, uint32_t *result_ou
 /* WHOLE_DRIVER_CANDIDATE fn_000000000001d2b4 origin=model_output original=scene_mode */
 int32_t scene_mode(void *isp, int32_t mode, char direction, int32_t *result_ptr)
 {
-    int32_t result;
-    int32_t ae_awb_ok;
-    int32_t reset_ok;
-    int32_t extra_ok;
-    int32_t extra_ok2;
-    uint16_t unused_val;
-    int32_t cmd_ret;
-    uint16_t max_inttime;
+	struct t20_isp_ctx *ctx = isp;
+	int32_t reset_ok;
+	int32_t extra_ok;
 
-    *result_ptr = 0;
+	*result_ptr = 0;
 
-    if (direction != 0) {
-        result = 2;
-        if (direction == 1) {
-            *result_ptr = *(uint16_t *)((char *)isp + 0x14fa);
-            return 0;
-        }
-        return result;
-    }
+	if (direction == 1) {
+		*result_ptr = ctx->general.scene_mode;
+		return 0;
+	}
+	if (direction != 0)
+		return 2;
 
-    *(uint16_t *)((char *)isp + 0x14fa) = (uint16_t)mode;
+	ctx->general.scene_mode = (uint16_t)mode;
 
-    cmd_ret = apical_command(3, 0x56, 0x25, 0, result_ptr);
-    ae_awb_ok = (cmd_ret < 1) ? 1 : 0;
+	/* back to the defaults: AE/AWB auto, gains auto, no exposure limit */
+	reset_ok = apical_command(3, 0x56, 0x25, 0, result_ptr) < 1;
 
 	stab.global_manual_sensor_analog_gain = 0;
 	stab.global_manual_sensor_digital_gain = 0;
 	stab.global_manual_isp_digital_gain = 0;
-    data_4290a = 0xffff;
+	stab.global_max_integration_time = 0xffff;
 
-    if (apical_command(3, 0x60, 0x32, 0, result_ptr) != 0)
-        ae_awb_ok = 0;
+	if (apical_command(3, 0x60, 0x32, 0, result_ptr) != 0)
+		reset_ok = 0;
 
-    apical_command(3, 0x61, 0x15, 0, result_ptr);
-    apical_command(3, 0x62, 0x64, 0, result_ptr);
+	apical_command(3, 0x61, 0x15, 0, result_ptr);
+	apical_command(3, 0x62, 0x64, 0, result_ptr);
 
-    *(uint8_t *)((char *)isp + 0xf96) = 0;
-    reset_ok = 0;
+	ctx->color_matrix.field_ae = 0;
 
-    if (apical_command(4, 0x79, 0x80, 0, result_ptr) == 0)
-        reset_ok = ae_awb_ok;
+	if (apical_command(4, 0x79, 0x80, 0, result_ptr) != 0)
+		reset_ok = 0;
 
-    *(uint16_t *)((char *)isp + 0x1034) = 0x80;
-    result = 2;
+	ctx->sharpening.field_20 = 0x80;
 
-    if ((mode - 0x40) < 0)
-        return result;
-
-    switch (mode) {
-    case 0x40:
-        goto label_1d3e0;
-    case 0x41:
-    case 0x42:
-    case 0x44:
-        return 2;
-    case 0x43:
-        goto label_1d5dc;
-    case 0x45:
-        max_inttime = *(uint16_t *)((char *)isp + 0x50) << 1;
-        goto label_1d418;
-    case 0x46:
-        max_inttime = *(uint16_t *)((char *)isp + 0x50) / 0x64;
-        goto label_1d418;
-    case 0x47:
-        extra_ok = 0;
-        if (apical_command(3, 0x61, 0x15, 0, result_ptr) == 0)
-            extra_ok = reset_ok;
-        if (apical_command(3, 0x62, 0x2d, 0, result_ptr) != 0)
-            return 5;
-        result = 0;
-        goto label_1d5ac;
-    case 0x48:
+	switch (mode) {
+	case 0x40:
+		break;
+	case 0x45:
+		stab.global_max_integration_time =
+			ctx->sensor.ctrl.param.total.height << 1;
+		break;
+	case 0x46:
+		stab.global_max_integration_time =
+			ctx->sensor.ctrl.param.total.height / 100;
+		break;
+	case 0x47:
+		extra_ok = apical_command(3, 0x61, 0x15, 0, result_ptr) == 0;
+		if (apical_command(3, 0x62, 0x2d, 0, result_ptr) != 0)
+			return 5;
+		if (!extra_ok)
+			return 5;
+		break;
+	case 0x48:
 		stab.global_manual_sensor_analog_gain = 1;
 		stab.global_sensor_analog_gain = 1;
 		stab.global_manual_sensor_digital_gain = 1;
 		stab.global_sensor_digital_gain = 1;
 		stab.global_manual_isp_digital_gain = 1;
 		stab.global_isp_digital_gain = 1;
-        result = apical_command(3, 0x5b, 0x8c, 0, result_ptr);
-        if (result != 0)
-            return 5;
-        /* OEM 0x4398-0x43ac: return here; the lift's break fell into
-         * label_1d418 and stored an uninitialised max integration time. */
-        return reset_ok ? 0 : 5;
-    case 0x49:
-    case 0x4a:
-        extra_ok2 = 0;
-        if (apical_command(3, 0x61, 0x23, 0, result_ptr) == 0)
-            extra_ok2 = reset_ok;
-        extra_ok = 0;
-        if (apical_command(3, 0x62, 0x23, 0, result_ptr) == 0)
-            extra_ok = extra_ok2;
-        result = apical_command(4, 0x79, 0x9a, 0, result_ptr);
-        if (result != 0)
-            return 5;
-        goto label_1d5ac;
-    case 0x4b:
+		if (apical_command(3, 0x5b, 0x8c, 0, result_ptr) != 0)
+			return 5;
+		break;
+	case 0x49:
+	case 0x4a:
+		extra_ok = apical_command(3, 0x61, 0x23, 0, result_ptr) == 0;
+		if (apical_command(3, 0x62, 0x23, 0, result_ptr) != 0)
+			extra_ok = 0;
+		if (apical_command(4, 0x79, 0x9a, 0, result_ptr) != 0)
+			return 5;
+		if (!extra_ok)
+			return 5;
+		break;
+	case 0x4b:
 		stab.global_manual_sensor_analog_gain = 1;
 		stab.global_sensor_analog_gain = 1;
 		stab.global_manual_sensor_digital_gain = 1;
 		stab.global_sensor_digital_gain = 1;
 		stab.global_manual_isp_digital_gain = 1;
 		stab.global_isp_digital_gain = 1;
-        data_4290a = *(uint16_t *)((char *)isp + 0x50) << 1;
-        goto label_1d3e0;
-    case 0x4c:
-        *(uint16_t *)((char *)isp + 0x1034) = 0x9a;
-        goto label_1d3e0;
-    case 0x4d:
-        data_4290a = *(uint16_t *)((char *)isp + 0x50);
-        extra_ok = 0;
-        if (apical_command(3, 0x61, 0x14, 0, result_ptr) == 0)
-            extra_ok = reset_ok;
-        result = apical_command(3, 0x62, 0x14, 0, result_ptr);
-        if (result != 0)
-            return 5;
-        goto label_1d5ac;
-    case 0x4e:
-        data_4290a = *(uint16_t *)((char *)isp + 0x50);
-        goto label_1d5dc;
-    default:
-        return result;
-    }
+		stab.global_max_integration_time =
+			ctx->sensor.ctrl.param.total.height << 1;
+		break;
+	case 0x4c:
+		ctx->sharpening.field_20 = 0x9a;
+		break;
+	case 0x4d:
+		stab.global_max_integration_time =
+			ctx->sensor.ctrl.param.total.height;
+		extra_ok = apical_command(3, 0x61, 0x14, 0, result_ptr) == 0;
+		if (apical_command(3, 0x62, 0x14, 0, result_ptr) != 0)
+			return 5;
+		if (!extra_ok)
+			return 5;
+		break;
+	case 0x4e:
+		stab.global_max_integration_time =
+			ctx->sensor.ctrl.param.total.height;
+		/* fall through */
+	case 0x43:
+		/* manual colour matrix from calibration table 0xe8 */
+		ctx->color_matrix.field_ae = 1;
+		ctx->color_matrix.manual_matrix[0] =
+			((const uint8_t *)_GET_UCHAR_PTR(0xe8))[0];
+		ctx->color_matrix.manual_matrix[1] =
+			((const uint8_t *)_GET_UCHAR_PTR(0xe8))[1];
+		ctx->color_matrix.manual_matrix[2] =
+			((const uint8_t *)_GET_UCHAR_PTR(0xe8))[2];
+		ctx->color_matrix.manual_matrix[3] =
+			((const uint8_t *)_GET_UCHAR_PTR(0xe8))[3];
+		ctx->color_matrix.manual_matrix[4] =
+			((const uint8_t *)_GET_UCHAR_PTR(0xe8))[4];
+		ctx->color_matrix.manual_matrix[5] =
+			((const uint8_t *)_GET_UCHAR_PTR(0xe8))[5];
+		ctx->color_matrix.manual_matrix[6] =
+			((const uint8_t *)_GET_UCHAR_PTR(0xe8))[6];
+		ctx->color_matrix.manual_matrix[7] =
+			((const uint8_t *)_GET_UCHAR_PTR(0xe8))[7];
+		ctx->color_matrix.manual_matrix[8] =
+			((const uint8_t *)_GET_UCHAR_PTR(0xe8))[8];
+		break;
+	default:
+		/* 0x41, 0x42, 0x44 and everything outside 0x40..0x4e */
+		return 2;
+	}
 
-label_1d418:
-    data_4290a = max_inttime;
-    goto label_1d3e0;
-
-label_1d5ac:
-    if (extra_ok == 0)
-        return 5;
-
-label_1d3e0:
-    /* OEM 0x42cc: return 0 when the AE/AWB/saturation resets succeeded,
-     * else 5.  The lift fell through into label_1d5dc, which jumps back
-     * here: an endless loop for every mode that reached this label. */
-    return reset_ok ? 0 : 5;
-
-label_1d5dc:
-    *(uint8_t *)((char *)isp + 0xf96) = 1;
-    {
-        uint8_t *table = (uint8_t *)_GET_UCHAR_PTR(0xe8);
-        *(uint16_t *)((char *)isp + 0xf98) = table[0];
-        *(uint16_t *)((char *)isp + 0xf9a) = table[1];
-        *(uint16_t *)((char *)isp + 0xf9c) = table[2];
-        *(uint16_t *)((char *)isp + 0xf9e) = table[3];
-        *(uint16_t *)((char *)isp + 0xfa0) = table[4];
-        *(uint16_t *)((char *)isp + 0xfa2) = table[5];
-        *(uint16_t *)((char *)isp + 0xfa4) = table[6];
-        *(uint16_t *)((char *)isp + 0xfa6) = table[7];
-        *(uint16_t *)((char *)isp + 0xfa8) = table[8];
-    }
-    goto label_1d3e0;
+	return reset_ok ? 0 : 5;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000001d6b8 origin=fragment_seed original=sharpening_mode */

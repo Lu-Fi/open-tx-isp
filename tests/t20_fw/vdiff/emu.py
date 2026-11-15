@@ -209,6 +209,9 @@ class Env:
         self.heapp = HEAP
         self.traps = 0
         self.seq_ptr = 0        # apical_custom_sequence() result
+        self.io_ret = 0         # spi_rw32/spi_rw48 result
+        self.i2c_ret = (0, 0)   # I2C_write / I2C_read status
+        self.i2c_data = b''     # bytes I2C_read delivers
 
     def clone_state(self):
         return (bytes(self.regs), dict(self.irq), self.frame_no, self.scene_ev, self.ct_bias,
@@ -505,6 +508,21 @@ class Machine:
                 v = x - y * (abs(x) // abs(y) * (1 if (x < 0) == (y < 0) else -1))
             v &= (1 << 64) - 1
             self.ret(v & 0xffffffff, v >> 32)
+        elif n == 'spi_rw32':
+            L.append(('SPI32', a0, a1, a2, a3 & 0xff))
+            self.ret(env.io_ret)
+        elif n == 'spi_rw48':
+            x = self.args(6)
+            L.append(('SPI48', a0, a1, a2, a3 & 0xff, x[4], x[5] & 0xff))
+            self.ret(env.io_ret)
+        elif n == 'I2C_write':
+            L.append(('I2CW', a0 & 0xff, bytes(uc.mem_read(a1, min(a2, 64))), a2))
+            self.ret(env.i2c_ret[0])
+        elif n == 'I2C_read':
+            L.append(('I2CR', a0 & 0xff, a2))
+            if a2 and env.i2c_data:
+                uc.mem_write(a1, env.i2c_data[:a2])
+            self.ret(env.i2c_ret[1])
         elif n in ('arch_local_irq_save',):
             self.ret(1)
         elif n == 'apical_custom_sequence':

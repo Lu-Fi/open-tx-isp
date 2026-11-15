@@ -37,6 +37,16 @@ struct t20_sbus {
 			     uint32_t sample, uint8_t sample_size);
 };
 
+/*
+ * Control block behind t20_sbus.p_control as the SPI/I2C sample
+ * functions use it: a non-zero second word means the interrupts are
+ * already masked by the caller.
+ */
+struct t20_sbus_lock {
+	uint32_t field_0;
+	uint32_t irq_masked;
+};
+
 struct t20_sensor_context {
 	uint16_t again;
 	uint16_t dgain;

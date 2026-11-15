@@ -513,7 +513,7 @@ int32_t I2C_write(int32_t add, char *data, int32_t size)
 	snprintf(line, sizeof(line), "I2C w %x n=%d", add, size);
 	for (i = 0; i < size && i < 8; i++) { size_t l = strlen(line); snprintf(line + l, sizeof(line) - l, " %02x", (unsigned char)data[i]); }
 	ev(line);
-	return size;
+	return 0;	/* I2C_OK (SDK system_i2c.h) */
 }
 int32_t I2C_read(int32_t a, int32_t b, int32_t c) { EVF("I2C r %x %x", a, c); (void)b; return 0; }
 int32_t spi_rw32(void) { ev("SPI rw32"); return 0; }
