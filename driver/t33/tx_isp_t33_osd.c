@@ -20,8 +20,9 @@
  * these paths; the lock changes no register or list word.
  *
  * Differences to the vendor:
- * - the attribute block is set up once (first stream-on or first tuning call)
- *   and again only when the input size changes; it survives stream-off, and
+ * - the attribute block is set up at the first stream-on or tuning call of an ISP open
+ *   and again when the input size changes; it survives stream-off (dropped at the last ISP close by
+ *   t33_hw_lib_deinit, as the vendor re-inits it in lib_tisp_init: openimp #577), and
  *   the stored OSD / mask / draw windows go back into every rebuilt list 23
  *   (t33_osd_list_rebuilt).  The vendor's list memory survives instead.
  * - tisp_msca_t33_init's own callees: tisp_rcfg_module_register and
@@ -165,6 +166,8 @@ void t33_msca_attr_exit(void)
 	mutex_lock(&t33_osd_mutex);
 	attr_free();
 	attr_w = attr_h = 0;
+	/* nothing stored any more: the next list 23 build carries no OSD / mask / draw / flip words (#577) */
+	osd_touched = mask_touched = draw_touched = flip_touched = false;
 	mutex_unlock(&t33_osd_mutex);
 }
 

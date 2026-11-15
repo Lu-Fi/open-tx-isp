@@ -922,9 +922,13 @@ static const struct t33_deinit t33_dn = { .rd = t33_dn_rd, .wr = t33_dn_wr, .log
  * LDC 25, ...) stay built until rmmod (t33_mod_free): our lists persist over
  * sessions, the next open resets and reprograms the core (CPM soft reset,
  * S_INPUT -> t32_hw_input_setup -> tisp_all_reset).
+ * The MSCA attribute block (mirror / flip, OSD, mask, draw windows and the draw colour list) is dropped here:
+ * the vendor's next lib_tisp_init runs tisp_msca_t33_init on a fresh block, so after an ISP close / open its
+ * getters read the defaults (QEMU vendor run, openimp #577); ours is set up again at the next stream-on.
  */
 void t33_hw_lib_deinit(void)
 {
+	t33_msca_attr_exit();	/* openimp #577 (core.lock -> osd, as at stream-on) */
 	if (!isp_base)
 		return;
 	t33_all_reset(&t33_dn);
