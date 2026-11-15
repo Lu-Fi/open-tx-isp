@@ -4577,6 +4577,7 @@ static void ae0_weight_mean2(
 static int ae0_tune2(uint32_t wmean, uint32_t q, uint32_t fifo_target,
                      uint32_t *exp_out, uint32_t *ag_out, uint32_t *dg_out);
 static void tisp_ae_trig(void);
+static uint32_t t31_flicker_hz = 50;	/* vendor flicker_hz (.data, init 50; openimp #559) */
 static void tisp_set_ae0_ag(uint32_t ag, uint32_t dg);
 int tisp_ae_g_at_list(uint32_t *out);
 int tisp_ae_s_at_list(uint32_t *in);
@@ -9321,8 +9322,13 @@ static int apical_isp_core_ops_s_ctrl(struct tx_isp_dev *dev, struct isp_core_ct
              * day/night IQ banks.  Persisting the runtime selection in the
              * banks is essential: tiziano_ae_params_refresh() copies these
              * fields back out of the selected bank on every mode switch. */
+            /* vendor tisp_s_antiflick: flicker_hz (init 50) changes only for
+             * a non-zero rate; off keeps the last rate in _flicker_t and the
+             * node table, only _deflicker_para[0] = 0 (openimp #559) */
+            if (hz)
+                t31_flicker_hz = hz;
             _deflicker_para.data[0] = hz ? 1 : 0;
-            _flicker_t.data[0] = hz;
+            _flicker_t.data[0] = t31_flicker_hz;
             for (i = 0; i < ARRAY_SIZE(blocks); i++) {
                 if (!blocks[i])
                     continue;
@@ -9332,7 +9338,7 @@ static int apical_isp_core_ops_s_ctrl(struct tx_isp_dev *dev, struct isp_core_ct
                        &_flicker_t, sizeof(_flicker_t));
             }
 
-            tiziano_deflicker_expt_tune(hz,
+            tiziano_deflicker_expt_tune(t31_flicker_hz,
                     tisp_si_fps(&sensor_info),
                     tisp_si_total_height(&sensor_info),
                     tisp_si_total_width(&sensor_info));
@@ -9475,14 +9481,15 @@ static int apical_isp_core_ops_s_ctrl(struct tx_isp_dev *dev, struct isp_core_ct
                     /* Stock tisp_set_fps rebuilds the anti-flicker exposure
                      * node table for the new frame timing whenever
                      * anti-flicker is on; otherwise the AE keeps snapping to
-                     * nodes computed for the old line time (gap 8). */
-                    if (_flicker_t.data[0] != 0) {
-                        tiziano_deflicker_expt_tune(_flicker_t.data[0],
+                     * nodes computed for the old line time (gap 8).  Vendor
+                     * tisp_set_fps: if (flicker_hz) tune only, no tisp_ae_trig
+                     * (the trig force-wrote both AE channels, AE1 latch 0xa800 = 1
+                     * at boot where the vendor reads 0; openimp #559). */
+                    if (t31_flicker_hz != 0)
+                        tiziano_deflicker_expt_tune(t31_flicker_hz,
                                 tisp_si_fps(&sensor_info),
                                 tisp_si_total_height(&sensor_info),
                                 tisp_si_total_width(&sensor_info));
-                        tisp_ae_trig();
-                    }
 
                     pr_info("*** SET FPS: Physical sensor and ISP set to %d/%d FPS ***\n",
                             fps_num, fps_den);

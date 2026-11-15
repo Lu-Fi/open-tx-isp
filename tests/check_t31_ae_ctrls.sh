@@ -16,5 +16,9 @@ grep -q 'tisp_ae_ctrls\[5\] = ae_exp_th.data\[1\];' "$F" && grep -q 'tisp_ae_ctr
 # openimp #553: ae0_tune2 stable + ratio inside stable_tol must hold the EV (vendor 0x506a4..0x506e0 branches to
 # 0x50c10 = _ae_ev store); falling through to the +-1 margin check keeps re-aiming and never holds like the vendor.
 awk '/if \(v0_68 < v0_6 && v0_7 < v0_68\) \{/{f=1} f{print} f&&/^        \}/{exit}' "$F" | grep -q 'goto phase_g;' || no "ae0_tune2 stable in-band case must goto phase_g (hold)"
+# openimp #559: vendor tisp_set_fps only re-tunes the anti-flicker table (if flicker_hz), no tisp_ae_trig (that
+# force-wrote both AE channels: AE1 latch 0xa800 = 1 at boot, vendor 0); flicker_hz (init 50) survives anti-flicker off.
+awk 'index($0, "case 0x80000e0: { // SET FPS"){f=1;next} f&&/^        case 0x/{exit} f' "$F" | grep -q 'tisp_ae_trig()' && no "SetSensorFPS must not call tisp_ae_trig (vendor tisp_set_fps)"
+grep -q '^static uint32_t t31_flicker_hz = 50;' "$F" && grep -q '_flicker_t.data\[0\] = t31_flicker_hz;' "$F" || no "anti-flicker must keep the vendor flicker_hz (init 50, unchanged when off)"
 [ $fail = 0 ] && echo "check_t31_ae_ctrls: ok"
 exit $fail
