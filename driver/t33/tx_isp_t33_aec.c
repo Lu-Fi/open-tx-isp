@@ -549,6 +549,17 @@ int t33_aec_attach(const u8 *sec, u32 len, u32 width, u32 height, const u8 *zb, 
 		ret = aew_init_rc;
 		goto out;
 	}
+	/*
+	 * The vendor's STREAMON runs tisp_init (tisp_ae_init) before the
+	 * sensor's stream-on attribute sync (ispcore_sync_sensor_attr ->
+	 * lib_tisp_sync_sensor_attr -> tisp_normal_ae_par_sensor_trig), so
+	 * ae_cache + 0x505 is 1 at the first calc (QEMU peek of the vendor
+	 * ae_cache, openimp #570): the first tisp_ae_tune skips its stable-band
+	 * exit and runs, tisp_ae_long_ev_alloc follows at the next irq 4.  Our
+	 * attach comes after that sync (whose AE hook found no AE yet): the
+	 * hook of that sync here, after the init.
+	 */
+	sns_trig(NULL, 0);
 	t33_ae_zone_sizes(&aec);	/* the T32 B block's copy of the zone sizes (vendor: stAeInfo + 7100) */
 	zbufs = t33_p(stAeStatBuff[0]);
 	hbufs = t33_p(stAeHistBuff[0]);
