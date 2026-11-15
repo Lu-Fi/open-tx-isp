@@ -21,7 +21,7 @@
 </p>
 
 Open reimplementation of Ingenic's closed TX-ISP kernel driver (`tx-isp-<soc>.ko`) for
-T10, T20, T21, T23, T30, T31, T40 and T41 (T32 and T33 are planned and exist as QEMU-tested ports only, see [Status](#status)). The goal is behavioural equivalence with the
+T10, T20, T21, T23, T30, T31, T40 and T41 (T32 and T33 are in development, not a release gate: QEMU-tested ports, T33 also runs on the T33L test module, see [Status](#status)). The goal is behavioural equivalence with the
 OEM driver: same ioctl and `libimp` ABI, same register sequencing, same image behaviour,
 with cleaner unload/reload, checked inputs and less memory.
 
@@ -152,7 +152,7 @@ driver cannot boot-loop the camera. thingino pins a release tag, not a commit SH
 - [`docs/V4L2_CAPTURE_PATH.md`](docs/V4L2_CAPTURE_PATH.md): V4L2 capture architecture
 - [`docs/INTERRUPT_DEBUG_GUIDE.md`](docs/INTERRUPT_DEBUG_GUIDE.md): interrupt debugging
 - [`docs/re/`](docs/re): reverse-engineering dumps (T31 vendor module HLIL)
-- Per SoC: `driver/t32/README.md` and `driver/t33/README.md` (planned, QEMU only), `driver/t10/README.md`, `driver/t20/README.md`, `driver/t21/README.md` (+ `COMPARATIVE_ANALYSIS.md`), `driver/t23/README.md`, `driver/t30/README.md`, `driver/t31/README.md`, `driver/t40/README.md`, `driver/t41/README.md`; T31 IPU (OSD blend, kernel 7): `driver/ipu/README.md`
+- Per SoC: `driver/t32/README.md` and `driver/t33/README.md` (in development, QEMU; T33 also on the T33L module), `driver/t10/README.md`, `driver/t20/README.md`, `driver/t21/README.md` (+ `COMPARATIVE_ANALYSIS.md`), `driver/t23/README.md`, `driver/t30/README.md`, `driver/t31/README.md`, `driver/t40/README.md`, `driver/t41/README.md`; T31 IPU (OSD blend, kernel 7): `driver/ipu/README.md`
 
 Layout: `driver/<soc>/` per-SoC driver, `driver/common/` and `driver/include/tx_isp/` shared code and
 interfaces, `docs/` notes, `tests/` host tests and oracle checks, `tools/` on-device probes and generators,
