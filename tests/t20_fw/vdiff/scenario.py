@@ -169,6 +169,9 @@ class Runner:
             self.irq(st[1])
         elif k == 'mark':
             pass
+        elif k == 'poke':
+            # byte of the firmware context (fw + off), own image: ('poke', off, value)
+            m.uc.mem_write(self.F('__fw') + st[1], bytes([st[2] & 0xff]))
         elif k == 'dis_stats':
             env.dis_stats = st[1]
         elif k == 'ct':
@@ -177,7 +180,18 @@ class Runner:
             raise Exception(k)
 
 
-def scenario(full=True, dis=False):
+def gen_steps():
+    """general FSM (fw + 0x1500): the exposure-fix enable byte (+0x40) and the over-exposure variant
+    byte (+0x3c); histogram saturation (a very bright scene) for 25 frames makes general_frame_start
+    count 21 frames and call adjust_exposure (+226863) / the dark variant (-226863)"""
+    S = [('poke', 0x1500 + 0x40, 1), ('poke', 0x1500 + 0x3c, 0), ('scene', 30 << 16, 40)]
+    S += [('frame',)] * 25
+    S += [('poke', 0x1500 + 0x3c, 1), ('scene', 14 << 16, 40)] + [('frame',)] * 25
+    S += [('poke', 0x1500 + 0x40, 0), ('scene', 22 << 16, 40)] + [('frame',)] * 3
+    return S
+
+
+def scenario(full=True, dis=False, gen=False):
     """List of steps, same order as harness.c main() (OEM mode)."""
     S = [('init',), ('scene', 22 << 16, 40)]
     S += [('frame',)] * 40
@@ -218,6 +232,8 @@ def scenario(full=True, dis=False):
     S += [('frame',)] * 10
     if dis:
         S += [('mark', 'dis')] + dis_steps()
+    if gen:
+        S += [('mark', 'gen')] + gen_steps()
     return S
 
 

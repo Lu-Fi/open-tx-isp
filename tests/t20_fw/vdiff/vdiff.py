@@ -92,12 +92,13 @@ class Diff:
         self.seq = True
         self.void = void_functions()
         self.skip_mut = set()
+        self.traps = False
         self.maxins = 50_000_000
         self.mut_budget = 120
         self.stack_args = stack_arg_counts()
 
     def machine(self, oem=True):
-        m = emu.Machine(self.vendor, self.ours)
+        m = emu.Machine(self.vendor, self.ours, self.traps)
         scenario.setup_calibrations(m, self.calib)
         m.bank_ids = scenario.bank_ids(self.sdk) if self.sdk else []
         if self.seq:
@@ -244,7 +245,7 @@ class Diff:
         v0, v1 = m.call(addr, args, sp=s.sp, maxins=self.maxins)
         out = {'ret': self.norm(m, v0), 'fault': m.fault,
                'log': [tuple(self.norm(m, x) for x in e) for e in m.env.log if e[0] != 'PRINTK'],
-               'heapp': m.env.heapp}
+               'heapp': m.env.heapp, 'trap_at': getattr(m, 'trap_at', None)}
         out['mem'] = self.read_mem(m, s, side)
         out['pre'] = pre
         return out
@@ -277,11 +278,15 @@ class Diff:
         import struct
         d = []
         if a['fault'] and b['fault']:
+            if (a['fault'] == 'trap') != (b['fault'] == 'trap'):
+                d.append('fault V=%s O=%s' % (a['fault'] if a['fault'] != 'trap' else 'trap(%s)' % a.get('trap_at'),
+                                              b['fault'] if b['fault'] != 'trap' else 'trap(%s)' % b.get('trap_at')))
             return d            # both ran into wild accesses (mutated state): addresses differ per image
         if a['ret'] != b['ret'] and fname not in self.void:
             d.append('ret V=%s O=%s' % (fmt(a['ret']), fmt(b['ret'])))
         if a['fault'] != b['fault']:
-            d.append('fault V=%s O=%s' % (a['fault'], b['fault']))
+            d.append('fault V=%s O=%s' % (a['fault'] if a['fault'] != 'trap' else 'trap(%s)' % a.get('trap_at'),
+                                          b['fault'] if b['fault'] != 'trap' else 'trap(%s)' % b.get('trap_at')))
         if a['log'] != b['log']:
             la, lb = a['log'], b['log']
             k = 0
@@ -335,6 +340,8 @@ class Diff:
         from unicorn import mips_const as mc
         m = self.machine()
         com = [(va, va + size) for n, va, oa, size in m.common]
+        # vendor objects our code reaches by name (extern, e.g. stab): shared by both images
+        com += [(a, a + sz) for n, (a, sz, t) in m.V.sym.items() if t == 'O' and sz and n in m.O.undef]
         m.seen = {}
         regs = [getattr(mc, 'UC_MIPS_REG_%d' % i) for i in range(32)]
         width = {0x20: 1, 0x24: 1, 0x21: 2, 0x25: 2, 0x23: 4}
@@ -394,6 +401,41 @@ class Diff:
             v = r.getrandbits(8 * w)
         return v & mx
 
+    @staticmethod
+    def known_mut(fn, d):
+        """issue number when every difference of this mutation is a filed finding (KNOWN_MUT)"""
+        txt = ' ; '.join(d)
+        for k, n in KNOWN_MUT.items():
+            if fn == k or ('trap(teq V:%s+' % k) in txt:
+                return n
+        return None
+
+    @staticmethod
+    def isolated(fn):
+        """run fn in a forked child and return its (picklable) result; None when the child died
+        (unicorn segfaults on some mutated states: a crash costs one iteration, not the run)"""
+        import pickle
+        sys.stdout.flush()
+        sys.stderr.flush()
+        rd, wr = os.pipe()
+        pid = os.fork()
+        if pid == 0:
+            try:
+                os.close(rd)
+                data = pickle.dumps(fn())
+                with os.fdopen(wr, 'wb') as f:
+                    f.write(data)
+            except BaseException:
+                import traceback
+                traceback.print_exc()
+            finally:
+                os._exit(0)
+        os.close(wr)
+        with os.fdopen(rd, 'rb') as f:
+            data = f.read()
+        os.waitpid(pid, 0)
+        return pickle.loads(data) if data else None
+
     def mutfuzz(self, snaps, n, seed=5, only=None, per_fn_snaps=4):
         """mutation fuzz: replay recorded calls with a few of the words the vendor function reads
         (firmware state, calibration, ISP registers) replaced by boundary/random values"""
@@ -416,57 +458,107 @@ class Diff:
             for i in pick:
                 mem, regs = self.read_set(pm, ss[i])
                 bases.append((ss[i], mem, regs))
-            if not any(b[1] or b[2] for b in bases):
+            argmode = not any(b[1] or b[2] for b in bases)
+            if argmode and not any(s.args):
+                print('MUTSKIP %s (reads no state, no arguments)' % fn, flush=True)
                 continue
             r = random.Random(seed)
             out = []
+            ncrash = 0
+            nknown = {}
             self.maxins = 3_000_000
             t0 = time.time()
             for it in range(n):
                 if time.time() - t0 > self.mut_budget:
                     break
                 s0, mem, regs = bases[it % len(bases)]
-                if not (mem or regs):
-                    continue
                 edits = []
-                for _ in range(r.choice((1, 1, 1, 2, 2, 3, 5))):
+                for _ in range(r.choice((1, 1, 1, 2, 2, 3, 5)) if (mem or regs) else 0):
                     if regs and (not mem or r.random() < 0.3):
                         edits.append(('R',) + r.choice(regs) + (r.getrandbits(30),))
                     else:
                         edits.append(('M',) + r.choice(mem) + (r.getrandbits(30),))
+                # integer arguments (not pointers): replaced by boundary/random values
+                newargs, aed = list(s0.args), []
+                if argmode or r.random() < 0.25:
+                    ints = [k for k, v in enumerate(newargs[:4]) if not (0x10000000 <= v < 0x80000000)]
+                    for k in (r.sample(ints, min(len(ints), r.choice((1, 1, 2)))) if ints else []):
+                        newargs[k] = self.mutate_value(random.Random(r.getrandbits(30)), newargs[k], 4)
+                        aed.append('A%d=%x' % (k, newargs[k]))
+                if not edits and not aed:
+                    continue
 
-                def patch(mm, a0, edits=edits):
+                if os.environ.get('MUTIT') and it != int(os.environ['MUTIT']):
+                    continue                # replay one iteration only (crash hunting)
+
+                applied = []
+
+                def patch(mm, a0, edits=edits, applied=applied):
                     for kind, a, w, sd in edits:
                         if os.environ.get('MUTONLY') and kind != os.environ['MUTONLY']:
                             continue
                         rr = random.Random(sd)
                         if kind == 'R':
                             old = int.from_bytes(mm.env.regs[a:a + w], 'little')
-                            mm.env.regs[a:a + w] = self.mutate_value(rr, old, w).to_bytes(w, 'little')
+                            nv = self.mutate_value(rr, old, w)
+                            applied.append('R%x:%x->%x' % (a, old, nv))
+                            mm.env.regs[a:a + w] = nv.to_bytes(w, 'little')
                         else:
                             old = int.from_bytes(bytes(mm.uc.mem_read(a, w)), 'little')
                             v = self.mutate_value(rr, old, w)
                             if w == 4 and any(emu.VBASE <= x < emu.OBASE + 0x1000000 or HEAP <= x < STACK + STACK_SIZE
+                                              or emu.STUB <= x < emu.RET + 0x1000 or emu.CALIB <= x < emu.HEAP
                                               for x in (old, v)):
-                                continue            # never fabricate or destroy pointers
+                                continue            # never fabricate or destroy pointers (incl. the sensor callback stubs)
+                            applied.append('M%x:%x->%x' % (a, old, v))
                             mm.uc.mem_write(a, v.to_bytes(w, 'little'))
                 e = Snap()
                 for k in Snap.__slots__:
                     setattr(e, k, getattr(s0, k, None))
-                e.patch, e.label = patch, 'mut%d:%s' % (it, ' '.join('%s%x/%d' % x[:3] for x in edits))
+                e.patch, e.label = patch, 'mut%d:%s' % (it, ' '.join(['%s%x/%d' % x[:3] for x in edits] + aed))
+                e.args = newargs
                 if os.environ.get('MUTTRACE'):
                     print('MUTIT %s %s' % (fn, e.label), file=sys.stderr, flush=True)
-                    e.sides = 'V'
-                a = self.run_side(m, e, 'V')
-                if os.environ.get('MUTTRACE'):
-                    print('MUTIT V done', file=sys.stderr, flush=True)
-                b = self.run_side(m, e, 'O')
-                d = self.compare(m, a, b, fn)
+                if os.environ.get('MUTWATCH'):      # MUTWATCH=0xaddr,0xaddr: print every write to these (V and O)
+                    from unicorn import UC_HOOK_MEM_WRITE
+                    for wa in os.environ['MUTWATCH'].split(','):
+                        wa = int(wa, 0)
+                        m.uc.hook_add(UC_HOOK_MEM_WRITE, lambda uc, ac, ad, sz, val, ud: print(
+                            'WR %08x <- %x (%d) at %s' % (ad, val & 0xffffffff, sz, m.where(uc.reg_read(emu.UC_MIPS_REG_PC))),
+                            file=sys.stderr, flush=True), begin=wa, end=wa + 3)
+                if os.environ.get('MUTPC'):         # instruction trace of the crashing iteration
+                    from unicorn import UC_HOOK_CODE
+                    m.uc.hook_add(UC_HOOK_CODE, lambda uc, ad, sz, ud: print('PC %s' % m.where(ad), file=sys.stderr, flush=True))
+                def one():
+                    del applied[:]
+                    dd = self.compare(m, self.run_side(m, e, 'V'), self.run_side(m, e, 'O'), fn)
+                    return dd, list(applied)
+                d = self.isolated(one)
+                if d is not None:
+                    d, ap = d
+                    if d:
+                        e.label += ' {%s}' % ' '.join(sorted(set(ap)))
+                if d and not all(x.startswith('ret ') for x in d):      # a return value alone is not counted
+                    kn = self.known_mut(fn, d)
+                    if kn:
+                        if os.environ.get('MUTALL'):
+                            print('   known #%d: %s | %s' % (kn, e.label, ' ; '.join(d[:3])[:300]), flush=True)
+                        nknown[kn] = nknown.get(kn, 0) + 1
+                        d = []
+                if d is None:
+                    ncrash += 1
+                    d = []
+                    print('MUTCRASH %s %s (unicorn died, iteration skipped)' % (fn, e.label), flush=True)
                 out.append((e, d))
             self.maxins = 50_000_000
             res[fn + '[mut]'] = out
             nb = sum(1 for e, d in out if d and not all(x.startswith('ret ') for x in d))
-            print('MUTRES %s %d/%d differing' % (fn, nb, len(out)), flush=True)
+            print('MUTRES %s %d/%d differing%s%s' % (fn, nb, len(out), (', %d crashed' % ncrash) if ncrash else '',
+                  (', known: ' + ' '.join('#%d x%d' % kv for kv in sorted(nknown.items()))) if nknown else ''), flush=True)
+            if os.environ.get('MUTALL'):
+                for e, d in out:
+                    if d and not all(x.startswith('ret ') for x in d):
+                        print('   diff: %s | %s' % (e.label, ' ; '.join(d[:3])[:400]), flush=True)
             if nb:
                 e, d = [(e, d) for e, d in out if d and not all(x.startswith('ret ') for x in d)][0]
                 print('   first: %s | %s' % (e.label, ' ; '.join(d[:3])[:300]), flush=True)
@@ -511,7 +603,12 @@ def fmt(v):
 
 
 # findings the DIS-on scenario reaches (open issues): reported, not counted
+KNOWN_GEN = {'adjust_exposure': 602}     # --gen scenario: ours dereferences NULL where the vendor stores through the returned pointer
 KNOWN_DIS = {}     # #582 fixed (was: gauss v2, dis_analyze, dis_analyze_stats, apical_fw_process, apical_isp_process_events)
+# findings of the mutation fuzz (--mut) with a filed issue: a diff of that function, or a vendor trap located in it
+# (reached through apical_fw_process / apical_isp_process_events), is listed as known and not counted
+KNOWN_MUT = {'iridix_control_strength_calculate': 598, 'validate_complexity_test': 599,
+             'awb_range_low': 600, 'cmos_long_exposure_update': 601}
 # replay of a function whose state lives in partner-less statics (vendor sbss vs our array): not a finding
 STATIC_LAYOUT = ()     # was iir_filter_v2: its statics are now paired (SPLIT_STATICS)
 VONLY_STATICS = ('sp.9007', 'fsp.9008', 'csp.9009')     # vendor .sbss statics of iir_filter_v2
@@ -535,12 +632,18 @@ def main():
     ap.add_argument('--dis', action='store_true',
                     help='append the DIS-on scenario (dis_steps); functions with a filed finding are listed as KNOWN '
                          'and not counted (KNOWN_DIS), remove the entry when the issue is fixed')
+    ap.add_argument('--gen', action='store_true',
+                    help='append the general-FSM scenario (gen_steps): general_frame_start -> adjust_exposure')
+    ap.add_argument('--traps', action='store_true',
+                    help='model the MIPS trap instructions (default only with --mut / --gen: the hooks double the run time)')
     ap.add_argument('--no-seq', action='store_true',
                     help='apical_custom_sequence() returns NULL (no ISP init sequence)')
     ap.add_argument('-v', action='store_true')
     a = ap.parse_args()
+    emu.selftest_traps()
     D = Diff(a.vendor, a.ours, a.calib, a.v, a.sdk)
     D.seq = not a.no_seq
+    D.traps = bool(a.mut or a.traps or a.gen)
     D.skip_mut = set(filter(None, a.skip_mut.split(',')))
     nfz = 0
     if a.fuzz:
@@ -573,13 +676,18 @@ def main():
         if a.no_scenario:
             return 1 if nfz else 0
     only = set(a.only.split(',')) if a.only else None
-    steps = scenario.scenario(not a.short, a.dis)
+    steps = scenario.scenario(not a.short, a.dis, a.gen)
     dis0 = next((i for i, st in enumerate(steps) if st[0] == 'mark'), len(steps))
+    gen0 = next((i for i, st in enumerate(steps) if st[:2] == ('mark', 'gen')), len(steps))
     snaps = D.record(steps, only)
     if a.dis and KNOWN_DIS:
         known = [x for x in D.sys_log if x[0] >= dis0]
         D.sys_log = [x for x in D.sys_log if x[0] < dis0]
         print('SYS steps diverging in the DIS scenario (KNOWN %s): %d' % (sorted(set(KNOWN_DIS.values())), len(known)))
+    if a.gen and KNOWN_GEN:
+        known = [x for x in D.sys_log if x[0] >= gen0]
+        D.sys_log = [x for x in D.sys_log if x[0] < gen0]
+        print('SYS steps diverging in the general-FSM scenario (KNOWN %s): %d' % (sorted(set(KNOWN_GEN.values())), len(known)))
     for i, st, lv, lo in D.sys_log[:(400 if a.v else 8)]:
         k = 0
         while k < min(len(lv), len(lo)) and lv[k] == lo[k]:
@@ -596,6 +704,9 @@ def main():
         # vendor leaves stale registers in v0 of void functions, and a
         # return value that matters shows up in the caller's comparison
         bad = [(s, d) for s, d in rs if d and not all(x.startswith('ret ') for x in d)]
+        if a.gen and bad and fn in KNOWN_GEN:
+            print('KNOWN %-44s differing=%d (#%d)' % (fn, len(bad), KNOWN_GEN[fn]))
+            continue
         if a.dis and bad and (fn in KNOWN_DIS or fn in STATIC_LAYOUT):
             print('KNOWN %-44s differing=%d (%s)' % (fn, len(bad), '#%d' % KNOWN_DIS[fn] if fn in KNOWN_DIS else 'state in partner-less statics'))
             continue
@@ -613,6 +724,10 @@ def main():
     print('functions compared: %d, differing: %d, never called by the scenario: %d' % (len(res), ndiff, len(never)))
     if a.v:
         print('never called: ' + ' '.join(never))
+    mt = D.machine() if D.traps else None
+    if mt:
+        print('trap model: %d trap instructions hooked (vendor %d, ours %d)' % (
+            len(mt.trapat), sum(1 for x in mt.trapat if mt.V.contains(x)), sum(1 for x in mt.trapat if mt.O.contains(x))))
     print('SUMMARY scenario steps diverging: %d, replayed functions differing: %d, fuzzed helpers differing: %d'
           % (len(D.sys_log), ndiff, nfz))
     return 1 if ndiff or nfz or D.sys_log else 0

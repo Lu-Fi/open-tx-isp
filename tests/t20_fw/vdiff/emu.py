@@ -42,6 +42,59 @@ def s16(x):
     return x - 0x10000 if x & 0x8000 else x
 
 
+TRAP_RT = {0x08: 'tgei', 0x09: 'tgeiu', 0x0a: 'tlti', 0x0b: 'tltiu', 0x0c: 'teqi', 0x0e: 'tnei'}
+TRAP_FN = {0x30: 'tge', 0x31: 'tgeu', 0x32: 'tlt', 0x33: 'tltu', 0x34: 'teq', 0x36: 'tne', 0x0d: 'break'}
+
+
+def trap_kind(w):
+    """name of the MIPS32 trap instruction in word w, or None"""
+    if w >> 26 == 0:
+        return TRAP_FN.get(w & 0x3f)
+    if w >> 26 == 1:
+        return TRAP_RT.get((w >> 16) & 31)
+    return None
+
+
+def trap_fires(uc, w):
+    """does the trap instruction w trap with the current registers"""
+    k = trap_kind(w)
+    if k == 'break':
+        return True
+    rs = uc.reg_read(UC_MIPS_REG_ZERO + ((w >> 21) & 31)) if (w >> 21) & 31 else 0
+    if w >> 26 == 0:
+        rt = uc.reg_read(UC_MIPS_REG_ZERO + ((w >> 16) & 31)) if (w >> 16) & 31 else 0
+    else:
+        rt = u32(s16(w & 0xffff))
+    rs, rt = u32(rs), u32(rt)
+    return {'tge': s32(rs) >= s32(rt), 'tgei': s32(rs) >= s32(rt), 'tgeu': rs >= rt, 'tgeiu': rs >= rt,
+            'tlt': s32(rs) < s32(rt), 'tlti': s32(rs) < s32(rt), 'tltu': rs < rt, 'tltiu': rs < rt,
+            'teq': rs == rt, 'teqi': rs == rt, 'tne': rs != rt, 'tnei': rs != rt}[k]
+
+
+def selftest_traps():
+    """guard for the trap model: condition of every MIPS trap instruction (no unicorn needed)"""
+    class R:
+        def __init__(self, **kw):
+            self.r = {UC_MIPS_REG_ZERO + int(k[1:]): v for k, v in kw.items()}
+
+        def reg_read(self, n):
+            return self.r.get(n, 0)
+    def rr(op, rs, rt, fn):
+        return (op << 26) | (rs << 21) | (rt << 16) | fn
+    cases = [
+        (rr(0, 2, 0, 0x34), dict(r2=0), True), (rr(0, 2, 0, 0x34), dict(r2=1), False),      # teq v0,zero
+        (rr(0, 2, 3, 0x36), dict(r2=5, r3=5), False), (rr(0, 2, 3, 0x36), dict(r2=5, r3=6), True),   # tne
+        (rr(0, 2, 3, 0x30), dict(r2=0xffffffff, r3=1), False), (rr(0, 2, 3, 0x31), dict(r2=0xffffffff, r3=1), True),   # tge/tgeu
+        (rr(0, 2, 3, 0x32), dict(r2=0xffffffff, r3=1), True), (rr(0, 2, 3, 0x33), dict(r2=0xffffffff, r3=1), False),   # tlt/tltu
+        (rr(1, 2, 0x0c, 0xffff), dict(r2=0xffffffff), True), (rr(1, 2, 0x0e, 0xffff), dict(r2=0xffffffff), False),     # teqi/tnei -1
+        (rr(0, 0, 0, 0x0d), dict(), True),                                                                         # break
+    ]
+    for w, regs, want in cases:
+        assert trap_kind(w), hex(w)
+        assert trap_fires(R(**regs), w) == want, (hex(w), regs, want)
+    assert not trap_kind(rr(0, 2, 3, 0x21)) and not trap_kind(rr(1, 2, 0x01, 0))     # addu, bgez
+
+
 class Elf:
     """ELF32 LE relocatable: sections, symbols, relocations."""
 
@@ -295,7 +348,8 @@ class Env:
 
 
 class Machine:
-    def __init__(self, vendor_path, ours_path):
+    def __init__(self, vendor_path, ours_path, traps=False):
+        self.traps = traps
         self.V = Image(vendor_path, VBASE, 'V')
         self.O = Image(ours_path, OBASE, 'O')
         self.stubs = {}         # addr -> name
@@ -370,6 +424,22 @@ class Machine:
             uc.hook_add(UC_HOOK_CODE, self._hook_env, begin=a, end=a)
         uc.hook_add(UC_HOOK_MEM_UNMAPPED, self._hook_unmapped)
         uc.hook_add(UC_HOOK_INTR, self._hook_intr)
+        # MIPS trap instructions (teq/tne/tge/.../break): unicorn cannot deliver the
+        # exception (it crashes), so every trap instruction of both images gets its own
+        # hook that evaluates the condition and ends the call with the 'trap' outcome
+        self.trapat = {}
+        for img in (self.V, self.O):
+            e = img.elf
+            for i, a in img.secaddr.items():
+                if e.sh[i][2] & 4 and e.sh[i][1] != 8:           # SHF_EXECINSTR
+                    for off in range(0, e.sh[i][5] - 3, 4):
+                        w, = struct.unpack_from('<I', img.mem, a - img.base + off)
+                        if trap_kind(w):
+                            self.trapat[a + off] = w
+        if not self.traps:          # the hooks double the run time and no default-run call traps (it would crash unicorn)
+            self.trapat = {}
+        for a in self.trapat:
+            uc.hook_add(UC_HOOK_CODE, self._hook_trap, begin=a, end=a)
         self.fault = None
         self.entry_hooks = {}
         self.read_trace = None
@@ -405,11 +475,16 @@ class Machine:
         return False
 
     def _hook_intr(self, uc, intno, ud):
-        # teq (division by zero trap of the vendor build) or break
-        pc = uc.reg_read(UC_MIPS_REG_PC)
-        self.env.traps += 1
-        self.env.log.append(('TRAP', intno, self.where(pc)))
-        uc.reg_write(UC_MIPS_REG_PC, pc + 4)
+        # unexpected exception (trap instructions are handled by _hook_trap): end the call
+        self.fault = 'exception %d at pc=%08x' % (intno, uc.reg_read(UC_MIPS_REG_PC))
+        uc.emu_stop()
+
+    def _hook_trap(self, uc, addr, size, ud):
+        if trap_fires(uc, self.trapat[addr]):
+            self.env.traps += 1
+            self.trap_at = '%s %s' % (trap_kind(self.trapat[addr]), self.where(addr))
+            self.fault = 'trap'         # same text on both sides: both trap = equal outcome
+            uc.emu_stop()
 
     def where(self, a):
         for img in (self.V, self.O):
@@ -432,7 +507,16 @@ class Machine:
             self.uc.reg_write(UC_MIPS_REG_V1, u32(v1))
 
     def _hook_env(self, uc, addr, size, ud):
-        self._call_py(self.envaddr[addr])
+        self._call_guarded(self.envaddr[addr])
+
+    def _call_guarded(self, n):
+        """a Python-side function that touches unmapped memory (mutated pointer argument)
+        must end the call cleanly: an exception inside a unicorn hook crashes the process"""
+        try:
+            self._call_py(n)
+        except (UcError, ValueError, IndexError, struct.error) as e:
+            self.fault = self.fault or ('%s in %s' % (e, n))
+            self.uc.emu_stop()
 
     def _hook_stub(self, uc, addr, size, ud):
         if addr & 7:
@@ -442,7 +526,7 @@ class Machine:
             self.fault = 'call to unknown stub %08x' % addr
             uc.emu_stop()
             return
-        self._call_py(n)
+        self._call_guarded(n)
 
     def _call_py(self, n):
         env, uc = self.env, self.uc
@@ -558,7 +642,11 @@ class Machine:
         elif n == 'tx_isp_t20_fw_parked':
             self.ret(0)
         elif n == 't20fw_bug':
-            self.fault = 'BUG()'
+            # our deliberate BUG() (kernel oops) stands in for the vendor's divide-by-zero trap:
+            # the same 'trap' outcome as a vendor teq
+            self.trap_at = 'BUG %s' % self.where(uc.reg_read(UC_MIPS_REG_RA))
+            self.env.traps += 1
+            self.fault = 'trap'
             uc.emu_stop()
         elif n.startswith('cb_'):
             self._sensor_cb(n[3:], a0, a1, a2, a3)
@@ -650,6 +738,7 @@ class Machine:
         uc.reg_write(UC_MIPS_REG_SP, sp)
         uc.reg_write(UC_MIPS_REG_RA, RET)
         self.fault = None
+        self.trap_at = None
         try:
             uc.emu_start(addr, RET, count=maxins)
         except UcError as e:
