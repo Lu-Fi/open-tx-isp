@@ -136,8 +136,22 @@ static struct t32_core {
 	unsigned int ioctls;
 	u32 run_mode;			/* RUN_SWITCH 0 normal / 1 one-shot (AOV) */
 	u32 ldc_mode;			/* LDC_MODE 0 online / 1 offline */
+#ifdef TX_ISP_T33
+	int reset_pending;		/* clocks on, ISP stop request not yet made (#544) */
+#endif
 	struct proc_dir_entry *proc;
 } core;
+#ifdef TX_ISP_T33
+/*
+ * openimp #544 vendor-equal order (bit mask, default all): 1 = stop request
+ * at S_INPUT instead of open, 2 = VIC0/VIC1 0x1a8 = 0x4444 at
+ * SET_TIZIANO_PAR, 4 = vendor reset tail (bit 22 held 2 ms under bit 21).
+ */
+#ifndef T33_544_VEQ
+#define T33_544_VEQ	7
+#endif
+static void t32_isp_soft_reset(void);
+#endif
 
 /* ------------------------------------------------------------------ */
 /* subdevices: the sensor modules call these from their i2c probe     */
@@ -431,6 +445,17 @@ static int t32_set_tiziano_par(const struct t32_tiziano_par *par)
 		core.bin_wdr[par->vinum] = par->wdr;
 		core.bin_night[par->vinum] = par->night;
 	}
+#if defined(TX_ISP_T33) && (T33_544_VEQ & 2)
+	/*
+	 * ispcore_core_ops_ioctl 0x100001e (vendor 0x103dcc/0x103ddc):
+	 * lib_tisp_vic_ctrl(0/1, 0x4444) before the S_INPUT stop request; the
+	 * first ISP writes of the vendor (#544).  Not on a running refresh.
+	 */
+	if (par->vinum == 0 && !core.vi[0].streaming) {
+		t32_hw_wr(0x80000 + 0x1a8, 0x4444);
+		t32_hw_wr(0x81000 + 0x1a8, 0x4444);
+	}
+#endif
 	/* libimp wrote the bin through an uncached /dev/mem mapping */
 	w = (const u32 *)CKSEG1ADDR(pa);
 	isp_printf(0, "tx-isp-t32: IQ parameters at pa %#x: %08x %08x %08x %08x \n",
@@ -827,6 +852,11 @@ static long t32_isp_ioctl(struct file *file, unsigned int cmd, unsigned long arg
 				void *attr = T32_AT(vi->sd, T32_SENSOR_VIDEO + T32_VIDEO_ATTR, void *);
 
 #ifdef TX_ISP_T33
+				/* ispcore_core_ops_init 0x100e5c: private_reset_tx_isp_module at S_INPUT, pipe 0 (#544) */
+				if (core.reset_pending) {
+					core.reset_pending = 0;
+					t32_isp_soft_reset();
+				}
 				t32_ldc_input_latch(core.ldc_mode);	/* ispcore init: 0x5000007 -> stIspInitPar +0x2c */
 #endif
 
@@ -1267,6 +1297,22 @@ int t32_core_clk_active(void)
  * register write (QEMU trace: clock on, soft reset, 0x22028).  Without it the
  * T33 silicon never ran a register list (openimp #393).
  */
+#ifdef TX_ISP_T33
+static unsigned int t33_544_misses;	/* boots/opens that needed the held pulse */
+#endif
+
+#if defined(TX_ISP_T33) && (T33_544_VEQ & 4)
+/* vendor T33 reset tail 0x164f8-0x1658c: bit 22 with bit 21 still set, 2 ms, drop 22, 2 ms, drop 21 */
+static void t32_isp_reset_tail(void __iomem *srbc)
+{
+	writel(readl(srbc) | (1u << 22), srbc);
+	msleep(2);
+	writel(readl(srbc) & ~(1u << 22), srbc);
+	msleep(2);
+	writel(readl(srbc) & ~(1u << 21), srbc);
+}
+#endif
+
 static void t32_isp_soft_reset(void)
 {
 	void __iomem *srbc = (void __iomem *)CKSEG1ADDR(0x100000c4);
@@ -1275,8 +1321,12 @@ static void t32_isp_soft_reset(void)
 	writel(readl(srbc) | (1u << 21), srbc);
 	for (tries = 500; tries; tries--) {
 		if (readl(srbc) & (1u << 20)) {
+#if defined(TX_ISP_T33) && (T33_544_VEQ & 4)
+			t32_isp_reset_tail(srbc);
+#else
 			writel((readl(srbc) & ~(1u << 21)) | (1u << 22), srbc);
 			writel(readl(srbc) & ~(1u << 22), srbc);
+#endif
 			return;
 		}
 		msleep(2);
@@ -1299,9 +1349,14 @@ static void t32_isp_soft_reset(void)
 	writel(readl(srbc) | (1u << 21), srbc);
 	for (tries = 500; tries; tries--) {
 		if (readl(srbc) & (1u << 20)) {
+#if T33_544_VEQ & 4
+			t32_isp_reset_tail(srbc);
+#else
 			writel((readl(srbc) & ~(1u << 21)) | (1u << 22), srbc);
 			writel(readl(srbc) & ~(1u << 22), srbc);
-			pr_warn("tx-isp-t32: ISP stop acknowledged after a held reset pulse (#544)\n");
+#endif
+			pr_warn("tx-isp-t32: ISP stop acknowledged after a held reset pulse (#544, miss %u)\n",
+				++t33_544_misses);
 			return;
 		}
 		msleep(2);
@@ -1316,7 +1371,11 @@ static int t32_isp_open(struct inode *inode, struct file *file)
 	mutex_lock(&core.lock);
 	if (!t32_clk_users++) {
 		t32_clks_activate();
+#if defined(TX_ISP_T33) && (T33_544_VEQ & 1)
+		core.reset_pending = 1;	/* the vendor asks at S_INPUT (#544) */
+#else
 		t32_isp_soft_reset();
+#endif
 	}
 	mutex_unlock(&core.lock);
 	return 0;
