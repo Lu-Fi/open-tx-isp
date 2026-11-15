@@ -150,6 +150,9 @@ static int t32_subdev_notify(void *module, unsigned int what, void *data)
 		u32 h = T32_AT(data, T32_VIDEO_MBUS_HEIGHT, u32);
 
 		isp_printf(0, "tx-isp-t32: sensor attr sync %ux%u\n", w, h);
+#ifdef TX_ISP_T33
+		t33_aec_sensor_sync();	/* lib_tisp_sync_sensor_attr's AE part (openimp #574) */
+#endif
 		return 0;
 	}
 	isp_printf(0, "tx-isp-t32: subdev notify %#x\n", what);

@@ -110,7 +110,7 @@ static int aew_init_rc;
 static u8 aew_sinfo[64];	/* t32_ae_ctx_init's sensor info: +0 width, +4 height, +12 fps */
 
 static struct {
-	u32 frames, writes, dg_sets, expo_sets, expo_fail, fps_sets, events, irq5, dn_refresh;
+	u32 frames, writes, dg_sets, expo_sets, expo_fail, fps_sets, events, irq5, dn_refresh, syncs;
 	u32 tgain, ev_lo, ev_hi, bv, dg, mean, target;
 } st;
 
@@ -199,6 +199,28 @@ static u32 sns_trig(void *ctx, u32 ch)
 	(void)ctx;
 	t33_normal_ae_par_sensor_trig(ch & 0xff);
 	return 0;
+}
+
+/*
+ * A sensor attribute sync after stream-on (the sensor's set_fps etc. notify
+ * TX_ISP_EVENT_SYNC_SENSOR_ATTR): the vendor ispcore_sync_sensor_attr ->
+ * lib_tisp_sync_sensor_attr copies the run-time fields into the AE's sensor
+ * copy and runs the AE hook (ae_cache + 0x505), so the next AE calc runs
+ * tisp_ae_par_update_trig (openimp #574).  Unlocked like the vendor: the AE
+ * work itself calls the sensor's set_fps under aec_lock.  Before the attach
+ * the stream-on sync of t33_aec_attach covers it.
+ */
+void t33_aec_sensor_sync(void)
+{
+	struct t32_lib_hooks h = { .ae_sensor_trig = sns_trig };
+	const u8 *vin, *si;
+	u8 blk[T32_AESNS_BLK];
+
+	if (!ACCESS_ONCE(ready) || t32_core_sensor_ae_src(&vin, &si))
+		return;
+	t32_ae_sensor_blk(blk, vin, si);
+	t32_lib_sync_sensor_attr(&h, sblk, 0, blk);
+	st.syncs++;
 }
 
 /*
@@ -625,10 +647,10 @@ int t33_aec_dn_par_refresh(u32 ch)
 void t33_aec_show(struct seq_file *m)
 {
 	mutex_lock(&aec_lock);
-	seq_printf(m, "t33 ae: %s frames %u irq5 %u ready %u writes %u dg %u (0x%x) expo %u fail %u fps %u ev %u dn %u\n",
+	seq_printf(m, "t33 ae: %s frames %u irq5 %u ready %u writes %u dg %u (0x%x) expo %u fail %u fps %u ev %u dn %u syncs %u\n",
 		   ready ? "on" : "off", st.frames, st.irq5, aec.b.R ? t32_ld32(aec.b.R, T33_AEW_READY) : 0, st.writes,
 		   st.dg_sets, st.dg, st.expo_sets,
-		   st.expo_fail, st.fps_sets, st.events, st.dn_refresh);
+		   st.expo_fail, st.fps_sets, st.events, st.dn_refresh, st.syncs);
 	seq_printf(m, "t33 ae: it %u again %u sent 0x%x mean %u target %u tgain 0x%x ev 0x%x:%x bv 0x%x tag errors %u/%u\n",
 		   aec_it, aec_ag, aec_sent, st.mean, st.target, st.tgain, st.ev_hi, st.ev_lo, st.bv, front.zbad,
 		   front.hbad);
