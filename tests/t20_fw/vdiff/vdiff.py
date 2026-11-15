@@ -562,6 +562,7 @@ def main():
             api.update(fuzz.fuzz_sharp(m, max(100, a.fuzz // 10)))
         if on('au_read_histogram'):
             api.update(fuzz.fuzz_hist(m, max(20, a.fuzz // 20)))
+        api.update(fuzz.fuzz_exp(m, a.fuzz))
         if a.only:
             api = {k: v for k, v in api.items() if k in a.only.split(',')}
         for fn, (n, bad) in sorted(api.items()):

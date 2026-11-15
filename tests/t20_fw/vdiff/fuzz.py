@@ -490,3 +490,78 @@ def fuzz_hist(m, n=300, seed=8):
     """au_read_histogram unmodified, both sides (#583 stride/endless loop)"""
     out = _fuzz_sharp_one(m, ('au_read_histogram',), False, n, seed)
     return out
+
+
+# exposure target / exposure ratio (openimp #594, #595): private cmos / AE
+# FSMs on a private ISP context; the exposure tuning table 0x92 (per WDR
+# mode, words 3..5: histogram ratio scale, ratio damping, target jump) is
+# randomised in the loaded calibration and restored afterwards
+EXP_FN = ('cmos_set_exposure_target', 'ae_calculate_exposure_ratio')
+
+
+def fuzz_exp(m, n=3000, seed=9):
+    fw = HEAP + 0x4000
+    ctx = fw + 0x18
+    fsm = HEAP + 0x20000
+    stab, ssz = m.V.sym['stab'][0], m.V.sym['stab'][1]
+    tbl = {}
+    for mode in (0, 1, 2):
+        idx = m.call(m.V.sym['_GET_HDR_TABLE_INDEX'][0], [0x92, mode], sp=SP0)[0]
+        tbl[mode] = m.call(m.V.sym['_GET_UINT_PTR'][0], [idx], sp=SP0)[0]
+    saved = {t: bytes(m.uc.mem_read(t, 0x18)) for t in set(tbl.values())}
+    pick = lambda r, bits: r.choice((r.getrandbits(bits), r.randint(0, 64), r.getrandbits(32)))
+    out = {}
+    try:
+        for name in EXP_FN:
+            if name not in m.V.sym or name not in m.O.sym:
+                continue
+            r = random.Random(seed)
+            bad = []
+            for i in range(n):
+                mode = r.choice((0, 0, 1, 2))
+                c = bytearray(0x18 + 0x2fb8)
+                struct.pack_into('<I', c, 0x18 + 4, fw)
+                c[0x18 + 0x1524] = mode                                   # general.wdr_mode
+                c[0x18 + 0x2fc] = r.choice((0, 0, 0, 0, 1))               # defect_pixel.field_14 (cmos: skip)
+                f = bytearray(r.getrandbits(8) for _ in range(0x440))
+                struct.pack_into('<I', f, 0, ctx)
+                t = bytearray(saved[tbl[mode]])
+                if name == 'cmos_set_exposure_target':
+                    cur = pick(r, 20)
+                    struct.pack_into('<I', f, 0x1c, cur)                  # exposure_log2
+                    tgt = r.choice((u32(cur + r.randint(-0x4000, 0x4000)), pick(r, 20)))
+                    struct.pack_into('<I', t, 0x14, pick(r, 16))         # target_jump
+                    args = [fsm, tgt, r.choice((r.randint(0, 0x500), r.getrandbits(32)))]
+                else:
+                    hist = [r.getrandbits(r.randint(0, 16)) for _ in range(256)]
+                    total = sum(hist)
+                    if total == 0:
+                        hist[0], total = 1, 1
+                    for k, v in enumerate(hist):
+                        struct.pack_into('<I', f, 0x30 + 4 * k, v)
+                    struct.pack_into('<I', f, 0x430, total)               # hist_total
+                    struct.pack_into('<I', f, 0x2c, r.getrandbits(r.randint(0, 24)))   # filter state
+                    struct.pack_into('<II', t, 0xc, r.randint(0, 255), r.choice((0, 1, r.randint(1, 16), r.getrandbits(8))))
+                    args = [fsm]
+                st = bytearray(r.getrandbits(8) for _ in range(ssz))
+                st[2] = r.choice((0, 0, 0, 1))                            # global_manual_exposure_ratio
+                res = []
+                for img in (m.V, m.O):
+                    m.uc.mem_write(fw, bytes(c))
+                    m.uc.mem_write(fsm, bytes(f))
+                    m.uc.mem_write(tbl[mode], bytes(t))
+                    m.uc.mem_write(stab, bytes(st))
+                    v0 = m.call(img.sym[name][0], args, sp=SP0)[0]
+                    res.append((v0, bytes(m.uc.mem_read(fsm, len(f))), bytes(m.uc.mem_read(fw, len(c))),
+                                bytes(m.uc.mem_read(stab, ssz)), bool(m.fault)))
+                if res[0][1:] != res[1][1:] or (name == 'ae_calculate_exposure_ratio' and res[0][0] != res[1][0]):
+                    (a, fa, ca, sa, xa), (b, fb, cb, sb, xb) = res
+                    df = [(hex(x), hex(fa[x]), hex(fb[x])) for x in range(len(f)) if fa[x] != fb[x]][:4]
+                    bad.append((args, 'mode=%d ret V=0x%x O=0x%x fsm %s ctx %s stab %s fault V=%s O=%s' % (
+                        mode, a, b, df, [hex(x - 0x18) for x in range(len(c)) if ca[x] != cb[x]][:4],
+                        [x for x in range(ssz) if sa[x] != sb[x]][:4], xa, xb)))
+            out[name] = (n, bad)
+    finally:
+        for a0, b in saved.items():
+            m.uc.mem_write(a0, b)
+    return out

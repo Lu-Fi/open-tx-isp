@@ -9982,19 +9982,16 @@ int32_t cmos_set_exposure_target(void *cmos_ptr, int32_t target, int32_t ratio)
 	exposure = cmos->exposure_log2;
 	jump = tuning->target_jump;
 
-	/* |exposure - target| */
+	/* |exposure - target|, compared unsigned like the vendor (0x1f6b8) */
 	diff = exposure - target;
 	sign = diff >> 31;
-	if ((sign ^ diff) - sign >= jump) {
-		/* large change: land half a jump next to the target.
-		 * FIXME (openimp #594): the vendor (0x1f6b0)
-		 * uses jump / 2 unscaled, target + half when the target is
-		 * below the current value (signed compare) and an unsigned
-		 * compare against jump; kept as recovered here. */
-		int32_t half = (jump >> 1) * 4;
+	if ((uint32_t)((sign ^ diff) - sign) >= (uint32_t)jump) {
+		/* large change (openimp #594, vendor 0x1f6c4): start half a
+		 * jump before the target, on the side of the current value */
+		uint32_t half = (uint32_t)jump >> 1;
 
-		cmos->exposure_log2 = ((uint32_t)target < (uint32_t)exposure) ?
-			target - half : target + half;
+		cmos->exposure_log2 = (target < exposure) ?
+			target + half : target - half;
 	}
 
 	cmos->ratio_request = ((uint32_t)ratio > 0x400) ? 0x400 : ratio;
@@ -16607,10 +16604,9 @@ uint32_t ae_calculate_exposure_ratio(int32_t *ae_words)
 
 		ratio = 0x7f80 / ((bin << 1) + 1);
 
-		/* FIXME (openimp #595): the vendor (0x2af0c)
-		 * compares unsigned, so only WDR modes 1 and 2 square the
-		 * ratio; this signed compare also squares it in mode 0. */
-		if (isp->general.wdr_mode - 1 < 2)
+		/* WDR modes 1 and 2 only: unsigned compare like the vendor
+		 * (0x2af10, openimp #595); linear mode keeps the plain ratio */
+		if ((uint32_t)(isp->general.wdr_mode - 1) < 2)
 			ratio = (ratio * ratio) >> 6;
 	} else {
 		ratio = (uint8_t)stab.global_exposure_ratio << 3;
