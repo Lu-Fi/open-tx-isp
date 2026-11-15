@@ -902,6 +902,60 @@ static long frame_channel_vidioc_default(struct file *file, void *fh, bool valid
 	return ret;
 }
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 4, 0)
+/*
+ * Kernel 4.x+ has no .vidioc_cropcap/.vidioc_g_crop/.vidioc_s_crop: the
+ * core answers VIDIOC_CROPCAP, G_CROP and S_CROP through the selection
+ * API.  Without these the vendor IMP ABI (CROPCAP before S_CROP for a
+ * cropped channel) gets ENOTTY and the main channel never starts.
+ * Placed after the last __LINE__ user so 3.10 builds keep their layout.
+ */
+static int frame_channel_vidioc_g_selection(struct file *file, void *fh,
+		struct v4l2_selection *s)
+{
+	frame_chan_vdev_t *vdev = video_drvdata(file);
+	struct v4l2_cropcap cc = { .type = s->type };
+	struct v4l2_crop c = { .type = s->type };
+	int ret;
+
+	if (s->type != vdev->vbq.type)
+		return -EINVAL;
+
+	switch (s->target) {
+	case V4L2_SEL_TGT_CROP_BOUNDS:
+	case V4L2_SEL_TGT_CROP_DEFAULT:
+		ret = frame_channel_vidioc_cropcap(file, fh, &cc);
+		if (ret != ISP_SUCCESS)
+			return ret;
+		s->r = s->target == V4L2_SEL_TGT_CROP_BOUNDS ? cc.bounds
+							     : cc.defrect;
+		return 0;
+	case V4L2_SEL_TGT_CROP:
+		ret = frame_channel_vidioc_g_crop(file, fh, &c);
+		if (ret != ISP_SUCCESS)
+			return ret;
+		s->r = c.c;
+		return 0;
+	default:
+		return -EINVAL;
+	}
+}
+
+static int frame_channel_vidioc_s_selection(struct file *file, void *fh,
+		struct v4l2_selection *s)
+{
+	struct v4l2_crop c = { .type = s->type, .c = s->r };
+	int ret;
+
+	if (s->target != V4L2_SEL_TGT_CROP)
+		return -EINVAL;
+	ret = frame_channel_vidioc_s_crop(file, fh, &c);
+	if (ret == ISP_SUCCESS)
+		s->r = c.c;
+	return ret;
+}
+#endif
+
 static const struct v4l2_ioctl_ops frame_channel_v4l2_ioctl_ops = {
 
 	/* VIDIOC_QUERYCAP handler */
@@ -933,6 +987,12 @@ static const struct v4l2_ioctl_ops frame_channel_v4l2_ioctl_ops = {
 
 	.vidioc_streamon		= frame_channel_vidioc_streamon,
 	.vidioc_streamoff		= frame_channel_vidioc_streamoff,
+
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 4, 0)
+	/* CROPCAP, G_CROP and S_CROP go through the selection API */
+	.vidioc_g_selection		= frame_channel_vidioc_g_selection,
+	.vidioc_s_selection		= frame_channel_vidioc_s_selection,
+#endif
 
 	/* For other private ioctls */
 	.vidioc_default			= frame_channel_vidioc_default,
