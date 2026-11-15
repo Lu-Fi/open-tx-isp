@@ -16,7 +16,12 @@
 
 #include "../include/tx_isp/tx_isp_sinfo.h"
 
+#ifdef CONFIG_TX_ISP_T41_V4L2
+/* Writable: the V4L2 sensor bridge sets the static metadata at attach. */
+static struct tx_isp_sinfo_config tx_isp_sinfo_config = {
+#else
 static const struct tx_isp_sinfo_config tx_isp_sinfo_config = {
+#endif
 	.flags = TX_ISP_SINFO_EXTENDED_ATTRS,
 	.static_chip_id = 0x530444,
 	.static_i2c_adapter = 0,
@@ -64,3 +69,16 @@ static const struct tx_isp_sinfo_config tx_isp_sinfo_config = {
 	 ((*(volatile unsigned int *)&tx_isp_sinfo_stats.magic) ? \
 	  TX_ISP_SINFO_STATIC_METADATA : 0U))
 #include "../common/tx_isp_sinfo.c"
+
+#ifdef CONFIG_TX_ISP_T41_V4L2
+void tx_isp_t41_sinfo_set_static(unsigned int chip_id, unsigned int width,
+				 unsigned int height, unsigned int fps,
+				 const char *name)
+{
+	tx_isp_sinfo_config.static_chip_id = chip_id;
+	tx_isp_sinfo_config.static_width = width;
+	tx_isp_sinfo_config.static_height = height;
+	tx_isp_sinfo_config.static_fps = fps;
+	tx_isp_sinfo_config.static_name = name;
+}
+#endif

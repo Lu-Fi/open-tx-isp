@@ -317,8 +317,15 @@ static void tx_isp_sinfo_show_key(struct seq_file *m,
 	switch (selected_key) {
 	case TX_ISP_SINFO_NAME:
 		name = NULL;
+#ifdef TX_ISP_SINFO_STATIC_NAME
+		if (config_flags &
+		    TX_ISP_SINFO_STATIC_METADATA)
+			name = tx_isp_sinfo_config.static_name;
+		else
+#else
 		if (!(config_flags &
 		      TX_ISP_SINFO_STATIC_METADATA))
+#endif
 			name = tx_isp_sinfo_pointer_at(
 				attr, tx_isp_sinfo_config.attr_name_offset);
 		if (!name && slot->drv)

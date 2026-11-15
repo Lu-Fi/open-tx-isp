@@ -51,6 +51,10 @@ struct tx_isp_sinfo_config {
 	unsigned int static_width;
 	unsigned int static_height;
 	unsigned int static_fps;
+#ifdef TX_ISP_SINFO_STATIC_NAME
+	/* Sensor name for static metadata (T41 7.x V4L2 sensor bridge) */
+	const char *static_name;
+#endif
 
 	void (*driver_added)(struct i2c_driver *drv, int default_i2c_addr,
 			     struct module *owner);

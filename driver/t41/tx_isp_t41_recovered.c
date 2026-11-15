@@ -47,6 +47,7 @@ bool t41_dfg_ready(void);
 #include "tx_isp_t41_awb_gain.h"
 #include "tx_isp_t41_awb_frame.h"
 #include "tx_isp_t41_sensor_gain.h"
+#include "tx_isp_t41_v4l2_sensor.h"
 #include "tx_isp_t41_gamma.h"
 #include "tx_isp_t41_dpc.h"
 #include "tx_isp_t41_dmsc.h"
@@ -14816,6 +14817,13 @@ static void t41_unregister_i2c_sensor(uintptr_t sensor_sd)
 	if (!sensor_sd)
 		return;
 	t41_sensor_ops_quiesce();
+#ifdef CONFIG_TX_ISP_T41_V4L2
+	if (tx_isp_t41_v4l2_sensor_is((void *)sensor_sd)) {
+		tx_isp_t41_v4l2_sensor_unpublish((void *)sensor_sd);
+		tx_isp_t41_v4l2_sensor_put((void *)sensor_sd);
+		return;
+	}
+#endif
 	client = (struct i2c_client *)t41_load_ptr(sensor_sd,
 						   T41_SUBDEV_CLIENT_OFF);
 	if (client) {
@@ -15028,14 +15036,24 @@ static int t41_register_sensor(uintptr_t vin, uintptr_t arg)
 		return -EINVAL;
 	}
 
-	memset(&board_info, 0, sizeof(board_info));
-	memcpy(board_info.type, (void *)(arg + 36), sizeof(board_info.type));
-	board_info.addr = *(uint32_t *)(arg + 56);
-	/* Beyond vendor: a client left at this address by a previous driver
-	 * instance (rmmod without IMP_ISP_DelSensor) would make
-	 * i2c_new_device() fail with -EBUSY until reboot. */
-	tx_isp_t41_sensor_client_evict(adapter, board_info.addr);
-	sensor_sd = isp_i2c_new_subdev_board(adapter, &board_info, NULL);
+#ifdef CONFIG_TX_ISP_T41_V4L2
+	/* A mainline V4L2 sensor already probed from DT: use the bridge */
+	sensor_sd = (struct tx_isp_subdev *)tx_isp_t41_v4l2_sensor_get(
+		adapter, (const char *)(arg + 36));
+	if (!sensor_sd) {
+#endif
+		memset(&board_info, 0, sizeof(board_info));
+		memcpy(board_info.type, (void *)(arg + 36),
+		       sizeof(board_info.type));
+		board_info.addr = *(uint32_t *)(arg + 56);
+		/* Beyond vendor: a client left at this address by a previous
+		 * driver instance (rmmod without IMP_ISP_DelSensor) would make
+		 * i2c_new_device() fail with -EBUSY until reboot. */
+		tx_isp_t41_sensor_client_evict(adapter, board_info.addr);
+		sensor_sd = isp_i2c_new_subdev_board(adapter, &board_info, NULL);
+#ifdef CONFIG_TX_ISP_T41_V4L2
+	}
+#endif
 	if (!sensor_sd || IS_ERR(sensor_sd)) {
 		private_i2c_put_adapter(adapter);
 		isp_printf(2, "failed to acquire sensor subdev %s\n",
@@ -15092,6 +15110,10 @@ static int t41_register_sensor(uintptr_t vin, uintptr_t arg)
 	t41_note(
 	       "t41: sensor-register create-frame exit ret=%d\n",
 	       ret);
+#ifdef CONFIG_TX_ISP_T41_V4L2
+	if (!ret && tx_isp_t41_v4l2_sensor_is((void *)sensor_sd))
+		tx_isp_t41_v4l2_sensor_publish((void *)sensor_sd);
+#endif
 	return ret ? -1 : 0;
 }
 
