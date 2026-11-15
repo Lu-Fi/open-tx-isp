@@ -271,6 +271,9 @@ int t33_aec_attach(const u8 *sec, u32 len, u32 width, u32 height, const u8 *zbuf
 void t33_aec_detach(void);
 void t33_aec_irq4(u32 idx);
 void t33_aec_irq5(u32 idx);
+int t33_aec_malloc_info(u32 *list, unsigned long stat, unsigned long hist);	/* tisp_ae_malloc_info */
+void t33_aec_switch_sec(const u8 *sec, u32 len);	/* bin switch: the new AE section */
+int t33_aec_dn_par_refresh(u32 ch);			/* normal_ae_dn_par_refresh */
 void t33_aec_show(struct seq_file *m);
 bool t33_evq_queue(struct work_struct *w);	/* the vendor's tisp event thread: one ordered queue */
 void t33_evq_get(void);

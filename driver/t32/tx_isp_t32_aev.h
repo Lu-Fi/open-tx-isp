@@ -50,7 +50,7 @@ static inline u32 t32_aev_core(const u8 *st, u32 sh, u32 mode, u32 t5, u32 t6, u
 	}
 	xx = (t32_u64)hi << 32 | lo;
 	if (mode == 1) {
-		th = t32_ld32(st, 1700) << sx;
+		th = t32_ld32(st, T32_AER_HI(1700)) << sx;
 		if (hi == 0 && lo < th) {
 			if (t5 == 0) {
 				v = t32_aev_lsr(lo, sh) << sx;
@@ -86,7 +86,7 @@ static inline u32 t32_aev_core(const u8 *st, u32 sh, u32 mode, u32 t5, u32 t6, u
 				s1 = 1U << sx;
 			}
 		} else {
-			const u8 *tbl = st + 1700;
+			const u8 *tbl = st + T32_AER_HI(1700);
 			u32 idx = 1, lim;
 
 			v = ops->div32(sh, t32_ld32(tbl, 4 * n) << sx, amax);
@@ -384,7 +384,9 @@ static inline u32 t32_aev_st_tab(const u8 *st, u32 k)
 {
 	u32 off = 1696 + 4 * k;
 
-	return off + 4 <= T32_AEV_ST_BYTES ? t32_ld32(st, off) : 0;
+	if (off + 4 > T32_AEV_ST_BYTES)
+		return 0;
+	return t32_ld32(st, off < 1700 ? off : T32_AER_HI(off));
 }
 
 /* frame rate state shared by the cases of tisp_ae_ev_list_alloc_calc */
@@ -713,7 +715,7 @@ static inline void t32_aev_list_alloc_calc(const u8 *ctune, u8 *buf, u8 *st, u32
 			if (mode == 1) {
 				int go1 = 0;
 
-				th = t32_ld32(st, 1700) << sx;
+				th = t32_ld32(st, T32_AER_HI(1700)) << sx;
 				if (!(s7 < th)) {
 					r = ops->div32(sh, (20U << sx) + s7, th);
 					r = t32_aev_st_tab(st, (r >> sx) & 0xff) << sx;

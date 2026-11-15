@@ -61,6 +61,7 @@
 #define T33_AE_FST_DG		0x400U		/* word 4 (info + 0x3a8) */
 #define T33_AE_FST_IT		0x10U		/* word 5 (info + 0x3ac) */
 #define T33_AE_DG_REG		0x3058U		/* the T32 port's DG word */
+#define T33_AE_R_READY		1732U		/* ae_cache + 0x6c4: the tune ran (T32: e1510[ch], struct t32_aec mode) */
 /*
  * The first AE step starts from that EV (16 lines at 1x): in QEMU with a
  * deterministic guest clock (-icount shift=0) the vendor's first steps are
@@ -156,7 +157,7 @@ static inline unsigned int t33_ae_frame(struct t32_aec *a, struct t33_ae_front *
 
 	t32_aec_bind(a);
 	a->n = 0;
-	if (!a->stop && a->mode == 1)
+	if (!a->stop && t32_ld32(a->b.R, T33_AE_R_READY) == 1)
 		t32_aec_long_alloc(0);
 	n = a->n;
 	t33_ae_load(a, f, zbufs + f->zidx * T33_AE_ZBUF_BYTES, hbufs + f->hidx * T33_AE_HBUF_BYTES);
@@ -357,7 +358,7 @@ static void t33_aec_cp_alg(u32 ch)
 	t32_ae_weight_mean(&c, a->b.D, a->b.R, ch, &mean, ratio, ww, wh, wsum, &t32_aec_aeops);
 	t32_wr32(rp, 0, ratio[0]);
 	t32_wr32(rp, 4, ratio[1]);
-	t33_ae_tune(a->b.T, a->b.B, a->b.R, &a->mode, a->dcw, ch, mean, rp, t33_ae_tagerr, &t32_aec_uops);
+	t33_ae_tune(a->b.T, a->b.B, a->b.R, a->b.R + T33_AE_R_READY, a->dcw, ch, mean, rp, t33_ae_tagerr, &t32_aec_uops);
 }
 
 /*

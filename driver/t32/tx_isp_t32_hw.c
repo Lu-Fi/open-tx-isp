@@ -1453,7 +1453,7 @@ static int t33_ldc_sysw(u32 reg, u32 val)
 	return 0;
 }
 #define system_reg_write t33_ldc_sysw
-#define normal_ae_dn_par_refresh t33_ldc_unused_ae_dn
+#define normal_ae_dn_par_refresh t33_aec_dn_par_refresh	/* tx_isp_t33_aec.c (tx_isp_t33_misc1.h) */
 #include "tx_isp_t33_aeldc.h"
 #include "tx_isp_t33_ldcpar.h"
 #undef system_reg_write
@@ -1648,10 +1648,15 @@ static noinline_for_stack void t33_tisp_init_ae(const u8 *bin, u32 bytes)
 	t33_ae_rows = min_t(u32, t32_tp_le16(bin + off + 0xad2), T33_AE_GRID);
 	t33_ae_cols = min_t(u32, t32_tp_le16(bin + off + 0xad6), T33_AE_GRID);
 	buf = t33_mod_buf(T33_MOD_AE);
-	if (buf && t33_ae_stat_pages && t33_ae_hist_pages)
-		t33_mod_done(T33_MOD_AE, t33_ae_init(bin + off, width, height,
-						     (u32)virt_to_phys((void *)t33_ae_stat_pages),
-						     (u32)virt_to_phys((void *)t33_ae_hist_pages), buf, T33_SLOT_WORDS));
+	if (buf && t33_ae_stat_pages && t33_ae_hist_pages) {
+		int n = t33_ae_init(bin + off, width, height, (u32)virt_to_phys((void *)t33_ae_stat_pages),
+				    (u32)virt_to_phys((void *)t33_ae_hist_pages), buf, T33_SLOT_WORDS);
+
+		/* tisp_ae_malloc_info: the AE hardware parameter block (g_ae_contexts[0]) and list 30 slots 7..14 */
+		if (n > 0 && t33_aec_malloc_info(buf, t33_ae_stat_pages, t33_ae_hist_pages))
+			n = -ENOMEM;
+		t33_mod_done(T33_MOD_AE, n);
+	}
 	/* tisp_ae_init's state, then the AE frames per statistics interrupt */
 	if (t33_ae_stat_pages && t33_ae_hist_pages &&
 	    t33_aec_attach(bin + off, len, width, height, t33_stat_va(t33_ae_stat_pages, 0),
@@ -2689,11 +2694,12 @@ static void t33_tisp_init(const u8 *bin, u32 bytes)
  * tmo, dmsc, gamma, ccm, clm, bcsh, ysp, mdns, ydns, sdns, cdns, defog,
  * lce, rdns, af, csccr; dpc, dmsc, ysp, mdns, ydns, sdns, cdns and rdns
  * run the vendor switch_para ports (tx_isp_t33_swglue.h) at their own
- * last gain / EV.
- * Not rebuilt (open, #507): the AWB list 29 / AWB and AE algorithm
- * parameters (tisp_awb_dn_params_refresh, the AE context), the AE list 30
- * (the five AE registers of the AE switch), the night byte 0x1f of
- * tparamsP and the TOP direct writes.
+ * last gain / EV; the AE runs tisp_ae_switch_para (new AE section, list
+ * 30 from the AE hardware parameter block, normal_ae_dn_par_refresh: the
+ * deflicker table and the parameter update at the next AE frame).
+ * Not rebuilt (open, #507): the AWB list 29 / AWB algorithm parameters
+ * (tisp_awb_dn_params_refresh), the night byte 0x1f of tparamsP and the TOP
+ * direct writes.
  */
 #define T33_SW_SEC(BLK)	((off = t32_iq_section(bin, bytes, T33_SEC_##BLK, &len)) && len == T33_##BLK##_SEC_BYTES)
 #define T33_SW_TMP()	memset(t33_gr_tmp, 0, T33_SLOT_WORDS * 4)
@@ -3292,6 +3298,15 @@ void t33_refresh_para(u32 mode)
 			t33_gr_last[id] = 0xffffffffU;
 	t33_sw_runs++;
 	mutex_unlock(&t33_gr_lock);
+	/*
+	 * tisp_ae_switch_para (vendor: after blc): the new AE section, list 30 from g_ae_contexts[0],
+	 * normal_ae_dn_par_refresh.  Outside t33_gr_lock: the AE work holds the AE lock while its EV / gain
+	 * events take t33_gr_lock (t33_ev_refresh / t33_tgain_refresh).
+	 */
+	if ((off = t32_iq_section(bin, bytes, T33_SEC_AE, &len)) && len >= T33_AE_SEC_MIN && g_ae_contexts[0]) {
+		t33_aec_switch_sec(bin + off, len);
+		t33_ae_switch_para(0);
+	}
 	t33_gr_refresh(gain, sw);
 	isp_printf(0, "tx-isp-t33: IQ bin switch (mode %u): lists rebuilt at gain %#x ct %u ev %#x:%#x, switch_para %#llx\n",
 		   mode, gain, ct, hi, lo, (unsigned long long)sw);

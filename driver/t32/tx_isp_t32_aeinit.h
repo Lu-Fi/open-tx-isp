@@ -53,7 +53,7 @@
 
 #define T32_AEI_CTX_BYTES	2020U	/* e15a8[ch] */
 #define T32_AEI_B_BYTES		12848U	/* e15a8[ch] word 1 */
-#define T32_AEI_R_BYTES		2184U	/* e1588[ch], d3a40 + ch * 2184 */
+#define T32_AEI_R_BYTES		T32_AER_HI(2184U)	/* e1588[ch], d3a40 + ch * 2184 (T33: + the parked words) */
 #define T32_AEI_D_BYTES		11768U	/* e15d8[ch] */
 #define T32_AEI_C_BYTES		16U	/* e15c8[ch] */
 #define T32_AEI_T_OFF		104U	/* T = dd0a4[ch] + 104 */
@@ -88,7 +88,7 @@
 #define T32_AER_EV64		80	/* 16 x u64 exposure products */
 #define T32_AER_ENTRY		676	/* 16 x { it, ag, dg, - } */
 #define T32_AER_RATIO		1260	/* 3 words + copy at 1272 */
-#define T32_AER_FLICKER		1700	/* 120 words */
+#define T32_AER_FLICKER		T32_AER_HI(1700)	/* 120 words */
 
 struct t32_ae_init_ops {
 	u32 (*div32)(u32 sh, u32 a, u32 b);				/* fix_point_div_32 */

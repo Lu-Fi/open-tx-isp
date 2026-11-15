@@ -48,6 +48,22 @@ typedef uint16_t u16;
 #define T32_AE_PARAM		0x104U
 #define T32_AWB_PARAM		0xddcU
 #endif
+
+/*
+ * AE state (R) words from 1700 on (the T32 port's deflicker table, AF step,
+ * EV / AT list flags, the scene-compensation switch: up to 2183).  The T32
+ * module keeps them in its 2184 B state block.  On the T33 the state block
+ * is the vendor-layout ae_cache (stAeInfo, tx_isp_t33_aec.c), which has its
+ * own words there (ae_cache_default 1700..1743, the tuning pointer at 1744,
+ * the B part from 1752): the T32-only words are parked after the vendor AE
+ * context (R + T33_AER_PARK, 484 bytes).
+ */
+#ifdef TX_ISP_T33
+#define T33_AER_PARK		19960U
+#define T32_AER_HI(o)		(T33_AER_PARK + (o) - 1700U)
+#else
+#define T32_AER_HI(o)		(o)
+#endif
 #define T32_AE_BUF_BYTES	0x6000U		/* 4 zone buffers of 4 KiB + 4 histograms of 2 KiB */
 #define T32_AWB_BUF_BYTES	0x1c000U	/* 4 buffers of 0x7000 */
 #define T32_STATS_ID		0x0134da11U
@@ -1194,7 +1210,7 @@ static inline int t32_aea_set_fps(const struct t32_aea_ctx *c, u32 ch, u32 fps, 
 #define T32_AEA_T_AFVAL		1660U
 #define T32_AEA_T_COMP		2960U
 #define T32_AEA_BUF_AFSTEP	12842U
-#define T32_AEA_ST_AFSTEP	1700U
+#define T32_AEA_ST_AFSTEP	T32_AER_HI(1700U)
 #define T32_AEA_BASE_AF		1764U
 
 static inline void t32_aea_cpy(u8 *dst, const u8 *src, u32 n)
@@ -1490,7 +1506,7 @@ static inline void t32_aea_set_ev_list(const struct t32_aea_ctx *c, u32 flag, co
 		t32_aea_cpy(c->tune + T32_AEA_T_EVL, c->st + T32_AEA_ST_EVL, 120);
 	}
 	c->st[1285] = 1;
-	c->st[2180] = (u8)flag;
+	c->st[T32_AER_HI(2180)] = (u8)flag;
 }
 
 /* out: word 0 = flag byte, then 15 entries of 8 bytes from out + 8 */
@@ -1502,7 +1518,7 @@ static inline void t32_aea_get_ev_list(const struct t32_aea_ctx *c, u8 *out)
 		t32_wr32(out, 8 + 8 * i, t32_ld32(c->tune, T32_AEA_T_EVL + 8 * i));
 		t32_wr32(out, 12 + 8 * i, t32_ld32(c->tune, T32_AEA_T_EVL + 8 * i + 4));
 	}
-	t32_wr32(out, 0, c->st[2180]);
+	t32_wr32(out, 0, c->st[T32_AER_HI(2180)]);
 }
 
 static inline void t32_aea_set_at_list(const struct t32_aea_ctx *c, u32 flag, const u8 *in)
@@ -1516,7 +1532,7 @@ static inline void t32_aea_set_at_list(const struct t32_aea_ctx *c, u32 flag, co
 	} else {
 		t32_aea_cpy(c->tune + T32_AEA_T_ATL, c->st + T32_AEA_ST_ATL, 30);
 	}
-	c->st[2181] = (u8)flag;
+	c->st[T32_AER_HI(2181)] = (u8)flag;
 	c->st[1285] = 1;
 }
 
@@ -1528,7 +1544,7 @@ static inline void t32_aea_get_at_list(const struct t32_aea_ctx *c, u8 *out)
 		t32_wr32(out, 8 + 8 * i, t32_st16(c->tune, T32_AEA_T_ATL + 2 * i));
 		t32_wr32(out, 12 + 8 * i, 0);
 	}
-	t32_wr32(out, 0, c->st[2181]);
+	t32_wr32(out, 0, c->st[T32_AER_HI(2181)]);
 }
 
 /*
@@ -1854,7 +1870,7 @@ static inline unsigned int t32_ae_calc_process(u32 ch, const struct t32_ae_ctx *
 	u32 idx = t32_st16(c->tune, 1656), k, v, p;
 	unsigned int n = 0;
 
-	if (st[2182] == 1 && st[1297])
+	if (st[T32_AER_HI(2182)] == 1 && st[1297])
 		return 0;
 	v = ops->reg_read(ch, T32_AE_REG_A) >> 16;
 	ops->reg_read(ch, T32_AE_REG_C);	/* result unused by the vendor */
@@ -2057,7 +2073,7 @@ static inline void t32_awb_sleep(struct t32_awb_sleep_state *s, u32 (*rd)(u32 re
 #define T32_AEA_BUF_W		8548U
 #define T32_AEA_BUF_H		8550U
 #define T32_AEA_ST_SEPC		1520U
-#define T32_AEA_ST_SEPC_OFF	2182U
+#define T32_AEA_ST_SEPC_OFF	T32_AER_HI(2182U)
 #define T32_AEA_ST_SEPC_STR	1296U
 #define T32_AEA_ST_SEPC_IN	1500U
 #define T32_AEA_SEPC_GRID	15U

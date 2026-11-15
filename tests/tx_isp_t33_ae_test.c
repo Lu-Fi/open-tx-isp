@@ -164,7 +164,7 @@ static void loop(const char *bp)
 		t33_ae_frame(&a, &f, zb, hb);
 		t33_ae_calc(&a, &f, f.zbad, f.hbad);
 		cur = t32_ld32(a.b.R, 576);
-		if (a.mode == 1 && it_set) {
+		if (t32_ld32(a.b.R, T33_AE_R_READY) == 1 && it_set) {
 			double out = (double)cur * t32_ld32(a.b.R, 580) / 1024.0 * t32_ld32(a.b.R, 588) / 1024.0;
 
 			/* the sensor shows what the last allocation applied (B + 7616 / 7620 / 7628) */
