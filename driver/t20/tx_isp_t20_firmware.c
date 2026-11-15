@@ -3886,7 +3886,6 @@ int32_t apical_sbus_isp_init(void *bus_ptr)
 	return (int32_t)(uintptr_t)&isp_io_write_sample;
 }
 
-/* WHOLE_DRIVER_CANDIDATE fn_0000000000017a10 origin=model_output original=i2c_io_read_sample */
 /*
  * The bus owner may already run with the ISP interrupts masked
  * (irq_masked set in its control block); only then the sample
@@ -3916,6 +3915,7 @@ static inline uint32_t t20_sbus_i2c_addr_size(uint32_t mask)
 	return 1;
 }
 
+/* WHOLE_DRIVER_CANDIDATE fn_0000000000017a10 origin=model_output original=i2c_io_read_sample */
 /* OEM 0x17240 (apical_sbus_i2c read_sample): 0 on a bus error */
 uint32_t i2c_io_read_sample(struct t20_sbus *bus, uint32_t addr,
 			    uint8_t sample_size)
@@ -5902,7 +5902,6 @@ int32_t dvi_output(void)
 	return 2;
 }
 
-/* WHOLE_DRIVER_CANDIDATE fn_000000000001acb4 origin=model_output original=image_resize_enable */
 /*
  * Window selector of the image_resize_ and image_crop_ commands (value
  * bits 31..16): full-resolution crop, then crop and scaler of the two
@@ -6006,6 +6005,7 @@ static int32_t t20_crop_api_u16(uint16_t *field, int32_t value,
 	return 0;
 }
 
+/* WHOLE_DRIVER_CANDIDATE fn_000000000001acb4 origin=model_output original=image_resize_enable */
 /* value bits 15..0: 0xc = on, 0xd = off */
 int32_t image_resize_enable(void *api, int32_t value, char direction, uint32_t *result_out)
 {
@@ -11126,7 +11126,23 @@ int32_t iridix_update(int32_t *fsm)
     return result;
 }
 
-/* WHOLE_DRIVER_CANDIDATE fn_0000000000022250 origin=model_output original=_update_ds */
+/* register offsets inside the block of one pipe (FR 0x4c0, DS1 0x600, DS2 0x700) */
+enum {
+	T20_CROP_REG_ENABLE = 0x00,
+	T20_CROP_REG_X = 0x04,
+	T20_CROP_REG_Y = 0x08,
+	T20_CROP_REG_WIDTH = 0x0c,
+	T20_CROP_REG_HEIGHT = 0x10,
+	T20_SCALER_REG_IN_WIDTH = 0x48,
+	T20_SCALER_REG_IN_HEIGHT = 0x4c,
+	T20_SCALER_REG_OUT_WIDTH = 0x50,
+	T20_SCALER_REG_OUT_HEIGHT = 0x54,
+	T20_SCALER_REG_H_RATIO = 0x58,
+	T20_SCALER_REG_H_FILTER = 0x5c,
+	T20_SCALER_REG_V_RATIO = 0x60,
+	T20_SCALER_REG_V_FILTER = 0x64,
+};
+
 /*
  * Crop stage of one output pipe (register block at reg: enable, x, y,
  * width, height).  An enabled window is first clamped to the incoming
@@ -11145,15 +11161,16 @@ static void t20_crop_program(uint32_t reg, uint8_t enable, struct t20_crop_windo
 		if (*height < win->y + win->height)
 			win->height = *height - win->y;
 
-		APICAL_WRITE_32(reg + 0x04, (APICAL_READ_32(reg + 0x04) & 0xffff0000) | win->x);
-		APICAL_WRITE_32(reg + 0x08, (APICAL_READ_32(reg + 0x08) & 0xffff0000) | win->y);
-		APICAL_WRITE_32(reg + 0x0c, (APICAL_READ_32(reg + 0x0c) & 0xffff0000) | win->width);
-		APICAL_WRITE_32(reg + 0x10, (APICAL_READ_32(reg + 0x10) & 0xffff0000) | win->height);
+		APICAL_WRITE_32(reg + T20_CROP_REG_X, (APICAL_READ_32(reg + T20_CROP_REG_X) & 0xffff0000) | win->x);
+		APICAL_WRITE_32(reg + T20_CROP_REG_Y, (APICAL_READ_32(reg + T20_CROP_REG_Y) & 0xffff0000) | win->y);
+		APICAL_WRITE_32(reg + T20_CROP_REG_WIDTH, (APICAL_READ_32(reg + T20_CROP_REG_WIDTH) & 0xffff0000) | win->width);
+		APICAL_WRITE_32(reg + T20_CROP_REG_HEIGHT, (APICAL_READ_32(reg + T20_CROP_REG_HEIGHT) & 0xffff0000) | win->height);
 		*width = win->width;
 		*height = win->height;
 	}
 
-	APICAL_WRITE_32(reg, (APICAL_READ_32(reg) & 0xfffffffe) | (enable & 1));
+	APICAL_WRITE_32(reg + T20_CROP_REG_ENABLE,
+			(APICAL_READ_32(reg + T20_CROP_REG_ENABLE) & 0xfffffffe) | (enable & 1));
 }
 
 /* input/output step of the scaler, 4.20 fixed point in 24 bits */
@@ -11191,25 +11208,26 @@ static void t20_scaler_program(uint32_t reg, struct t20_crop_ds *ds,
 	if (in_height < ds->scaled_height)
 		ds->scaled_height = in_height;
 
-	APICAL_WRITE_32(reg + 0x48, (APICAL_READ_32(reg + 0x48) & 0xfffff000) | (in_width & 0xfff));
-	APICAL_WRITE_32(reg + 0x4c, (APICAL_READ_32(reg + 0x4c) & 0xfffff000) | (in_height & 0xfff));
-	APICAL_WRITE_32(reg + 0x50, (APICAL_READ_32(reg + 0x50) & 0xfffff800) | (ds->scaled_width & 0x7ff));
-	APICAL_WRITE_32(reg + 0x54, (APICAL_READ_32(reg + 0x54) & 0xfffff000) | (ds->scaled_height & 0xfff));
+	APICAL_WRITE_32(reg + T20_SCALER_REG_IN_WIDTH, (APICAL_READ_32(reg + T20_SCALER_REG_IN_WIDTH) & 0xfffff000) | (in_width & 0xfff));
+	APICAL_WRITE_32(reg + T20_SCALER_REG_IN_HEIGHT, (APICAL_READ_32(reg + T20_SCALER_REG_IN_HEIGHT) & 0xfffff000) | (in_height & 0xfff));
+	APICAL_WRITE_32(reg + T20_SCALER_REG_OUT_WIDTH, (APICAL_READ_32(reg + T20_SCALER_REG_OUT_WIDTH) & 0xfffff800) | (ds->scaled_width & 0x7ff));
+	APICAL_WRITE_32(reg + T20_SCALER_REG_OUT_HEIGHT, (APICAL_READ_32(reg + T20_SCALER_REG_OUT_HEIGHT) & 0xfffff000) | (ds->scaled_height & 0xfff));
 
 	if (ds->scaled_width && ds->scaled_height) {
-		APICAL_WRITE_32(reg + 0x58, (APICAL_READ_32(reg + 0x58) & 0xff000000) |
+		APICAL_WRITE_32(reg + T20_SCALER_REG_H_RATIO, (APICAL_READ_32(reg + T20_SCALER_REG_H_RATIO) & 0xff000000) |
 				t20_scaler_ratio(in_width, ds->scaled_width));
-		APICAL_WRITE_32(reg + 0x60, (APICAL_READ_32(reg + 0x60) & 0xff000000) |
+		APICAL_WRITE_32(reg + T20_SCALER_REG_V_RATIO, (APICAL_READ_32(reg + T20_SCALER_REG_V_RATIO) & 0xff000000) |
 				t20_scaler_ratio(in_height, ds->scaled_height));
-		APICAL_WRITE_32(reg + 0x5c, (APICAL_READ_32(reg + 0x5c) & 0xfffffff0) |
+		APICAL_WRITE_32(reg + T20_SCALER_REG_H_FILTER, (APICAL_READ_32(reg + T20_SCALER_REG_H_FILTER) & 0xfffffff0) |
 				t20_scaler_filter(in_width, ds->scaled_width));
-		APICAL_WRITE_32(reg + 0x64, (APICAL_READ_32(reg + 0x64) & 0xfffffff0) |
+		APICAL_WRITE_32(reg + T20_SCALER_REG_V_FILTER, (APICAL_READ_32(reg + T20_SCALER_REG_V_FILTER) & 0xfffffff0) |
 				t20_scaler_filter(in_height, ds->scaled_height));
 	}
 	*width = ds->scaled_width;
 	*height = ds->scaled_height;
 }
 
+/* WHOLE_DRIVER_CANDIDATE fn_0000000000022250 origin=model_output original=_update_ds */
 /* OEM 0x21a80: first down-scaler pipe (registers 0x600..0x664) */
 void _update_ds(struct t20_fsm_crop *fsm)
 {
@@ -11282,7 +11300,6 @@ int32_t crop_resolution_changed(int32_t *crop)
 	return apical_isp_raise_event(fsm->hdr.isp, 7);
 }
 
-/* WHOLE_DRIVER_CANDIDATE fn_0000000000022dd0 origin=model_output original=crop_initialize */
 /*
  * Load the horizontal/vertical filter tables of one scaler (256 words
  * each) and read them back; the reload bit of the scaler's control
@@ -11308,6 +11325,7 @@ static void t20_scaler_load_filters(uint32_t ctrl_reg, uint32_t h_lut, uint32_t 
 	APICAL_WRITE_32(ctrl_reg, APICAL_READ_32(ctrl_reg) & 0xfffffffe);
 }
 
+/* WHOLE_DRIVER_CANDIDATE fn_0000000000022dd0 origin=model_output original=crop_initialize */
 int32_t crop_initialize(int32_t *crop)
 {
 	struct t20_fsm_crop *fsm = (struct t20_fsm_crop *)crop;
