@@ -2822,44 +2822,48 @@ int32_t apical_fw_interrupts_init(void *fw)
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000163c8 origin=model_output original=apical_fw_init */
-int32_t apical_fw_init(int32_t *fw)
+int32_t apical_fw_init(int32_t *fw_words)
 {
-	/* Exact OEM immediates: firmware context is 0x2fd0 bytes and the
-	 * semaphore/context offsets are 0x0c/0x18 bytes, respectively. */
+	/* Exact OEM immediates: the firmware object is 0x2fd0 bytes, the
+	 * semaphore pointer and the ISP context sit at 0x0c and 0x18. */
 	/* Not OEM: every core init (stream restart, day/night re-init) used to
 	 * leak the previous semaphore, the memset dropped its only pointer.
 	 * The fw thread is stopped here (isp_core_ops_init only re-inits in
 	 * STATE_STOP), so nothing waits on it.  The semaphore object is kept
 	 * and re-initialised like init_semaphore (sema_init(psem, 1)) instead
-	 * of freed: a raiser that read fw+0x0c before the memset (Apical IRQ
+	 * of freed: a raiser that read event_sem before the memset (Apical IRQ
 	 * apical_fw_raise_event, an API path through apical_isp_raise_event)
 	 * still finds valid memory (#231 L5, was a use-after-free window).
 	 * Local interrupts are off across the memset and the re-init, so no
 	 * Apical handler sees the NULL pointer the vendor leaves there. */
-	uintptr_t old_sem = *(uintptr_t *)((uintptr_t)fw + 0x0c);
+	struct t20_fw_outer *fw = (struct t20_fw_outer *)fw_words;
+	/* read as an integer, not a pointer: the compiler predicts
+	 * "if (pointer)" as taken and then lays the branches out differently */
+	uintptr_t *event_sem = (uintptr_t *)t20_member_ptr(fw, event_sem);
+	uintptr_t old_sem = *event_sem;
 	unsigned long flags;
 
 	local_irq_save(flags);
-	memset(fw, 0, 0x2fd0);
+	memset(fw, 0, sizeof(*fw));
 	if (old_sem) {
-		*(uintptr_t *)((uintptr_t)fw + 0x0c) = old_sem;
+		*event_sem = old_sem;
 		sema_init((struct semaphore *)old_sem, 1);
 	}
 	local_irq_restore(flags);
 	if (!old_sem)
-		init_semaphore((uintptr_t)fw + 0x0c);
+		init_semaphore((uintptr_t)event_sem);
 	apical_fw_interrupts_init(fw);
-	((void **)fw)[1] = 1;
-	((void **)fw)[0] = 0;
-	((void **)fw)[6] = 0;
-	((void **)fw)[7] = (int32_t)fw;
+	fw->irq_locked = 1;
+	fw->isp_index = 0;
+	fw->isp[0].word_00 = 0;
+	fw->isp[0].fw = fw;
 	printk(KERN_INFO "T20FW fw_init isp begin fw=%p\n", fw);
-	apical_isp_init((uintptr_t)fw + 0x18);
+	apical_isp_init((uintptr_t)&fw->isp[0]);
 	printk(KERN_INFO "T20FW fw_init isp done\n");
-	*(uint8_t *)((uintptr_t)fw + 0x115) = 0x1e;
-	((void **)fw)[1] = 0;
+	fw->isp[0].sensor.field_f1 = 0x1e;
+	fw->irq_locked = 0;
 	system_hw_interrupts_enable();
-	*(uint8_t *)((uintptr_t)fw + 16) = 1;
+	fw->sw_state = 1;
 	APICAL_WRITE_32(0x78, APICAL_READ_32(0x78) | 1);
 	return APICAL_WRITE_32(0x78, APICAL_READ_32(0x78) & 0xfffffffe);
 }
@@ -7966,35 +7970,37 @@ int32_t saturation_strength(void *ctx, int32_t value, char direction, int32_t *r
 /* WHOLE_DRIVER_CANDIDATE fn_000000000001db38 origin=model_output original=antifog_mode */
 int32_t antifog_mode(int32_t ctx, int32_t value, char direction, int32_t *result)
 {
-    uint8_t mode = (uint8_t)direction;
-    *result = 0;
+	struct t20_isp_ctx *isp = (struct t20_isp_ctx *)ctx;
+	uint8_t *antifog_on = t20_member_ptr(isp, general.antifog_on);
+	uint8_t is_get = (uint8_t)direction;
 
-    if (mode != 0) {
-        if (mode != 1) {
-            return 1;
-        }
-        uint8_t cur = *(uint8_t *)((char *)ctx + 0x1526);
-        int32_t val = (cur != mode) ? 0x2d : 0x2e;
-        *result = val;
-        return 0;
-    }
+	*result = 0;
 
-    if (value == 0x2d) {
-        int32_t ptr = _GET_UCHAR_PTR(0x5b);
-        uint8_t data = *(uint8_t *)ptr;
-        stab.global_maximum_iridix_strength = data;
-        stab.global_manual_iridix = 0;
-        *(uint8_t *)((char *)ctx + 0x1526) = 0;
-    } else if (value != 0x2e) {
-        *result = 1;
-        return 5;
-    } else {
-        stab.global_manual_iridix = 1;
-        stab.global_maximum_iridix_strength = 0xff;
-        *(uint8_t *)((char *)ctx + 0x1526) = 1;
-    }
+	if (is_get != 0) {
+		if (is_get != 1)
+			return 1;
+		*result = (*antifog_on != is_get) ?
+			T20_API_ANTIFOG_OFF : T20_API_ANTIFOG_ON;
+		return 0;
+	}
 
-    return 0;
+	if (value == T20_API_ANTIFOG_OFF) {
+		uint8_t *default_strength = (uint8_t *)_GET_UCHAR_PTR(0x5b);
+		uint8_t strength = *default_strength;
+
+		stab.global_maximum_iridix_strength = strength;
+		stab.global_manual_iridix = 0;
+		*antifog_on = 0;
+	} else if (value != T20_API_ANTIFOG_ON) {
+		*result = 1;
+		return 5;
+	} else {
+		stab.global_manual_iridix = 1;
+		stab.global_maximum_iridix_strength = 0xff;
+		*antifog_on = 1;
+	}
+
+	return 0;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000001dc08 origin=model_output original=antifog_set_preset */
@@ -8505,30 +8511,35 @@ int32_t apical_api_calibration(uint32_t cal_id, uint32_t direction, void *data, 
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000001e760 origin=model_output original=cmos_store_frame_exposure_set */
-int32_t cmos_store_frame_exposure_set(int32_t *cmos_words, int32_t *set)
+int32_t cmos_store_frame_exposure_set(int32_t *cmos_words, int32_t *set_words)
 {
-	uint8_t *sensor_isp = (uint8_t *)(uintptr_t)cmos_words[0];
-	uint32_t integration_time = (uint32_t)(uint16_t)cmos_words[0x71];
-	uint32_t sensor_ctx_again = *(uint16_t *)(sensor_isp + 0x56);
-	int32_t again_log2 = cmos_words[0x73];
-	int32_t isp_dgain_log2 = cmos_words[0x75];
-	int32_t dgain_log2 = cmos_words[0x74];
-	int32_t sum;
-	int32_t result;
+	struct t20_fsm_cmos *cmos = (struct t20_fsm_cmos *)cmos_words;
+	struct t20_exposure_set *set = (struct t20_exposure_set *)set_words;
+	struct t20_isp_ctx *isp = cmos->hdr.isp;
+	const struct t20_sensor_context *sensor =
+		&isp->sensor.ctrl.param.sensor_ctx;
+	uint32_t integration_time = cmos->integration_time;
+	uint32_t again_reg = sensor->again;
+	int32_t again_log2 = cmos->sensor_again_log2;
+	int32_t isp_dgain_log2 = cmos->isp_dgain_log2;
+	int32_t dgain_log2 = cmos->sensor_dgain_log2;
+	int32_t gain_log2;
+	int32_t exposure_log2;
 
-	((void **)set)[4] = (int32_t)integration_time;
-	((void **)set)[6] = (int32_t)*(uint16_t *)(sensor_isp + 0x58);
-	((void **)set)[1] = again_log2;
-	sum = again_log2 + dgain_log2 + isp_dgain_log2;
-	((void **)set)[2] = dgain_log2;
-	((void **)set)[5] = (int32_t)sensor_ctx_again;
-	((void **)set)[0] = sum;
-	((void **)set)[7] = isp_dgain_log2;
-	((void **)set)[3] = isp_dgain_log2;
+	set->integration_time = (int32_t)integration_time;
+	set->dgain_reg = sensor->dgain;
+	set->again_log2 = again_log2;
+	gain_log2 = again_log2 + dgain_log2 + isp_dgain_log2;
+	set->dgain_log2 = dgain_log2;
+	set->again_reg = (int32_t)again_reg;
+	set->exposure_log2 = gain_log2;
+	set->isp_dgain = isp_dgain_log2;
+	set->word_0c = isp_dgain_log2;
 
-	result = log2_fixed_to_fixed((int32_t)integration_time, 0, 0x10) + sum;
-	((void **)set)[0] = result;
-	return result;
+	exposure_log2 = log2_fixed_to_fixed((int32_t)integration_time, 0, 0x10) +
+			gain_log2;
+	set->exposure_log2 = exposure_log2;
+	return exposure_log2;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000001e7ec origin=fragment_seed original=_process_fps_cnt */
@@ -8576,42 +8587,44 @@ uint32_t cmos_get_fps(void *cmos)
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000001e900 origin=model_output original=cmos_alloc_integration_time */
-uint32_t cmos_alloc_integration_time(int32_t *cmos, int32_t target_log2)
+uint32_t cmos_alloc_integration_time(int32_t *cmos_words, int32_t target_log2)
 {
+	struct t20_fsm_cmos *cmos = (struct t20_fsm_cmos *)cmos_words;
+	struct t20_isp_ctx *isp = cmos->hdr.isp;
+	uint32_t sensor_min = isp->sensor.ctrl.param.integration_time_min;
+	uint16_t user_max = stab.global_max_integration_time;
+	uint32_t limit =
+		t20_member(isp, sensor.ctrl.param.integration_time_limit);
+	uint32_t wanted;
+	uint16_t new_time;
+	uint32_t old_time;
 
-    uint32_t base = *(uint32_t *)cmos;
-    uint32_t max_val = *(uint32_t *)((char *)base + 0x6c);
-    uint16_t min_val = stab.global_max_integration_time;
-    uint32_t cur_val = *(uint32_t *)((char *)base + 0x78);
-    uint32_t result;
-    uint16_t new_time;
+	if (stab.global_manual_integration_time == 0)
+		wanted = math_exp2(target_log2, 0x10, 0);
+	else
+		wanted = stab.global_integration_time;
 
-    if (stab.global_manual_integration_time == 0)
-        result = math_exp2(target_log2, 0x10, 0);
-    else
-        result = stab.global_integration_time;
+	new_time = (uint16_t)sensor_min;
 
-    new_time = (uint16_t)max_val;
+	if (wanted >= sensor_min) {
+		if (limit >= user_max)
+			limit = user_max;
+		if (wanted >= limit)
+			wanted = limit;
+		new_time = (uint16_t)wanted;
+	}
 
-    if (result >= max_val) {
-        if (cur_val >= min_val)
-            cur_val = min_val;
-        if (result >= cur_val)
-            result = cur_val;
-        new_time = (uint16_t)result;
-    }
+	if (stab.global_manual_integration_time != 0)
+		stab.global_integration_time = new_time;
 
-    if (stab.global_manual_integration_time != 0)
-        stab.global_integration_time = new_time;
-
-    uint32_t old_time = *(uint16_t *)((char *)cmos + 0x1c4);
-    *(uint32_t *)((char *)cmos + 0x1c0) = old_time;
-    *(uint16_t *)((char *)cmos + 0x1c4) = new_time;
+	old_time = cmos->integration_time;
+	cmos->integration_time_prev = old_time;
+	cmos->integration_time = new_time;
 	if (t20_trace_events && t20_cmos_trace_count < 12)
 		printk(KERN_INFO
 		       "T20CMOS alloc target_log2=%d raw=%u sensor_max=%u limit=%u old=%u new=%u\n",
-		       target_log2, result, max_val, cur_val, old_time, (uint32_t)new_time);
-    return old_time;
+		       target_log2, wanted, sensor_min, limit, old_time, (uint32_t)new_time);
+	return old_time;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000001e9c0 origin=model_output original=cmos_alloc_sensor_analog_gain */
@@ -8869,84 +8882,84 @@ uint32_t cmos_update_exposure_history(int32_t *cmos_words)
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000001efac origin=model_output original=cmos_move_exposure_history */
-uint32_t cmos_move_exposure_history(uint32_t *cmos)
+uint32_t cmos_move_exposure_history(uint32_t *cmos_words)
 {
-	uint32_t idx = cmos[0x69] + 1;
-	uint32_t *base;
-	uint32_t *cur;
-	uint32_t *prev;
-	uint32_t mode;
+	struct t20_fsm_cmos *cmos = (struct t20_fsm_cmos *)cmos_words;
+	uint32_t index = cmos->history_index + 1;
+	struct t20_isp_ctx *isp;
+	struct t20_exposure_set *cur;
+	struct t20_exposure_set *prev;
+	uint32_t wdr_mode;
 	uint32_t result;
-	uint32_t flag;
-	uint32_t integ_val;
-	uint32_t dgain_val;
-	uint32_t again_val;
-	uint32_t exp_val;
-	uint32_t div_val;
-	uint32_t mul_val;
-	uint32_t shift_val;
+	uint32_t long_first;
+	uint32_t integration_time;
+	uint32_t dgain_log2;
+	uint32_t again_log2;
+	uint32_t gain_ratio;
+	uint32_t divisor;
 
-	if (idx >= 8)
-		idx = 0;
+	if (index >= 8)
+		index = 0;
 
-	base = (uint32_t *)cmos[0];
-	cmos[0x69] = idx;
+	isp = cmos->hdr.isp;
+	cmos->history_index = index;
 	cur = cmos_get_frame_exposure_set(cmos,
-		*(uint8_t *)((char *)base + 0x7e));
-	memcpy(cur, (char *)cmos + 0x20, 0x28);
-	mode = *(uint8_t *)((char *)base + 0x1524);
+		isp->sensor.ctrl.param.integration_time_apply_delay);
+	memcpy(cur, &cmos->next, sizeof(cmos->next));
+	wdr_mode = isp->general.wdr_mode;
 
-	if (mode == 1 || mode == 3) {
+	if (wdr_mode == 1 || wdr_mode == 3) {
+		/* the gains of this frame act on the exposure pair one
+		 * integration-time delay later: rescale the ratio */
 		prev = cmos_get_frame_exposure_set(cmos,
-			*(uint8_t *)((char *)base + 0x7e) - 1);
-		result = *(uint16_t *)((char *)cmos + 0x1ca);
+			isp->sensor.ctrl.param.integration_time_apply_delay - 1);
+		result = cmos->exposure_ratio;
 		if (result != 0x40) {
-			flag = APICAL_READ_32(0x7c) & 1;
-			integ_val = cur[4];
-			again_val = cur[1];
-			dgain_val = cur[2];
+			long_first = APICAL_READ_32(0x7c) & 1;
+			integration_time = cur->integration_time;
+			again_log2 = cur->again_log2;
+			dgain_log2 = cur->dgain_log2;
 
-			if (flag != 0) {
-				cur[9] = integ_val;
-				exp_val = math_exp2(prev[1] + prev[2] - (again_val + dgain_val), 0x10, 6);
-				div_val = cur[9];
+			if (long_first != 0) {
+				cur->integration_time_long = integration_time;
+				gain_ratio = math_exp2(prev->again_log2 + prev->dgain_log2 -
+						       (again_log2 + dgain_log2), 0x10, 6);
+				divisor = cur->integration_time_long;
 
-				if (div_val == 0) {
-					cur[8] = 0x40;
-				} else {
-					mul_val = exp_val * prev[9];
-					cur[8] = mul_val / div_val;
-				}
+				if (divisor == 0)
+					cur->exposure_ratio = 0x40;
+				else
+					cur->exposure_ratio = gain_ratio *
+						(uint32_t)prev->integration_time_long / divisor;
 			} else {
-				shift_val = ((uint32_t)(*(uint16_t *)((char *)cmos + 0x1ca)) * integ_val) >> 6;
-				cur[9] = shift_val;
-				exp_val = math_exp2(again_val + dgain_val - (prev[1] + prev[2]), 0x10, 6);
-				div_val = cur[4];
+				cur->integration_time_long =
+					((uint32_t)cmos->exposure_ratio * integration_time) >> 6;
+				gain_ratio = math_exp2(again_log2 + dgain_log2 -
+						       (prev->again_log2 + prev->dgain_log2), 0x10, 6);
+				divisor = cur->integration_time;
 
-				if (div_val == 0) {
-					cur[8] = 0x40;
-				} else {
-					mul_val = exp_val * cur[9];
-					cur[8] = mul_val / div_val;
-				}
+				if (divisor == 0)
+					cur->exposure_ratio = 0x40;
+				else
+					cur->exposure_ratio = gain_ratio *
+						(uint32_t)cur->integration_time_long / divisor;
 
-				cur[7] = prev[7];
+				cur->isp_dgain = prev->isp_dgain;
 			}
 
-			result = (cur[8] < 0x40) ? 1 : 0;
-
-			if (result != 0) {
+			result = 0;
+			if ((uint32_t)cur->exposure_ratio < 0x40) {
 				result = 0x40;
-				cur[8] = result;
+				cur->exposure_ratio = 0x40;
 			}
 		} else {
-			cur[9] = cur[4];
-			cur[8] = result;
+			cur->integration_time_long = cur->integration_time;
+			cur->exposure_ratio = 0x40;
 		}
 	} else {
-		cur[9] = cur[4];
+		cur->integration_time_long = cur->integration_time;
 		result = 0x40;
-		cur[8] = result;
+		cur->exposure_ratio = 0x40;
 	}
 
 	return result;
@@ -9618,177 +9631,141 @@ uint32_t cmos_fsm_process_interrupt(int32_t *fsm_ptr, char irq)
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000001f724 origin=model_output original=cmos_inttime_update */
-int32_t cmos_inttime_update(int32_t *cmos)
+int32_t cmos_inttime_update(int32_t *cmos_words)
 {
-
-	int32_t result = 0;
-	int32_t target = *(int32_t *)((char *)cmos + 0x1c);
-	int32_t acc;
-	int32_t idx;
-	int32_t partition;
-	int32_t partition_selector;
-	int32_t idx_end;
-	int32_t partition_table;
-	int32_t priority;
-	int32_t manual_ratio;
-	int32_t lut_val;
-	int32_t isp;
-	int32_t exp2_result;
+	struct t20_fsm_cmos *cmos = (struct t20_fsm_cmos *)cmos_words;
+	int32_t time_log2 = 0;
+	int32_t target = cmos->exposure_log2;
+	int32_t covered;
+	int32_t back;
+	int32_t type;
+	int32_t part;
+	struct t20_isp_ctx *isp;
 	uint32_t period;
 	uint32_t period_div;
 	uint32_t fps;
-	uint16_t val_1b4;
-	uint16_t val_1c4;
-	uint16_t val_50;
-	int32_t hdr_idx;
-	int32_t *lut_ptr;
-	int32_t exp2_val;
-	int32_t exp2_plus;
-	int32_t exp2_minus;
-	uint32_t div_result;
-	uint32_t div_result2;
-	uint32_t div_result3;
-	uint32_t div_result4;
-	int32_t delta;
+	const struct t20_exposure_tuning *tuning;
+	uint32_t time_up;
+	uint32_t time_down;
+	uint32_t cur_periods;
+	uint32_t new_periods;
+	uint32_t up_periods;
+	int32_t step;
+	const uint8_t *partitions;
+	int32_t manual;
+	int32_t flicker_log2;
+	int32_t antiflicker;
 
-	if (stab.global_manual_integration_time != 0)
-		goto tail_call;
+	if (stab.global_manual_integration_time == 0) {
+		if (cmos->ratio_mode != 1) {
+			/* the manual gains take their share first */
+			manual = cmos_get_manual_again_log2(cmos_words);
+			if (manual >= 0)
+				target -= manual;
 
-	if (*(uint8_t *)((char *)cmos + 0x10) != 1) {
-		idx = cmos_get_manual_again_log2(cmos);
-		if (idx >= 0)
-			target -= idx;
+			manual = cmos_get_manual_dgain_log2(cmos_words);
+			if (manual >= 0)
+				target -= manual;
 
-		idx = cmos_get_manual_dgain_log2(cmos);
-		if (idx >= 0)
-			target -= idx;
+			manual = cmos_get_manual_isp_dgain_log2(cmos_words);
+			if (manual >= 0)
+				target -= manual;
 
-		idx = cmos_get_manual_isp_dgain_log2(cmos);
-		if (idx >= 0)
-			target -= idx;
+			if (target < 0)
+				target = 0;
 
-		if (target < 0)
-			target = 0;
+			/*
+			 * Walk the partition list and sum up the integration
+			 * time slots until the target is covered.  "back"
+			 * counts 0, -1, .. so entry -back is the current one,
+			 * and the antiflicker frequency is read at both loop
+			 * exits, as recovered (identical code).
+			 */
+			covered = 0;
+			back = 0;
+			while (1) {
+				partitions = (cmos->partition_mode == 42) ?
+					exposure_partition_int_priority :
+					exposure_partitions_balanced;
+				type = ((const struct t20_exposure_partition *)partitions)[-back].type;
+				part = ((int32_t *)exp_lut)[-back];
 
-		acc = 0;
-		idx = 0;
-		partition = *(int32_t *)((char *)cmos + 0x48);
-		partition_selector = 42;
-		idx_end = -10;
-
-		while (1) {
-			partition_table = (partition == partition_selector) ?
-				(int32_t)exposure_partition_int_priority :
-				(int32_t)exposure_partitions_balanced;
-			priority = *(uint8_t *)((char *)(partition_table + idx * -2));
-			lut_val = *(int32_t *)((char *)&exp_lut + idx * -4);
-
-			if (priority < 2) {
-				if (priority != 0) {
-					acc += lut_val;
-				} else {
-					if (target < acc + lut_val)
-						lut_val = target - acc;
-					result += lut_val;
-					acc += lut_val;
+				if (type < 2) {
+					if (type != 0) {
+						covered += part;
+					} else {
+						if (target < covered + part)
+							part = target - covered;
+						time_log2 += part;
+						covered += part;
+					}
+					if (covered >= target) {
+						antiflicker = cmos->antiflicker_freq;
+						break;
+					}
 				}
-				if (acc >= target) {
-					idx = *(uint16_t *)((char *)cmos + 0x1b4);
+
+				back -= 1;
+				if (back == -T20_EXPOSURE_PARTITIONS) {
+					antiflicker = cmos->antiflicker_freq;
 					break;
 				}
 			}
 
-			idx -= 1;
-			if (idx == idx_end) {
-				idx = *(uint16_t *)((char *)cmos + 0x1b4);
-				break;
-			}
-			partition = *(int32_t *)((char *)cmos + 0x48);
-		}
-
-		if (idx != 0 && *(uint8_t *)((char *)cmos + 0x10) == 0 && stab.global_antiflicker_enable != 0) {
-			fps = cmos_get_fps(cmos);
-			val_50 = *(uint16_t *)((char *)*(int32_t *)cmos + 0x50);
-			val_1b4 = *(uint16_t *)((char *)cmos + 0x1b4);
-			period = (uint32_t)fps * (uint32_t)val_50;
-			period_div = (uint32_t)val_1b4 << 1;
-			if (period_div == 0)
-				__builtin_trap();
-			period = period / period_div;
-
-			if (period != 0) {
-				idx = log2_fixed_to_fixed(period, 0, 0x10);
-				if (result >= idx) {
-					isp = *(int32_t *)cmos;
-				} else {
-					if (target < idx)
-						idx = target;
-					result = idx;
-					isp = *(int32_t *)cmos;
-				}
-
-				hdr_idx = *(uint8_t *)((char *)isp + 0x1524);
-				lut_ptr = _GET_UINT_PTR(_GET_HDR_TABLE_INDEX(0x92, hdr_idx));
-				val_1c4 = *(uint16_t *)((char *)cmos + 0x1c4);
-				if (period == 0)
+			if (antiflicker != 0 && cmos->ratio_mode == 0 &&
+			    stab.global_antiflicker_enable != 0) {
+				/* lines per half mains period */
+				fps = cmos_get_fps(cmos);
+				period = fps * ((struct t20_isp_ctx *)cmos->hdr.isp)->sensor.ctrl.param.total.height;
+				period_div = (uint32_t)cmos->antiflicker_freq << 1;
+				if (period_div == 0)
 					__builtin_trap();
-				div_result = val_1c4 / period;
+				period = period / period_div;
 
-				exp2_result = math_exp2(result, 0x10, 0);
-				if (period == 0)
-					__builtin_trap();
-				div_result2 = exp2_result / period;
+				if (period != 0) {
+					/* at least one period, if the target allows */
+					flicker_log2 = log2_fixed_to_fixed(period, 0, 0x10);
+					isp = cmos->hdr.isp;
+					if (time_log2 < flicker_log2) {
+						if (target < flicker_log2)
+							flicker_log2 = target;
+						time_log2 = flicker_log2;
+					}
 
-				if (div_result2 != div_result) {
-					delta = *(int32_t *)((char *)lut_ptr + 0x18);
-					exp2_plus = math_exp2(result + delta, 0x10, 0);
-					exp2_minus = math_exp2(result - delta, 0x10, 0);
+					/* keep the count of flicker periods
+					 * when one tuning step is enough */
+					tuning = (const struct t20_exposure_tuning *)_GET_UINT_PTR(
+						_GET_HDR_TABLE_INDEX(0x92, isp->general.wdr_mode));
+					cur_periods = cmos->integration_time / period;
+					new_periods = math_exp2(time_log2, 0x10, 0) / period;
 
-					if (div_result2 >= div_result) {
-						if (div_result < div_result2) {
-							if (period == 0)
-								__builtin_trap();
-							if ((uint32_t)exp2_minus / period >= div_result)
-								result -= delta;
-						}
-					} else {
-						if ((uint32_t)delta >= (uint32_t)(target - result)) {
-							if (div_result < div_result2) {
-								if (period == 0)
-									__builtin_trap();
-								if ((uint32_t)exp2_minus / period >= div_result)
-									result -= delta;
-							}
-						} else {
-							if (period == 0)
-								__builtin_trap();
-							div_result3 = (uint32_t)exp2_plus / period;
-							if (div_result < div_result3) {
-								if (div_result < div_result2) {
-									if (period == 0)
-										__builtin_trap();
-									if ((uint32_t)exp2_minus / period >= div_result)
-										result -= delta;
-								}
-							} else {
-								result += delta;
-							}
+					if (new_periods != cur_periods) {
+						step = tuning->antiflicker_step;
+						time_up = math_exp2(time_log2 + step, 0x10, 0);
+						time_down = math_exp2(time_log2 - step, 0x10, 0);
+
+						if (new_periods >= cur_periods) {
+							/* one period more than now */
+							if (time_down / period >= cur_periods)
+								time_log2 -= step;
+						} else if ((uint32_t)step < (uint32_t)(target - time_log2)) {
+							up_periods = time_up / period;
+							if (!(cur_periods < up_periods))
+								time_log2 += step;
 						}
 					}
 				}
 			}
+		} else {
+			time_log2 = target -
+				log2_fixed_to_fixed(cmos->fixed_ratio, 8, 0x10);
 		}
-	} else {
-		manual_ratio = *(int32_t *)((char *)cmos + 0x14);
-		idx = log2_fixed_to_fixed((uint32_t)manual_ratio, 8, 0x10);
-		result = target - idx;
 	}
 
-tail_call:
 	if (t20_trace_events && t20_cmos_trace_count < 12)
 		printk(KERN_INFO "T20CMOS inttime exposure=%d target=%d partition=%d\n",
-		       *(int32_t *)((char *)cmos + 0x1c), target, result);
-	return cmos_alloc_integration_time(cmos, result);
+		       cmos->exposure_log2, target, time_log2);
+	return cmos_alloc_integration_time(cmos_words, time_log2);
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000001fa54 origin=model_output original=cmos_analog_gain_update */
@@ -9987,42 +9964,40 @@ static int32_t cmos_update_wdr_mode(void)
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000001fe18 origin=model_output original=cmos_set_exposure_target */
-int32_t cmos_set_exposure_target(void *cmos, int32_t target_in, int32_t ratio_in)
+int32_t cmos_set_exposure_target(void *cmos_ptr, int32_t target, int32_t ratio)
 {
-	void *result = *(void **)cmos;
-	uint8_t flag = *(uint8_t *)((char *)result + 0x2fc);
+	struct t20_fsm_cmos *cmos = cmos_ptr;
+	struct t20_isp_ctx *isp = cmos->hdr.isp;
+	const struct t20_exposure_tuning *tuning;
+	int32_t exposure;
+	int32_t jump;
+	int32_t diff;
+	int32_t sign;
 
-	if (flag != 0)
+	if (isp->defect_pixel.field_14 != 0)
 		return 0;
 
-	int32_t *target = target_in;
-	uint8_t hdr_idx = *(uint8_t *)((char *)result + 0x1524);
-	void *fsm = cmos;
-	int32_t *ratio = ratio_in;
-	int32_t hdr_val = _GET_HDR_TABLE_INDEX(0x92, hdr_idx);
-	void *lut_ptr = (void *)_GET_UINT_PTR(hdr_val);
-	int32_t cur_val = *(int32_t *)((char *)fsm + 0x1c);
-	int32_t max_val = *(int32_t *)((char *)lut_ptr + 0x14);
-	int32_t diff = cur_val - (uintptr_t)target;
-	int32_t sign = diff >> 31;
-	int32_t abs_diff = (sign ^ diff) - sign;
+	tuning = (const struct t20_exposure_tuning *)_GET_UINT_PTR(
+		_GET_HDR_TABLE_INDEX(0x92, isp->general.wdr_mode));
+	exposure = cmos->exposure_log2;
+	jump = tuning->target_jump;
 
-	if (abs_diff < max_val) {
-		*(int32_t *)((char *)fsm + 0x1bc) = ratio;
-	} else {
-		int32_t half = max_val >> 1;
-		int32_t new_val;
-		if (target < cur_val)
-			new_val = target - half;
-		else
-			new_val = target + half;
-		*(int32_t *)((char *)fsm + 0x1c) = new_val;
-		*(int32_t *)((char *)fsm + 0x1bc) = ratio;
+	/* |exposure - target| */
+	diff = exposure - target;
+	sign = diff >> 31;
+	if ((sign ^ diff) - sign >= jump) {
+		/* large change: land half a jump next to the target.
+		 * FIXME (openimp #594): the vendor (0x1f6b0)
+		 * uses jump / 2 unscaled, target + half when the target is
+		 * below the current value (signed compare) and an unsigned
+		 * compare against jump; kept as recovered here. */
+		int32_t half = (jump >> 1) * 4;
+
+		cmos->exposure_log2 = ((uint32_t)target < (uint32_t)exposure) ?
+			target - half : target + half;
 	}
 
-	if (ratio >= 0x401)
-		*(int32_t *)((char *)fsm + 0x1bc) = 0x400;
-
+	cmos->ratio_request = ((uint32_t)ratio > 0x400) ? 0x400 : ratio;
 	return 0;
 }
 
@@ -10264,10 +10239,10 @@ int32_t direct_to_complement(int32_t value)
 int32_t color_matrix_recalculate(int32_t *fsm_words)
 {
 	struct t20_fsm_color_matrix *cm = (struct t20_fsm_color_matrix *)fsm_words;
-	const int16_t *identity =
-		(const int16_t *)(exposure_partitions_balanced + 0x1c);
-	const int16_t *gray =
-		(const int16_t *)(exposure_partitions_balanced + 0x30);
+	const struct t20_partition_tables *tables =
+		(const struct t20_partition_tables *)exposure_partitions_balanced;
+	const int16_t *identity = tables->ccm_identity;
+	const int16_t *gray = tables->ccm_gray;
 	int16_t *saturation = cm->sat_matrix;
 	int16_t *active = cm->active_matrix;
 	uint16_t *output = cm->out_matrix;
@@ -10280,12 +10255,13 @@ int32_t color_matrix_recalculate(int32_t *fsm_words)
 	if (stab.global_manual_saturation == 0)
 		saturation_modulate_strength(fsm_words);
 
+	/* saturation matrix = blend of identity and gray, Q8 rounded */
 	strength = stab.global_saturation_target;
 	scaled = strength << 1;
 	inv_scaled = 0x100 - scaled;
 	for (i = 0; i < 9; i++) {
-		int32_t identity_part = identity[i] * scaled + 0x80;
-		int32_t gray_part = gray[i] * inv_scaled + 0x80;
+		int32_t identity_part = identity[i] * scaled + 128;
+		int32_t gray_part = gray[i] * inv_scaled + 128;
 
 		saturation[i] = (int16_t)((identity_part >> 8) +
 					 (gray_part >> 8));
@@ -10536,16 +10512,16 @@ int32_t color_matrix_write(void *ccm)
     return APICAL_WRITE_32(0x4a0, (val & 0xffff0000) | field);
 }
 
-static int16_t *color_matrix_source(uint8_t *base, uint8_t sel)
+static int16_t *color_matrix_source(struct t20_fsm_color_matrix *cm, uint8_t sel)
 {
 	/* OEM 0x205dc..0x20638: 1 -> +98, 2 -> +116, 3 -> +134, else +152 */
 	if (sel == 2)
-		return (int16_t *)(base + 116);
+		return cm->ccm_mode2;
 	if (sel == 3)
-		return (int16_t *)(base + 134);
+		return cm->ccm_mode3;
 	if (sel == 1)
-		return (int16_t *)(base + 98);
-	return (int16_t *)(base + 152);
+		return cm->ccm_mode1;
+	return cm->ccm_identity;
 }
 
 static void color_matrix_cm_mode(uint32_t sel)
@@ -10557,80 +10533,80 @@ static void color_matrix_cm_mode(uint32_t sel)
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000020eec origin=model_output original=color_matrix_update */
-int32_t color_matrix_update(int32_t *ccm)
+int32_t color_matrix_update(int32_t *fsm_words)
 {
 	/*
 	 * OEM 0x2058c, rewritten from the vendor code.  During a CCM
-	 * transition (cnt = +97) the 9 coefficients at +56 are interpolated
-	 * between the matrices selected by +95 (from) and +94 (to).  The
-	 * exposure-dependent matrix mode in 0x394 and the blend byte at +170
-	 * (written to the three bytes of 0x398) follow the thresholds at
-	 * +196..+224 against dev+3776.  The recovery mapped two source
+	 * transition (ccm_countdown != 0) the 9 coefficients of the active
+	 * matrix are interpolated between the matrices selected by ccm_from
+	 * and ccm_to.  The matrix mode in register 0x394 and the blend byte
+	 * (written to the three bytes of 0x398) follow the cm_* thresholds
+	 * against the AWB colour temperature.  The recovery mapped two source
 	 * matrices to the wrong offsets and mixed up the threshold chain.
 	 */
-	uint8_t *base = (uint8_t *)ccm;
-	uint8_t *dev;
-	uint8_t cnt = base[97];
-	int32_t cur, lo = 0, hi = 0;
+	struct t20_fsm_color_matrix *cm = (struct t20_fsm_color_matrix *)fsm_words;
+	struct t20_isp_ctx *isp;
+	uint8_t countdown = cm->ccm_countdown;
+	int32_t color_temp, hi = 0, lo = 0;
 	int interp = 0;
 	uint32_t i, blend;
 
-	if (cnt != 0) {
-		int16_t *from = color_matrix_source(base, base[95]);
-		int16_t *to = color_matrix_source(base, base[94]);
-		uint32_t strength = base[96];
+	if (countdown != 0) {
+		int16_t *from = color_matrix_source(cm, cm->ccm_from);
+		int16_t *to = color_matrix_source(cm, cm->ccm_to);
+		uint32_t steps = cm->ccm_steps;
 
 		for (i = 0; i < 9; i++)
-			if (strength >= 2)
-				*(int16_t *)(base + 56 + 2 * i) = (int16_t)(
-					((int32_t)to[i] - from[i]) * (int32_t)(strength - cnt) /
-					(int32_t)(strength - 1) + from[i]);
+			if (steps >= 2)
+				cm->active_matrix[i] = (int16_t)(
+					((int32_t)to[i] - from[i]) * (int32_t)(steps - countdown) /
+					(int32_t)(steps - 1) + from[i]);
 	}
 
-	dev = *(uint8_t **)ccm;
-	cur = *(int32_t *)(dev + 3776);
-	if (cur < ccm[196 / 4]) {
+	isp = cm->hdr.isp;
+	color_temp = isp->awb.color_temp;
+	if (color_temp < cm->cm_mode0_below) {
 		color_matrix_cm_mode(0);
-		*(uint16_t *)(base + 170) = 0;
-		base[173] = 1;
-	} else if (ccm[200 / 4] < cur && cur < ccm[204 / 4]) {
+		cm->cm_blend = 0;
+		cm->cm_stage = 1;
+	} else if (cm->cm_mode1_from < color_temp && color_temp < cm->cm_mode1_to) {
 		color_matrix_cm_mode(1);
-		base[172] = 1;
-		*(uint16_t *)(base + 170) = 0;
-		base[173] = 2;
-	} else if (ccm[208 / 4] < cur) {
+		cm->field_ac = 1;
+		cm->cm_blend = 0;
+		cm->cm_stage = 2;
+	} else if (cm->cm_mode2_above < color_temp) {
 		color_matrix_cm_mode(2);
-		base[172] = 0;
-		*(uint16_t *)(base + 170) = 0;
-		base[173] = 3;
-	} else if (ccm[212 / 4] < cur && cur < ccm[216 / 4]) {
+		cm->field_ac = 0;
+		cm->cm_blend = 0;
+		cm->cm_stage = 3;
+	} else if (cm->cm_blend01_from < color_temp && color_temp < cm->cm_blend01_to) {
 		color_matrix_cm_mode(0);
-		lo = ccm[212 / 4];
-		hi = ccm[216 / 4];
+		lo = cm->cm_blend01_from;
+		hi = cm->cm_blend01_to;
 		interp = 1;
-	} else if (ccm[220 / 4] < cur && cur < ccm[224 / 4]) {
+	} else if (cm->cm_blend12_from < color_temp && color_temp < cm->cm_blend12_to) {
 		color_matrix_cm_mode(1);
-		lo = ccm[220 / 4];
-		hi = ccm[224 / 4];
+		lo = cm->cm_blend12_from;
+		hi = cm->cm_blend12_to;
 		interp = 1;
 	}
 	if (interp && hi != lo)
-		*(uint16_t *)(base + 170) = (uint16_t)(
-			(*(int32_t *)(dev + 3776) - lo) * 255 / (hi - lo));
+		cm->cm_blend = (uint16_t)(
+			(isp->awb.color_temp - lo) * 255 / (hi - lo));
 
-	blend = base[170];
+	blend = cm->cm_blend_lo;
 	APICAL_WRITE_32(0x398, (APICAL_READ_32(0x398) & 0xffffff00) | blend);
-	blend = base[170];
+	blend = cm->cm_blend_lo;
 	APICAL_WRITE_32(0x398, (APICAL_READ_32(0x398) & 0xffff00ff) | (blend << 8));
-	blend = base[170];
+	blend = cm->cm_blend_lo;
 	APICAL_WRITE_32(0x398, (APICAL_READ_32(0x398) & 0xff00ffff) | (blend << 16));
 
-	color_matrix_recalculate(ccm);
-	color_matrix_write(ccm);
-	mesh_shading_modulate_strength(ccm);
+	color_matrix_recalculate(fsm_words);
+	color_matrix_write(fsm_words);
+	mesh_shading_modulate_strength(fsm_words);
 
-	if (base[97] != 0)
-		base[97]--;
+	if (cm->ccm_countdown != 0)
+		cm->ccm_countdown--;
 	return 0;
 }
 
@@ -11435,6 +11411,7 @@ int32_t apical_switch_wdr_mode(uint32_t wdr_mode)
 
 	printk(KERN_INFO "T20FW switch_wdr mode=%u idx11=%u len11=%u lut=%p\n",
 	       mode, hdr_idx_11, lut_len, lut_ptr);
+	/* table 11: the same LUT into three register blocks */
 	for (i = 0; i != lut_len; i++) {
 		uint32_t off = (uintptr_t)i << 2;
 		uint32_t val = lut_ptr[(uintptr_t)i];
@@ -11445,6 +11422,7 @@ int32_t apical_switch_wdr_mode(uint32_t wdr_mode)
 	printk(KERN_INFO "T20FW switch_wdr lut11 done\n");
 
 	if (mode != 0 && mode != 3) {
+		/* tables 26 and 31 (16 or 32 bit entries) under bit 3 of 0x188 */
 		uint32_t hdr_26 = _GET_HDR_TABLE_INDEX(26, mode);
 		uint32_t hdr_31 = _GET_HDR_TABLE_INDEX(31, mode);
 		uint32_t len_26 = _GET_LEN(hdr_26);
@@ -11478,6 +11456,7 @@ int32_t apical_switch_wdr_mode(uint32_t wdr_mode)
 	}
 
 	{
+		/* table 6: bytes packed into the words from 0x1d80 */
 		uint8_t *uchar_ptr = (uint8_t *)_GET_UCHAR_PTR(_GET_HDR_TABLE_INDEX(6, mode));
 		uint32_t len_6 = _GET_LEN(_GET_HDR_TABLE_INDEX(6, mode));
 		printk(KERN_INFO "T20FW switch_wdr table6 len=%u ptr=%p\n", len_6, uchar_ptr);
@@ -11491,16 +11470,19 @@ int32_t apical_switch_wdr_mode(uint32_t wdr_mode)
 	printk(KERN_INFO "T20FW switch_wdr table6 done\n");
 
 	{
+		/* table 1: bytes packed into the words from 0x1d00 and 0x1c80 */
 		uint8_t *uchar_ptr2 = (uint8_t *)_GET_UCHAR_PTR(_GET_HDR_TABLE_INDEX(1, mode));
 		uint32_t len_1 = _GET_LEN(_GET_HDR_TABLE_INDEX(1, mode));
 		printk(KERN_INFO "T20FW switch_wdr table1 len=%u ptr=%p\n", len_1, uchar_ptr2);
 		for (i = 0; i < len_1; i++) {
 			uint32_t shift = ((uintptr_t)i & 3) << 3;
-			uint32_t addr = ((uintptr_t)i & 0xfffffffc);
+			uint32_t word = ((uintptr_t)i & 0xfffffffc);
+			uint32_t first = 0x1d00 + word;
+			uint32_t second = 0x1c80 + word;
 			uint32_t mask = ~(0xff << shift);
 			uint32_t val = (uint32_t)uchar_ptr2[(uintptr_t)i];
-			APICAL_WRITE_32(addr + 0x1d00, (APICAL_READ_32(addr + 0x1d00) & mask) | (val << shift));
-			APICAL_WRITE_32(addr + 0x1c80, (APICAL_READ_32(addr + 0x1c80) & mask) | (val << shift));
+			APICAL_WRITE_32(first, (APICAL_READ_32(first) & mask) | (val << shift));
+			APICAL_WRITE_32(second, (APICAL_READ_32(second) & mask) | (val << shift));
 		}
 	}
 	printk(KERN_INFO "T20FW switch_wdr table1 done mesh begin\n");
@@ -14961,7 +14943,7 @@ T20_NO_STORE_MERGE int32_t general_fsm_clear(uintptr_t fsm_addr)
 	fsm->field_22 = 0;
 	fsm->wdr_mode = 0;
 	fsm->field_3d = 0;
-	fsm->field_3e = 0;
+	fsm->antifog_on = 0;
 	fsm->field_3f = 0;
 	fsm->field_40 = 0;
 	fsm->field_41 = 0;
@@ -16577,78 +16559,82 @@ int32_t AE_fsm_process_interrupt(int32_t *fsm_ptr, char irq)
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000002b610 origin=model_output original=ae_calculate_exposure_ratio */
-uint32_t ae_calculate_exposure_ratio(int32_t *ae)
+uint32_t ae_calculate_exposure_ratio(int32_t *ae_words)
 {
-	uint32_t hdr_idx;
-	uint32_t *lut_ptr;
-	uint32_t stab_flag;
-	uint32_t stab_val;
-	uint32_t result;
-	uint32_t result_1;
-	uint32_t val_430;
-	uint32_t val_12;
-	uint32_t *i;
-	uint32_t idx;
-	uint32_t val_2c;
-	uint32_t val_10;
-	uint32_t new_val;
-	uint32_t div_result;
+	struct t20_fsm_ae *ae = (struct t20_fsm_ae *)ae_words;
+	struct t20_isp_ctx *isp = ae->hdr.isp;
+	const struct t20_exposure_tuning *tuning;
+	uint32_t manual;
+	uint32_t ratio_out;
+	uint32_t ratio;
+	uint32_t hist_total;
+	uint32_t scale;
+	uint32_t *pixels;
+	uint32_t bin;
+	uint32_t filter;
+	uint32_t damping;
+	uint32_t filtered;
 
-	hdr_idx = (uint32_t)*ae;
-	lut_ptr = (uintptr_t)_GET_HDR_TABLE_INDEX(0x92, (uint8_t)((char *)hdr_idx + 0x1524)[0]);
-	lut_ptr = (uint32_t)_GET_UINT_PTR((uint32_t *)lut_ptr);
+	tuning = (const struct t20_exposure_tuning *)_GET_UINT_PTR(
+		_GET_HDR_TABLE_INDEX(0x92, isp->general.wdr_mode));
 
-	stab_flag = (uint8_t)stab.global_manual_exposure_ratio;
-	stab_val = (uint8_t)stab.global_max_exposure_ratio;
-	result = stab_val << 6;
+	manual = (uint8_t)stab.global_manual_exposure_ratio;
+	ratio_out = (uint8_t)stab.global_max_exposure_ratio << 6;
 
-	if (stab_flag == 0) {
-		val_430 = *(uint32_t *)((char *)ae + 0x430);
-		val_12 = *(uint32_t *)((char *)lut_ptr + 0xc);
-		idx = 0xff;
+	if (manual == 0) {
+		/* the brightest hist_ratio_scale / 256 of all pixels: walk
+		 * down from the top bin until they are covered */
+		hist_total = ae->hist_total;
+		scale = tuning->hist_ratio_scale;
+		bin = 0xff;
 
 		{
-			uint64_t prod = (uint64_t)val_12 * (uint64_t)val_430;
+			uint64_t prod = (uint64_t)scale * (uint64_t)hist_total;
 			uint32_t hi = (uint32_t)(prod >> 32);
 			uint32_t lo = (uint32_t)prod;
-			uint32_t combined = (hi << 24) | (lo >> 8);
+			uint32_t threshold = (hi << 24) | (lo >> 8);
 
-			i = *(uint32_t *)((char *)ae + 0x42c);
-			while (combined >= i) {
-				idx -= 1;
-				i = (void *)(uintptr_t)((uintptr_t)i + (*(uint32_t *)((char *)ae + (idx << 2) + 0x30)));
+			/* the pixel count lives in a pointer-typed
+			 * variable (and is compared as one) as in the
+			 * recovered code: the compiler allocates its
+			 * registers by that type */
+			pixels = (void *)(uintptr_t)ae->hist[0xff];
+			while ((uint32_t *)(uintptr_t)threshold >= pixels) {
+				bin -= 1;
+				pixels = (void *)((uintptr_t)pixels + ae->hist[bin]);
 			}
 		}
 
-		{
-			uint32_t denom = (idx << 1) + 1;
-			result_1 = 0x7f80 / denom;
+		ratio = 0x7f80 / ((bin << 1) + 1);
 
-			if (((uint8_t)((char *)hdr_idx + 0x1524)[0]) - 1 < 2)
-				result_1 = (result_1 * result_1) >> 6;
-		}
+		/* FIXME (openimp #595): the vendor (0x2af0c)
+		 * compares unsigned, so only WDR modes 1 and 2 square the
+		 * ratio; this signed compare also squares it in mode 0. */
+		if (isp->general.wdr_mode - 1 < 2)
+			ratio = (ratio * ratio) >> 6;
 	} else {
-		result_1 = (uint8_t)stab.global_exposure_ratio << 3;
+		ratio = (uint8_t)stab.global_exposure_ratio << 3;
 	}
 
-	if (result_1 < 0x40)
-		result_1 = 0x40;
+	if (ratio < 0x40)
+		ratio = 0x40;
 
-	if (result >= result_1)
-		result = result_1;
+	if (ratio_out >= ratio)
+		ratio_out = ratio;
 
-	val_10 = *(uint32_t *)((char *)lut_ptr + 0x10);
-	if (val_10 != 0) {
-		val_2c = *(uint32_t *)((char *)ae + 0x2c);
-		new_val = (val_2c - val_2c / val_10) + result;
-		*(uint32_t *)((char *)ae + 0x2c) = new_val;
-		result = new_val / val_10;
+	/* first-order low pass, field_2c holds damping * ratio */
+	damping = tuning->ratio_damping;
+	if (damping != 0) {
+		filter = ae->field_2c;
+		filtered = (filter - filter / damping) + ratio_out;
+		ae->field_2c = filtered;
+		ratio_out = filtered / damping;
 	}
 
-	if (stab_flag == 0)
-		stab.global_exposure_ratio = (uint8_t)(result >> 3);
+	if (manual == 0)
+		stab.global_exposure_ratio = (uint8_t)(ratio_out >> 3);
 
-	return result;
+	return ratio_out;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000002b75c origin=fragment_seed original=ae_calculate_target */
@@ -18473,52 +18459,54 @@ int32_t awb_update(void)
  * +0x760..+0x76c. In manual mode stab.global_awb_red/blue_gain (+49/+50,
  * Q7) replace the AWB result; otherwise the AWB result is reported there.
  */
-int32_t *awb_normalise(int32_t *fsm_ptr)
+int32_t *awb_normalise(int32_t *fsm_words)
 {
-	uint8_t *fsm = (uint8_t *)fsm_ptr;
+	struct t20_fsm_awb *awb = (struct t20_fsm_awb *)fsm_words;
+	struct t20_isp_ctx *isp;
 	int32_t gain[4];
 	int32_t lowest;
 	int32_t offset;
 	int i;
 
 	for (i = 0; i < 4; i++)
-		gain[i] = log2_fixed_to_fixed(*(uint16_t *)(fsm + 0x770 + 2 * i),
-					      8, 0x10);
+		gain[i] = log2_fixed_to_fixed(awb->static_gain[i], 8, 0x10);
 
 	if (stab.global_manual_awb != 0) {
 		gain[0] += log2_fixed_to_fixed(stab.global_awb_red_gain, 7, 0x10);
 		gain[3] += log2_fixed_to_fixed(stab.global_awb_blue_gain, 7, 0x10);
-		*(uint16_t *)(fsm + 0x18) = (uint16_t)(stab.global_awb_red_gain << 1);
-		*(uint16_t *)(fsm + 0x1a) = (uint16_t)(stab.global_awb_blue_gain << 1);
+		awb->red_gain = (uint16_t)(stab.global_awb_red_gain << 1);
+		awb->blue_gain = (uint16_t)(stab.global_awb_blue_gain << 1);
 	} else {
-		gain[0] += log2_fixed_to_fixed(*(uint16_t *)(fsm + 0x18), 8, 0x10);
-		gain[3] += log2_fixed_to_fixed(*(uint16_t *)(fsm + 0x1a), 8, 0x10);
-		stab.global_awb_red_gain = (uint8_t)(*(uint16_t *)(fsm + 0x18) >> 1);
-		stab.global_awb_blue_gain = (uint8_t)(*(uint16_t *)(fsm + 0x1a) >> 1);
+		gain[0] += log2_fixed_to_fixed(awb->red_gain, 8, 0x10);
+		gain[3] += log2_fixed_to_fixed(awb->blue_gain, 8, 0x10);
+		stab.global_awb_red_gain = (uint8_t)(awb->red_gain >> 1);
+		stab.global_awb_blue_gain = (uint8_t)(awb->blue_gain >> 1);
 	}
 
+	/* shift all four so that the lowest gain lands on the sensor's
+	 * black-level headroom */
 	lowest = gain[0] < gain[3] ? gain[0] : gain[3];
 	if (gain[1] < lowest)
 		lowest = gain[1];
 	if (gain[2] < lowest)
 		lowest = gain[2];
+	isp = awb->hdr.isp;
 	offset = 0xc0000 - lowest -
-		 log2_fixed_to_fixed(0x1000 - *(uint16_t *)(*(uint8_t **)fsm + 0xe6),
-				     0, 0x10);
+		 log2_fixed_to_fixed(0x1000 - isp->sensor.field_da, 0, 0x10);
 	for (i = 0; i < 4; i++)
-		*(int32_t *)(fsm + 0x760 + 4 * i) = gain[i] + offset;
+		t20_member(awb, wb_log2[i]) = gain[i] + offset;
 	if (t20_trace_events) {
 		static unsigned int calls, prints;
 
 		if (calls++ % 16 == 0 && prints++ < 40)
 			printk(KERN_INFO "T20AWB normalise static=%u/%u/%u/%u awb=%u/%u out=%d/%d/%d/%d\n",
-			       *(uint16_t *)(fsm + 0x770), *(uint16_t *)(fsm + 0x772),
-			       *(uint16_t *)(fsm + 0x774), *(uint16_t *)(fsm + 0x776),
-			       *(uint16_t *)(fsm + 0x18), *(uint16_t *)(fsm + 0x1a),
-			       *(int32_t *)(fsm + 0x760), *(int32_t *)(fsm + 0x764),
-			       *(int32_t *)(fsm + 0x768), *(int32_t *)(fsm + 0x76c));
+			       awb->static_gain[0], awb->static_gain[1],
+			       awb->static_gain[2], awb->static_gain[3],
+			       awb->red_gain, awb->blue_gain,
+			       awb->wb_log2[0], awb->wb_log2[1],
+			       awb->wb_log2[2], awb->wb_log2[3]);
 	}
-	return (int32_t *)(fsm + 0x760);
+	return awb->wb_log2;
 }
 
 /*

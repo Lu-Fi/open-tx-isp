@@ -177,22 +177,40 @@ struct t20_fps_cnt {
 struct t20_fsm_cmos {
 	struct t20_fsm_hdr hdr;
 	uint32_t word_0c;
-	uint8_t field_10;
+	union {
+		uint8_t field_10;
+		uint8_t ratio_mode;	/* 0x10: 1 = fixed ratio, 0 = antiflicker allowed */
+	};
 	uint8_t pad_11[3];
-	uint32_t field_14;
+	union {
+		uint32_t field_14;
+		uint32_t fixed_ratio;	/* 0x14: Q8, used when ratio_mode is 1 */
+	};
 	uint32_t field_18;
 	int32_t exposure_log2;			/* 0x1c */
 	struct t20_exposure_set next;		/* 0x20: set being prepared */
-	uint32_t field_48;
+	union {
+		uint32_t field_48;
+		int32_t partition_mode;	/* 0x48: 0x2a = integration time first */
+	};
 	struct t20_cmos_frame_update frame_update;	/* 0x4c */
 	struct t20_exposure_set history[8];	/* 0x64 */
 	uint32_t history_index;			/* 0x1a4: newest ring entry */
 	struct t20_fps_cnt fps_cnt;		/* 0x1a8 */
 	uint16_t antiflicker_freq;		/* 0x1b4: Hz << 8, 0 = off */
 	uint8_t pad_1b6[6];
-	uint32_t field_1bc;
-	uint32_t field_1c0;
-	uint16_t field_1c4;
+	union {
+		uint32_t field_1bc;
+		int32_t ratio_request;	/* 0x1bc: cmos_set_exposure_target, <= 0x400 */
+	};
+	union {
+		uint32_t field_1c0;
+		uint32_t integration_time_prev;	/* 0x1c0: lines, before the last alloc */
+	};
+	union {
+		uint16_t field_1c4;
+		uint16_t integration_time;	/* 0x1c4: lines */
+	};
 	uint16_t field_1c6;
 	uint16_t field_1c8;
 	uint16_t exposure_ratio;	/* 0x1ca: Q6, 0x40 = 1 */
@@ -236,8 +254,14 @@ struct t20_fsm_awb {
 	uint16_t field_10;
 	uint8_t field_12;
 	uint8_t pad_13[5];
-	uint16_t field_18;
-	uint16_t field_1a;
+	union {
+		uint16_t field_18;
+		uint16_t red_gain;	/* 0x18: Q8 */
+	};
+	union {
+		uint16_t field_1a;
+		uint16_t blue_gain;	/* 0x1a: Q8 */
+	};
 	uint8_t light_source;		/* 0x1c */
 	uint8_t pad_1d[3];
 	uint32_t field_20;
@@ -290,10 +314,22 @@ struct t20_fsm_color_matrix {
 	int16_t sat_matrix[9];		/* 0x4a: saturation matrix */
 	uint8_t field_5c;
 	uint8_t field_5d;
-	uint8_t field_5e;
-	uint8_t field_5f;
-	uint8_t field_60;
-	uint8_t field_61;		/* CCM transition countdown */
+	union {
+		uint8_t field_5e;
+		uint8_t ccm_to;		/* 0x5e: transition target, see color_matrix_source */
+	};
+	union {
+		uint8_t field_5f;
+		uint8_t ccm_from;	/* 0x5f: transition start */
+	};
+	union {
+		uint8_t field_60;
+		uint8_t ccm_steps;	/* 0x60: transition length */
+	};
+	union {
+		uint8_t field_61;	/* CCM transition countdown */
+		uint8_t ccm_countdown;
+	};
 	int16_t ccm_mode1[9];		/* 0x62 */
 	int16_t ccm_mode2[9];		/* 0x74 */
 	int16_t ccm_mode3[9];		/* 0x86 */
@@ -411,7 +447,7 @@ struct t20_fsm_general {
 	uint8_t pad_24[24];
 	uint8_t wdr_mode;		/* 0x3c (context 0x1524) */
 	uint8_t field_3d;
-	uint8_t field_3e;
+	uint8_t antifog_on;		/* 0x3e (context 0x1526) */
 	uint8_t field_3f;
 	uint8_t field_40;
 	uint8_t field_41;
@@ -546,7 +582,7 @@ struct t20_fsm_defect_pixel {
 	struct t20_fsm_hdr hdr;
 	uint8_t pad_0c[6];
 	uint16_t threshold;	/* 0x12 */
-	uint8_t field_14;
+	uint8_t field_14;	/* (context 0x2fc) non-zero: cmos_set_exposure_target does nothing */
 };
 
 struct t20_fsm_noise_reduction {
@@ -677,7 +713,7 @@ T20_CTX_AT(color_matrix.cm_blend, 0xf92);
 T20_CTX_AT(color_matrix.cm_mode0_below, 0xfac);
 T20_CTX_AT(color_matrix.cm_blend12_to, 0xfc8);
 T20_CTX_AT(iridix.field_18, 0xfec);
-T20_CTX_AT(general.field_3e, 0x1526);
+T20_CTX_AT(general.antifog_on, 0x1526);
 T20_CTX_AT(matrix_yuv, 0x2d74);
 T20_CTX_AT(event_queue, 0x2ea4);
 T20_CTX_AT(event_queue_data, 0x2eb4);
@@ -697,6 +733,40 @@ t20_cmos_frame_set(struct t20_fsm_cmos *cmos, int32_t frame)
 	((void *)((uint8_t *)(fsm) +					\
 		  (__builtin_offsetof(struct t20_isp_ctx, other) -	\
 		   __builtin_offsetof(struct t20_isp_ctx, self))))
+
+/*
+ * Layout of the exposure_partitions_balanced[] read-only block: the
+ * balanced partition list and the two fixed matrices that follow it.
+ */
+struct t20_exposure_partition {
+	uint8_t type;		/* 0 integration time, 1 gain, >= 2 unused */
+	uint8_t limit;
+};
+
+#define T20_EXPOSURE_PARTITIONS 10
+
+struct t20_partition_tables {
+	struct t20_exposure_partition balanced[T20_EXPOSURE_PARTITIONS];
+	uint8_t pad_14[8];
+	int16_t ccm_identity[9];	/* 0x1c: Q8 unity matrix */
+	uint8_t pad_2e[2];
+	int16_t ccm_gray[9];		/* 0x30: Q8 luma weights 0x4c/0x96/0x1d */
+};
+_Static_assert(__builtin_offsetof(struct t20_partition_tables, ccm_identity) == 0x1c, "t20_partition_tables.ccm_identity");
+_Static_assert(__builtin_offsetof(struct t20_partition_tables, ccm_gray) == 0x30, "t20_partition_tables.ccm_gray");
+_Static_assert(sizeof(struct t20_partition_tables) == 66, "t20_partition_tables size");
+
+/*
+ * Pointer to a named member, computed as integer "object + offset" the way
+ * the recovered code did.  A direct obj->member access (or pointer
+ * arithmetic on obj) tells the compiler that the member lies too far
+ * into the object to overlap a small global such as stab, and it then
+ * reorders the stores; use this where the access order has to be kept.
+ */
+#define t20_member_ptr(obj, member)					\
+	((__typeof__((obj)->member) *)((uintptr_t)(obj) +		\
+		__builtin_offsetof(__typeof__(*(obj)), member)))
+#define t20_member(obj, member) (*t20_member_ptr(obj, member))
 
 /* Table of 32-bit entries with a bound, used by get_exp. */
 struct t20_exp_lut {
