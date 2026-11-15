@@ -77,6 +77,7 @@
 #include "tx_isp_t32_soc.h"
 #ifdef TX_ISP_T33
 #include "tx_isp_t33_ldc.h"
+#include "tx_isp_t33_ldcintp.h"
 #endif
 
 #if LINUX_VERSION_CODE < KERNEL_VERSION(3, 13, 0)
@@ -478,32 +479,39 @@ static inline u32 ldc_rd(u32 off)
 #endif
 }
 
+#ifdef TX_ISP_T33
+extern u32 t33_st_isp_init_par_mode[1008];	/* stIspInitPar (tx_isp_t32_hw.c) */
+static u32 t33_ldc_intp_info[2];		/* ldcIntpInfo: pass done / error interrupts */
+
+static const struct t33_ldcintp_hw t33_ldcintp_hw = { t32_hw_rd, t32_hw_wr };
+#endif
+
 static irqreturn_t t32_ldc_isr(int irq, void *dev)
 {
 #ifdef TX_ISP_T33
-	u32 st = ldc_rd(0x80);		/* tisp_ldc_t33_intp_handle */
+	/* tisp_ldc_t33_intp_handle: clear, count, re-arm only in the vendor's mode (openimp #590) */
+	u32 st = t33_ldc_intp_handle((const u8 *)t33_st_isp_init_par_mode, t33_ldc_intp_info, &t33_ldcintp_hw);
 
 	if (!st)
 		return IRQ_NONE;
-	ldc_wr(0x84, st);
+	ldc_irqs++;
+	ldc_errors = t33_ldc_intp_info[1];
+	if (st & 1)
+		complete(&ldc_done);
+	return IRQ_HANDLED;
 #else
 	u32 st = ldc_rd(0x68);		/* lib_tisp_ldc_intp_handle */
 
 	if (!st)
 		return IRQ_NONE;
 	ldc_wr(0x6c, st);
-#endif
 	ldc_irqs++;
 	if (st & 2)
 		ldc_errors++;
-	if (st & 1) {
-#ifdef TX_ISP_T33
-		if (ldc_init_on)	/* tisp_ldc_t33_intp_handle: next online pass */
-			ldc_wr(0x24, 1);
-#endif
+	if (st & 1)
 		complete(&ldc_done);
-	}
 	return IRQ_HANDLED;
+#endif
 }
 
 static int t32_ldc_open(struct inode *inode, struct file *file)

@@ -4,6 +4,12 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD[-rcN]` are set on the `aperto` branch, the same tag in open-tx-isp and OpenIMP: RC1 `v2026.10.11-rc1`, RC2 `v2026.10.25-rc2`, RC3 `v2026.11.07-rc3` (2026-11-07). Gate SoCs of RC3 and Release 1: T10, T20, T21, T23, T30, T31, T40, T41 (T32/T33 planned, QEMU only); release notes: [docs/releases/ in OpenIMP](https://github.com/Lu-Fi/openimp/blob/next/docs/releases/README.md). Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-11-15: T33 LDC interrupt: vendor re-arm condition and counters of tisp_ldc_t33_intp_handle (openimp #590; host + QEMU)
+
+- `driver/t32/tx_isp_t33_ldcintp.h` (new, T33 only): port of tisp_ldc_t33_intp_handle: status 0x27080 written back to 0x27084; bit 0 counts ldcIntpInfo[0] and starts the next online pass (0x27024 = 1) only when the stIspInitPar mode word (+904) is 1 or 2 and the LDC init byte (+44) is 1; otherwise bit 1 counts ldcIntpInfo[1]. `t32_ldc_isr` (`tx_isp_t32_snapldc.c`) runs it on the driver's stIspInitPar (`t33_st_isp_init_par_mode`: word 904 = 1, byte 44 = list 25 started). Before: re-arm on bit 0 whenever `ldc_init_on` was set (no mode check; set also when the online LDC never started for lack of an attribute) and errors counted on bit 1 even with bit 0. The `/proc` error count is ldcIntpInfo[1]. No change for the modes in use (single sensor, online LDC off on the cv2005 bin).
+- Tests: new oracle block `ldcI` (status values incl. both bits, mode word 0..3 / -1, init byte 0/1/2 and neighbour bytes) PASS, 15/15 mutations detected.
+- Evidence (QEMU -M ingenic-t33, deterministic clock, audit/t33-port/wire13 d590-* vs fresh vendor v-* and base b590-*): day 152/152, night 123/123, day->night switch 176/176 exposure steps equal; all lists per frame equal to the vendor (known: L15 d018; night L5 teardown frame and L21 CDNS = #507, the same in base); 0 diffs vs base; rmmod/insmod/rmmod day + night 0 oops; tx-isp-t32.ko code identical. Not device-checked (.122 offline).
+
 ## 2026-11-15: T10/T20 firmware: DIS gauss method, AE histogram reader, sharpening inverse and the sensor bus helpers vendor-equal (openimp #539, #582-#584, #586)
 
 - `driver/t20/tx_isp_t20_firmware.c` (shared T10/T20), each function rewritten from the vendor disassembly of tx-isp-t10.ko:
