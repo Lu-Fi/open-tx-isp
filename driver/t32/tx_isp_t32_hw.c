@@ -4631,6 +4631,7 @@ static inline u32 ch_rd(int ch, u32 off)
 static void t33_api6_reg_write(u32 id, u32 blk, u32 reg, u32 val);
 static u32 t33_api6_reg_read(u32 id, u32 blk, u32 reg);
 #include "tx_isp_t33_msca_api6.h"
+#include "tx_isp_t33_mscapop.h"
 #undef tisp_reg_write_t33
 #undef tisp_reg_read_t33
 static void t33_api6_reg_write(u32 id, u32 blk, u32 reg, u32 val)
@@ -4876,21 +4877,24 @@ void t32_hw_msca_stop(int ch)
 /* pop one done entry: returns 0 and the addresses, or -1 when empty */
 int t32_hw_msca_pop_done(int ch, u32 *y, u32 *uv)
 {
+#ifdef TX_ISP_T33
+	/*
+	 * g16-2 (#639): the vendor's tisp_msca_t33_addr_fifo_state (block mscapop) and
+	 * tisp_msca_t33_addr_fifo_read (msca-api6), stIspInitPar word 226 = 1: the Y done word
+	 * 0xf0138 + ch * 0x100 first, then UV 0xf0158, both & ~7 (the low flag bits of #393, e.g.
+	 * Y done 0x03975001 for a buffer at 0x03975000).  Before: UV first, both & ~0xf.  The
+	 * vendor's ispcore_channel_framedone_process reads one entry per channel done and never
+	 * calls fifo_state (unreachable there, INVENTORY); this driver drains the FIFO while the
+	 * state says an entry is there.
+	 */
+	if (!t33_msca_addr_fifo_state(0, (u32)ch))
+		return -1;
+	t33_msca_addr_fifo_read(t33_st_isp_init_par_mode[226], 1, 0, (u32)ch, y, uv);
+#else
 	if (ch_rd(ch, T32_MSCA_FIFO_STATE) & T32_MSCA_FIFO_EMPTY)
 		return -1;
 	*uv = ch_rd(ch, T32_MSCA_UV_DONE);	/* before the Y read pops */
 	*y = ch_rd(ch, T32_MSCA_Y_DONE);
-#ifdef TX_ISP_T33
-	/*
-	 * The T33 silicon returns the done address with flag bits in the low
-	 * bits (vendor streaming: Y done 0x03975001 for a buffer at
-	 * 0x03975000); the buffers are 16-byte aligned at least.  Unmasked,
-	 * every done after the first was "unmatched" and the channel ran dry
-	 * (openimp #393).
-	 */
-	*uv &= ~0xfU;
-	*y &= ~0xfU;
-#else
 	/* vendor T32 tisp_msca_addr_fifo_read: both words & ~7 (oracle block t32-mscafifo) */
 	*uv = T32_MSCA_DONE_ADDR(*uv);
 	*y = T32_MSCA_DONE_ADDR(*y);
