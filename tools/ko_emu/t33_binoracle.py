@@ -22,6 +22,7 @@ SPEC: one function per line (from the block's .conf, FUNCS=):
         fn:NAME                 a code address (the same on both sides) that runs the CALLS entry NAME: callbacks the
                                 function under test stores or calls through a pointer (e.g. a reg_init)
         kn:N:MAX                pointer to N ascending LE u32 in [0, MAX] (repeats allowed), compared
+        kn16:N:MAX              the same with LE u16 entries (calibration curves of u16 tables)
         s32s:N:LO:HI            pointer to N LE s32 in [LO, HI], compared
         info:VSYM:SIZE          a block state of SIZE bytes (random words: full, below 2^8, below 2^12 or edge values):
                                 the vendor gets channel 0 and the block's address in its global pointer array VSYM[0]
@@ -190,12 +191,12 @@ class Gen:
                 off, vals = f.split('=')
                 b[int(off, 0):int(off, 0) + 4] = struct.pack('<I', r.choice([int(x, 0) for x in vals.split(',')]) & M32)[:max(0, n - int(off, 0))]
             return bytes(b[:n])
-        if p[0] == 'kn':
+        if p[0] in ('kn', 'kn16'):
             n, mx = int(p[1], 0), int(p[2], 0)
             v = sorted(r.randint(0, mx) for _ in range(n))
             if case % 7 == 3 and n > 2:          # repeated knots (zero-width intervals)
                 v[n // 2] = v[n // 2 - 1]
-            return struct.pack('<%dI' % n, *v)
+            return struct.pack('<%d%s' % (n, 'H' if p[0] == 'kn16' else 'I'), *v)
         if p[0] == 's32s':
             n, lo, hi = int(p[1], 0), int(p[2], 0), int(p[3], 0)
             return struct.pack('<%di' % n, *(r.randint(lo, hi) for _ in range(n)))
@@ -203,7 +204,7 @@ class Gen:
 
 
 def is_ptr(a):
-    return a.split(':')[0] in ('buf', 'out', 'kn', 's32s', 'st')
+    return a.split(':')[0] in ('buf', 'out', 'kn', 'kn16', 's32s', 'st')
 
 
 def split_top(s, sep):
