@@ -6,6 +6,8 @@
 # Needs T33_OEM_KO (vendor module, local only), T33_CC (else T40_CC: a mipsel-linux-gcc) and python3 unicorn +
 # pyelftools; SKIP (exit 0) without them, an error with T40_ORACLE_STRICT=1.  N = cases per function (default 2000).
 H=$(cd "$(dirname "$0")" && pwd); B=$1
+# proof guard (openimp #643): every FUNCS / PROVES name must have a real ported body in this block (static, runs without the vendor module)
+python3 "$H/proof_audit.py" --block "$B" --check >&2 || { echo "t33_binoracle $B: FAIL proof audit (a function without a real body in FUNCS / PROVES; list it in STUBS or remove it from PROVES)"; exit 1; }
 KO=${T33_OEM_KO:-}; CC=${T33_CC:-${T40_CC:-}}
 [ -n "$B" ] && [ -r "$H/$B.conf" ] || { echo "usage: run.sh <block> (tests/t33_binoracle/<block>.conf)"; exit 2; }
 if [ ! -r "$KO" ] || [ ! -x "$CC" ] || ! python3 -c "import unicorn, elftools" 2>/dev/null; then
