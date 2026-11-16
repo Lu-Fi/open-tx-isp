@@ -189,6 +189,7 @@ static void t33_bst_irq(u32 msca);	/* tx_isp_t33_bst.h: the blocks' frame-done h
 static void t33_csc_fra_down(const u32 *init);	/* system irq 48: tisp_csc_fra_down_interrupt */
 static void t33_ccm_fd(void);			/* system irq 45: tisp_ccm_irq_frame_done (tx_isp_t33_ccmv.h) */
 static void t33_gamma_fd(void);			/* system irq 46: tisp_gamma_irq_frame_done (tx_isp_t33_gammav.h) */
+static void t33_bcsh_fd(void);			/* system irq 52: tisp_bcsh_irq_frame_down (tx_isp_t33_g14glue.h) */
 extern u32 t33_st_isp_init_par_mode[1008];	/* stIspInitPar (word 226 = byte 904: 1) */
 int tisp_rcfg_module_cfg_trig(u32 ch, u32 mod);
 int tisp_rcfg_get_dma_state(u32 mod);
@@ -329,6 +330,8 @@ static irqreturn_t t32_isp_irq(int irq, void *dev)
 		t33_ccm_fd();
 	if (msca & (1U << T33_GAMMA_IRQ_BIT))	/* system irq 46: tisp_gamma_irq_frame_done (block gammav) */
 		t33_gamma_fd();
+	if (msca & (1U << 20))		/* system irq 52: tisp_bcsh_irq_frame_down (block bcshO) */
+		t33_bcsh_fd();
 #endif
 #ifdef TX_ISP_T33
 	if (msca & 2)			/* system irq 33: tisp_msca_t33_frame_done_interrupt */
@@ -1388,7 +1391,7 @@ static struct t33_lsc t33_lsc_m;
 static u32 t33_bcsh_sec32[(T33_BCSH_SEC_BYTES + 3) / 4], t33_bcsh_st32[T33_BCSH_ST_BYTES / 4];
 #define t33_bcsh_sec	((u8 *)t33_bcsh_sec32)
 #define t33_bcsh_st	((u8 *)t33_bcsh_st32)
-static unsigned long bcsh_para[4];
+static void *bcsh_para[4];	/* the vendor's bcsh_para (tisp_bcsh_init, group 14c) */
 #define T33_BCSH_INIT_EV	0x4000U		/* stIspInitPar +0x398: fstframe_defaultp EV (u64 low word) */
 #define T33_GAMMA_INIT_IP	(T33_BCSH_INIT_EV >> 10)	/* fstframe_defaultp EV word >> 10, the vendor's init EV words */
 /*
@@ -1701,25 +1704,14 @@ static noinline_for_stack void t33_tisp_init_tone(const u8 *bin, u32 bytes)
 	}
 	off = t32_iq_section(bin, bytes, T33_SEC_BCSH, &len);
 	if (off && len == T33_BCSH_SEC_BYTES) {
-		u32 *buf = t33_mod_buf(T33_MOD_BCSH);
-
 		/*
-		 * stIspInitPar first-frame inputs (fstframe_defaultp, no RISC-V): CT +0x3d0 = 5000 K, EV +0x398 =
-		 * 0x4000 (state word 8 = EV >> 10), words +0x3d8 / +0x3dc; tisp_csc_get on csc_para for the csc set
+		 * tisp_bcsh_init (group 14c, port bcshN) on stIspInitPar's first-frame inputs (fstframe_defaultp, no
+		 * RISC-V): CT +0x3d0 = 5000 K, EV +0x398 = 0x4000 (state word 8 = EV >> 10), words +0x3d8 / +0x3dc;
+		 * tisp_csc_get on csc_para for the csc set
 		 */
-		bcsh_para[0] = 0;
-		memcpy(t33_bcsh_sec, bin + off, T33_BCSH_SEC_BYTES);
-		if (buf) {
-			int n = t33_bcsh_init(t33_bcsh_sec, bin + off + len,
-					      t32_iq_payload(bin + off, bytes - off, T33_SEC_BCSH), tisp_csc_get,
-					      T33_CCM_INIT_CT, T33_BCSH_INIT_EV, t33_bcsh_st, buf, T33_SLOT_WORDS);
-
-			t33_mod_done(T33_MOD_BCSH, n);
-			if (n > 0) {	/* tisp_bcsh_init: bcsh_para[0] word 0 = the section */
-				t33_bcsh_st32[0] = (u32)(unsigned long)t33_bcsh_sec;
-				bcsh_para[0] = (unsigned long)t33_bcsh_st;
-			}
-		}
+		t33_g14c_bcsh_init(bin + off, bin + off + len, t32_iq_payload(bin + off, bytes - off, T33_SEC_BCSH));
+	} else {
+		bcsh_para[0] = NULL;
 	}
 }
 
@@ -1865,8 +1857,9 @@ void t33_stats_show(struct seq_file *m)
 	seq_printf(m, "t33 gamma: %s init %u ev %u api %u switch %u fd %u refresh %u count %u mode %u\n",
 		   gamma_para[0] ? "on" : "off", t33_gamma_runs[0], t33_gamma_runs[1], t33_gamma_runs[2],
 		   t33_gamma_runs[3], t33_gamma_runs[4], tispGammaRefresh, gamma_count[0], t33_le32((u8 *)t33_gamma_ap32));
-	seq_printf(m, "t33 bcsh: %s sec %s\n", bcsh_para[0] ? "on" : "off",
-		   bcsh_para[0] && t33_bcsh_st32[0] == (u32)(unsigned long)t33_bcsh_sec ? "ok" : "-");
+	seq_printf(m, "t33 bcsh: %s sec %s init %u fd %u/%u api %u ev %u irq %u\n", bcsh_para[0] ? "on" : "off",
+		   bcsh_para[0] && t33_bcsh_st32[0] == (u32)(unsigned long)t33_bcsh_sec ? "ok" : "-", t33_g14c_runs[0],
+		   t33_g14c_runs[1], t33_g14c_runs[2], t33_g14c_runs[3], t33_g14c_runs[4], t33_g14c_runs[5]);
 	seq_printf(m, "t33 dns: init %u %u %u gain %u %u %u irq %u\n", t33_g14_runs[0], t33_g14_runs[1],
 		   t33_g14_runs[2], t33_g14_runs[3], t33_g14_runs[4], t33_g14_runs[5], t33_g14_runs[6]);
 	seq_printf(m, "t33 dmsc: init %u gain %u\n", t33_g14_runs[7], t33_g14_runs[8]);
@@ -2288,6 +2281,47 @@ static void t33_gamma_ev_upd(u32 lo, u32 hi)
 	local_irq_restore(flags);
 }
 
+/* tisp_bcsh_ev_update (t33_gr_lock held): the slots of list 18 directly, as the vendor, and tispBcshRefresh */
+static void t33_bcsh_ev_upd(u32 lo, u32 hi, u32 bv, u32 bvh)
+{
+	unsigned long flags;
+	u32 kept[4];
+
+	local_irq_save(flags);
+	memcpy(kept, t33_bcsh_st + 8, sizeof(kept));
+	t33_bcshk_ev_update(0, 0, lo, hi, bv, bvh);
+	if (memcmp(kept, t33_bcsh_st + 8, sizeof(kept)))
+		t33_g14c_runs[4]++;
+	local_irq_restore(flags);
+}
+
+/*
+ * tisp_set_brightness / _contrast / _saturation / _hue (tx_isp_core_ops_s_ctrl, group 14c): the byte by pointer
+ * to tisp_bcsh_api_set_* (blocks bcshK, bcshH); which 0 brightness, 1 contrast, 2 saturation, 3 hue.  Before
+ * the ISP init (no bcsh_para: the vendor oopses) nothing happens.
+ */
+void t33_tisp_set_bcsh(u32 ch, u32 which, u32 v)
+{
+	unsigned long flags;
+	u8 b = (u8)v;
+
+	if (ch || !bcsh_para[0])
+		return;
+	mutex_lock(&t33_gr_lock);
+	local_irq_save(flags);
+	if (which == 0)
+		t33_bcsh_set_brightness(0, &b);
+	else if (which == 1)
+		t33_bcsh_set_contrast(0, &b);
+	else if (which == 2)
+		t33_bcsh_set_saturation(0, &b);
+	else
+		t33_bcsh_set_hue(0, &b);
+	t33_g14c_runs[3]++;
+	local_irq_restore(flags);
+	mutex_unlock(&t33_gr_lock);
+}
+
 /* tisp_gamma_irq_frame_done (system irq 46, interrupt context) */
 static void t33_gamma_fd(void)
 {
@@ -2348,7 +2382,7 @@ int t33_tisp_g_gamma(u32 ch, void *buf)
  */
 void t33_ev_refresh(u32 lo, u32 hi, u32 bv, u32 bvh)
 {
-	u32 *buf, byp;
+	u32 byp;
 
 	mutex_lock(&t33_gr_lock);
 	t33_sw_ev_lo = lo;
@@ -2364,12 +2398,9 @@ void t33_ev_refresh(u32 lo, u32 hi, u32 bv, u32 bvh)
 	 * the vendor (tx_isp_t33_top.h, block top).
 	 */
 	byp = t33_top_get_bypass(0);
-	if (t33_gr_tmp && !(byp & 0x4000) && (t33_mod_built & (1ULL << T33_MOD_BCSH)) &&
-	    (buf = t33_mod_buf(T33_MOD_BCSH))) {
-		memcpy(t33_gr_tmp, buf, T33_SLOT_WORDS * 4);
-		if (t33_bcsh_ev_update(t33_bcsh_st, t33_bcsh_sec, lo, hi, bv, bvh, t33_gr_tmp))
-			t33_gr_commit(T33_MOD_BCSH, 1);
-	}
+	/* tisp_bcsh_ev_update (block bcshK) on bcsh_para: the list 18 slots and tispBcshRefresh, irq 52 starts it */
+	if (!(byp & 0x4000) && bcsh_para[0])
+		t33_bcsh_ev_upd(lo, hi, bv, bvh);
 	/* tisp_ccm_ev_update (block ccmP) on ccm_para: the slots and tispCcmRefresh, irq 45 starts list 10 */
 	if (!(byp & 0x80))
 		t33_ccm_ev_upd(lo, hi);
@@ -2406,18 +2437,40 @@ static void t33_ctup_ccm(const u8 *bin, u32 bytes, u32 ct)
 	t33_ccm_ct_update(ct);
 }
 
-/* tisp_bcsh_ct_update (block bcshct): interp_by_ct not forced, calc_para_refresh(2), the slot stores */
+/*
+ * tisp_bcsh_ct_update on bcsh_para (group 14c, the vendor's order): interp_by_ct not forced at ct, the frame
+ * counter st + 0x29, on a new matrix calc_para_refresh(2), params_transform and the list 18 slots (list idle,
+ * tispBcshRefresh 1) or tispBcshRefresh 2; irq 52 starts the list, one run per frame with the EV update (the
+ * driver-form t33_bcsh_ct_update of block bcshct is the same computation; before: a list copy + t33_gr_commit,
+ * a second list run in frames with an EV update).
+ */
 static void t33_ctup_bcsh(const u8 *bin, u32 bytes, u32 ct)
 {
-	u32 off, len, *buf;
+	unsigned long flags;
+	u32 off, len;
+	u8 *st;
+	int r;
 
 	off = t32_iq_section(bin, bytes, T33_SEC_BCSH, &len);
-	if (off && len == T33_BCSH_SEC_BYTES && (t33_mod_built & (1ULL << T33_MOD_BCSH)) &&
-	    (buf = t33_mod_buf(T33_MOD_BCSH))) {
-		memcpy(t33_gr_tmp, buf, T33_SLOT_WORDS * 4);
-		if (t33_bcsh_ct_update(t33_bcsh_st, t33_bcsh_sec, bin + off + len, (int)ct, t33_gr_tmp))
-			t33_gr_commit(T33_MOD_BCSH, 1);
+	if (!off || len != T33_BCSH_SEC_BYTES || !bcsh_para[0])
+		return;
+	local_irq_save(flags);
+	st = bcsh_para[0];
+	t33_g14c_lut = bin + off + len;
+	r = tisp_bcsh_interp_by_ct(0, 0, ct, 0, 0);
+	st[0x29] = st[0x29] == 0xff ? 0 : st[0x29] + 1;
+	if (!r) {
+		tisp_bcsh_calc_para_refresh(0, 2);
+		tisp_params_transform(0);
+		if (tisp_rcfg_get_dma_state(T33_MOD_BCSH)) {
+			tispBcshRefresh = 2;
+		} else {
+			t33_bcshk_write_all(0);
+			tispBcshRefresh = 1;
+		}
 	}
+	t33_g14c_lut = NULL;
+	local_irq_restore(flags);
 }
 
 /* tisp_clm_ct_update (block clmct): tisp_clm_ct_interp not forced (hysteresis 1), then write_reg */

@@ -507,13 +507,12 @@ static inline void t33_bcsh_calc(u8 *st, const u8 *sec)
 	t33_bcsh_calc_tail(st, sec);
 }
 
-/* tisp_params_transform + the slot stores of tisp_bcsh_init */
-static inline void t33_bcsh_store(const u8 *st, const u8 *sec, u32 *l)
+/* tisp_params_transform: the state (and section) permuted into the u16 block bcshInfo (in, 0xb2 bytes) */
+static inline void t33_bcsh_transform(const u8 *st, const u8 *sec, u8 *in)
 {
-	u8 in[T33_BCSH_INFO_BYTES];
 	unsigned int k;
 
-	memset(in, 0, sizeof(in));
+	memset(in, 0, T33_BCSH_INFO_BYTES);
 	for (k = 0; k < ARRAY_SIZE(t33_bcsh_tf); k++) {
 		const u8 *s = (t33_bcsh_tf[k].sec ? sec : st) + t33_bcsh_tf[k].src;
 
@@ -521,6 +520,14 @@ static inline void t33_bcsh_store(const u8 *st, const u8 *sec, u32 *l)
 		if (!t33_bcsh_tf[k].byte)
 			in[t33_bcsh_tf[k].dst + 1] = s[1];
 	}
+}
+
+/* tisp_params_transform + the slot stores of tisp_bcsh_init */
+static inline void t33_bcsh_store(const u8 *st, const u8 *sec, u32 *l)
+{
+	u8 in[T33_BCSH_INFO_BYTES];
+
+	t33_bcsh_transform(st, sec, in);
 #define H(i)	((u32)t32_tp_le16(in + 2 * (i)))
 #define B(o)	((u32)in[o])
 #define HH(a, b, m)	((H(a) & (m)) << 16 | (H(b) & (m)))

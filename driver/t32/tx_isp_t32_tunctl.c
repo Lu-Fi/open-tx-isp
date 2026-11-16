@@ -381,11 +381,21 @@ int t32_tx_os_tisp_s_hv_flip(u32 ch, void *flags)
 int t32_tx_os_tisp_lsc_hvflip(u32 ch, u32 a, u32 b, u32 h, u32 v) { return 0; }
 
 /* BCSH bytes: the dispatcher keeps them in the ISP device (+16 + 32 ch) */
+#ifdef TX_ISP_T33
+/* T33 (group 14c): tisp_set_* -> tisp_bcsh_api_set_* on bcsh_para (tx_isp_t32_hw.c) */
+void t33_tisp_set_bcsh(u32 ch, u32 which, u32 v);
+int t32_tx_os_tisp_set_hue(u32 ch, u32 v) { t33_tisp_set_bcsh(ch, 3, v); return 0; }
+int t32_tx_os_tisp_set_brightness(u32 ch, u32 v) { t33_tisp_set_bcsh(ch, 0, v); return 0; }
+int t32_tx_os_tisp_set_sharpness(u32 ch, u32 v) { return 0; }
+int t32_tx_os_tisp_set_saturation(u32 ch, u32 v) { t33_tisp_set_bcsh(ch, 2, v); return 0; }
+int t32_tx_os_tisp_set_contrast(u32 ch, u32 v) { t33_tisp_set_bcsh(ch, 1, v); return 0; }
+#else
 int t32_tx_os_tisp_set_hue(u32 ch, u32 v) { return 0; }
 int t32_tx_os_tisp_set_brightness(u32 ch, u32 v) { return 0; }
 int t32_tx_os_tisp_set_sharpness(u32 ch, u32 v) { return 0; }
 int t32_tx_os_tisp_set_saturation(u32 ch, u32 v) { return 0; }
 int t32_tx_os_tisp_set_contrast(u32 ch, u32 v) { return 0; }
+#endif
 
 int t32_tx_os_tisp_set_fps(u32 ch, u32 fps) { return 0; }
 
