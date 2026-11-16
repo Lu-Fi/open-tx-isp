@@ -705,8 +705,15 @@ module_param(t20_cmos_irq_stage, uint, 0644);
 MODULE_PARM_DESC(t20_cmos_irq_stage,
 	"temporary T20 bring-up limit for the CMOS frame-start path");
 static unsigned int t20_cmos_trace_count;
+/*
+ * t20_simple_ae / t20_simple_awb / t20_park_fw_after_first_pass are load-time
+ * only (0444): once the firmware thread has parked after its first pass it
+ * leaves its loop, so a later switch to the OEM AE / AWB graph would find no
+ * thread consuming the firmware events (stale exposure, openimp #627).  The
+ * vendor has no such switch (its isp_fw_process never parks).
+ */
 static bool t20_simple_ae = true;
-module_param(t20_simple_ae, bool, 0644);
+module_param(t20_simple_ae, bool, 0444);
 MODULE_PARM_DESC(t20_simple_ae,
 	"use bounded histogram AE instead of the recovered OEM AE state graph");
 
@@ -739,7 +746,7 @@ static unsigned int t20_ccm_awb_updates;
 static unsigned int t20_ccm_frame_updates;
 module_param(t20_ccm_frame_updates, uint, 0444);
 static bool t20_simple_awb = true;
-module_param(t20_simple_awb, bool, 0644);
+module_param(t20_simple_awb, bool, 0444);
 MODULE_PARM_DESC(t20_simple_awb,
 	"use bounded metering feedback instead of the recovered OEM AWB state graph");
 

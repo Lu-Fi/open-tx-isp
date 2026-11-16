@@ -4,6 +4,11 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD[-rcN]` are set on the `aperto` branch, the same tag in open-tx-isp and OpenIMP: RC1 `v2026.10.11-rc1`, RC2 `v2026.10.25-rc2`, RC3 `v2026.11.07-rc3` (2026-11-07). Gate SoCs of RC3 and Release 1: T10, T20, T21, T23, T30, T31, T40, T41 (T32/T33 planned, QEMU only); release notes: [docs/releases/ in OpenIMP](https://github.com/Lu-Fi/openimp/blob/next/docs/releases/README.md). Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-11-16: T10/T20 t20_simple_ae / t20_simple_awb / t20_park_fw_after_first_pass are load-time only (openimp #627; host)
+
+- `driver/t20/tx_isp_t20_firmware.c`, `driver/t20/sdk/source/apical-isp/tx-isp-core.c` (shared T10 / T20): the three parameters are `0444` (before `0644`). Once `isp_fw_process` has parked after its first pass it leaves its loop (only `kthread_stop()` ends the park), so a runtime `echo 0 > .../t20_simple_ae` (or `t20_simple_awb`) handed the sensor / white balance to the OEM AE / AWB graph with no thread consuming the firmware events: stale exposure (the #609 black-picture symptom at runtime) or no sharpening / CCM. The vendor has no such switch (its `isp_fw_process` never parks), so the parameters are now set at insmod only; load-time behaviour unchanged.
+- Proof: T10 + T20 firmware objects 444 / 444 SAME vs next (code unchanged), `__param` section: exactly the three entries 0644 -> 0444; make -C tests check 622 passed, 0 failed. No device run (insmod path unchanged).
+
 ## 2026-11-16: T33 wiring group 14e-4: init checks dma / top / top_ipc / af / lsc / ae against the proven i9C / i9D / i9E ports; TOP bayer remap (openimp #99, #638; host + QEMU)
 
 - `driver/t32/tx_isp_t32_rcfg33.h` (#638): t33_top_init maps the sensor bayer pattern through the vendor's bayer_remap (0..3 unchanged, 4..19 + 4) for list 33 word 0x78 and the direct 0x88 write, as tisp_top_init (block i9D); before the raw index (only RGB-IR patterns differ; PRJ008 unchanged).

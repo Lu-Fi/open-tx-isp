@@ -62,7 +62,7 @@ static int isp_clk = ISP_CLK_1080P_MODE;
 module_param(isp_clk, int, S_IRUGO);
 MODULE_PARM_DESC(isp_clk, "isp core clock");
 static bool t20_park_fw_after_first_pass = true;
-module_param(t20_park_fw_after_first_pass, bool, 0644);
+module_param(t20_park_fw_after_first_pass, bool, 0444);
 MODULE_PARM_DESC(t20_park_fw_after_first_pass,
 	"park the recovered T20 firmware thread after its proven-good first pass (only with t20_simple_ae=1 and t20_simple_awb=1)");
 extern bool tx_isp_t20_fw_may_park(void);
