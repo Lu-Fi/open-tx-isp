@@ -33,6 +33,26 @@ static struct {
 	const u8 *lut;
 	u32 bytes;
 } t33_ccm_lut;				/* stLutInfo[0]: the CCM knots */
+/*
+ * The knots themselves are copied (sec[0x75e] records of 40 bytes, u8 count), as the vendor's tisp_bin_data_parse
+ * copies them into its stLutInfo buffer: before, t33_ccm_lut.lut pointed into libimp's bin buffer and went stale
+ * when libimp freed it while a rejected bin kept the old pointer (openimp #628).
+ */
+#define T33_CCM_KNOT_BYTES	40U
+static u32 t33_ccm_knots32[(255U * T33_CCM_KNOT_BYTES) / 4];
+
+/* the knots of sec into t33_ccm_knots32 (irqs off: the CT / EV updates read them from irq context) */
+static void t33_ccm_take_knots(const u8 *sec, const u8 *lut)
+{
+	unsigned long flags;
+	u32 n = sec[0x75e] * T33_CCM_KNOT_BYTES;
+
+	local_irq_save(flags);
+	memcpy(t33_ccm_knots32, lut, n);
+	t33_ccm_lut.lut = (const u8 *)t33_ccm_knots32;
+	t33_ccm_lut.bytes = n;
+	local_irq_restore(flags);
+}
 static u32 ccm_para[4];			/* the vendor's block pointers: [0] = t33_ccm_v */
 static u32 *t33_ccm_parap[4];		/* the same as a pointer array (block swmid) */
 static u8 tispCcmRefresh;
@@ -167,8 +187,7 @@ static int t33_ccm_attach(const u8 *sec, const u8 *lut, u32 lutbytes, u32 ct, u3
 	len = t33_ccm_init(t33_ccm_sec, lut, lutbytes, ct, ev_lo, 0, t33_ccm_v, l, cap);
 	if (len <= 0)
 		return len;
-	t33_ccm_lut.lut = lut;
-	t33_ccm_lut.bytes = lutbytes;
+	t33_ccm_take_knots(sec, lut);
 	t33_ccm_v[0] = (u32)(unsigned long)t33_ccm_sec;
 	t33_ccm_parap[0] = t33_ccm_v;
 	ccm_para[0] = (u32)(unsigned long)t33_ccm_v;
@@ -182,8 +201,7 @@ static int t33_ccm_new_bin(const u8 *sec, const u8 *lut, u32 lutbytes)
 	if (!ccm_para[0] || !sec[0x75e] || lutbytes < sec[0x75e] * 40U)
 		return -1;
 	memcpy(t33_ccm_sec, sec, T33_CCM_SEC_BYTES);
-	t33_ccm_lut.lut = lut;
-	t33_ccm_lut.bytes = lutbytes;
+	t33_ccm_take_knots(sec, lut);
 	return 0;
 }
 

@@ -109,6 +109,9 @@ struct t32_alloc {
 	u32 pa;
 	u32 size;
 	unsigned int order;
+#ifdef TX_ISP_T33
+	bool retired;		/* freed by libimp while it held the IQ bin: pages kept until t32_free_all (#628) */
+#endif
 };
 
 struct t32_vi {
@@ -370,6 +373,9 @@ static struct t32_alloc *t32_alloc_find_kva(u32 kva)
 
 	list_for_each_entry(a, &core.allocs, node)
 		if ((u32)(unsigned long)a->kva == kva)
+#ifdef TX_ISP_T33
+			if (!a->retired)
+#endif
 			return a;
 	return NULL;
 }
@@ -380,6 +386,9 @@ static struct t32_alloc *t32_alloc_find_pa(u32 pa)
 
 	list_for_each_entry(a, &core.allocs, node)
 		if (pa >= a->pa && pa < a->pa + a->size)
+#ifdef TX_ISP_T33
+			if (!a->retired)
+#endif
 			return a;
 	return NULL;
 }
@@ -417,6 +426,21 @@ static int t32_free(const struct t32_buf_info *bi)
 
 	if (!a)
 		return -EINVAL;
+#ifdef TX_ISP_T33
+	/*
+	 * openimp #628: the vendor module parses the IQ bin into its own tparamsP copy (tisp_bin_data_parse,
+	 * private_vmalloc), so libimp freeing its buffer never takes the bin from the running blocks.  Here the
+	 * blocks read the bin in place (t32_core_iq_bin, used after the lookup's unlock): the pages that hold it
+	 * are kept (retired, no longer found by kva / pa) and freed by t32_free_all at the release; the FREE
+	 * itself succeeds as before.
+	 */
+	if (core.tiziano_pa >= a->pa && core.tiziano_pa < a->pa + a->size) {
+		T32_ALLOC_LOCK();
+		a->retired = true;
+		T32_ALLOC_UNLOCK();
+		return 0;
+	}
+#endif
 	T32_ALLOC_LOCK();
 	if (core.tiziano_pa >= a->pa && core.tiziano_pa < a->pa + a->size)
 		core.tiziano_pa = 0;

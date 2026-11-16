@@ -1497,7 +1497,12 @@ static void *bcsh_para[4];	/* the vendor's bcsh_para (tisp_bcsh_init, group 14c)
  * API-mode copy with sec[0x45] == 1 writes into it).  tispGammaRefresh: set by the EV update (1 list idle, else 2)
  * and the API set (1); the irq 46 frame done starts list 11.
  */
-#define T33_GAMMA_TAB_MAX	16U	/* curve records kept */
+/*
+ * curve records kept: sec[0x46] is a u8 and the vendor's tisp_bin_data_parse sizes its stLutInfo copy from the bin
+ * (no curve limit), so every count a bin can carry is taken; before 16, a bin with more curves left gamma
+ * unattached (openimp #628)
+ */
+#define T33_GAMMA_TAB_MAX	255U
 static u32 t33_gamma_sec32[T33_GAMMA_SEC_BYTES / 4];
 #define t33_gamma_sec	((u8 *)t33_gamma_sec32)
 static u32 t33_gamma_cp32[T33_GV_CP_BYTES / 4], t33_gamma_ip32[2], t33_gamma_sp32[T33_GV_SP_BYTES / 4];
