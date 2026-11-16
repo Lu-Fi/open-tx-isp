@@ -24,6 +24,7 @@ SPEC: one function per line (from the block's .conf, FUNCS=):
         kn:N:MAX                pointer to N ascending LE u32 in [0, MAX] (repeats allowed), compared
         kn16:N:MAX              the same with LE u16 entries (calibration curves of u16 tables)
         s32s:N:LO:HI            pointer to N LE s32 in [LO, HI], compared
+        s16s:N:LO:HI            the same with LE s16 entries (filter taps)
         info:VSYM:SIZE          a block state of SIZE bytes (random words: full, below 2^8, below 2^12 or edge values):
                                 the vendor gets channel 0 and the block's address in its global pointer array VSYM[0]
                                 (e.g. mdnsInfo), ours gets the block's address; the block is compared after the call.
@@ -197,14 +198,14 @@ class Gen:
             if case % 7 == 3 and n > 2:          # repeated knots (zero-width intervals)
                 v[n // 2] = v[n // 2 - 1]
             return struct.pack('<%d%s' % (n, 'H' if p[0] == 'kn16' else 'I'), *v)
-        if p[0] == 's32s':
+        if p[0] in ('s32s', 's16s'):
             n, lo, hi = int(p[1], 0), int(p[2], 0), int(p[3], 0)
-            return struct.pack('<%di' % n, *(r.randint(lo, hi) for _ in range(n)))
+            return struct.pack('<%d%s' % (n, 'h' if p[0] == 's16s' else 'i'), *(r.randint(lo, hi) for _ in range(n)))
         raise ValueError(a)
 
 
 def is_ptr(a):
-    return a.split(':')[0] in ('buf', 'out', 'kn', 'kn16', 's32s', 'st')
+    return a.split(':')[0] in ('buf', 'out', 'kn', 'kn16', 's32s', 's16s', 'st')
 
 
 def split_top(s, sep):
