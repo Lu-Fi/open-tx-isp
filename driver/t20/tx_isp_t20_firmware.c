@@ -3292,122 +3292,38 @@ static uint32_t calc_equidistant_modulation_u32(uint32_t value, uint32_t *table,
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000016d18 origin=model_output original=calc_inv_equidistant_modulation_u16 */
 uint32_t calc_inv_equidistant_modulation_u16(uint16_t value, uint16_t *table, uint16_t count)
 {
-    uint32_t val = value;
-    uint32_t cnt = count;
-    uint32_t result;
-    uint32_t byte_off;
-    uint32_t entry;
-    uint32_t *max_scale;
-    uint32_t upper;
-    uint32_t step_raw;
-    uint32_t frac_raw;
-    uint32_t frac;
-    uint32_t step;
-    uint32_t weight_lo;
-    uint32_t weight_hi;
-    uint32_t inv_frac;
-    uint32_t interp;
-    uint32_t interp_adj;
-    uint32_t is_neg;
-    uint32_t interp_shift;
-    uint32_t cnt_m1;
-    uint32_t idx_bytes;
-    uint32_t *more;
-    uint32_t idx_off;
-    uint32_t upper_off;
-    uint32_t lower_idx;
-    uint32_t lower_off;
-    uint32_t lower;
-    uint32_t delta;
-    uint32_t span;
-    uint32_t flat_mul;
-    uint32_t flat_result;
-    uint32_t idx;
-    uint32_t scale_const;
+	/* vendor 0x16548 (tx-isp-t10.ko, same in tx-isp-t20.ko), openimp #631: the segment search stops at
+	 * the first node above the value (the lift stopped at the first node at or below it), and both
+	 * divisions are signed (div). */
+	uint32_t v = value;
+	uint32_t n = count;
+	uint32_t i;
+	uint32_t step;
+	uint32_t hi;
+	uint32_t lo;
+	uint32_t frac;
+	int32_t interp;
 
-    entry = *(uint16_t *)(table + 0);
-    val = val & 0xffff;
-    entry = (entry < val) ? 1 : 0;
-    cnt = cnt & 0xffff;
-
-    if (entry == 0) {
-        result = 0;
-        return result;
-    }
-
-    byte_off = cnt - 1;
-    byte_off = byte_off << 1;
-    entry = *(uint16_t *)(table + (byte_off >> 1));
-    entry = (val < entry) ? 1 : 0;
-
-    if (entry == 0) {
-        result = 0xffff;
-        return result;
-    }
-
-    byte_off = 1;
-    if (cnt == 1) {
-        result = 0;
-        return result;
-    }
-
-    more = (1 < (uint32_t *)cnt) ? 1 : 0;
-    idx = 1;
-
-    while (more != 0) {
-        idx_bytes = idx << 1;
-        entry = *(uint16_t *)(table + (idx_bytes >> 1));
-        entry = (val < entry) ? 1 : 0;
-        if (entry == 0) {
-            cnt_m1 = cnt - 1;
-            goto calc_inv_equidistant_modulation_u16_0x60;
-        }
-        idx = idx + 1;
-        more = (idx < (uint32_t *)cnt) ? 1 : 0;
-    }
-
-    cnt_m1 = cnt - 1;
-
-calc_inv_equidistant_modulation_u16_0x60:
-    max_scale = 0x10000;
-    step_raw = (int32_t)((uintptr_t)max_scale / cnt_m1);
-    if (cnt_m1 == 0) {
-        __builtin_trap();
-    }
-
-    idx_off = idx << 1;
-    upper = *(uint16_t *)(table + (idx_off >> 1));
-    lower_idx = idx - 1;
-    lower_off = lower_idx << 1;
-    lower = *(uint16_t *)(table + (lower_off >> 1));
-
-    if (upper != lower) {
-        delta = val - lower;
-        span = delta << 8;
-        upper_off = upper - lower;
-        frac_raw = (int32_t)(span / upper_off);
-        if (upper_off == 0) {
-            __builtin_trap();
-        }
-        step = step_raw & 0xffff;
-        frac = frac_raw & 0xffff;
-        weight_lo = step * lower_idx;
-        weight_hi = step * idx;
-        inv_frac = 0x100 - frac;
-        interp = (int32_t)((int64_t)weight_lo * (int64_t)inv_frac + (int64_t)weight_hi * (int64_t)frac);
-        interp_adj = interp + 0xff;
-        is_neg = (interp < 0) ? 1 : 0;
-        if (is_neg != 0) {
-            interp = interp_adj;
-        }
-        interp_shift = (int32_t)interp >> 8;
-        result = interp_shift & 0xffff;
-        return result;
-    }
-
-    flat_mul = step_raw * idx;
-    flat_result = flat_mul & 0xffff;
-    return flat_result;
+	if (!(table[0] < v))
+		return 0;
+	if (!(v < table[n - 1]))
+		return 0xffff;
+	if (n == 1)
+		return 0;
+	for (i = 1; (int32_t)i < (int32_t)n; i++)
+		if (v < table[i])
+			break;
+	step = (uint32_t)((int32_t)0x10000 / (int32_t)(n - 1));
+	hi = table[i];
+	lo = table[i - 1];
+	if (hi == lo)
+		return (step * i) & 0xffff;
+	frac = (uint32_t)((int32_t)((v - lo) << 8) / (int32_t)(hi - lo)) & 0xffff;
+	step &= 0xffff;
+	interp = (int32_t)(step * (i - 1) * (0x100 - frac) + step * i * frac);
+	if (interp < 0)
+		interp += 0xff;
+	return (uint32_t)(interp >> 8) & 0xffff;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000016e3c origin=model_output original=calc_inv_equidistant_modulation_u32 */
@@ -8273,8 +8189,15 @@ int32_t gain_log2(uintptr_t ctx_addr, uint32_t unused_value, uint32_t direction,
 	struct t20_isp_ctx *ctx = (struct t20_isp_ctx *)ctx_addr;
 	uint32_t *result = (uint32_t *)result_addr;
 
+	/* OEM 0x1dae0 (tx-isp-t10.ko, same in tx-isp-t20.ko): read-only value; SET returns 3, any
+	 * direction other than GET returns 1 (openimp #632, like exposure_log2 #552). */
 	*result = 0;
-	if ((direction & 255) == 1) {
+	direction &= 0xff;
+	if (direction == 0)
+		return 3;
+	if (direction != 1)
+		return 1;
+	{
 		uint32_t again = ctx->cmos.sensor_again_log2;
 		uint32_t dgain = ctx->cmos.sensor_dgain_log2;
 		uint32_t sum = again + dgain;
@@ -10409,24 +10332,15 @@ int32_t shading_mesh_load(int32_t mode)
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000020bb0 origin=model_output original=is_yuv_format */
 static int32_t is_yuv_format(int16_t format)
 {
+	/* vendor 0x203e0 (tx-isp-t10.ko, same in tx-isp-t20.ko): unsigned compares (sltu); 269 / 270 are YUV
+	 * without a range test (openimp #631; the lift compared signed and missed the 269 / 270 branch). */
 	uint32_t v = (uint32_t)(uint16_t)format;
-	int32_t offset;
-	int32_t limit;
 
-	if (v >= 0x10f) {
-		offset = (int32_t)(v - 0x20d);
-		limit = 1;
-	} else {
-		offset = (int32_t)(v - 0xa);
-		if (v < 0x10d)
-			limit = 4;
-		else
-			limit = 1;
-	}
-
-	if (limit < offset)
-		return 0;
-	return 1;
+	if (v >= 0x10f)
+		return (v - 0x20d) <= 1U ? 1 : 0;
+	if (v >= 0x10d)
+		return 1;
+	return (v - 0xa) <= 4U ? 1 : 0;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000020bf4 origin=model_output original=shading_mesh_init */
@@ -15262,15 +15176,21 @@ void *mem_write_u16(uint8_t *addr, int16_t value)
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000297ac origin=fragment_seed original=mem_write_u32 */
 void* mem_write_u32(uintptr_t addr, uint32_t value)
 {
-	/* OEM behaviour kept: aligned address writes nothing; 2 writes a
-	 * halfword; 1 and 3 write a byte, a halfword at +1 and a byte at +3. */
+	/* vendor 0x28fdc (tx-isp-t10.ko, same in tx-isp-t20.ko): an aligned address stores the word (sw in the
+	 * delay slot of jr ra; the lift missed it), 2 stores both halfwords, 1 and 3 a byte, a halfword at +1 and
+	 * a byte at +3 (openimp #631). */
 	uintptr_t sel = addr & 3;
 	int is_two = sel == 2;
 	int is_three = sel == 3;
 	int is_one = sel == 1;
 
+	if (sel == 0) {
+		*(uint32_t *)addr = value;
+		return (void *)(uintptr_t)(value >> 8);
+	}
 	if (is_two) {
 		*(uint16_t *)((char *)addr + 0) = value;
+		*(uint16_t *)((char *)addr + 2) = value >> 16;
 		return (void *)sel;
 	}
 	if (is_three || is_one) {
@@ -20293,7 +20213,8 @@ static int32_t validate_smooth_test(void *samples, int32_t limit)
 {
 	uint32_t *p = (uint32_t *)samples;
 	uint32_t diff = p[4] - p[2];
-	return (int32_t)diff < limit ? 1 : 0;
+	/* vendor 0x30618: slt v0,limit,diff (openimp #631; the lift had the operands swapped) */
+	return limit < (int32_t)diff ? 1 : 0;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000030dfc origin=model_output original=validate_complexity_test */
@@ -20380,15 +20301,13 @@ int32_t validate_motion_vectors(int32_t ctx, void *blocks, int32_t cols, int32_t
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000030f80 origin=fragment_seed original=get_exp */
 int32_t get_exp(uint32_t index, uintptr_t lut_addr)
 {
-	/*
-	 * OEM 0x30f84: the recovered body looked up
-	 * ((struct t20_exp_lut *)lut_addr)->entries[index] when index < count, but the
-	 * original function as built returns 0 unconditionally (the lookup
-	 * result is dead); keep that behaviour exactly.
-	 */
-	(void)index;
-	(void)lut_addr;
-	return 0;
+	/* vendor 0x307b0 (tx-isp-t10.ko, same in tx-isp-t20.ko): entries pointer at +0, count at +4;
+	 * index < count (unsigned) -> entries[index], else 0 (openimp #631; ours returned 0 always). */
+	const uint32_t *lut = (const uint32_t *)lut_addr;
+
+	if (!(index < lut[1]))
+		return 0;
+	return ((const int32_t *)(uintptr_t)lut[0])[index];
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000030fa8 origin=model_output original=get_gmv_gauss_init */
