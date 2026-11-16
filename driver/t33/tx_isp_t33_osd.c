@@ -255,7 +255,7 @@ static const struct t33_mscacur cur_ctx = {
  * start, from the stored format), lib_tisp_msca_channel_start (chx_cfg_load), lib_tisp_msca_chx_stream_on,
  * then lib_tisp_msca_chx_en (ch, 1) after the buffer push (the driver pushed the queued buffers before).  The
  * vendor's lib_tisp_api_set_msca_dma_stride in between is refused with stIspInitPar word 226 == 1 (printk only;
- * not made).  Returns tispMscaRefresh, -1 without the attribute block.  Frame-channel lock held (atomic).
+ * not made, vendor-equal: it never ran in the vendor QEMU runs, no printk there, #650).  Returns tispMscaRefresh, -1 without the attribute block.  Frame-channel lock held (atomic).
  */
 void t33_osd_az_scaling(u32 ch) { t33_msca_scaling_algorithm_v(&cur_ctx, ch); }
 void t33_osd_az_curve_calc(u32 ch, u32 i) { t33_msca_curve_calc_v(&cur_ctx, ch, i); }

@@ -363,8 +363,24 @@ static void t32_fs_streamoff(struct t32_fchan *f)
 
 	spin_lock_irqsave(&f->lock, flags);
 	was = f->streaming;
+#ifdef TX_ISP_T33
+	/*
+	 * #650 / #651: the vendor's ispcore_frame_channel_streamoff: stream off under the lock, the lock released,
+	 * up to 502 x 1 ms for the channel's MSCA work state to clear (the DMA of the frame in flight), then the
+	 * address fifo clear.  The channel counts as streaming until then (vendor: state 4 until after the wait),
+	 * so a frame done during the wait still reaches its buffer.
+	 */
+	if (was) {
+		t33_hw_msca_stop_begin(f->ch);
+		spin_unlock_irqrestore(&f->lock, flags);
+		t33_hw_msca_stop_wait(f->ch);
+		spin_lock_irqsave(&f->lock, flags);
+		t33_hw_msca_stop_end(f->ch);
+	}
+#else
 	if (f->streaming)
 		t32_hw_msca_stop(f->ch);
+#endif
 	f->streaming = 0;
 	for (i = 0; i < f->nbufs; i++)
 		f->buf[i].state = BUF_IDLE;
