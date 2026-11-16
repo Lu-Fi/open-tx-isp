@@ -177,6 +177,37 @@ int t32_fs_crop(int ch, u32 *pos, u32 *size)
 	return 1;
 }
 
+#ifdef TX_ISP_T33
+/*
+ * The channel attribute of the vendor's S_FMT (ispcore_pad_event_handle 0x3000002) from the stored format of
+ * channel ch, for tisp_msca_t33_channel_attr_set: a[0..2] scaler enable / out size (else the front crop size),
+ * a[3..7] crop enable / left / top / size (else 0, 0, the scaler size), a[8..12] front crop enable / left / top /
+ * size (else 0, 0, the sensor size in_w x in_h).  Returns 0 for a channel out of range.
+ */
+int t32_fs_msca_attr(int ch, u32 in_w, u32 in_h, u32 *a)
+{
+	const u8 *f;
+
+	if (ch < 0 || ch >= T32_MSCA_CHANNELS)
+		return 0;
+	f = fchan[ch].vch + T32_FCH_FMT;
+	a[8] = t32_g_rd32(f, 23 * 4) & 0xff;
+	a[9] = a[8] ? t32_g_rd32(f, 25 * 4) : 0;
+	a[10] = a[8] ? t32_g_rd32(f, 24 * 4) : 0;
+	a[11] = a[8] ? t32_g_rd32(f, 26 * 4) : in_w;
+	a[12] = a[8] ? t32_g_rd32(f, 27 * 4) : in_h;
+	a[0] = t32_g_rd32(f, 18 * 4) & 0xff;
+	a[1] = a[0] ? t32_g_rd32(f, 19 * 4) : a[11];
+	a[2] = a[0] ? t32_g_rd32(f, 20 * 4) : a[12];
+	a[3] = t32_g_rd32(f, 13 * 4) & 0xff;
+	a[4] = a[3] ? t32_g_rd32(f, 15 * 4) : 0;
+	a[5] = a[3] ? t32_g_rd32(f, 14 * 4) : 0;
+	a[6] = a[3] ? t32_g_rd32(f, 16 * 4) : a[1];
+	a[7] = a[3] ? t32_g_rd32(f, 17 * 4) : a[2];
+	return 1;
+}
+#endif
+
 /* IVDC frame start of sensor ch (its interrupt): the next queued buffer is done */
 int t32_fs_ivdc_frame(u32 ch)
 {

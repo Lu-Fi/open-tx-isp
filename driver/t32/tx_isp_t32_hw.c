@@ -60,7 +60,6 @@ static void t33_lcepf_ev(u32 lo, u32 hi, u32 bv);
 #include "tx_isp_t33_tmoA.h"
 #include "tx_isp_t33_clm.h"
 #include "tx_isp_t33_msca.h"
-#include "tx_isp_t33_msca_curve.h"
 #include "tx_isp_t33_mdns.h"
 #include "tx_isp_t33_ae.h"
 #include "tx_isp_t33_awb.h"
@@ -405,6 +404,10 @@ u32 t32_rcfg_runs, t32_rcfg_timeouts, t32_rcfg_last_len;
 static unsigned long t33_mod_page[T33_MODULES];
 static u64 t33_mod_built;
 u32 t33_rcfg_runs, t33_rcfg_timeouts;
+#ifdef TX_ISP_T33
+u32 t33_msca_vendor_starts, t33_msca_direct_starts;	/* channel starts on the vendor path / direct (g17-2) */
+extern u32 t33_bst_bad;					/* tisp_reg_write_t33 refusals (tx_isp_t33_bst.h) */
+#endif
 
 /* a module's list page, uncached (the core reads it by DMA); NULL without memory */
 void t33_osd_list_rebuilt(void);	/* tx_isp_t33_osd.c */
@@ -2215,6 +2218,10 @@ void t33_stats_show(struct seq_file *m)
 		   t33_g16_runs[2], t33_g16_runs[3], t33_g16_tmo_regnum, t33_tmo_reg_num);
 	seq_printf(m, "t33 tmo oneshot: disable %u enable %u tick %u\n", t33_tmo1s_runs[0], t33_tmo1s_runs[1],
 		   t33_tmo1s_runs[2]);
+#ifdef TX_ISP_T33
+	seq_printf(m, "t33 msca: chx start %u direct %u list bad %u\n", t33_msca_vendor_starts, t33_msca_direct_starts,
+		   t33_bst_bad);
+#endif
 	seq_printf(m, "t33 blc: %s init %u gain %u switch %u fd %u refresh %u\n", blc_para[0] ? "on" : "off",
 		   t33_blc_runs[0], t33_blc_runs[1], t33_blc_runs[2], t33_blc_runs[3], t33_blc_refresh);
 	seq_printf(m, "t33 lsc: %s init %u switch %u fd %u refresh %u count %u\n", lsc_para[0] ? "on" : "off",
@@ -4720,86 +4727,41 @@ static void t32_hw_msca_load_curves(void)
 /* channels started on the direct path since the last stream-on (no list 23 runs then) */
 static u32 t33_msca_direct, t33_msca_listed;
 
-/* one module list alone (the vendor's single-bit 0x22010 trigger), its table word set at stream-on */
-static void t33_rcfg_run(unsigned int id)
-{
-	unsigned int i;
-
-	wmb();
-	isp_wr(T33_RCFG_TRIG, 1U << id);
-	for (i = 0; i < 1000 && (isp_rd(T33_RCFG_TRIG) & (1U << id)); i++)
-		udelay(1);
-	if (i == 1000)
-		t33_rcfg_timeouts++;
-	t33_rcfg_runs++;
-}
-
 /*
- * tisp_msca_t33_chx_cfg_load + tisp_msca_t33_chx_en on the single-sensor
- * path: the scaling enables 0 (tisp_msca_t33_scaling_algorithm, PRJ008
- * flags), the curves (tisp_msca_t33_curve_calc / ch_curve_write: ratios
- * out << 14 / in, channel 0 against the section 25 crop size when its
- * flag is set), sizes and steps (in << 14 / out), 0xf0128 and the strides
- * direct, the slot stores (CfgMode slot numbers, ch * 0x1e + ...), the
- * enable bit, then list 23 alone.  A cropped channel 1 / 2 (section 25
- * flags) or an upscale goes the direct way.
+ * g17-2: the vendor's channel start (ispcore_pad_event_handle 0x3000003, single sensor) on the proven ports in
+ * tx_isp_t33_osd.c (t33_msca_chx_start): channel_attr_set with the S_FMT attribute of the stored format
+ * (t32_fs_msca_attr), tisp_msca_t33_chx_cfg_load (scaling_algorithm, curve_calc, ch_curve_write,
+ * ctrl_reg_write: sizes, steps, curves, 0xf0128, strides, chx_en, the list 23 trigger), chx_stream_on and
+ * chx_en.  The direct (T32) way only without list 23 / the attribute block, or when the output the vendor
+ * attribute describes is not the buffer's (w x h, stride = 16-aligned width).
  */
+int t32_fs_msca_attr(int ch, u32 in_w, u32 in_h, u32 *a);	/* tx_isp_t32_fs.c */
+int t33_msca_chx_start(u32 ch, const u32 *a);			/* tx_isp_t33_osd.c */
+
 static bool t33_msca_list_start(int ch, u32 w, u32 h, u32 stride, u32 in_w, u32 in_h)
 {
-	u32 *l = (t33_mod_built & (1ULL << T33_MOD_MSCA)) ? t33_mod_buf(T33_MOD_MSCA) : NULL;
-	u32 b = 0x1e * (u32)ch, wh = (w & 0xffff) << 16 | (h & 0xffff), cw = w, chh = h, bytes, len, off;
-	const u8 *bin, *s25 = NULL;
+	u32 *l = (t33_mod_built & (1ULL << T33_MOD_MSCA)) ? t33_mod_buf(T33_MOD_MSCA) : NULL, a[13];
+	int r;
 
-	if (!t32_core_iq_bin(&bin, &bytes) && (off = t32_iq_section(bin, bytes, T33_SEC_MSCA, &len)) && len >= 0xc8)
-		s25 = bin + off;
-	if (!l || !s25 || t33_msca_direct || l[0] < 0x12d || !w || !h || w > in_w || h > in_h) {
+	if (!l || t33_msca_direct || l[0] < 0x12d || !t32_fs_msca_attr(ch, in_w, in_h, a) || a[6] != w ||
+	    a[7] != h || stride != ((a[6] + 15) & ~15U) || (r = t33_msca_chx_start((u32)ch, a)) < 0) {
 		t33_msca_direct |= 1U << ch;
+		t33_msca_direct_starts++;
 		return false;
 	}
-	if (t32_tp_le16(s25 + 0xb8 + 2 * ch)) {	/* crop: tisp_msca_t33_curve_calc's ratio base */
-		if (ch) {
-			t33_msca_direct |= 1U << ch;
-			return false;
-		}
-		cw = t32_tp_le16(s25 + 0xbe);
-		chh = t32_tp_le16(s25 + 0xc0);
-	}
-	T33_SW(l, 6, 0);
-	T33_SW(l, 1, 1);
-	t33_msca_curves(l, ch, t33_msca_ratio(cw, in_w), t33_msca_ratio(chh, in_h));
-	{
-		u32 cpos = 0, csize = wh;
-
-		/* FrameSource input crop (vendor format): position / size slots; ratios and steps stay on the sensor size */
-		if (!t32_fs_crop(ch, &cpos, &csize)) {
-			cpos = 0;
-			csize = wh;
-		}
-		T33_SW(l, b + 0x1a, 0);
-		T33_SW(l, b + 0x1b, wh);
-		T33_SW(l, b + 0x1c, cpos);
-		T33_SW(l, b + 0x1d, csize);
-	}
-	T33_SW(l, b + 0x1e, (in_h << 14) / h);
-	T33_SW(l, b + 0x1f, (in_w << 14) / w);
-	isp_wr(0xf0128 + 0x100 * ch, 0);
-	T33_SW(l, b + 0x22, 0xffffffff);
-	ch_wr(ch, T32_MSCA_Y_STRIDE, stride);
-	ch_wr(ch, T32_MSCA_UV_STRIDE, stride);
-	T33_SW(l, 1, 1);
-	/* tisp_msca_t33_api_chx_stream_on -> tisp_msca_t33_chx_en (g16-3, tx_isp_t33_osd.c) */
-	if (t33_msca_chx_stream_set((u32)ch, 1)) {
-		T33_SW(l, b + 0x2a, 0);
-		T33_SW(l, b + 0x32, 0);
-		T33_SW(l, 3, l[3 + 1] | 1U << ch);
-	}
 	t33_msca_listed |= 1U << ch;
-	t33_rcfg_run(T33_MOD_MSCA);
-	t33_msca_refresh = 1;	/* tisp_msca_t33_api_chx_stream_on: tispMscaRefresh */
+	t33_msca_vendor_starts++;
+	if (r)
+		t33_msca_refresh = 1;	/* tispMscaRefresh (chx_stream_on) */
 	return true;
 }
 
-/* lib_tisp_msca_chx_reg_stream_off, the FIFO clears, tisp_msca_t33_api_chx_stream_off */
+/*
+ * ispcore_frame_channel_streamoff: lib_tisp_msca_chx_stream_off (tisp_msca_t33_api_chx_stream_off: the stream
+ * flag, chx_en (ch, 0), tispMscaRefresh), lib_tisp_msca_chx_reg_stream_off (the enable bit of 0xf0040, direct),
+ * then tisp_msca_addr_fifo_clear_byindex.  The vendor's wait for tisp_msca_work_state (0xf0054 bit ch, up to
+ * 502 x msleep(1)) between them is not made (frame-channel lock held).
+ */
 static bool t33_msca_list_stop(int ch)
 {
 	u32 *l = t33_mod_buf(T33_MOD_MSCA), b = 0x1e * (u32)ch;
@@ -4808,17 +4770,16 @@ static bool t33_msca_list_stop(int ch)
 	if (!(t33_msca_listed & (1U << ch)) || !l)
 		return false;
 	t33_msca_listed &= ~(1U << ch);
-	isp_wr(T32_MSCA_CH_EN, isp_rd(T32_MSCA_CH_EN) & ~(1U << ch));
-	ch_wr(ch, T32_MSCA_Y_CLR, 1);
-	ch_wr(ch, T32_MSCA_UV_CLR, 1);
-	ch_wr(ch, T32_MSCA_Y_DONE_CLR, 1);
-	ch_wr(ch, T32_MSCA_UV_DONE_CLR, 1);
-	/* tisp_msca_t33_api_chx_stream_off -> tisp_msca_t33_chx_en (g16-3) */
 	if (t33_msca_chx_stream_set((u32)ch, 0)) {
 		T33_SW(l, b + 0x2a, 0);
 		T33_SW(l, b + 0x32, 0);
 		T33_SW(l, 3, l[3 + 1] & ~(1U << ch));
 	}
+	isp_wr(T32_MSCA_CH_EN, isp_rd(T32_MSCA_CH_EN) & ~(1U << ch));
+	ch_wr(ch, T32_MSCA_Y_CLR, 1);
+	ch_wr(ch, T32_MSCA_UV_CLR, 1);
+	ch_wr(ch, T32_MSCA_Y_DONE_CLR, 1);
+	ch_wr(ch, T32_MSCA_UV_DONE_CLR, 1);
 	t33_msca_refresh = 1;	/* tispMscaRefresh: at the next frame end (none after stream-off) */
 	return true;
 }

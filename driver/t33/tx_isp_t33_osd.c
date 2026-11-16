@@ -54,6 +54,15 @@
 #include "tx_isp_t33_mscastrm.h"
 #include "tx_isp_t33_mscaline.h"
 #include "tx_isp_t33_mscachx.h"
+#include "tx_isp_t33_mscacur.h"
+#include "tx_isp_t33_r13B.h"
+#include "tx_isp_t33_sinlut.h"
+/* tisp_msca_t33_channel_attr_set only (msca-api6); its FIFO helpers and their register declarations are not used here */
+#define tisp_reg_write_t33	t33_osd_api6_reg_write_unused
+#define tisp_reg_read_t33	t33_osd_api6_reg_read_unused
+#include "tx_isp_t33_msca_api6.h"
+#undef tisp_reg_write_t33
+#undef tisp_reg_read_t33
 
 #define T33_OSD_CH		3	/* tuning channels the dispatcher passes; one MSCA attribute block (single sensor) */
 #define T33_MSCA_ATTR_BYTES	6036
@@ -63,13 +72,17 @@ int isp_printf(unsigned int level, const char *fmt, ...);
 void t33_msca_list_refresh(void);		/* tx_isp_t32_hw.c: tispMscaRefresh = 1 */
 void t32_core_in_size(u32 *w, u32 *h);		/* tx_isp_t32_core.c */
 extern u32 t33_st_isp_init_par_mode[1008];	/* stIspInitPar (tx_isp_t32_hw.c) */
+int tisp_rcfg_get_dma_state(u32 mod);		/* tx_isp_t33_bst.h */
+int tisp_rcfg_module_cfg_trig(u32 ch, u32 mod);
 
 static u8 *stMscaAttr[1];
 static u8 *msca_info[1];
 static u32 MscaOsdInfo;
 static u8 mscaCfgMode = 1;			/* list slots (tisp_reg_write_t33 on list 23) */
 static u8 *tparamsP[1];
-static u8 msca_sec_zero[0x30];			/* no section 25: its +0x2c word reads 0 */
+#define T33_MSCA_SEC_COPY	0x200		/* msca_info word 0 (+ 0xdc for word 1): bytes of the section 25 copy */
+static u8 *msca_sec_copy;			/* the vendor's tparams copy of section 25 (curve_calc writes its steps there) */
+static u32 fcrop_attr[60];			/* fcrop_attr: the front crop table of tisp_msca_t33_channel_attr_set */
 static u32 g_colotList[5];			/* the draw colour list: 4 colours + fill count (global, as the vendor) */
 static u16 attr_w, attr_h;
 static bool osd_touched, mask_touched, draw_touched, flip_touched;
@@ -108,15 +121,17 @@ static void msca_frame_irq_none(void) { }
 
 static void attr_free(void)
 {
-	u8 *a = stMscaAttr[0], *i = msca_info[0];
+	u8 *a = stMscaAttr[0], *i = msca_info[0], *s = msca_sec_copy;
 	unsigned long fl;
 
 	spin_lock_irqsave(&t33_attr_lock, fl);
 	stMscaAttr[0] = NULL;
 	msca_info[0] = NULL;
+	msca_sec_copy = NULL;
 	spin_unlock_irqrestore(&t33_attr_lock, fl);
 	kfree(a);
 	kfree(i);
+	kfree(s);
 }
 
 /*
@@ -136,7 +151,13 @@ static u8 *attr_get_size(u32 w, u32 h)
 	if (!t32_core_iq_bin(&bin, &bytes) && (off = t32_iq_section(bin, bytes, T33_SEC_MSCA, &len)) && len >= 0x30)
 		sec = bin + off;
 	attr_free();
-	tparamsP[0] = (u8 *)(sec ? sec : msca_sec_zero) - T33_TPARAMS_MSCA;
+	/* the vendor's tparamsP is its own copy of the bin: curve_calc / chx_cfg_load write into it (not into the bin) */
+	msca_sec_copy = kzalloc(T33_MSCA_SEC_COPY, GFP_KERNEL);
+	if (!msca_sec_copy)
+		return NULL;
+	if (sec)
+		memcpy(msca_sec_copy, sec, min_t(u32, len, T33_MSCA_SEC_COPY));
+	tparamsP[0] = msca_sec_copy - T33_TPARAMS_MSCA;
 	par[16] = (u8)w;
 	par[17] = (u8)(w >> 8);
 	par[18] = (u8)h;
@@ -186,27 +207,62 @@ static void chx_wr(u32 id, u32 blk, u32 reg, u32 val)
 	tisp_reg_write_t33(id, blk, reg, val);
 }
 
-static void chx_none(u32 id, u32 ch)
-{
-	(void)id;
-	(void)ch;
-}
+/*
+ * g17-2: tisp_msca_t33_chx_cfg_load with its proven callees (tx_isp_t33_mscacur.h, blocks mscacur / mscanorm /
+ * mscacurc): scaling_algorithm, curve_calc (t33_sin on the vendor kernel tables), ch_curve_write and
+ * ctrl_reg_write (chx_en, list 23 trigger tisp_rcfg_module_cfg_trig or tispMscaRefresh).
+ */
+static u8 cur_refresh;				/* tispMscaRefresh of the channel start */
+static const struct t33_mscacur cur_ctx;
+static const struct t33_mscachx chx_ctx;
 
-static int chx_none_i(u32 id, u32 ch)
-{
-	(void)id;
-	(void)ch;
-	return 0;
-}
+static void chx_scl(u32 id, u32 ch) { t33_msca_scaling_algorithm_v(&cur_ctx, id); }
+static void chx_cc(u32 id, u32 ch) { t33_msca_curve_calc_v(&cur_ctx, id, ch); }
+static void chx_cw(u32 id, u32 ch) { t33_msca_ch_curve_write_v(&cur_ctx, id, ch); }
+static int chx_ctl(u32 id, u32 ch) { return t33_msca_ctrl_reg_write_v(&cur_ctx, id, ch); }
 
-/* only chx_en runs here; chx_cfg_load's callees are the driver's channel start (tx_isp_t32_hw.c) */
 static const struct t33_mscachx chx_ctx = {
-	msca_info, stMscaAttr, &mscaCfgMode, chx_none, chx_none, chx_none, chx_none_i, chx_rd, chx_wr,
+	msca_info, stMscaAttr, &mscaCfgMode, chx_scl, chx_cc, chx_cw, chx_ctl, chx_rd, chx_wr,
 };
 
 static void chx_en(u32 id, u32 ch, u32 en)
 {
 	t33_msca_chx_en_v(&chx_ctx, id, ch, en);
+}
+
+static int cur_wr(u32 id, u32 mod, u32 reg, u32 val) { return tisp_reg_write_t33(id, mod, reg, val); }
+static void cur_sin(u32 n, u32 cnt, short *out) { t33_sin(n, cnt, out); }
+
+static const struct t33_mscacur cur_ctx = {
+	msca_info, stMscaAttr, &mscaCfgMode, (const u8 *)t33_st_isp_init_par_mode, &cur_refresh, cur_wr, cur_sin,
+	t33_msca_two_point_v, t33_msca_thr_point_v, t33_msca_four_point_v, t33_msca_six_point_v,
+	system_reg_write, system_reg_read, chx_en, tisp_rcfg_get_dma_state, tisp_rcfg_module_cfg_trig,
+};
+
+/*
+ * The channel start of ispcore_pad_event_handle (0x3000003, single sensor) on stMscaAttr[0]:
+ * lib_tisp_msca_channel_attr_set with the S_FMT attribute a[13] (the vendor stores it at S_FMT; here at the
+ * start, from the stored format), lib_tisp_msca_channel_start (chx_cfg_load), lib_tisp_msca_chx_stream_on,
+ * then lib_tisp_msca_chx_en (ch, 1) after the buffer push (the driver pushed the queued buffers before).  The
+ * vendor's lib_tisp_api_set_msca_dma_stride in between is refused with stIspInitPar word 226 == 1 (printk only;
+ * not made).  Returns tispMscaRefresh, -1 without the attribute block.  Frame-channel lock held (atomic).
+ */
+int t33_msca_chx_start(u32 ch, const u32 *a)
+{
+	unsigned long fl;
+	int r = -1;
+
+	spin_lock_irqsave(&t33_attr_lock, fl);
+	if (stMscaAttr[0] && msca_info[0] && ch < 3) {
+		cur_refresh = 0;
+		t33_msca_channel_attr_set(ch, a, stMscaAttr, fcrop_attr);
+		t33_msca_chx_cfg_load_v(&chx_ctx, 0, ch);
+		t33_msca_stream_on(stMscaAttr, &cur_refresh, ch, chx_en);
+		chx_en(0, ch, 1);
+		r = cur_refresh;
+	}
+	spin_unlock_irqrestore(&t33_attr_lock, fl);
+	return r;
 }
 
 int t33_msca_chx_stream_set(u32 ch, u32 on)
