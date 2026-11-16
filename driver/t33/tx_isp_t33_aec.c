@@ -53,6 +53,9 @@
 #include "tx_isp_t33_aeint.h"
 #include "tx_isp_t33_aemisc.h"
 #include "tx_isp_t33_getB.h"
+#include "tx_isp_t33_r12D.h"
+#include "tx_isp_t33_aeQ.h"
+#include "tx_isp_t33_i9J.h"
 #include "tx_isp_t32_aesns.h"
 #include "tx_isp_t32_libwrap.h"
 
@@ -678,6 +681,89 @@ int t33_aec_dn_par_refresh(u32 ch)
 	return 0;
 }
 
+/*
+ * g14e-2, anti-flicker and face AE API (IMP_ISP_Tuning_Set/GetAntiFlickerAttr, Set/GetFaceAe; s_ctrl / g_ctrl):
+ * tisp_s_antiflick / tisp_g_antiflick / tisp_ae_face_set / tisp_ae_face_get (block i9J) on the proven callees
+ * tisp_ae_api_set_antiflick / _get_antiflick / _get_faceae (block r12D) and tisp_ae_sepc_area + tisp_ae_roi_point
+ * (block aeQ), on the live AE blocks (stAeInfo = ae_cache = R, the tuning words at R + 1744 = T):
+ *  - set_antiflick: T + 2920 (on), T + 2922 (1: mode 1, 0: mode 2), T + 1660 the frequency, then
+ *    tisp_ae_clac_deflicker_cfg (the deflicker table) and ae_cache + 1285 = 1 (parameter update at the next calc);
+ *  - get_antiflick: mode 1 reads tparamsP + 0x6ec = T + 1660 (the vendor's tune pointer is tparamsP + 0x70,
+ *    tisp_ae_init: context + 0x708, stAeInfo = context + 0x38);
+ *  - sepc_area: ae_cache + 1520 the enable, the ROI block bounds (h/v_roi_block_start/_end), tisp_ae_roi_point
+ *    into list 30 slots 17 / 18 / 1 (aeCfgMode 1) and R + 1297, the target clamped 10..200 into R + 1296 and the
+ *    buffer, the ROI words R + 1500..1516.
+ * Before: the tuning-control copies only (t32_tc antiflick / face_ae).  -1 while the AE is not attached.
+ */
+int tisp_reg_write_t33(u32 ch, u32 mod, u32 reg, u32 val);
+static const u8 aeCfgMode = 1;
+static u32 g14e_af_sets, g14e_face_sets;
+
+static void aq_reg(u32 ch, u32 mod, u32 slot, u32 val) { tisp_reg_write_t33(ch, mod, slot, val); }
+static void aq_err(u32 level) { isp_printf(level, "[ISP][%s]: ROI point error!\n", "tisp_ae_roi_point"); }
+static const struct t33_aeq_ops aq_ops = { aq_reg, aq_err, NULL, aew_deflicker };
+
+static u32 i9j_face_get(u32 ch, u32 buf, u32 a2, u32 a3)
+{
+	(void)a2; (void)a3;
+	return t33_ae_get_faceae((u8 *const *)ae_cache, ch, (u8 *)(unsigned long)buf);
+}
+
+static u32 i9j_face_set(u32 ch, u32 buf, u32 a2, u32 a3)
+{
+	(void)a2; (void)a3;
+	t33_ae_sepc_area(ch, (u8 *)(unsigned long)buf, (u8 **)ae_cache, (u8 **)stAeInfo, h_roi_block_start,
+			 h_roi_block_end, v_roi_block_start, v_roi_block_end, &aeCfgMode, &aq_ops);
+	return 0;
+}
+
+static u32 i9j_af_get(u32 ch, u32 buf, u32 a2, u32 a3)
+{
+	u8 *tp[4] = { NULL };
+
+	(void)a2; (void)a3;
+	tp[0] = t33_p(t33_le32((u8 *)ae_cache[0] + T33_AEW_TUNE)) - 0x70;	/* tparamsP[0] */
+	t33_ae_get_antiflick((u8 *const *)stAeInfo, tp, ch, (u8 *)(unsigned long)buf);
+	return 0;
+}
+
+static u32 i9j_af_set(u32 ch, u32 buf, u32 a2, u32 a3)
+{
+	(void)a2; (void)a3;
+	t33_ae_set_antiflick((u8 *const *)stAeInfo, (u8 *const *)ae_cache, ch, (const u8 *)(unsigned long)buf,
+			     aew_deflicker);
+	return 0;
+}
+
+static const struct t33_i9j_ops i9j_ops = { i9j_face_get, i9j_face_set, i9j_af_get, i9j_af_set };
+
+/* which: 0 s_antiflick, 1 g_antiflick, 2 ae_face_set, 3 ae_face_get */
+int t33_aec_api_i9j(u32 ch, u32 which, void *buf)
+{
+	u32 b = (u32)(unsigned long)buf;
+	int r = 0;
+
+	mutex_lock(&aec_lock);
+	if (ch || !ready || !ae_cache[0]) {
+		mutex_unlock(&aec_lock);
+		return -1;
+	}
+	t32_aec_bind(&aec);
+	if (which == 0) {
+		r = t33_s_antiflick(&i9j_ops, 0, b, 0, 0);
+		g14e_af_sets++;
+	} else if (which == 1) {
+		r = t33_g_antiflick(&i9j_ops, 0, b, 0, 0);
+	} else if (which == 2) {
+		r = t33_ae_face_set(&i9j_ops, 0, b, 0, 0);
+		g14e_face_sets++;
+	} else {
+		r = t33_ae_face_get(&i9j_ops, 0, b, 0, 0);
+	}
+	mutex_unlock(&aec_lock);
+	return r;
+}
+
 void t33_aec_show(struct seq_file *m)
 {
 	mutex_lock(&aec_lock);
@@ -685,6 +771,12 @@ void t33_aec_show(struct seq_file *m)
 		   ready ? "on" : "off", st.frames, st.irq5, aec.b.R ? t32_ld32(aec.b.R, T33_AEW_READY) : 0, st.writes,
 		   st.dg_sets, st.dg, st.expo_sets,
 		   st.expo_fail, st.fps_sets, st.events, st.dn_refresh, st.syncs);
+	seq_printf(m, "t33 ae: antiflick %u (on %u sel %u hz %u) face %u (en %u roi %u %u %u %u target %u)\n",
+		   g14e_af_sets, aec.b.T ? t32_st16(aec.b.T, 2920) : 0, aec.b.T ? t32_st16(aec.b.T, 2922) : 0,
+		   aec.b.T ? t32_ld32(aec.b.T, 1660) : 0, g14e_face_sets,
+		   aec.b.R ? t32_ld32(aec.b.R, 1520) : 0, aec.b.R ? t32_ld32(aec.b.R, 1500) : 0,
+		   aec.b.R ? t32_ld32(aec.b.R, 1504) : 0, aec.b.R ? t32_ld32(aec.b.R, 1508) : 0,
+		   aec.b.R ? t32_ld32(aec.b.R, 1512) : 0, aec.b.R ? aec.b.R[1296] : 0);
 	seq_printf(m, "t33 ae: it %u again %u sent 0x%x mean %u target %u tgain 0x%x ev 0x%x:%x bv 0x%x tag errors %u/%u\n",
 		   aec_it, aec_ag, aec_sent, st.mean, st.target, st.tgain, st.ev_hi, st.ev_lo, st.bv, front.zbad,
 		   front.hbad);

@@ -342,6 +342,13 @@ static inline int t33_ae_tune(u8 *T, u8 *B, u8 *R, u8 *eflag, u32 dcw, u32 ch, u
 /* tisp_ae_algorithm with the T33 tune; tagerr: the frame's statistics tags differed */
 static int t33_ae_tagerr;
 
+/*
+ * the vendor's face-AE ROI zone bounds (.bss, set by tisp_ae_sepc_area, group 14e-2): tisp_ae_weight_mean
+ * averages the zones [h_start, h_end) x [v_start, v_end) and, with the face flag R + 1297, blends that mean
+ * into the frame mean.  Before: always 0 here (the T32 ctx bytes), a face ROI did not reach the mean.
+ */
+static u8 h_roi_block_start[4], h_roi_block_end[4], v_roi_block_start[4], v_roi_block_end[4];
+
 static void t33_aec_cp_alg(u32 ch)
 {
 	struct t32_aec *a = t32_aec_cur;
@@ -350,6 +357,10 @@ static void t33_aec_cp_alg(u32 ch)
 	u8 rp[8];
 
 	ch &= 0xff;
+	c.roi_x0 = h_roi_block_start[ch & 3];
+	c.roi_x1 = h_roi_block_end[ch & 3];
+	c.roi_y0 = v_roi_block_start[ch & 3];
+	c.roi_y1 = v_roi_block_end[ch & 3];
 	t32_wr32(a->b.D, T32_AEC_D_VAL, t32_st16(a->b.B, T32_AEC_B_VAL));
 	if (t32_ld32(a->b.T, T32_AEC_T_WMODE) == 1) {
 		ww = t32_st16(a->b.T, T32_AEC_T_WIN_W);

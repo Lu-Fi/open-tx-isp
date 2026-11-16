@@ -169,7 +169,14 @@ int t32_tx_os_tisp_s_##name(u32 ch, void *buf)						\
 int t32_tx_os_tisp_g_##name(u32 ch, void *buf)						\
 { return t32_tc_put(buf, t32_tc[ch].field, sizeof(t32_tc[ch].field)); }
 
+#ifdef TX_ISP_T33
+/* T33 (group 14e-2): tisp_s_antiflick / tisp_g_antiflick on the live AE (../t33/tx_isp_t33_aec.c); always 0 */
+int t33_aec_api_i9j(u32 ch, u32 which, void *buf);
+int t32_tx_os_tisp_s_antiflick(u32 ch, void *buf) { t33_aec_api_i9j(ch, 0, buf); return 0; }
+int t32_tx_os_tisp_g_antiflick(u32 ch, void *buf) { t33_aec_api_i9j(ch, 1, buf); return 0; }
+#else
 T32_TC_PAIR(antiflick, antiflick)
+#endif
 T32_TC_PAIR(coefft_wb, coefft_wb)
 #ifndef TX_ISP_T33
 T32_TC_PAIR(mscaler_mask_block_attr, mask)
@@ -311,6 +318,11 @@ int t32_tx_os_tisp_awb_face_get(u32 ch, void *buf) { return t32_tc_put(buf, t32_
  * clamped to 10..200, tisp_ae_api_get_faceae returns the six words.  Not here yet:
  * the face ROI zone bytes (e1518 .. e1524) and tisp_ae_roi_point (AE state).
  */
+#ifdef TX_ISP_T33
+/* T33 (group 14e-2): tisp_ae_face_set -> tisp_ae_sepc_area, tisp_ae_face_get -> tisp_ae_api_get_faceae (aec.c) */
+int t32_tx_os_tisp_ae_face_set(u32 ch, void *buf) { t33_aec_api_i9j(ch, 2, buf); return 0; }
+int t32_tx_os_tisp_ae_face_get(u32 ch, void *buf) { t33_aec_api_i9j(ch, 3, buf); return 0; }
+#else
 int t32_tx_os_tisp_ae_face_set(u32 ch, void *buf)
 {
 	u32 *w = buf;
@@ -322,6 +334,7 @@ int t32_tx_os_tisp_ae_face_set(u32 ch, void *buf)
 	return t32_tc_put(t32_tc[ch].face_ae, buf, 24);
 }
 int t32_tx_os_tisp_ae_face_get(u32 ch, void *buf) { return t32_tc_put(buf, t32_tc[ch].face_ae, 24); }
+#endif
 int t32_tx_os_tisp_s_tmo_faceae(u32 ch, void *buf) { return t32_tc_put(t32_tc[ch].tmo_faceae, buf, 56); }
 int t32_tx_os_tisp_set_scaler_level_control(u32 ch, void *buf) { return t32_tc_put(t32_tc[ch].scaler, buf, 12); }
 
