@@ -43,6 +43,7 @@
 #include <linux/slab.h>
 #include <linux/string.h>
 #include <linux/mutex.h>
+#include <linux/spinlock.h>
 #include <linux/lockdep.h>
 #include "tx_isp_t32.h"
 #include "tx_isp_t32_iq.h"
@@ -52,6 +53,7 @@
 #include "tx_isp_t33_msca_api5.h"
 #include "tx_isp_t33_mscastrm.h"
 #include "tx_isp_t33_mscaline.h"
+#include "tx_isp_t33_mscachx.h"
 
 #define T33_OSD_CH		3	/* tuning channels the dispatcher passes; one MSCA attribute block (single sensor) */
 #define T33_MSCA_ATTR_BYTES	6036
@@ -73,6 +75,7 @@ static u16 attr_w, attr_h;
 static bool osd_touched, mask_touched, draw_touched, flip_touched;
 static u8 last_osd, last_mask_ch, last_mask_win, last_draw;
 static DEFINE_MUTEX(t33_osd_mutex);	/* stMscaAttr[0] / msca_info[0], the stored windows, list 23 words (#578) */
+static DEFINE_SPINLOCK(t33_attr_lock);	/* stMscaAttr[0] pointer vs the channel stream on / off (atomic; g16-3) */
 
 void t33_osd_lock(void)
 {
@@ -105,10 +108,15 @@ static void msca_frame_irq_none(void) { }
 
 static void attr_free(void)
 {
-	kfree(stMscaAttr[0]);
-	kfree(msca_info[0]);
+	u8 *a = stMscaAttr[0], *i = msca_info[0];
+	unsigned long fl;
+
+	spin_lock_irqsave(&t33_attr_lock, fl);
 	stMscaAttr[0] = NULL;
 	msca_info[0] = NULL;
+	spin_unlock_irqrestore(&t33_attr_lock, fl);
+	kfree(a);
+	kfree(i);
 }
 
 /*
@@ -159,6 +167,64 @@ void t33_msca_attr_stream_on(u32 w, u32 h)
 {
 	lockdep_assert_held(&t33_osd_mutex);
 	attr_get_size(w, h);
+}
+
+/*
+ * g16-3: tisp_msca_t33_api_chx_stream_on / _off (block msca-strm) with tisp_msca_t33_chx_en (hand port,
+ * block mscachx) on stMscaAttr[0] and list 23, called from the channel start / stop (frame-channel lock held,
+ * atomic): the stream flag byte 6032 + ch, the FIFO clear slots 30 * ch + 42 / + 50 = 0, the enable bit of
+ * slot 3 (set only while the flag is 1).  Returns -1 without the attribute block (the caller then writes
+ * the same three slots itself).  tispMscaRefresh: the caller (list 23 run).
+ */
+static u32 chx_rd(u32 id, u32 blk, u32 reg)
+{
+	return tisp_reg_read_t33(id, blk, reg);
+}
+
+static void chx_wr(u32 id, u32 blk, u32 reg, u32 val)
+{
+	tisp_reg_write_t33(id, blk, reg, val);
+}
+
+static void chx_none(u32 id, u32 ch)
+{
+	(void)id;
+	(void)ch;
+}
+
+static int chx_none_i(u32 id, u32 ch)
+{
+	(void)id;
+	(void)ch;
+	return 0;
+}
+
+/* only chx_en runs here; chx_cfg_load's callees are the driver's channel start (tx_isp_t32_hw.c) */
+static const struct t33_mscachx chx_ctx = {
+	msca_info, stMscaAttr, &mscaCfgMode, chx_none, chx_none, chx_none, chx_none_i, chx_rd, chx_wr,
+};
+
+static void chx_en(u32 id, u32 ch, u32 en)
+{
+	t33_msca_chx_en_v(&chx_ctx, id, ch, en);
+}
+
+int t33_msca_chx_stream_set(u32 ch, u32 on)
+{
+	unsigned long fl;
+	u8 refresh = 0;
+	int r = -1;
+
+	spin_lock_irqsave(&t33_attr_lock, fl);
+	if (stMscaAttr[0] && ch < 3) {
+		if (on)
+			t33_msca_stream_on(stMscaAttr, &refresh, ch, chx_en);
+		else
+			t33_msca_stream_off(stMscaAttr, &refresh, ch, chx_en);
+		r = 0;
+	}
+	spin_unlock_irqrestore(&t33_attr_lock, fl);
+	return r;
 }
 
 void t33_msca_attr_exit(void)

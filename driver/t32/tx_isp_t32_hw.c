@@ -412,6 +412,7 @@ void t33_msca_attr_stream_on(u32 w, u32 h);
 void t33_msca_attr_exit(void);
 void t33_osd_lock(void);	/* tx_isp_t33_osd.c: MSCA attribute block + list 23 words (#578), core.lock -> osd */
 void t33_osd_unlock(void);
+int t33_msca_chx_stream_set(u32 ch, u32 on);	/* tx_isp_t33_osd.c: stream on / off + chx_en (g16-3) */
 
 #ifdef TX_ISP_T33
 static void t33_rc_register(unsigned int id);	/* tisp_rcfg_module_register (below) */
@@ -4786,9 +4787,12 @@ static bool t33_msca_list_start(int ch, u32 w, u32 h, u32 stride, u32 in_w, u32 
 	ch_wr(ch, T32_MSCA_Y_STRIDE, stride);
 	ch_wr(ch, T32_MSCA_UV_STRIDE, stride);
 	T33_SW(l, 1, 1);
-	T33_SW(l, b + 0x2a, 0);
-	T33_SW(l, b + 0x32, 0);
-	T33_SW(l, 3, l[3 + 1] | 1U << ch);
+	/* tisp_msca_t33_api_chx_stream_on -> tisp_msca_t33_chx_en (g16-3, tx_isp_t33_osd.c) */
+	if (t33_msca_chx_stream_set((u32)ch, 1)) {
+		T33_SW(l, b + 0x2a, 0);
+		T33_SW(l, b + 0x32, 0);
+		T33_SW(l, 3, l[3 + 1] | 1U << ch);
+	}
 	t33_msca_listed |= 1U << ch;
 	t33_rcfg_run(T33_MOD_MSCA);
 	t33_msca_refresh = 1;	/* tisp_msca_t33_api_chx_stream_on: tispMscaRefresh */
@@ -4809,9 +4813,12 @@ static bool t33_msca_list_stop(int ch)
 	ch_wr(ch, T32_MSCA_UV_CLR, 1);
 	ch_wr(ch, T32_MSCA_Y_DONE_CLR, 1);
 	ch_wr(ch, T32_MSCA_UV_DONE_CLR, 1);
-	T33_SW(l, b + 0x2a, 0);
-	T33_SW(l, b + 0x32, 0);
-	T33_SW(l, 3, l[3 + 1] & ~(1U << ch));
+	/* tisp_msca_t33_api_chx_stream_off -> tisp_msca_t33_chx_en (g16-3) */
+	if (t33_msca_chx_stream_set((u32)ch, 0)) {
+		T33_SW(l, b + 0x2a, 0);
+		T33_SW(l, b + 0x32, 0);
+		T33_SW(l, 3, l[3 + 1] & ~(1U << ch));
+	}
 	t33_msca_refresh = 1;	/* tispMscaRefresh: at the next frame end (none after stream-off) */
 	return true;
 }
