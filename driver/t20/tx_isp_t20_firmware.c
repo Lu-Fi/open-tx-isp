@@ -4974,7 +4974,7 @@ int32_t awb_roi_part_2(void *ctx_ptr, int32_t roi, int32_t *ret)
 					if (col < col_first) {
 						write_addr = word_addr;
 						word = APICAL_READ_32(word_addr) & ~(0xff << ((addr << 3) & 0x1f));
-					} else if ((uint32_t)col_last <= col) {
+					} else if ((uint32_t)col_last < col) {
 						write_addr = word_addr;
 						word = APICAL_READ_32(word_addr) & ~(0xff << ((addr << 3) & 0x1f));
 					} else {
