@@ -34,6 +34,13 @@ void t20fw_awb_gains(uint32_t *g)
 	g[3] = t20_simple_awb_gain_11;
 }
 
+/* AWB colour temperature and the number of AWB-driven CCM updates (#609) */
+void t20fw_awb_ct_ccm(uint32_t *ct, uint32_t *ccm_updates)
+{
+	*ct = t20_simple_awb_color_temperature;
+	*ccm_updates = t20_ccm_awb_updates;
+}
+
 /* safe anti-fog preset (t20_antifog_request) and its module parameter */
 int t20fw_antifog(uint32_t level)
 {

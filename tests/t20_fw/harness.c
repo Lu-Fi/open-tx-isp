@@ -918,6 +918,7 @@ int main(int argc, char **argv)
 	const char *calib = 0;
 	int oem = 0, trace = 0, i, f;
 	int ext = 0, poke = 0, oemae = 0;
+	uint32_t awb_g_day[4], awb_ct_day, awb_ccm_day;
 
 	stack_hi_mark = &top + 4096;
 	stack_lo_mark = &top - (1 << 20);
@@ -965,6 +966,8 @@ int main(int argc, char **argv)
 		rt_printf("FAIL: OEM AE never moved the integration time (%u writes, all %u)\n",
 			  it_writes, it_first);
 	checkpoint("day-converge");
+	t20fw_awb_gains(awb_g_day);
+	t20fw_awb_ct_ccm(&awb_ct_day, &awb_ccm_day);
 
 	/* API: AE / AWB / anti-flicker / compensation knobs */
 	cmd(TALGORITHMS_H, AE_COMPENSATION_ID_H, 160, 0);
@@ -996,6 +999,21 @@ int main(int argc, char **argv)
 	cmd(TALGORITHMS_H, ANTIFLICKER_MODE_ID_H, 0, 0);
 	for (f = 0; f < 30; f++) frame();
 	checkpoint("day-again");
+	/* openimp #609: with the OEM AE the compact AWB must still run (the
+	 * vendor AWB has no "AE stable" start gate): the colour temperature
+	 * leaves the init value (5000 K, static WB) and the AWB keeps driving
+	 * the CCM.  Before the fix: static gains, ct 5000, 0 CCM updates. */
+	{
+		uint32_t g[4], ct, ccm;
+		t20fw_awb_gains(g);
+		t20fw_awb_ct_ccm(&ct, &ccm);
+		rt_printf("AWB day %u/%u/%u/%u ct %u ccm-updates %u, day-again %u/%u/%u/%u ct %u ccm-updates %u\n",
+			  awb_g_day[0], awb_g_day[1], awb_g_day[2], awb_g_day[3], awb_ct_day, awb_ccm_day,
+			  g[0], g[1], g[2], g[3], ct, ccm);
+		if (oemae && !oem && (!awb_ccm_day || ccm <= awb_ccm_day ||
+				      awb_ct_day == 5000 || ct == 5000))
+			rt_printf("FAIL: OEM AE + compact AWB: AWB/CT/CCM did not follow the scene\n");
+	}
 
 	/* AE modes / manual exposure, each followed by frames */
 	{

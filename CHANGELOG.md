@@ -4,6 +4,13 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD[-rcN]` are set on the `aperto` branch, the same tag in open-tx-isp and OpenIMP: RC1 `v2026.10.11-rc1`, RC2 `v2026.10.25-rc2`, RC3 `v2026.11.07-rc3` (2026-11-07). Gate SoCs of RC3 and Release 1: T10, T20, T21, T23, T30, T31, T40, T41 (T32/T33 planned, QEMU only); release notes: [docs/releases/ in OpenIMP](https://github.com/Lu-Fi/openimp/blob/next/docs/releases/README.md). Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-11-17: T10/T20 OEM AE: compact AWB start gate only with the compact AE (openimp #609 part 2; host + T10 .31)
+
+- `driver/t20/tx_isp_t20_firmware.c` (T10 + T20): `tx_isp_t20_simple_awb_update` returned before the zone statistics until `t20_awb_feedback_ready` was set, and that flag is set only in the compact-AE branch (4 stable AE frames). With `t20_simple_ae=0` (OEM AE) the compact AWB therefore never started: static WB 455/443 at 3000 K and 5000 K, colour temperature, AWB-driven CCM and LSC blend frozen (T10 box run, dE00 18.3 at 3000 K). The gate now applies only with the compact AE (vendor-equal: the vendor AWB has no "AE stable" gate). The default (`t20_simple_ae=1`) is unchanged; objects T10 + T20 = base except `AWB_fsm_process_interrupt` (the update is inlined there).
+- `tests/t20_fw`: the `oem-ae` / `oem-ae-park` scenarios fail when the compact AWB under the OEM AE stays at the init colour temperature or never drives the CCM (fails on the old code: ct 5000, 0 CCM updates).
+- The day/night stall of `t20_simple_ae=0` after lamps on (AE ceiling 895 lines = 4 x 224 from the measured-fps anti-flicker quantum) is vendor code and is not changed here (handled in the streamer's day/night engine).
+- Evidence: openimp #609 (host gates, T10 .31 light-box desk check A / B / B with this ko).
+
 ## 2026-11-16: T10/T20 binary oracle blocks system / apictx, system_frame_buffer / system_sensor_select like the vendor (openimp #655, #539; host)
 
 - `tests/t10_binoracle`: block `system` (all 53 system_* API handlers shared with the vendor, stab compared; `globals.c` links the vendor-sized stab into our object) and block `apictx` (33 AE / AWB / AF / sharpening / output / crop API handlers with a random ISP context and firmware object, random values, every direction). Every block also runs against the vendor tx-isp-t20.ko with 0 mismatches (same firmware).

@@ -17532,7 +17532,14 @@ static void tx_isp_t20_simple_awb_update(int32_t *awb_fsm)
 		average_bg = 0;
 		goto apply_gains;
 	}
-	if (!t20_awb_feedback_ready)
+	/*
+	 * The "AE stable" start gate belongs to the compact AE only: that is
+	 * the only path that sets t20_awb_feedback_ready.  The vendor AWB has
+	 * no such gate, so with the OEM AE (t20_simple_ae=0) the AWB runs from
+	 * the first statistics frame (openimp #609: the gate stayed closed,
+	 * static WB, CT/CCM/LSC frozen).
+	 */
+	if (!t20_awb_feedback_ready && t20_simple_ae)
 		return;
 
 	static_wb = tx_isp_t20_awb_u16_table(T20_CAL_STATIC_WB, 1, 4);

@@ -13,6 +13,7 @@ int32_t apical_sbus_i2c_init(void *sbus);
 void t20fw_set_knobs(int oem, int trace);
 void t20fw_awb_gains(uint32_t *g);
 void t20fw_set_oem_ae(void);
+void t20fw_awb_ct_ccm(uint32_t *ct, uint32_t *ccm_updates);
 int t20fw_compact_ae(void);
 int t20fw_antifog(uint32_t level);
 void t20fw_antifog_variance(int on);
