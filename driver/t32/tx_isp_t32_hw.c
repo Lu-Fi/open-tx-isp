@@ -1869,6 +1869,7 @@ void t33_stats_show(struct seq_file *m)
 		   bcsh_para[0] && t33_bcsh_st32[0] == (u32)(unsigned long)t33_bcsh_sec ? "ok" : "-");
 	seq_printf(m, "t33 dns: init %u %u %u gain %u %u %u irq %u\n", t33_g14_runs[0], t33_g14_runs[1],
 		   t33_g14_runs[2], t33_g14_runs[3], t33_g14_runs[4], t33_g14_runs[5], t33_g14_runs[6]);
+	seq_printf(m, "t33 dmsc: init %u gain %u\n", t33_g14_runs[7], t33_g14_runs[8]);
 	seq_printf(m, "t33 dpc: %s gain %u switch %u refresh %u\n", t33_dpc_v[T33_DPC_SEC_WORD] ? "on" : "off",
 		   t33_dpc_gains, t33_swg_runs[2], t33_bst_refresh[T33_BST_DPC]);
 }
@@ -2217,13 +2218,8 @@ static void t33_gr_refresh(u32 gain, u64 skip)
 	 * The other info-struct blocks (tx_isp_t33_bst.h): the info struct at the new gain (the init builders fill
 	 * the dmsc / ysp / rdns word arrays, the scratch list is not used), then the par_refresh tail.
 	 */
-	if (!(skip & (1ULL << T33_MOD_DMSC)) && T33_GR_SEC(DMSC) && t33_gr_gate(T33_MOD_DMSC, gain)) {
-		t33_bst_hold(T33_BST_DMSC);
-		if (t33_dmsc_init(bin + off, gain, t33_dmsc_v, t33_gr_tmp, T33_SLOT_WORDS) > 0) {
-			t33_swg_dmsc_gain(bin + off, gain);
-			t33_bst_par_tail(T33_BST_DMSC);
-		}
-	}
+	if (!(skip & (1ULL << T33_MOD_DMSC)))
+		t33_g14_dns_refresh(T33_BST_DMSC, gain);	/* tisp_dmsc_refresh / par_refresh (group 14b-2) */
 	if (!(skip & (1ULL << T33_MOD_YSP)) && T33_GR_SEC(YSP) && t33_gr_gate(T33_MOD_YSP, gain)) {
 		t33_bst_hold(T33_BST_YSP);
 		if (t33_ysp_init(bin + off, gain, t33_ysp_v, t33_gr_tmp, T33_SLOT_WORDS) > 0) {
@@ -2730,9 +2726,9 @@ static void t33_tisp_init(const u8 *bin, u32 bytes)
 	T33_MOD_VB(dpc, DPC, t33_dpc_v);
 	if (off && len == T33_DPC_SEC_BYTES)
 		t33_swg_dpc_gain(bin + off, T33_INIT_GAIN);
-	T33_MOD_VB(dmsc, DMSC, t33_dmsc_v);
+	off = t32_iq_section(bin, bytes, T33_SEC_DMSC, &len);	/* tisp_dmsc_init (tx_isp_t33_g14glue.h, group 14b-2) */
 	if (off && len == T33_DMSC_SEC_BYTES)
-		t33_swg_dmsc_gain(bin + off, T33_INIT_GAIN);
+		t33_g14_dmsc_init(bin + off);
 	T33_MOD_VB(ysp, YSP, t33_ysp_v);
 	if (off && len == T33_YSP_SEC_BYTES)
 		t33_swg_ysp_gain(bin + off, T33_INIT_GAIN);

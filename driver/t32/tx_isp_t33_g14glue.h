@@ -37,6 +37,7 @@
 #define T33_REFA_GLUE	1
 static u32 *cdnsInfo[4] = { t33_cdns_inf };
 static void tisp_cdns_par_refresh(u32 ch, u32 *a1, u32 hyst);
+static void tisp_dmsc_refresh(u32 ch, u32 gain);	/* g14b-2 below */
 /* refA's other wrappers (rdns / ysp) are not wired yet: declared only */
 extern u32 *yspInfo[4];
 extern void tisp_rdns_par_refresh(u32 ch, u32 *inf, u32 gain);
@@ -45,7 +46,7 @@ extern void tisp_ysp_par_refresh(u32 ch, u32 *inf, u32 gain);
 
 /* the section copies t33_ydns_sec / t33_sdns_sec / t33_cdns_sec: tx_isp_t33_swglue.h */
 /* init ydns sdns cdns, refreshes past the gain gate ydns sdns cdns, irq number mismatches */
-u32 t33_g14_runs[7];
+u32 t33_g14_runs[9];	/* + [7] dmsc init, [8] dmsc refreshes past the gate */
 static u32 t33_g14_last;	/* the last par_refresh's return (1: below the gain tolerance) */
 
 /* tisp_rcfg_module_register: the list page with its reg_init skeleton, marked built for the slot writes */
@@ -249,10 +250,112 @@ static void t33_g14_dns_refresh(unsigned int b, u32 gain)
 		tisp_sdns_refresh(0, gain);
 	else if (b == T33_BST_CDNS && t33_cdns_inf[T33_CDNS_SEC_PTR_OFF / 4])
 		tisp_cdns_refresh(0, gain);
+	else if (b == T33_BST_DMSC && t33_dmsc_v[670])
+		tisp_dmsc_refresh(0, gain);
 	if (t33_g14_last != 1) {
-		t33_g14_runs[b == T33_BST_YDNS ? 3 : b == T33_BST_SDNS ? 4 : 5]++;
+		t33_g14_runs[b == T33_BST_YDNS ? 3 : b == T33_BST_SDNS ? 4 : b == T33_BST_CDNS ? 5 : 8]++;
 		t33_gr_runs[t33_bst_mod[b]]++;
 	}
+	local_irq_restore(flags);
+}
+
+
+/*
+ * g14b-2, DMSC: tisp_dmsc_init (i9B), tisp_dmsc_refresh (refB) and tisp_dmsc_par_refresh (i9N) on the
+ * vendor-layout dmscInfo (t33_dmsc_v: section 670, last gain 671, sharpness 672, gain tolerance 673).
+ * i9B's tisp_rdns_init / tisp_ysp_init are not wired yet (their refreshes are declared only).  The i9B
+ * names are mapped onto the glue below and unmapped after the include (the driver's own t33_*_init
+ * builders keep their names).
+ */
+static u32 *dmscInfo[4] = { t33_dmsc_v };
+static u8 *t33_g14_tp8[4];			/* tparamsP of the i9B ports (u8 view) */
+
+static void *t33_g14_kmalloc(unsigned long size, unsigned int flags)
+{
+	(void)flags;
+	if (size == sizeof(t33_dmsc_v))
+		return t33_dmsc_v;
+	return NULL;
+}
+
+static void t33_g14_irq_v(u32 ch, u32 irq, void *fn)
+{
+	(void)fn;
+	if (irq == 43U)		/* DMSC */
+		t33_g14_irq_set(ch, irq, T33_BST_DMSC);
+}
+
+#define T33_I9N_GLUE	1
+#define dmscCfgMode	t33_bst_cfg_mode
+#define tispDmscRefresh	t33_bst_refresh[T33_BST_DMSC]
+#define tisp_ratio	t33_swg_ratio
+#include "tx_isp_t33_i9N.h"
+#undef dmscCfgMode
+#undef tispDmscRefresh
+#undef tisp_ratio
+
+static void tisp_dmsc_par_refresh(u32 ch, u32 gain, u32 thr)
+{
+	u32 last = dmscInfo[ch & 3][671];
+
+	t33_dmsc_par_step(ch, gain, thr);
+	t33_g14_last = (last != 0xffffffffU && (gain >= last ? gain - last : last - gain) < thr) ? 1 : 0x10000;
+}
+
+static void tisp_dmsc_refresh(u32 ch, u32 gain)
+{
+	t33_dmsc_refresh(ch, gain, dmscInfo, tisp_dmsc_par_refresh);
+}
+
+extern void tisp_rdns_refresh(u32 ch, u32 gain);	/* not wired yet (i9B rdns / ysp init) */
+extern void tisp_ysp_refresh(u32 ch, u32 gain);
+extern u8 *ysp_paramsP[4];
+#define T33_I9B_GLUE	1
+#define t33_rdns_init	t33_i9b_rdns_init
+#define t33_dmsc_init	t33_i9b_dmsc_init
+#define t33_ysp_init	t33_i9b_ysp_init
+#define tparamsP	t33_g14_tp8
+#define tisp_rcfg_module_register	t33_g14_reg
+#define private_kmalloc	t33_g14_kmalloc
+#define private_vmalloc	vmalloc
+#define system_irq_func_set	t33_g14_irq_v
+#define tisp_rcfg_rdns_reg_init	NULL
+#define tisp_rcfg_dmsc_reg_init	NULL
+#define tisp_rcfg_ysp_reg_init	NULL
+#define tisp_rdns_t33_frame_done_interrupt	NULL
+#define tisp_dmsc_t33_frame_done_interrupt	NULL
+#define tisp_ysp_t33_frame_done_interrupt	NULL
+#include "tx_isp_t33_i9B.h"
+#undef t33_rdns_init
+#undef t33_dmsc_init
+#undef t33_ysp_init
+#undef tparamsP
+#undef tisp_rcfg_module_register
+#undef private_kmalloc
+#undef private_vmalloc
+#undef system_irq_func_set
+#undef tisp_rcfg_rdns_reg_init
+#undef tisp_rcfg_dmsc_reg_init
+#undef tisp_rcfg_ysp_reg_init
+#undef tisp_rdns_t33_frame_done_interrupt
+#undef tisp_dmsc_t33_frame_done_interrupt
+#undef tisp_ysp_t33_frame_done_interrupt
+
+/* lib_tisp_init's tisp_dmsc_init on the bin section (copied into its tparamsP slot); refresh as the other inits */
+static void t33_g14_dmsc_init(const u8 *sec)
+{
+	unsigned long flags;
+
+	if (!t33_mod_buf(T33_MOD_DMSC))
+		return;
+	t33_bst_hold(T33_BST_DMSC);
+	local_irq_save(flags);
+	memcpy(t33_dmsc_sec, sec, sizeof(t33_dmsc_sec));
+	t33_g14_tp8[0] = t33_dmsc_sec - T33_TP_OFF_DMSC;
+	memset(t33_dmsc_v, 0, sizeof(t33_dmsc_v));	/* the vendor's kmalloc is not zeroed; the init writes 670..673 */
+	t33_i9b_dmsc_init(0, t33_st_isp_init_par_mode);
+	t33_g14_runs[7]++;
+	t33_bst_refresh[T33_BST_DMSC] = 0;
 	local_irq_restore(flags);
 }
 
