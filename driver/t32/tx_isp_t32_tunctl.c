@@ -286,8 +286,16 @@ int t32_tx_os_tisp_g_autozoom(u32 ch, void *buf)
 	return 0;
 }
 int t32_tx_os_tisp_s_autozoom_control(u32 ch, void *buf) { return t32_tc_put(t32_tc[ch].autozoom, buf, 60); }
+#ifdef TX_ISP_T33
+/* T33 (group 14e-1): tisp_set_csc_attr / tisp_get_csc_attr on csc_para (tx_isp_t32_hw.c) */
+int t33_tisp_set_csc_attr(u32 ch, void *buf);
+int t33_tisp_get_csc_attr(u32 ch, void *buf);
+int t32_tx_os_tisp_set_csc_attr(u32 ch, void *buf) { t33_tisp_set_csc_attr(ch, buf); return 0; }
+int t32_tx_os_tisp_get_csc_attr(u32 ch, void *buf) { t33_tisp_get_csc_attr(ch, buf); return 0; }
+#else
 int t32_tx_os_tisp_set_csc_attr(u32 ch, void *buf) { return t32_tc_put(t32_tc[ch].csc, buf, 92); }
 int t32_tx_os_tisp_get_csc_attr(u32 ch, void *buf) { return t32_tc_put(buf, t32_tc[ch].csc, 92); }
+#endif
 #ifdef TX_ISP_T33
 /* T33 (group 14d-1): tisp_s_ccm_attr -> tisp_ccm_api_set on ccm_para (tx_isp_t32_hw.c) */
 int t33_tisp_s_ccm_attr(u32 ch, const void *buf);
