@@ -109,7 +109,11 @@ static inline void t33_top_init(const u8 *sec, u32 width, u32 height, u32 bayer,
 	}
 	for (i = 0; i < 10; i++)
 		sta |= (u32)sec[0x4c + i] << i;
-	fmt = deir << 20 | idx | ((bayer & 0x3ffff) >> 16) << 8;
+	/*
+	 * the vendor's bayer_remap (.data, tisp_top_init, block i9D): patterns 0..3 unchanged, 4..19 (RGB-IR) + 4
+	 * (group 14e-4; before: the index itself, e.g. 4 instead of 8 for an RGB-IR sensor)
+	 */
+	fmt = deir << 20 | (idx < 4 ? idx : idx < 20 ? idx + 4 : 0) | ((bayer & 0x3ffff) >> 16) << 8;
 	T33_FW(lw, n, 0x40, en);
 	T33_FW(lw, n, 0x60, sta);
 	T33_FW(lw, n, 0x6c, ctl);
