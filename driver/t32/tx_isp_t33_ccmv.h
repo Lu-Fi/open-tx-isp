@@ -59,6 +59,23 @@ static int tisp_ccm_interp_by_ct(u32 idx, u32 ct, u32 force)
 	if (!v || !t33_ccm_lut.lut)
 		return 1;
 	sec = t33_ccm_bsec(v);
+	/*
+	 * API mode (vendor tisp_ccm_interp_by_ct, decompile wire14c/cct.c; group 14d-1): section byte 0x75a != 1 and
+	 * (0x75a != 0 or 0x75b > 1, tisp_ccm_api_set sets 0x75b = 2) with the manual flag (ccm_ap byte 0, v[0x99]):
+	 * not forced 1 (keep), forced the ap matrix (v[0x9a..], tisp_round_int64(x, 0) = x) into the CT matrix,
+	 * ccm_sp (v[0x54..]), with sec[0x75c] == 1 also into sec + 0x44, and the EV input copy v[0x68..].
+	 * Before: the CT knots / sec + 0x44 matrix always (a manual CCM was replaced by the tuned one).
+	 */
+	if (sec[0x75a] != 1 && (sec[0x75a] != 0 || sec[0x75b] > 1) && (u8)v[0x99]) {
+		if (!force)
+			return 1;
+		memcpy(&v[0x5f], &v[0x9a], 0x24);
+		memcpy(&v[0x54], &v[0x5f], 0x24);
+		if (sec[0x75c] == 1)
+			memcpy((u8 *)sec + 0x44, &v[0x5f], 0x24);
+		memcpy(&v[0x68], &v[0x5f], 0x24);
+		return 0;
+	}
 	if (!force)
 		memcpy(save, v, sizeof(save));
 	t33_ccm_ct(v, sec, t33_ccm_lut.lut, ct);

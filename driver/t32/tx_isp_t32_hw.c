@@ -1383,6 +1383,7 @@ static int t32_mdns_build(u8 *sec, u32 width, u32 height)
 static u32 t33_dmsc_v[T33_DMSC_WORDS], t33_dpc_v[T33_DPC_WORDS], t33_ysp_v[T33_YSP_WORDS];
 static u32 t33_rdns_v[T33_RDNS_WORDS], t33_ccm_v[T33_CCM_WORDS], t33_lsc_v[T33_LSC_WORDS];
 #include "tx_isp_t33_ccmv.h"	/* CCM on the vendor ccm_para block, tispCcmRefresh (group 13d-1) */
+static u32 t33_g14d_ccm_api;	/* CCM attribute sets that reached tisp_ccm_api_set (group 14d-1) */
 static struct t33_lsc t33_lsc_m;
 /*
  * BCSH block: t33_bcsh_st = the vendor's bcsh_para[0] block (0x290 B, word 0 the section = t33_bcsh_sec, the
@@ -1852,8 +1853,9 @@ void t33_stats_show(struct seq_file *m)
 		   t33_blc_runs[0], t33_blc_runs[1], t33_blc_runs[2], t33_blc_runs[3], t33_blc_refresh);
 	seq_printf(m, "t33 lsc: %s init %u switch %u fd %u refresh %u count %u\n", lsc_para[0] ? "on" : "off",
 		   t33_lsc_runs[0], t33_lsc_runs[1], t33_lsc_runs[2], t33_lsc_refresh, t33_lsc_count[0]);
-	seq_printf(m, "t33 ccm: %s init %u ct %u ev %u switch %u fd %u refresh %u\n", ccm_para[0] ? "on" : "off",
-		   t33_ccm_runs[0], t33_ccm_runs[1], t33_ccm_runs[2], t33_ccm_runs[3], t33_ccm_runs[4], tispCcmRefresh);
+	seq_printf(m, "t33 ccm: %s init %u ct %u ev %u switch %u fd %u refresh %u api %u\n", ccm_para[0] ? "on" : "off",
+		   t33_ccm_runs[0], t33_ccm_runs[1], t33_ccm_runs[2], t33_ccm_runs[3], t33_ccm_runs[4], tispCcmRefresh,
+		   t33_g14d_ccm_api);
 	seq_printf(m, "t33 gamma: %s init %u ev %u api %u switch %u fd %u refresh %u count %u mode %u\n",
 		   gamma_para[0] ? "on" : "off", t33_gamma_runs[0], t33_gamma_runs[1], t33_gamma_runs[2],
 		   t33_gamma_runs[3], t33_gamma_runs[4], tispGammaRefresh, gamma_count[0], t33_le32((u8 *)t33_gamma_ap32));
@@ -2331,6 +2333,69 @@ static void t33_gamma_fd(void)
 		t33_gamma_runs[4]++;
 	t33_gv_frame_done(0, t33_gamma_v, gamma_count, &tispGammaRefresh, gammaCfgMode, tisp_reg_write_t33,
 			  tisp_rcfg_get_dma_state, tisp_rcfg_module_cfg_trig);
+}
+
+/*
+ * g14d-1, CCM attribute (IMP_ISP_Tuning_SetCCMAttr / GetCCMAttr, s_ctrl 0x80 / g_ctrl): tisp_s_ccm_attr (port-loop
+ * block r11E) -> tisp_ccm_api_set (block ccmP: the 40 bytes into ccm_para + 612, forced CT / EV interpolation,
+ * no_interp, calc, the list 10 slots, tispCcmRefresh = 1: irq 45 starts the list); -1 as the vendor unless exactly
+ * one of the top bypass bits 0x4000 (CCM) / 0x80 (BCSH CCM) is set (PRJ008 day 0x00e4c098: both set, the set runs
+ * and the caller prints "Both BCSH and CCM ..." like the vendor).  tisp_g_ccm_attr -> tisp_ccm_api_get (vendor
+ * decompile wire14c/ccm.c): the same bypass gate, ccm_para + 612 (40 bytes; -1 without ccm_para).  Before: both
+ * only stored / returned a copy in the tuning-control state.
+ */
+static int t33_g14d_ccm_api_set(u32 ch, const u8 *buf)
+{
+	if ((ch & 0xff) || !ccm_para[0])
+		return -1;
+	t33_ccm_api_set_glue(0, buf);
+	t33_g14d_ccm_api++;
+	return 0;
+}
+
+static int t33_g14d_sysw(u32 reg, u32 val)
+{
+	system_reg_write(reg, val);
+	return 0;
+}
+
+#define tisp_top_get_bypass	t33_top_get_bypass
+#define tisp_ccm_api_set	t33_g14d_ccm_api_set
+#define isp_printf	t33_g14c_printf
+#define system_reg_write	t33_g14d_sysw
+#include "tx_isp_t33_r11E.h"
+#undef tisp_top_get_bypass
+#undef tisp_ccm_api_set
+#undef isp_printf
+#undef system_reg_write
+
+int t33_tisp_s_ccm_attr(u32 ch, const void *buf)
+{
+	unsigned long flags;
+	int r;
+
+	if (ch || !ccm_para[0])
+		return -1;
+	mutex_lock(&t33_gr_lock);
+	local_irq_save(flags);
+	r = t33_s_ccm_attr(0, buf);
+	local_irq_restore(flags);
+	mutex_unlock(&t33_gr_lock);
+	return r;
+}
+
+/* tisp_g_ccm_attr: tisp_ccm_api_get behind the same bypass gate as the set */
+int t33_tisp_g_ccm_attr(u32 ch, void *buf)
+{
+	u32 v;
+
+	if (ch || !ccm_para[0])
+		return -1;
+	v = t33_top_get_bypass(0);
+	if (!(v & 0x4000) && (v & 0x80))
+		return 0;
+	memcpy(buf, (const u8 *)(unsigned long)ccm_para[0] + 612, 40);
+	return ((v & 0x4000) && !(v & 0x80)) ? 0 : -1;
 }
 
 /*

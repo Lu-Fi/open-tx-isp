@@ -288,7 +288,14 @@ int t32_tx_os_tisp_g_autozoom(u32 ch, void *buf)
 int t32_tx_os_tisp_s_autozoom_control(u32 ch, void *buf) { return t32_tc_put(t32_tc[ch].autozoom, buf, 60); }
 int t32_tx_os_tisp_set_csc_attr(u32 ch, void *buf) { return t32_tc_put(t32_tc[ch].csc, buf, 92); }
 int t32_tx_os_tisp_get_csc_attr(u32 ch, void *buf) { return t32_tc_put(buf, t32_tc[ch].csc, 92); }
+#ifdef TX_ISP_T33
+/* T33 (group 14d-1): tisp_s_ccm_attr -> tisp_ccm_api_set on ccm_para (tx_isp_t32_hw.c) */
+int t33_tisp_s_ccm_attr(u32 ch, const void *buf);
+int t33_tisp_g_ccm_attr(u32 ch, void *buf);
+int t32_tx_os_tisp_s_ccm_attr(u32 ch, void *buf) { return t33_tisp_s_ccm_attr(ch, buf); }
+#else
 int t32_tx_os_tisp_s_ccm_attr(u32 ch, void *buf) { return t32_tc_put(t32_tc[ch].ccm, buf, 40); }
+#endif
 int t32_tx_os_tisp_awb_face_set(u32 ch, void *buf) { return t32_tc_put(t32_tc[ch].face_awb, buf, 24); }
 int t32_tx_os_tisp_awb_face_get(u32 ch, void *buf) { return t32_tc_put(buf, t32_tc[ch].face_awb, 24); }
 /*
@@ -464,7 +471,8 @@ int t32_tx_os_tisp_g_af_metric_attr(u32 ch, void *buf)
 
 #ifdef TX_ISP_T33
 /* T33: the oracle-proven vendor glue (tx_isp_t33_attrAWB.h, block attrAWB): always 0, a failed copy only prints */
-static int t33_tc_g_ccm(u32 ch, u8 *buf) { memcpy(buf, t32_tc[ch].ccm, T33_CCM_ATTR_BYTES); return 0; }
+/* tisp_g_ccm_attr (group 14d-1): ccm_para + 612 behind the top bypass gate; its return is ignored by the g_ctrl glue */
+static int t33_tc_g_ccm(u32 ch, u8 *buf) { return t33_tisp_g_ccm_attr(ch, buf); }
 static int t33_tc_out(u32 user, const u8 *src, u32 n) { return (int)t32_tx_os_copy_to_user(user, src, n); }
 static void t33_tc_print(u32 level) { t32_tx_os_isp_printf(level, "[ %s:%d ] copy error!!!\n", "tiziano_isp_ccm_attr_g_ctrl", 0); }
 static const struct t33_awbattr_ops t33_tc_ccm_ops = { NULL, NULL, NULL, t33_tc_g_ccm, t33_tc_out, NULL, t33_tc_print };
