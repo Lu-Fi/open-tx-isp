@@ -184,7 +184,6 @@ static void t33_mdns_fd(void);
 static u32 t33_swg_tmo_info[T33_TMOINFO_BYTES / 4];
 static u8 t33_tmo_fd_refresh, t33_tmo_fd_mulsensor;	/* tispTmoRefresh, mulsensornum (frame done) */
 
-static u32 t33_list_word(const u32 *l, u32 reg);
 static void t33_bst_irq(u32 msca);	/* tx_isp_t33_bst.h: the blocks' frame-done handlers */
 static void t33_csc_fra_down(const u32 *init);	/* system irq 48: tisp_csc_fra_down_interrupt */
 static void t33_ccm_fd(void);			/* system irq 45: tisp_ccm_irq_frame_done (tx_isp_t33_ccmv.h) */
@@ -207,7 +206,6 @@ static u32 tisp_top_reg_write(u32 ch)
 /* lists 2..4, 6..9, 12..15, 17..22 */
 #define T33_INIT_REFRESH	0x007ef3dcU
 #define T33_TMO_START_REG	0x70f0U
-#define T33_MDNS_START_REG	0xd018U	/* tispAwbRefresh == 1: run list 29 at the next AWB interrupt */
 extern u32 t33_rcfg_runs;
 #define T33_INT_LCE	(1U << 8)
 #define T33_INT_LSF	(1U << 30)
@@ -1617,6 +1615,7 @@ static void t33_mdns_fd(void)
 }
 #include "tx_isp_t33_swglue.h"
 #include "tx_isp_t33_g14glue.h"	/* group 14: vendor-form block init / refresh ports */
+#include "tx_isp_t33_mdnsglue.h"	/* group 16: MDNS init / refresh on the vendor layout */
 #include "tx_isp_t33_tmo1s.h"
 
 /*
@@ -1827,26 +1826,24 @@ static noinline_for_stack void t33_tisp_init_tone(const u8 *bin, u32 bytes)
 }
 
 /*
- * MDNS: init gain, the driver's memopt as the zip ratio, the ISP working
- * memory libimp handed over (SET_ISP_MEM_INFO); 0xd080 / 0xd084 direct
- * (single sensor); then the decode words from the YSP block state.
+ * MDNS: tisp_mdns_init on the vendor layout (tx_isp_t33_mdnsglue.h, group 16: init gain, the driver's memopt as
+ * the zip ratio, 0xd084 = 2 direct); then tisp_mdns_t33_set_mem_cfg on the ISP working memory libimp handed over
+ * (SET_ISP_MEM_INFO, 0xd080 direct, single sensor) and the decode words from the YSP block state.
  */
 static noinline_for_stack void t33_tisp_init_mdns(const u8 *bin, u32 bytes)
 {
-	u32 off, len, width, height, pa, d[2], *buf;
+	u32 off, len, width, height, pa, r = t32_core_memopt(), d080 = 0, *buf;
 
 	off = t32_iq_section(bin, bytes, T33_SEC_MDNS, &len);
 	if (!off || len != T33_MDNS_SEC_BYTES || t32_core_sensor_size(&width, &height) || t32_core_isp_mem(&pa))
 		return;
+	if (t33_mdnsg_init(bin + off, width, height, r) || !(t33_mod_built & (1ULL << T33_MOD_MDNS)))
+		return;
 	buf = t33_mod_buf(T33_MOD_MDNS);
 	if (!buf)
 		return;
-	t33_mod_done(T33_MOD_MDNS, t33_mdns_init(bin + off, T33_INIT_GAIN, width, height, t32_core_memopt(), pa,
-						 t33_mdns_v, buf, T33_SLOT_WORDS, d));
-	if (!(t33_mod_built & (1ULL << T33_MOD_MDNS)))
-		return;
-	isp_wr(0xd084, d[1]);
-	isp_wr(0xd080, d[0]);
+	t33_mdns_mem(width, height, r < 1001 ? r : r / 100 * 100, pa, t33_mdns_v, buf, &d080);
+	isp_wr(0xd080, d080);
 	if (t33_mod_built & (1ULL << T33_MOD_YSP))
 		t33_mdns_decode(t33_ysp_v, buf);
 }
@@ -1981,6 +1978,9 @@ void t33_stats_show(struct seq_file *m)
 		   t33_g14_runs[13], t33_dpc_gains, t33_swg_runs[2], t33_bst_refresh[T33_BST_DPC]);
 	seq_printf(m, "t33 defog: %s init %u bad %u alloc %u\n", t33_swg_defog_blk[3] ? "on" : "off", t33_g15_runs[0],
 		   t33_g15_runs[1], t33_g15_runs[2]);
+	seq_printf(m, "t33 mdns: %s init %u refresh %u/%u switch %u gain %#x zip %u bad %u\n",
+		   t33_mdnsg_info[0] ? "on" : "off", t33_mdnsg_runs[0], t33_mdnsg_runs[2], t33_mdnsg_runs[1],
+		   t33_swg_runs[8], t33_mdns_v[2181], t33_mdns_v[2190], t33_mdnsg_runs[3]);
 }
 
 /* for ../t33/tx_isp_t33_awbc.c: register read, and the per-frame AWB results into lists 7 / 29 */
@@ -2275,27 +2275,11 @@ static void t33_gr_rerun(unsigned int id)
 	t33_gr_runs[id]++;
 }
 
-/* the word of list l that holds reg's value (register commands only), 0 when absent */
-static u32 t33_list_word(const u32 *l, u32 reg)
-{
-	u32 i = 1, n = l[0], c, cnt, off;
-
-	while (i <= n && i < T33_SLOT_WORDS) {
-		c = l[i];
-		cnt = t32_rcfg_cmd_count(c);
-		off = t32_rcfg_cmd_offset(c);
-		if ((c & T32_RCFG_CMD) && reg >= off && reg < off + 4 * cnt)
-			return i + 1 + (reg - off) / 4;
-		i += 1 + cnt;
-	}
-	return 0;
-}
-
 /* skip: modules whose switch_para already ran (t33_refresh_para) */
 static void t33_gr_refresh(u32 gain, u64 skip)
 {
 	const u8 *bin;
-	u32 bytes, off, len, width, height, pa, d[2];
+	u32 bytes;
 
 	ACCESS_ONCE(t33_sw_gain) = gain;
 	if (t32_core_iq_bin(&bin, &bytes) || !tisp_w)
@@ -2305,7 +2289,6 @@ static void t33_gr_refresh(u32 gain, u64 skip)
 		t33_gr_tmp = kmalloc(T33_SLOT_WORDS * 4, GFP_KERNEL);
 	if (!t33_gr_tmp)
 		goto out;
-#define T33_GR_SEC(BLK)	((off = t32_iq_section(bin, bytes, T33_SEC_##BLK, &len)) && len == T33_##BLK##_SEC_BYTES)
 	/* tisp_blc_tgain_update at every update (tx_isp_t33_bst.h: blc_para, list 4 slots, tispBlcRefresh) */
 	t33_blc_gain(gain);
 	/*
@@ -2338,28 +2321,9 @@ static void t33_gr_refresh(u32 gain, u64 skip)
 		t33_g14_dns_refresh(T33_BST_SDNS, gain);
 	if (!(skip & (1ULL << T33_MOD_RDNS)))
 		t33_g14_dns_refresh(T33_BST_RDNS, gain);	/* tisp_rdns_refresh / par_refresh (group 14-1) */
-	if (T33_GR_SEC(MDNS) && !t32_core_sensor_size(&width, &height) && !t32_core_isp_mem(&pa)) {
-		if (t33_gr_gate(T33_MOD_MDNS, gain)) {
-			memset(t33_gr_tmp, 0, T33_SLOT_WORDS * 4);
-			len = (u32)t33_mdns_init(bin + off, gain, width, height, t32_core_memopt(), pa, t33_mdns_v,
-						 t33_gr_tmp, T33_SLOT_WORDS, d);
-			if ((int)len > 0 && (t33_mod_built & (1ULL << T33_MOD_YSP)))
-				t33_mdns_decode(t33_ysp_v, t33_gr_tmp);
-			if ((int)len > 0) {	/* the start word 0xd018 is not part of tisp_mdns_par_refresh */
-				u32 *cur = t33_mod_buf(T33_MOD_MDNS), a = t33_list_word(t33_gr_tmp, T33_MDNS_START_REG),
-				    b = cur ? t33_list_word(cur, T33_MDNS_START_REG) : 0;
-
-				if (a && b)
-					t33_gr_tmp[a] = cur[b];
-			}
-			t33_gr_commit(T33_MOD_MDNS, (int)len);
-		} else {
-			t33_gr_rerun(T33_MOD_MDNS);	/* tispMdnsRefresh = 1 below the gate */
-		}
-	}
+	t33_mdnsg_gain(gain);	/* tisp_mdns_refresh -> tisp_mdns_par_refresh, own gain gate (group 16) */
 	if (!(skip & (1ULL << T33_MOD_CDNS)))
 		t33_g14_dns_refresh(T33_BST_CDNS, gain);	/* tisp_cdns_refresh (group 14b) */
-#undef T33_GR_SEC
 out:
 	mutex_unlock(&t33_gr_lock);
 }

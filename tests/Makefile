@@ -1528,9 +1528,12 @@ t33_binoracle_lceev:
 
 # T33 binary oracle, blocks "mdnspar" (func_mdns_para_update and its y / cdns / cur_* / ref_* parts) and "dnspar"
 # (func_dmsc_para_update) on random block states vs the vendor instructions (needs T33_OEM_KO and T33_CC / T40_CC,
-# else SKIP; openimp #99)
+# else SKIP; openimp #99); "mdnspr" the MDNS init -> refresh -> par_refresh / switch chain (tisp_mdns_par_refresh is
+# too big for one FUNCS block: tools/ko_emu/diff_t33_mdnspr.py, real IQ bin sections from T33_IQ_BINS and QEMU gain
+# traces from T33_GAIN_LOGS when given, else random)
 t33_binoracle_mdnspar:
 	./t33_binoracle/run.sh mdnspar
+	./t33_binoracle/run.sh mdnspr
 
 t33_binoracle_dnspar:
 	./t33_binoracle/run.sh dnspar

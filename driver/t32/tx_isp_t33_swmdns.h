@@ -1,13 +1,16 @@
 /* SPDX-License-Identifier: GPL-2.0 */
 /*
- * T33 mdns day/night IQ-bin section switch: port of the vendor's tisp_mdns_switch_para.
+ * T33 mdns day/night IQ-bin section switch: port of the vendor's tisp_mdns_switch_para,
+ * and the gain refresh tisp_mdns_par_refresh (88 KB in the vendor module: its first-call
+ * and gated paths each inline the same body as the switch; t33_mdns_par_body here).
  *
  * The function copies five 11-byte tables of the new IQ section into the module's
  * global thresholds, lets tisp_mdns_binpara_update / func_mdns_para_update derive the
  * block state words (mdnsInfo[ch], indexed by byte offset / 4) and writes every
  * register field of the mdns block through tisp_reg_write_t33 (reg = list slot id in
  * cfg mode, else the register address).  The callees are reached through an ops
- * struct so the same code runs in the kernel and under the binary oracle.
+ * struct so the same code runs in the kernel and under the binary oracle (blocks sw-mdns
+ * and mdnspr: the init / refresh / switch chain against the vendor module in Unicorn).
  */
 #ifndef TX_ISP_T33_SWMDNS_H
 #define TX_ISP_T33_SWMDNS_H
@@ -466,15 +469,16 @@ static inline void t33_swm_regs2(const struct t33_swm_ctx *c)
 }
 
 /*
- * tisp_mdns_switch_para: inf = mdnsInfo[ch], tp = tparamsP[ch], g = the five global
- * threshold tables (global_ybsnthres, ypbv0stathres, ypbv1stathres, yrefweimin,
- * yrefweiminadjthres; 11 bytes per channel), cfg = mdnsCfgMode, uvflag =
- * uvLimitFlag[ch], stmem = stMemInfo (76 bytes per channel).
+ * The part tisp_mdns_switch_para and tisp_mdns_par_refresh share (the vendor
+ * inlines it in both): tisp_mdns_binpara_update, the gain interpolations at
+ * the block's gain (word 2181) of the section word 2180 points at,
+ * func_mdns_para_update, every register field of the block, then
+ * tisp_mdns_t33_reg_trig.  cfg = mdnsCfgMode, uvflag = uvLimitFlag[ch],
+ * stmem = stMemInfo (76 bytes per channel).
  */
-static inline int t33_mdns_switch_para(const struct t33_swmdns_ops *op, u32 ch, u32 *inf, const u8 *tp,
-				       u8 *const g[5], u32 cfg, u32 uvflag, const u8 *stmem)
+static inline void t33_mdns_par_body(const struct t33_swmdns_ops *op, u32 ch, u32 *inf, u32 cfg, u32 uvflag,
+				     const u8 *stmem)
 {
-	static const u16 cp[5] = { 29526, 29570, 29636, 30316, 30349 };
 	static const struct t33_swm_run run[] = {
 		{ 20, 9, 6, 8, 11, 4 },
 		{ 56, 78, 15, 16, 22, 4 },
@@ -513,10 +517,6 @@ static inline int t33_mdns_switch_para(const struct t33_swmdns_ops *op, u32 ch, 
 	u32 gain, i, f, r, k;
 
 	ch &= 0xff;
-	for (r = 0; r < 5; r++)
-		for (k = 0; k < 11; k++)
-			g[r][ch * 11 + k] = tp[cp[r] + k];
-	inf[2180] = (u32)(unsigned long)(tp + 25144);
 	op->binpara(ch);
 	gain = inf[2181];
 	sec = (const u8 *)(unsigned long)inf[2180];
@@ -537,7 +537,59 @@ static inline int t33_mdns_switch_para(const struct t33_swmdns_ops *op, u32 ch, 
 	t33_swm_regs1(c, stmem[ch * 76 + 11], uvflag & 0xff);
 	t33_swm_regs2(c);
 	op->trig(ch);
+}
+
+/*
+ * tisp_mdns_switch_para: inf = mdnsInfo[ch], tp = tparamsP[ch], g = the five global
+ * threshold tables (global_ybsnthres, ypbv0stathres, ypbv1stathres, yrefweimin,
+ * yrefweiminadjthres; 11 bytes per channel), cfg = mdnsCfgMode, uvflag =
+ * uvLimitFlag[ch], stmem = stMemInfo (76 bytes per channel).
+ */
+static inline int t33_mdns_switch_para(const struct t33_swmdns_ops *op, u32 ch, u32 *inf, const u8 *tp,
+				       u8 *const g[5], u32 cfg, u32 uvflag, const u8 *stmem)
+{
+	static const u16 cp[5] = { 29526, 29570, 29636, 30316, 30349 };
+	u32 r, k;
+
+	ch &= 0xff;
+	for (r = 0; r < 5; r++)
+		for (k = 0; k < 11; k++)
+			g[r][ch * 11 + k] = tp[cp[r] + k];
+	inf[2180] = (u32)(unsigned long)(tp + 25144);
+	t33_mdns_par_body(op, ch, inf, cfg, uvflag, stmem);
 	return 0;
+}
+
+/*
+ * tisp_mdns_par_refresh(ch, gain, thr) (tisp_mdns_refresh passes thr = word
+ * 2182, stIspInitPar + 1000): with the block's last gain (word 2181) still
+ * -1 (tisp_mdns_init) the gain is taken and the start words go out first
+ * (0xd018 = 0 with the RISC-V MDNS on, riscv = riscvEnable[ch] &&
+ * riscvMdnsEn, else 0xd018 = 1 and 0xd014 = 1); later calls take the gain
+ * only when it moved by thr or more (unsigned).  Then the shared body.
+ * tispMdnsRefresh (refresh) is set on every call, also below thr.
+ */
+static inline void t33_mdns_par_refresh(const struct t33_swmdns_ops *op, u32 ch, u32 *inf, u32 gain, u32 thr,
+					u32 cfg, u32 uvflag, const u8 *stmem, u32 riscv, u8 *refresh)
+{
+	u32 last = inf[2181];
+
+	if (last == 0xffffffffU) {
+		inf[2181] = gain;
+		if (riscv) {
+			op->regw(ch, 15, (cfg & 0xff) ? 2 : 0xd018, 0);
+		} else {
+			op->regw(ch, 15, (cfg & 0xff) ? 2 : 0xd018, 1);
+			op->regw(ch, 15, (cfg & 0xff) ? 1 : 0xd014, 1);
+		}
+	} else {
+		if ((gain >= last ? gain - last : last - gain) < thr)
+			goto out;
+		inf[2181] = gain;	/* moved by thr or more */
+	}
+	t33_mdns_par_body(op, ch, inf, cfg, uvflag, stmem);
+out:
+	*refresh = 1;
 }
 
 #undef W_

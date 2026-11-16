@@ -259,7 +259,9 @@ static const struct t33_swysp_ops t33_swg_ysp_ops = {
 
 /* global_ybsnthres, global_ypbv0stathres, global_ypbv1stathres, global_yrefweimin, global_yrefweiminadjthres */
 static u8 t33_swg_mdns_g[5][44];
-static const u8 t33_swg_stmem[76];	/* stMemInfo[0]: byte 11 (WDR) 0, the driver has no WDR */
+/* stMemInfo (76 bytes per channel): byte 11 (WDR) 0, the driver has no WDR; bytes 8..9 the zip ratio (tisp_mdns_init) */
+static u8 t33_swg_stmem[304];
+static u8 t33_mdns_sec[9844];	/* tparamsP + 25144: the MDNS section copy (init, switch; tx_isp_t33_mdnsglue.h) */
 
 static void t33_swg_mdns_bin(u32 ch)
 {
@@ -409,8 +411,9 @@ static u64 t33_swg_small(const u8 *bin, u32 bytes)
 			     t33_swg_mdns_g[4] };
 
 		local_irq_save(flags);
+		memcpy(t33_mdns_sec, bin + off, sizeof(t33_mdns_sec));	/* the bin parse into tparamsP */
 		t33_mdns_v[T33_MDNS_ZIP_WORD] = t32_core_memopt() / 100 - 11 < 10;
-		t33_mdns_switch_para(&t33_swg_mdns_ops, 0, t33_mdns_v, (const u8 *)((unsigned long)(bin + off) - T33_TP_OFF_MDNS),
+		t33_mdns_switch_para(&t33_swg_mdns_ops, 0, t33_mdns_v, (const u8 *)((unsigned long)t33_mdns_sec - T33_TP_OFF_MDNS),
 				     g, t33_bst_cfg_mode, t33_dn_uv_limit[0], t33_swg_stmem);
 		local_irq_restore(flags);
 		t33_swg_runs[8]++;

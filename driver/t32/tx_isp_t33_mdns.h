@@ -2453,7 +2453,7 @@ static inline void t33_mdns_cmp_par_calc(u32 *v, u32 h, u32 w)
 	v[2194] = (((int)(c * 3) >> 2) << 16) | c;
 	v[2195] = (r > 0x4b0 ? 0x2c | 0x20 << 16 : 0x28 | 0x28 << 16) | 0x64007800;
 	v[2196] = q | 0xf040200;
-	v[2197] = r > 0x4b0 ? 0xfcfe0002 : 0xfdfe0002;
+	v[2197] = r < 1200 ? 0xfcfc0002 : 0xfdfe0002;	/* vendor: 1100..1199 fcfc, else fdfe (openimp #641) */
 	v[2198] = c << 16 | lo;
 	v[2199] = (int)c < 0xaa ? 0x140008 : 0x140005;
 	v[2200] = ((u32)blk - 0x100) | 0x76000000;
