@@ -18,11 +18,15 @@ fi
 W=$(mktemp -d); trap 'rm -rf "$W"' EXIT
 printf '%s\n' "$FUNCS" > "$W/spec"
 PY="python3 $H/../../tools/ko_emu/t33_binoracle.py"
-mk() {  # tree-root out.o: build the firmware object of that tree
+mkfw() {  # tree-root out.o: build the firmware object of that tree
 	# -mlong-calls: calls to undefined symbols (_GET_*, memcpy, register access) reach the emulator stubs (a jal cannot)
 	make -s -C "$1/tests/t20_fw" OUT="$W/b$$" T20FW_MIPS_CC="$CC" CROSS_COMPILE="${CC%gcc}" SDK="$SDK" \
 		FLAGS_O0="-O0 -fno-tree-dce -fno-ipa-pure-const -fno-ipa-reference -mlong-calls" "$W/b$$/mips-ours-O0.o" >"$W/build.log" 2>&1 &&
 		cp "$W/b$$/mips-ours-O0.o" "$2" && rm -rf "$W/b$$"
+}
+"$CC" -c -O1 -G0 -mno-abicalls -fno-pic -msoft-float -o "$W/glob.o" "$H/globals.c" || { echo "t10_binoracle $B: FAIL globals"; exit 1; }
+mk() {  # tree-root out.o: firmware object of that tree + the globals our object only references
+	mkfw "$1" "$W/fw.o" && "${CC%gcc}ld" -r -o "$2" "$W/fw.o" "$W/glob.o"
 }
 mk "$R" "$W/ok.o" || { echo "t10_binoracle $B: FAIL build"; cat "$W/build.log" | tail -5; exit 1; }
 $PY "$KO" "$W/ok.o" "$W/spec" --n "${N:-2000}" || { echo "t10_binoracle $B: FAIL"; exit 1; }

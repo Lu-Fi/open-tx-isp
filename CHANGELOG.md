@@ -4,6 +4,13 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD[-rcN]` are set on the `aperto` branch, the same tag in open-tx-isp and OpenIMP: RC1 `v2026.10.11-rc1`, RC2 `v2026.10.25-rc2`, RC3 `v2026.11.07-rc3` (2026-11-07). Gate SoCs of RC3 and Release 1: T10, T20, T21, T23, T30, T31, T40, T41 (T32/T33 planned, QEMU only); release notes: [docs/releases/ in OpenIMP](https://github.com/Lu-Fi/openimp/blob/next/docs/releases/README.md). Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-11-16: T10/T20 binary oracle blocks system / apictx, system_frame_buffer / system_sensor_select like the vendor (openimp #655, #539; host)
+
+- `tests/t10_binoracle`: block `system` (all 53 system_* API handlers shared with the vendor, stab compared; `globals.c` links the vendor-sized stab into our object) and block `apictx` (33 AE / AWB / AF / sharpening / output / crop API handlers with a random ISP context and firmware object, random values, every direction). Every block also runs against the vendor tx-isp-t20.ko with 0 mismatches (same firmware).
+- `driver/t20/tx_isp_t20_firmware.c`: system_frame_buffer and system_sensor_select return 1 like the vendor (#655; ours returned 0).
+- Proof: system 106000 cases / apictx 13200 cases, 0 mismatches, all mutations detected (an equivalent boundary mutation of sharpening_strength replaced); vdiff default and --dis 0 diffs; make check 0 fail.
+- Triage #573: the remaining 18 / 1236 dis_analyze_stats mutation diffs all come from out-of-range DIS grid register values (0x908 up to 31 x 31; both images read past the grid arrays), closed as invalid input.
+
 ## 2026-11-16: T10/T20 firmware: gain_log2 return codes and five unreached helpers like the vendor (openimp #631, #632; host)
 
 - `driver/t20/tx_isp_t20_firmware.c` (shared T10/T20; vendor tx-isp-t10.ko and tx-isp-t20.ko have the same code): gain_log2 returns 3 for SET and 1 for other non-GET directions (#632, like exposure_log2 #552); calc_inv_equidistant_modulation_u16 stops its segment search at the first node above the value and divides signed (#631; the first segment returned 0); validate_smooth_test compares limit < diff (operands were swapped); get_exp returns entries[index] for index < count (returned 0); is_yuv_format compares unsigned and accepts 269 / 270; mem_write_u32 stores the word on an aligned address and both halfwords on addr & 3 == 2. The five #631 helpers have no caller an entry reaches today.

@@ -5589,11 +5589,12 @@ int32_t isp_system_state(void *api, int32_t value, char direction, int32_t *resu
 /* WHOLE_DRIVER_CANDIDATE fn_000000000001a5a8 origin=fragment_seed original=system_sensor_select */
 static int32_t system_sensor_select(uint32_t ctx_addr, uint32_t value, uint32_t direction, uintptr_t ret_addr)
 {
-	/* Sensor selection is not supported: always report 0, status 0. */
+	/* Sensor selection is not supported: *ret = 0 and status 1 like the vendor (sw zero,0(a3); li v0,1;
+	 * openimp #655). */
 	uint32_t *ret_value = (uint32_t *)ret_addr;
 
 	*ret_value = 0;
-	return 0;
+	return 1;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000001a5b4 origin=model_output original=test_pattern_enable */
@@ -5754,7 +5755,8 @@ int32_t ds2_pipe_status(int32_t unused_ctx, int32_t value, char direction, int32
 /* WHOLE_DRIVER_CANDIDATE fn_000000000001a9a4 origin=fragment_seed original=system_frame_buffer */
 static int32_t system_frame_buffer(void)
 {
-	return 0;
+	/* vendor tx-isp-t10.ko / tx-isp-t20.ko: li v0,1; jr ra (openimp #655) */
+	return 1;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000001a9ac origin=model_output original=resolution_active_image */
