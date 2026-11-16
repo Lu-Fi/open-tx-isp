@@ -280,10 +280,19 @@ int t33_tx_gamma_g_attr(u32 ch, u32 arg)
  * (QEMU vendor reference: 0, 0, 0, 3840, 2160 for each set).
  */
 static u32 t32_tc_sw, t32_tc_sh;
+#ifdef TX_ISP_T33
+int t33_msca_autozoom_set(u32 ch, void *buf);	/* ../t33/tx_isp_t33_osd.c: tisp_msca_t33_api_{set,get}_autozoom (g17-3) */
+int t33_msca_autozoom_get(u32 ch, void *buf);
+#endif
 
 int t32_tx_os_tisp_g_autozoom(u32 ch, void *buf)
 {
 	u32 *w = buf, k;
+
+#ifdef TX_ISP_T33
+	if (!t33_msca_autozoom_get(ch, buf))
+		return 0;
+#endif
 
 	memset(buf, 0, 60);
 	for (k = 0; k < 3; k++) {
@@ -292,7 +301,14 @@ int t32_tx_os_tisp_g_autozoom(u32 ch, void *buf)
 	}
 	return 0;
 }
-int t32_tx_os_tisp_s_autozoom_control(u32 ch, void *buf) { return t32_tc_put(t32_tc[ch].autozoom, buf, 60); }
+int t32_tx_os_tisp_s_autozoom_control(u32 ch, void *buf)
+{
+#ifdef TX_ISP_T33
+	if (!t33_msca_autozoom_set(ch, buf))
+		return 0;
+#endif
+	return t32_tc_put(t32_tc[ch].autozoom, buf, 60);
+}
 #ifdef TX_ISP_T33
 /* T33 (group 14e-1): tisp_set_csc_attr / tisp_get_csc_attr on csc_para (tx_isp_t32_hw.c) */
 int t33_tisp_set_csc_attr(u32 ch, void *buf);

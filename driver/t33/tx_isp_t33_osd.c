@@ -50,7 +50,17 @@
 #include "tx_isp_t33_mscaInit.h"
 #include "tx_isp_t33_mscaosd.h"
 #include "tx_isp_t33_msca_api4.h"
+/* tisp_msca_t33_api_set_autozoom's callees: the proven ports of tx_isp_t33_mscacur.h (g17-3) */
+#define tisp_msca_t33_scaling_algorithm	t33_osd_az_scaling
+#define tisp_msca_t33_curve_calc	t33_osd_az_curve_calc
+#define tisp_msca_t33_ch_curve_write	t33_osd_az_curve_write
+#define tisp_msca_t33_ctrl_reg_write	t33_osd_az_ctrl
 #include "tx_isp_t33_msca_api5.h"
+#undef tisp_msca_t33_scaling_algorithm
+#undef tisp_msca_t33_curve_calc
+#undef tisp_msca_t33_ch_curve_write
+#undef tisp_msca_t33_ctrl_reg_write
+#include "tx_isp_t33_msca_api2.h"
 #include "tx_isp_t33_mscastrm.h"
 #include "tx_isp_t33_mscaline.h"
 #include "tx_isp_t33_mscachx.h"
@@ -247,6 +257,11 @@ static const struct t33_mscacur cur_ctx = {
  * vendor's lib_tisp_api_set_msca_dma_stride in between is refused with stIspInitPar word 226 == 1 (printk only;
  * not made).  Returns tispMscaRefresh, -1 without the attribute block.  Frame-channel lock held (atomic).
  */
+void t33_osd_az_scaling(u32 ch) { t33_msca_scaling_algorithm_v(&cur_ctx, ch); }
+void t33_osd_az_curve_calc(u32 ch, u32 i) { t33_msca_curve_calc_v(&cur_ctx, ch, i); }
+void t33_osd_az_curve_write(u32 ch, u32 i) { t33_msca_ch_curve_write_v(&cur_ctx, ch, i); }
+void t33_osd_az_ctrl(u32 ch, u32 i) { t33_msca_ctrl_reg_write_v(&cur_ctx, ch, i); }
+
 int t33_msca_chx_start(u32 ch, const u32 *a)
 {
 	unsigned long fl;
@@ -449,6 +464,39 @@ static int t32_tx_os_tisp_g_draw_block_attr_nl(u32 ch, void *buf)
 	return 0;
 }
 
+/*
+ * g17-3: tisp_s_autozoom_control / tisp_g_autozoom_control -> tisp_msca_t33_api_set_autozoom (msca-api5) /
+ * _get_autozoom (msca-api2) on stMscaAttr[0] and fcrop_attr: per output channel the zoom window (or the front
+ * crop / the input size when off), scaling_algorithm, curve_calc, ch_curve_write, ctrl_reg_write (all three
+ * channels, as the vendor) and slot 1 = 1, tispMscaRefresh.  Attribute lock held (the channel start changes the
+ * same block and list words); t33_osd_mutex around it as the other tuning entries.  buf: IMPISPAutoZoom (60 B).
+ */
+static int t33_msca_autozoom_set_nl(u32 ch, void *buf)
+{
+	unsigned long fl;
+	u8 r = 0;
+
+	if (ch >= T33_OSD_CH || !attr_get())
+		return -EINVAL;
+	spin_lock_irqsave(&t33_attr_lock, fl);
+	cur_refresh = 0;
+	t33_msca_set_autozoom(0, buf, stMscaAttr, fcrop_attr, &mscaCfgMode, &r);
+	r |= cur_refresh;
+	spin_unlock_irqrestore(&t33_attr_lock, fl);
+	refresh_done(r);
+	return 0;
+}
+
+static int t33_msca_autozoom_get_nl(u32 ch, void *buf)
+{
+	u8 *a = ch < T33_OSD_CH ? attr_get() : NULL;
+
+	if (!a)
+		return -EINVAL;
+	t33_msca_get_autozoom(a, buf);
+	return 0;
+}
+
 /* tisp_s_hv_flip -> tisp_msca_t33_api_set_mirr_flip: byte 0 bits 0..1 the output, bits 2..7 its flags */
 static int t33_msca_hv_flip_set_nl(u32 ch, void *flags)
 {
@@ -494,6 +542,8 @@ T33_OSD_LOCKED(t32_tx_os_tisp_s_draw_block_attr)
 T33_OSD_LOCKED(t32_tx_os_tisp_g_draw_block_attr)
 T33_OSD_LOCKED(t33_msca_hv_flip_set)
 T33_OSD_LOCKED(t33_msca_hv_flip_get)
+T33_OSD_LOCKED(t33_msca_autozoom_set)
+T33_OSD_LOCKED(t33_msca_autozoom_get)
 
 /*
  * The MSCA list (23) is built again at every stream-on (the vendor keeps its
