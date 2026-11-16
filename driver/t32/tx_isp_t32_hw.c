@@ -1872,8 +1872,8 @@ void t33_stats_show(struct seq_file *m)
 	seq_printf(m, "t33 dmsc: init %u gain %u\n", t33_g14_runs[7], t33_g14_runs[8]);
 	seq_printf(m, "t33 rdns: init %u gain %u ysp: init %u gain %u\n", t33_g14_runs[9], t33_g14_runs[10],
 		   t33_g14_runs[11], t33_g14_runs[12]);
-	seq_printf(m, "t33 dpc: %s gain %u switch %u refresh %u\n", t33_dpc_v[T33_DPC_SEC_WORD] ? "on" : "off",
-		   t33_dpc_gains, t33_swg_runs[2], t33_bst_refresh[T33_BST_DPC]);
+	seq_printf(m, "t33 dpc: %s init %u gain %u switch %u refresh %u\n", t33_dpc_v[T33_DPC_SEC_WORD] ? "on" : "off",
+		   t33_g14_runs[13], t33_dpc_gains, t33_swg_runs[2], t33_bst_refresh[T33_BST_DPC]);
 }
 
 /* for ../t33/tx_isp_t33_awbc.c: register read, and the per-frame AWB results into lists 7 / 29 */
@@ -2711,9 +2711,9 @@ static void t33_tisp_init(const u8 *bin, u32 bytes)
 	off = t32_iq_section(bin, bytes, T33_SEC_SDNS, &len);
 	if (off && len == T33_SDNS_SEC_BYTES)
 		t33_g14_dns_init(T33_BST_SDNS, bin + off);
-	T33_MOD_VB(dpc, DPC, t33_dpc_v);
+	off = t32_iq_section(bin, bytes, T33_SEC_DPC, &len);	/* tisp_dpc_init (tx_isp_t33_g14glue.h, group 14-2a) */
 	if (off && len == T33_DPC_SEC_BYTES)
-		t33_swg_dpc_gain(bin + off, T33_INIT_GAIN);
+		t33_g14_dpc_init(bin + off);
 	off = t32_iq_section(bin, bytes, T33_SEC_DMSC, &len);	/* tisp_dmsc_init (tx_isp_t33_g14glue.h, group 14b-2) */
 	if (off && len == T33_DMSC_SEC_BYTES)
 		t33_g14_dmsc_init(bin + off);

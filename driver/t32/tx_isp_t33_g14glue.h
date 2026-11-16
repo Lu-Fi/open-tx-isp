@@ -48,7 +48,7 @@ static void tisp_ysp_refresh(u32 ch, u32 gain);
 
 /* the section copies t33_ydns_sec / t33_sdns_sec / t33_cdns_sec: tx_isp_t33_swglue.h */
 /* init ydns sdns cdns, refreshes past the gain gate ydns sdns cdns, irq number mismatches */
-u32 t33_g14_runs[13];	/* + [7] dmsc init, [8] dmsc refreshes past the gate, [9..12] rdns / ysp the same */
+u32 t33_g14_runs[14];	/* + [7] dmsc init, [8] dmsc refreshes past the gate, [9..12] rdns / ysp the same, [13] dpc init */
 static u32 t33_g14_last;	/* the last par_refresh's return (1: below the gain tolerance) */
 
 /* tisp_rcfg_module_register: the list page with its reg_init skeleton, marked built for the slot writes */
@@ -469,6 +469,68 @@ static void t33_g14_ysp_init(const u8 *sec)
 	t33_i9b_ysp_init(0, t33_st_isp_init_par_mode);
 	t33_g14_runs[11]++;
 	t33_bst_refresh[T33_BST_YSP] = 0;
+	local_irq_restore(flags);
+}
+
+/*
+ * g14-2a, DPC: lib_tisp_init's tisp_dpc_init (port-loop block i9G) on the vendor-layout dpcInfo (t33_dpc_v:
+ * section 170 = t33_dpc_sec, the tparamsP + 0x3e2c copy, gain 171): bin copy, gain interpolation, the DPC /
+ * CTR / CAC parameter updates and the vendor's 37 slot stores, refresh mode and irq 38.  Before: the DPC init
+ * builder (t33_dpc_init) and the section / gain words set afterwards.
+ */
+#include "tx_isp_t33_i9G.h"
+
+static int t33_g14_dpc_reg(u8 ch, u32 mod)
+{
+	return t33_g14_reg(ch, mod, NULL);
+}
+
+static void t33_g14_dpc_warn(int r)
+{
+	t33_g14_reg_fail(2, r);
+}
+
+static void *t33_g14_dpc_alloc(u32 size, u32 flags)
+{
+	(void)flags;
+	return size == sizeof(t33_dpc_v) ? t33_dpc_v : NULL;	/* the init zeroes it itself */
+}
+
+static void t33_g14_zero(void *p, u32 n)
+{
+	memset(p, 0, n);
+}
+
+static void t33_g14_dpc_wr(u8 ch, u32 mod, u32 where, u32 val)
+{
+	tisp_reg_write_t33(ch, mod, where, val);
+}
+
+static void t33_g14_dpc_irq(u8 ch, u32 irq)
+{
+	t33_g14_irq_set(ch, irq, T33_BST_DPC);
+}
+
+static const struct t33_dpc_init_ops t33_g14_dpc_ops = {
+	.module_register = t33_g14_dpc_reg, .warn = t33_g14_dpc_warn, .alloc = t33_g14_dpc_alloc,
+	.zero = t33_g14_zero, .reg_write = t33_g14_dpc_wr, .dma_state = t33_g14_dma, .irq_set = t33_g14_dpc_irq,
+};
+
+static void t33_g14_dpc_init(const u8 *sec)
+{
+	unsigned long flags;
+	u8 *tp[4] = { NULL };
+
+	if (!t33_mod_buf(T33_MOD_DPC))
+		return;
+	t33_bst_hold(T33_BST_DPC);
+	local_irq_save(flags);
+	memcpy(t33_dpc_sec, sec, sizeof(t33_dpc_sec));
+	tp[0] = t33_dpc_sec - 15916;
+	t33_dpc_init_vendor(&t33_g14_dpc_ops, 0, T33_INIT_GAIN, dpcInfo, tp, t33_bst_cfg_mode,
+			    &t33_bst_refresh[T33_BST_DPC]);
+	t33_g14_runs[13]++;
+	t33_bst_refresh[T33_BST_DPC] = 0;
 	local_irq_restore(flags);
 }
 

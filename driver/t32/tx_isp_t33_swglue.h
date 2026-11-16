@@ -322,13 +322,7 @@ static inline void t33_swg_ysp_gain(const u8 *sec, u32 gain)
 	t33_ysp_v[T33_YSP_GAIN_WORD] = gain;
 }
 
-/* tisp_dpc_init's section / gain words: the section copied into its tparamsP slot (t33_dpc_sec) */
-static inline void t33_swg_dpc_gain(const u8 *sec, u32 gain)
-{
-	memcpy(t33_dpc_sec, sec, sizeof(t33_dpc_sec));
-	t33_dpc_v[T33_DPC_SEC_WORD] = (u32)(unsigned long)t33_dpc_sec;
-	t33_dpc_v[T33_DPC_GAIN_WORD] = gain;
-}
+/* tisp_dpc_init: tx_isp_t33_g14glue.h (group 14-2a) */
 
 /*
  * lib_tisp_refresh_para's dpc / ydns / sdns part: each block's switch_para on
