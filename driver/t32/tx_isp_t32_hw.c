@@ -4421,8 +4421,35 @@ static inline u32 ch_rd(int ch, u32 off)
 	return isp_rd(T32_MSCA_CH(ch) + off);
 }
 
+#ifdef TX_ISP_T33
+/*
+ * g15-3 (frame path, step 1): the buffer push is the vendor's tisp_msca_t33_addr_fifo_write (oracle block
+ * msca-api6), stIspInitPar word 226 = 1: the Y / UV addresses straight into 0xf0130 / 0xf0150 + ch * 0x100
+ * (the same two writes as before; the list-mode branch, mscaCfgMode slots of list 23, is not taken).
+ */
+#define tisp_reg_write_t33	t33_api6_reg_write
+#define tisp_reg_read_t33	t33_api6_reg_read
+static void t33_api6_reg_write(u32 id, u32 blk, u32 reg, u32 val);
+static u32 t33_api6_reg_read(u32 id, u32 blk, u32 reg);
+#include "tx_isp_t33_msca_api6.h"
+#undef tisp_reg_write_t33
+#undef tisp_reg_read_t33
+static void t33_api6_reg_write(u32 id, u32 blk, u32 reg, u32 val)
+{
+	tisp_reg_write_t33(id, blk, reg, val);
+}
+
+static u32 t33_api6_reg_read(u32 id, u32 blk, u32 reg)
+{
+	return tisp_reg_read_t33(id, blk, reg);
+}
+#endif
+
 void t32_hw_msca_push(int ch, u32 y, u32 uv)
 {
+#ifdef TX_ISP_T33
+	t33_msca_addr_fifo_write(t33_st_isp_init_par_mode[226], 1, 0, (u32)ch, y, uv);
+#else
 	ch_wr(ch, T32_MSCA_Y_PUSH, y);
 	ch_wr(ch, T32_MSCA_UV_PUSH, uv);
 	/* the T32 vendor writes 0 to the clears after a push: only bit 0
@@ -4431,6 +4458,7 @@ void t32_hw_msca_push(int ch, u32 y, u32 uv)
 		return;
 	ch_wr(ch, T32_MSCA_Y_CLR, 0);
 	ch_wr(ch, T32_MSCA_UV_CLR, 0);
+#endif
 }
 
 /* scaling of the channels whose curves are loaded (others: the flat box) */
