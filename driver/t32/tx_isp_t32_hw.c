@@ -780,10 +780,12 @@ int t33_bin_ldc_par(u32 ch, u8 *par)
 /* defog statistics area (four 2 KiB parts, 0xa210..0xa21c), written by the core */
 static unsigned long t33_defog_pages;
 static u8 t33_defog_sec[T33_DEFOG_SEC_BYTES];
+#ifdef TX_ISP_T33
 static u8 *t33_defog_weight;		/* defog_weight[0] of tisp_defog_init (vmalloc) */
 static void t33_g15_defog_init(u32 width, u32 height);	/* tisp_defog_init (group 15, below) */
 extern u32 t33_g15_runs[3];
 static u32 t33_swg_defog_blk[14];		/* defog_info[0] (below) */
+#endif
 #define T33_DEFOG_ORDER	get_order(T33_DEFOG_DMA_BYTES)
 /* LCE curve buffer (0xc0a4, written by us) and statistics buffer (0xc090.., by the core) */
 static unsigned long t33_lce_curve_pages, t33_lce_stat_pages;
@@ -831,8 +833,10 @@ static void t33_mod_free(void)
 	if (t33_defog_pages)
 		free_pages(t33_defog_pages, T33_DEFOG_ORDER);
 	t33_defog_pages = 0;
+#ifdef TX_ISP_T33
 	vfree(t33_defog_weight);
 	t33_defog_weight = NULL;
+#endif
 	if (t33_lce_curve_pages)
 		free_pages(t33_lce_curve_pages, T33_LCE_CURVE_ORDER);
 	t33_lce_curve_pages = 0;
