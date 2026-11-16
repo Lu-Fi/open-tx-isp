@@ -93,8 +93,8 @@ static inline void t33_i9h_dw(u32 ch, u32 slot, u32 addr, u32 val)
 
 #define I9H_P12(h, l)	((((w)[h] & 0xfff) << 16) | ((w)[l] & 0xfff))
 
-/* tisp_dpc_l_gain_update */
-static inline void t33_dpc_l_gain_update(u32 ch, u32 gain)
+/* tisp_dpc_l_gain_update (named _i9h: the driver runs the sw-small port t33_dpc_l_gain_update) */
+static inline void t33_dpc_l_gain_update_i9h(u32 ch, u32 gain)
 {
 	u32 ch8 = ch & 0xff, *w;
 	const u8 *s;

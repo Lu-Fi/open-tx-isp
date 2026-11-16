@@ -1870,6 +1870,8 @@ void t33_stats_show(struct seq_file *m)
 	seq_printf(m, "t33 dns: init %u %u %u gain %u %u %u irq %u\n", t33_g14_runs[0], t33_g14_runs[1],
 		   t33_g14_runs[2], t33_g14_runs[3], t33_g14_runs[4], t33_g14_runs[5], t33_g14_runs[6]);
 	seq_printf(m, "t33 dmsc: init %u gain %u\n", t33_g14_runs[7], t33_g14_runs[8]);
+	seq_printf(m, "t33 rdns: init %u gain %u ysp: init %u gain %u\n", t33_g14_runs[9], t33_g14_runs[10],
+		   t33_g14_runs[11], t33_g14_runs[12]);
 	seq_printf(m, "t33 dpc: %s gain %u switch %u refresh %u\n", t33_dpc_v[T33_DPC_SEC_WORD] ? "on" : "off",
 		   t33_dpc_gains, t33_swg_runs[2], t33_bst_refresh[T33_BST_DPC]);
 }
@@ -2186,7 +2188,7 @@ static u32 t33_list_word(const u32 *l, u32 reg)
 static void t33_gr_refresh(u32 gain, u64 skip)
 {
 	const u8 *bin;
-	u32 bytes, off, len, width, height, pa, d[2], blc = 0, dg = 0, *b;
+	u32 bytes, off, len, width, height, pa, d[2];
 
 	ACCESS_ONCE(t33_sw_gain) = gain;
 	if (t32_core_iq_bin(&bin, &bytes) || !tisp_w)
@@ -2220,29 +2222,15 @@ static void t33_gr_refresh(u32 gain, u64 skip)
 	 */
 	if (!(skip & (1ULL << T33_MOD_DMSC)))
 		t33_g14_dns_refresh(T33_BST_DMSC, gain);	/* tisp_dmsc_refresh / par_refresh (group 14b-2) */
-	if (!(skip & (1ULL << T33_MOD_YSP)) && T33_GR_SEC(YSP) && t33_gr_gate(T33_MOD_YSP, gain)) {
-		t33_bst_hold(T33_BST_YSP);
-		if (t33_ysp_init(bin + off, gain, t33_ysp_v, t33_gr_tmp, T33_SLOT_WORDS) > 0) {
-			t33_swg_ysp_gain(bin + off, gain);
-			t33_bst_par_tail(T33_BST_YSP);
-		}
-	}
+	if (!(skip & (1ULL << T33_MOD_YSP)))
+		t33_g14_dns_refresh(T33_BST_YSP, gain);	/* tisp_ysp_refresh / par_refresh (group 14-1) */
 	/* tisp_ydns_refresh / tisp_sdns_refresh: the vendor par_refresh ports and their own gain gate (group 14b) */
 	if (!(skip & (1ULL << T33_MOD_YDNS)))
 		t33_g14_dns_refresh(T33_BST_YDNS, gain);
 	if (!(skip & (1ULL << T33_MOD_SDNS)))
 		t33_g14_dns_refresh(T33_BST_SDNS, gain);
-	if (!(skip & (1ULL << T33_MOD_RDNS)) && T33_GR_SEC(RDNS) && t33_gr_gate(T33_MOD_RDNS, gain)) {
-		if ((t33_mod_built & (1ULL << T33_MOD_BLC)) && (b = t33_mod_buf(T33_MOD_BLC)))
-			blc = b[4];
-		if ((t33_mod_built & (1ULL << T33_MOD_DG)) && (b = t33_mod_buf(T33_MOD_DG)))
-			dg = b[4];
-		t33_bst_hold(T33_BST_RDNS);
-		if (t33_rdns_init(bin + off, gain, t33_gr_ev, blc, dg, t33_rdns_v, t33_gr_tmp, T33_SLOT_WORDS) > 0) {
-			t33_swg_rdns_gain(bin + off, gain, t33_gr_ev);
-			t33_bst_par_tail(T33_BST_RDNS);
-		}
-	}
+	if (!(skip & (1ULL << T33_MOD_RDNS)))
+		t33_g14_dns_refresh(T33_BST_RDNS, gain);	/* tisp_rdns_refresh / par_refresh (group 14-1) */
 	if (T33_GR_SEC(MDNS) && !t32_core_sensor_size(&width, &height) && !t32_core_isp_mem(&pa)) {
 		if (t33_gr_gate(T33_MOD_MDNS, gain)) {
 			memset(t33_gr_tmp, 0, T33_SLOT_WORDS * 4);
@@ -2729,26 +2717,13 @@ static void t33_tisp_init(const u8 *bin, u32 bytes)
 	off = t32_iq_section(bin, bytes, T33_SEC_DMSC, &len);	/* tisp_dmsc_init (tx_isp_t33_g14glue.h, group 14b-2) */
 	if (off && len == T33_DMSC_SEC_BYTES)
 		t33_g14_dmsc_init(bin + off);
-	T33_MOD_VB(ysp, YSP, t33_ysp_v);
+	off = t32_iq_section(bin, bytes, T33_SEC_YSP, &len);	/* tisp_ysp_init (tx_isp_t33_g14glue.h, group 14-1) */
 	if (off && len == T33_YSP_SEC_BYTES)
-		t33_swg_ysp_gain(bin + off, T33_INIT_GAIN);
-	{
-		u32 *buf, blc = 0, dg = 0;
-
-		/* tisp_reg_read_t33(BLC list, slot 3): our BLC list word 4 (0x3044) */
-		if ((t33_mod_built & (1ULL << T33_MOD_BLC)) && (buf = t33_mod_buf(T33_MOD_BLC)))
-			blc = buf[4];
-		/* and the DG list, slot 3 (0x4060) */
-		if ((t33_mod_built & (1ULL << T33_MOD_DG)) && (buf = t33_mod_buf(T33_MOD_DG)))
-			dg = buf[4];
-		off = t32_iq_section(bin, bytes, T33_SEC_RDNS, &len);
-		if (off && len == T33_RDNS_SEC_BYTES && (buf = t33_mod_buf(T33_MOD_RDNS)))
-		{
-			t33_mod_done(T33_MOD_RDNS, t33_rdns_init(bin + off, T33_INIT_GAIN, T33_INIT_EV, blc,
-								 dg, t33_rdns_v, buf, T33_SLOT_WORDS));
-			t33_swg_rdns_gain(bin + off, T33_INIT_GAIN, T33_INIT_EV);
-		}
-	}
+		t33_g14_ysp_init(bin + off);
+	/* tisp_rdns_init (group 14-1): func_rdns_para_update reads the BLC / DG list word 4 (tisp_reg_read_t33) */
+	off = t32_iq_section(bin, bytes, T33_SEC_RDNS, &len);
+	if (off && len == T33_RDNS_SEC_BYTES)
+		t33_g14_rdns_init(bin + off);
 	{
 		u32 *buf;
 

@@ -55,6 +55,9 @@ static u8 t33_dpc_sec[T33_DPC_SEC_BYTES];	/* the DPC section (the vendor: tparam
 /* YDNS / SDNS / CDNS sections (tparamsP + 0x88ac / 0x9b20 / 0x892c; group 14, tx_isp_t33_g14glue.h) */
 static u8 t33_ydns_sec[T33_YDNS_SEC_BYTES], t33_sdns_sec[T33_SDNS_SEC_BYTES], t33_cdns_sec[T33_CDNS_SEC_BYTES];
 static u8 t33_dmsc_sec[T33_DMSC_SEC_BYTES];	/* tparamsP + 17900 (group 14b-2) */
+#define T33_TP_OFF_RDNS	16520U			/* tparamsP + this = RDNS section (rdnsInfo word 208) */
+static u8 t33_rdns_sec[T33_RDNS_SEC_BYTES];	/* g14-1 */
+static u8 t33_ysp_sec[T33_YSP_SEC_BYTES];	/* tparamsP + 0x907c (g14-1) */
 u32 t33_dpc_gains;				/* tisp_dpc_l_gain_update calls (group 13c) */
 u32 t33_swg_runs[9];				/* switch_para calls: sdns, ydns, dpc, cdns, rdns, rdns ev, dmsc, ysp, mdns */
 
@@ -399,7 +402,8 @@ static u64 t33_swg_small(const u8 *bin, u32 bytes)
 	if (off && len == T33_YSP_SEC_BYTES && (t33_mod_built & (1ULL << T33_MOD_YSP))) {
 		t33_bst_hold(T33_BST_YSP);
 		local_irq_save(flags);
-		t33_ysp_switch_para(&t33_swg_ysp_ops, 0, (u8 *)((unsigned long)(bin + off) - T33_YSP_SEC),
+		memcpy(t33_ysp_sec, bin + off, sizeof(t33_ysp_sec));	/* the bin parse into tparamsP */
+		t33_ysp_switch_para(&t33_swg_ysp_ops, 0, t33_ysp_sec - T33_YSP_SEC,
 				    t33_swg_ysp_par, t33_ysp_v, t33_bst_cfg_mode, &t33_bst_refresh[T33_BST_YSP]);
 		local_irq_restore(flags);
 		t33_swg_runs[7]++;
@@ -433,7 +437,8 @@ static u64 t33_swg_rdns(const u8 *bin, u32 bytes)
 		return 0;
 	t33_bst_hold(T33_BST_RDNS);
 	local_irq_save(flags);
-	t33_rdns_v[T33_RDNS_SEC_WORD] = (u32)(unsigned long)(bin + off);
+	memcpy(t33_rdns_sec, bin + off, sizeof(t33_rdns_sec));	/* the bin parse into tparamsP */
+	t33_rdns_v[T33_RDNS_SEC_WORD] = (u32)(unsigned long)t33_rdns_sec;
 	t33_rdns_switch_para(0);
 	local_irq_restore(flags);
 	t33_swg_runs[4]++;

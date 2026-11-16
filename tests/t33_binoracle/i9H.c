@@ -12,4 +12,4 @@ u8 tispRdnsRefresh = 0;
 u8 tispDpcRefresh = 0;
 
 void bo_tisp_rdns_par_refresh(u32 ch, u32 gain, u32 thr) { t33_rdns_par_refresh_i9h(ch, gain, thr); }
-void bo_tisp_dpc_l_gain_update(u32 ch, u32 gain) { t33_dpc_l_gain_update(ch, gain); }
+void bo_tisp_dpc_l_gain_update(u32 ch, u32 gain) { t33_dpc_l_gain_update_i9h(ch, gain); }

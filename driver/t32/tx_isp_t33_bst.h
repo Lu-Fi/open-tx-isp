@@ -10,7 +10,7 @@
  *
  * - tisp_*_par_refresh (AE event 4, t33_tgain_refresh): the block's info
  *   struct at the new gain, then, with the module's list idle, the list
- *   slots and refresh = 1, else refresh = 2 (t33_bst_par_tail: the frame-done
+ *   slots and refresh = 1, else refresh = 2 (the par_refresh ports in tx_isp_t33_g14glue.h; the frame-done
  *   handler's refresh-2 branch is the same write set);
  * - tisp_*_t33_frame_done_interrupt (system irqs 38, 39, 43, 51, 54, 55, 56
  *   = interrupt status 0x300a8 bits 6, 7, 11, 19, 22, 23, 24): refresh 1
@@ -481,22 +481,6 @@ static void t33_bst_irq(u32 msca)
 				     t33_csccr_cur, t33_csccr_cur2);
 		t33_csccr_fd_runs++;
 	}
-}
-
-/*
- * The end of tisp_*_par_refresh, after the info struct is updated: the
- * slots now when the list is idle (refresh 1: the next frame done starts
- * it), else refresh 2 (the frame done writes them).
- */
-static void t33_bst_par_tail(unsigned int b)
-{
-	unsigned long flags;
-
-	local_irq_save(flags);
-	t33_bst_refresh[b] = 2;
-	t33_bst_fd(b);
-	local_irq_restore(flags);
-	t33_gr_runs[t33_bst_mod[b]]++;
 }
 
 /* before an info struct is rewritten: no frame done may read it half way (set again by the tail) */

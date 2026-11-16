@@ -38,15 +38,17 @@
 static u32 *cdnsInfo[4] = { t33_cdns_inf };
 static void tisp_cdns_par_refresh(u32 ch, u32 *a1, u32 hyst);
 static void tisp_dmsc_refresh(u32 ch, u32 gain);	/* g14b-2 below */
-/* refA's other wrappers (rdns / ysp) are not wired yet: declared only */
-extern u32 *yspInfo[4];
-extern void tisp_rdns_par_refresh(u32 ch, u32 *inf, u32 gain);
-extern void tisp_ysp_par_refresh(u32 ch, u32 *inf, u32 gain);
+/* refA's rdns / ysp wrappers: the par_refreshes of i9H / i9M (g14-1, below) */
+static u32 *yspInfo[4] = { t33_ysp_v };
+static void tisp_rdns_par_refresh(u32 ch, u32 *a1, u32 thr);
+static void tisp_ysp_par_refresh(u32 ch, u32 *a1, u32 thr);
+static void tisp_rdns_refresh(u32 ch, u32 gain);
+static void tisp_ysp_refresh(u32 ch, u32 gain);
 #include "tx_isp_t33_refA.h"
 
 /* the section copies t33_ydns_sec / t33_sdns_sec / t33_cdns_sec: tx_isp_t33_swglue.h */
 /* init ydns sdns cdns, refreshes past the gain gate ydns sdns cdns, irq number mismatches */
-u32 t33_g14_runs[9];	/* + [7] dmsc init, [8] dmsc refreshes past the gate */
+u32 t33_g14_runs[13];	/* + [7] dmsc init, [8] dmsc refreshes past the gate, [9..12] rdns / ysp the same */
 static u32 t33_g14_last;	/* the last par_refresh's return (1: below the gain tolerance) */
 
 /* tisp_rcfg_module_register: the list page with its reg_init skeleton, marked built for the slot writes */
@@ -252,8 +254,13 @@ static void t33_g14_dns_refresh(unsigned int b, u32 gain)
 		tisp_cdns_refresh(0, gain);
 	else if (b == T33_BST_DMSC && t33_dmsc_v[670])
 		tisp_dmsc_refresh(0, gain);
+	else if (b == T33_BST_RDNS && t33_rdns_v[T33_RDNS_SEC_WORD])
+		tisp_rdns_refresh(0, gain);
+	else if (b == T33_BST_YSP && t33_ysp_v[T33_YSP_SEC_WORD])
+		tisp_ysp_refresh(0, gain);
 	if (t33_g14_last != 1) {
-		t33_g14_runs[b == T33_BST_YDNS ? 3 : b == T33_BST_SDNS ? 4 : b == T33_BST_CDNS ? 5 : 8]++;
+		t33_g14_runs[b == T33_BST_YDNS ? 3 : b == T33_BST_SDNS ? 4 : b == T33_BST_CDNS ? 5 :
+			     b == T33_BST_DMSC ? 8 : b == T33_BST_RDNS ? 10 : 12]++;
 		t33_gr_runs[t33_bst_mod[b]]++;
 	}
 	local_irq_restore(flags);
@@ -275,7 +282,19 @@ static void *t33_g14_kmalloc(unsigned long size, unsigned int flags)
 	(void)flags;
 	if (size == sizeof(t33_dmsc_v))
 		return t33_dmsc_v;
+	if (size == sizeof(t33_rdns_v)) {	/* rdnsInfo (848 B; zeroed, the vendor's is not) */
+		memset(t33_rdns_v, 0, sizeof(t33_rdns_v));
+		return t33_rdns_v;
+	}
+	if (size == sizeof(t33_ysp_v))		/* yspInfo (2184 B; tisp_ysp_init zeroes it itself) */
+		return t33_ysp_v;
 	return NULL;
+}
+
+/* tisp_ysp_init's private_vmalloc of ysp_paramsP: the switch's section copy t33_swg_ysp_par */
+static void *t33_g14_vmalloc(unsigned long size)
+{
+	return size == sizeof(t33_swg_ysp_par) ? t33_swg_ysp_par : NULL;
 }
 
 static void t33_g14_irq_v(u32 ch, u32 irq, void *fn)
@@ -283,6 +302,10 @@ static void t33_g14_irq_v(u32 ch, u32 irq, void *fn)
 	(void)fn;
 	if (irq == 43U)		/* DMSC */
 		t33_g14_irq_set(ch, irq, T33_BST_DMSC);
+	else if (irq == 39U)	/* RDNS */
+		t33_g14_irq_set(ch, irq, T33_BST_RDNS);
+	else
+		t33_g14_irq_set(ch, irq, T33_BST_YSP);
 }
 
 #define T33_I9N_GLUE	1
@@ -307,9 +330,61 @@ static void tisp_dmsc_refresh(u32 ch, u32 gain)
 	t33_dmsc_refresh(ch, gain, dmscInfo, tisp_dmsc_par_refresh);
 }
 
-extern void tisp_rdns_refresh(u32 ch, u32 gain);	/* not wired yet (i9B rdns / ysp init) */
-extern void tisp_ysp_refresh(u32 ch, u32 gain);
-extern u8 *ysp_paramsP[4];
+/*
+ * g14-1, RDNS / YSP: tisp_rdns_par_refresh (i9H) and tisp_ysp_par_refresh (i9M) behind refA's
+ * tisp_rdns_refresh / tisp_ysp_refresh (the state's tolerance word as the threshold), on the vendor-layout
+ * rdnsInfo (t33_rdns_v: section 208, last gain 209, EV 210, tolerance 211) and yspInfo (t33_ysp_v: section
+ * 543, last gain 544, tolerance 545); ysp_paramsP[0] = t33_swg_ysp_par (the bin data refresh reads it).
+ */
+#define T33_I9H_GLUE	1
+#include "tx_isp_t33_i9H.h"
+
+#define T33_YSPPR_GLUE	1
+#define yspCfgMode	t33_bst_cfg_mode
+#define tispYspRefresh	t33_bst_refresh[T33_BST_YSP]
+#define tisp_ysp_bin_data_refresh	t33_swg_ysp_bin
+#define tisp_ysp_reg_data_refresh	t33_swg_ysp_reg
+#define tisp_mdns_decode_reg_write	t33_swg_mdns_dec
+#define t33_ysp_wr	t33_i9m_wr		/* the frame done port (tx_isp_t33_fd_ysp.h) has its own helpers */
+#define t33_ysp_q4	t33_i9m_q4
+#define t33_ysp_r3	t33_i9m_r3
+#include "tx_isp_t33_i9M.h"
+#undef t33_ysp_wr
+#undef t33_ysp_q4
+#undef t33_ysp_r3
+#undef yspCfgMode
+#undef tispYspRefresh
+#undef tisp_ysp_bin_data_refresh
+#undef tisp_ysp_reg_data_refresh
+#undef tisp_mdns_decode_reg_write
+
+static void tisp_rdns_par_refresh(u32 ch, u32 *a1, u32 thr)
+{
+	u32 last = rdnsInfo[ch & 3][T33_I9H_GAIN], g = (u32)(unsigned long)a1;
+
+	t33_rdns_par_refresh_i9h(ch, g, thr);
+	t33_g14_last = (last != 0xffffffffU && (g >= last ? g - last : last - g) < thr) ? 1 : 0x10000;
+}
+
+static void tisp_ysp_par_refresh(u32 ch, u32 *a1, u32 thr)
+{
+	u32 last = yspInfo[ch & 3][2176 / 4], g = (u32)(unsigned long)a1;
+
+	t33_ysp_par_refresh(ch, g, thr);
+	t33_g14_last = (last != 0xffffffffU && (g >= last ? g - last : last - g) < thr) ? 1 : 0x10000;
+}
+
+static void tisp_rdns_refresh(u32 ch, u32 gain)
+{
+	t33_rdns_refresh(ch, (u32 *)(unsigned long)gain);
+}
+
+static void tisp_ysp_refresh(u32 ch, u32 gain)
+{
+	t33_ysp_refresh(ch, (u32 *)(unsigned long)gain);
+}
+
+static u8 *t33_g14_yspp[4];		/* ysp_paramsP */
 #define T33_I9B_GLUE	1
 #define t33_rdns_init	t33_i9b_rdns_init
 #define t33_dmsc_init	t33_i9b_dmsc_init
@@ -317,7 +392,8 @@ extern u8 *ysp_paramsP[4];
 #define tparamsP	t33_g14_tp8
 #define tisp_rcfg_module_register	t33_g14_reg
 #define private_kmalloc	t33_g14_kmalloc
-#define private_vmalloc	vmalloc
+#define private_vmalloc	t33_g14_vmalloc
+#define ysp_paramsP	t33_g14_yspp
 #define system_irq_func_set	t33_g14_irq_v
 #define tisp_rcfg_rdns_reg_init	NULL
 #define tisp_rcfg_dmsc_reg_init	NULL
@@ -333,6 +409,7 @@ extern u8 *ysp_paramsP[4];
 #undef tisp_rcfg_module_register
 #undef private_kmalloc
 #undef private_vmalloc
+#undef ysp_paramsP
 #undef system_irq_func_set
 #undef tisp_rcfg_rdns_reg_init
 #undef tisp_rcfg_dmsc_reg_init
@@ -356,6 +433,42 @@ static void t33_g14_dmsc_init(const u8 *sec)
 	t33_i9b_dmsc_init(0, t33_st_isp_init_par_mode);
 	t33_g14_runs[7]++;
 	t33_bst_refresh[T33_BST_DMSC] = 0;
+	local_irq_restore(flags);
+}
+
+/*
+ * lib_tisp_init's tisp_rdns_init / tisp_ysp_init (g14-1) on the bin section, copied into its tparamsP slot
+ * (t33_rdns_sec / t33_ysp_sec; the switch copies the new bin's section there too).
+ */
+static void t33_g14_rdns_init(const u8 *sec)
+{
+	unsigned long flags;
+
+	if (!t33_mod_buf(T33_MOD_RDNS))
+		return;
+	t33_bst_hold(T33_BST_RDNS);
+	local_irq_save(flags);
+	memcpy(t33_rdns_sec, sec, sizeof(t33_rdns_sec));
+	t33_g14_tp8[0] = t33_rdns_sec - T33_TP_OFF_RDNS;
+	t33_i9b_rdns_init(0, t33_st_isp_init_par_mode);
+	t33_g14_runs[9]++;
+	t33_bst_refresh[T33_BST_RDNS] = 0;
+	local_irq_restore(flags);
+}
+
+static void t33_g14_ysp_init(const u8 *sec)
+{
+	unsigned long flags;
+
+	if (!t33_mod_buf(T33_MOD_YSP))
+		return;
+	t33_bst_hold(T33_BST_YSP);
+	local_irq_save(flags);
+	memcpy(t33_ysp_sec, sec, sizeof(t33_ysp_sec));
+	t33_g14_tp8[0] = t33_ysp_sec - T33_YSP_SEC;
+	t33_i9b_ysp_init(0, t33_st_isp_init_par_mode);
+	t33_g14_runs[11]++;
+	t33_bst_refresh[T33_BST_YSP] = 0;
 	local_irq_restore(flags);
 }
 
