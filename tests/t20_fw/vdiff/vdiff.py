@@ -604,6 +604,8 @@ def fmt(v):
 
 # findings the DIS-on scenario reaches (open issues): reported, not counted
 KNOWN_GEN = {}     # #602 fixed (was: adjust_exposure dereferenced NULL)
+# --ext (scen_ext.py, #539 vendor proof): functions with a filed finding, not counted while the issue is open
+KNOWN_EXT = {'orientation_hflip': 624, 'apical_interrupt_frame_end': 624}
 KNOWN_DIS = {}     # #582 fixed (was: gauss v2, dis_analyze, dis_analyze_stats, apical_fw_process, apical_isp_process_events)
 # findings of the mutation fuzz (--mut) with a filed issue: a diff of that function, or a vendor trap located in it
 # (reached through apical_fw_process / apical_isp_process_events), is listed as known and not counted
@@ -634,6 +636,8 @@ def main():
                          'and not counted (KNOWN_DIS), remove the entry when the issue is fixed')
     ap.add_argument('--gen', action='store_true',
                     help='append the general-FSM scenario (gen_steps): general_frame_start -> adjust_exposure')
+    ap.add_argument('--ext', default='',
+                    help='append extra scenarios of scen_ext.py (comma list: night,dn,wdr,flicker,tuning; #539 vendor proof)')
     ap.add_argument('--traps', action='store_true',
                     help='model the MIPS trap instructions (default only with --mut / --gen: the hooks double the run time)')
     ap.add_argument('--no-seq', action='store_true',
@@ -643,7 +647,7 @@ def main():
     emu.selftest_traps()
     D = Diff(a.vendor, a.ours, a.calib, a.v, a.sdk)
     D.seq = not a.no_seq
-    D.traps = bool(a.mut or a.traps or a.gen)
+    D.traps = bool(a.mut or a.traps or a.gen or a.ext)
     D.skip_mut = set(filter(None, a.skip_mut.split(',')))
     nfz = 0
     if a.fuzz:
@@ -677,6 +681,9 @@ def main():
             return 1 if nfz else 0
     only = set(a.only.split(',')) if a.only else None
     steps = scenario.scenario(not a.short, a.dis, a.gen)
+    if a.ext:
+        import scen_ext
+        steps += scen_ext.steps([x for x in a.ext.split(',') if x])
     dis0 = next((i for i, st in enumerate(steps) if st[0] == 'mark'), len(steps))
     gen0 = next((i for i, st in enumerate(steps) if st[:2] == ('mark', 'gen')), len(steps))
     snaps = D.record(steps, only)
@@ -684,6 +691,11 @@ def main():
         known = [x for x in D.sys_log if x[0] >= dis0]
         D.sys_log = [x for x in D.sys_log if x[0] < dis0]
         print('SYS steps diverging in the DIS scenario (KNOWN %s): %d' % (sorted(set(KNOWN_DIS.values())), len(known)))
+    ext0 = next((i for i, st in enumerate(steps) if st[0] == 'mark' and str(st[1]).startswith('ext:')), len(steps))
+    if a.ext and KNOWN_EXT:
+        known = [x for x in D.sys_log if x[0] >= ext0]
+        D.sys_log = [x for x in D.sys_log if x[0] < ext0]
+        print('SYS steps diverging in the extra scenarios (KNOWN %s): %d' % (sorted(set(KNOWN_EXT.values())), len(known)))
     if a.gen and KNOWN_GEN:
         known = [x for x in D.sys_log if x[0] >= gen0]
         D.sys_log = [x for x in D.sys_log if x[0] < gen0]
@@ -704,6 +716,9 @@ def main():
         # vendor leaves stale registers in v0 of void functions, and a
         # return value that matters shows up in the caller's comparison
         bad = [(s, d) for s, d in rs if d and not all(x.startswith('ret ') for x in d)]
+        if a.ext and bad and fn in KNOWN_EXT and all(st.step >= ext0 for st, _ in bad):
+            print('KNOWN %-44s differing=%d (#%d, extra scenario)' % (fn, len(bad), KNOWN_EXT[fn]))
+            continue
         if a.gen and bad and fn in KNOWN_GEN:
             print('KNOWN %-44s differing=%d (#%d)' % (fn, len(bad), KNOWN_GEN[fn]))
             continue
