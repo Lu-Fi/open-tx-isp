@@ -8,10 +8,17 @@ marked otherwise. Release tags `vYYYY.MM.DD[-rcN]` are set on the `aperto` branc
 
 - `driver/t20/tx_isp_t20_firmware.c` (T10 + T20) and `driver/t30/tx_isp_t30_recovered.c`: the vendor `register_address` / `register_source` (T10 0x1c8c0 / 0x1c958, T20 0x1c730 / 0x1c7c8, T30 0x23160 / 0x231f8) store 0 to `*result` in the delay slot of the first branch, so also for an invalid direction (return 2). Ours cleared it only for SET. `vdiff --mut` flagged `register_address` (10/150, stack result word vendor 0, ours untouched), also on the base code; it was a real difference, not a harness artefact.
 - Evidence: `vdiff --mut 300 --traps` on register_address/size/source/value 0/300 (T10 and T20 vendor ko), vdiff default and `--dis` 0 diffs; objects: only register_address and register_source differ (T10 442, T20 442, T30 837 functions SAME), same instruction count as the vendor; make -C tests check, make delift. No device run (an invalid-direction call is not reachable from libimp's normal flow).
+
 ## 2026-11-16: T33 RDNS list written in the vendor frame at high gain: AE events after the DG write (openimp #618; QEMU)
 
 - `driver/t33/tx_isp_t33_aec.c`: the AE chain's `tisp_ae_long_ev_alloc` port emitted its events (tgain 4, EV 6) synchronously inside the allocation, and the DG word (list 5 slots 3 / 4) was only written after it. The vendor writes the DG list first and only queues the events (`tisp_event_push`); the ISP event thread runs the block updates after the interrupt. `func_rdns_para_update` reads the DG list slot, so our RDNS slot 6 (0x260a0, `(dg >> 4) << 16 | blc`) carried the previous frame's DG and the list showed each value one frame after the vendor. The events of the allocation now wait in a small queue (`aec_evq`) until `t33_dg_list_set` ran, then run in their order before the calc (event 1), as in the vendor event queue.
 - Evidence (QEMU T33L cv2005, vendor tx-isp-t33.ko vs ours, same libimp/bin): dim scene (`image-sensor light=3 raw-r=130 raw-b=166`, AE at max) day and day->night->day: list 3 per frame = vendor (before: 0x260a0 one frame late from fe32), exposure equal, all other lists unchanged (only the known L15 0xd018 / L21 #507 rows); normal-light day / switch: lists = vendor as before; rmmod 0 oops; make -C tests check rc 0. T32 build untouched (the file is T33-only).
+
+## 2026-11-16: T33 port loop round 9: 26 T32-namesake functions (init group, rdns par_refresh, dpc_l_gain_update, bin_data_parse, deinits) proven against the T33 binary (openimp #99; host only)
+
+- 10 new blocks in `tests/t33_binoracle/` (i9A i9B i9C i9D i9E i9G i9H i9I i9K i9L) with ports `driver/t32/tx_isp_t33_<block>.h`: `tisp_{ydns,sdns,cdns,rdns,dmsc,ysp,gsm,dma,rcfg,top,top_ipc,af,gamma,lsc,ae,dpc}_init`, `tisp_rdns_par_refresh`, `tisp_dpc_l_gain_update`, `tisp_bin_data_parse`, `tisp_{ydns,sdns,cdns,rdns,dmsc,dpc,ysp}_deinit`. Vendor `tx-isp-t33.ko` function and our C side by side in Unicorn, full N 2000, every mutant detected.
+- No vendor mismatch found. Not done: `tisp_mdns_par_refresh` (88 KB), `tisp_dmsc_par_refresh`, `tisp_ysp_par_refresh`, `tisp_awb_init` / `tisp_defog_init` (two failed attempts), the accessor group (`tisp_ae_face_*`, `tisp_[gs]_antiflick`, ...).
+- Ports and oracle blocks only: no driver code changed (no driver source includes the new headers), T32 and T33 ko identical; not wired (vendor block-state layer, #504 / #507).
 
 ## 2026-11-15: T33 port loop round 8: 38 T32-namesake functions on the per-frame / gain / day-night / tuning paths proven against the T33 binary (openimp #99; host only)
 
