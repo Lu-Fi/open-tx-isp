@@ -1570,7 +1570,7 @@ static void t33_gamma_attach(const u8 *sec, const u8 *tab, u32 tabbytes)
 	t33_gamma_runs[0]++;
 }
 
-static u32 t33_tmo_v[T33_TMO_WORDS], t33_mdns_v[T33_MDNS_WORDS];
+static u32 t33_mdns_v[T33_MDNS_WORDS];
 #define tispTopRefresh t33_top_refresh	/* the vendor name of the TOP refresh state (tx_isp_t33_top.h) */
 #include "tx_isp_t33_bst.h"
 
@@ -1750,6 +1750,274 @@ u32 t33_module_control_get(u32 ch)
 	return t33_top_get_bypass(ch) & 0x3fffffU;
 }
 
+#include "tx_isp_t33_intp2.h"
+#include "tx_isp_t33_r13A.h"
+#include "tx_isp_t33_tmoR.h"
+#include "tx_isp_t33_tmoSW.h"
+
+/*
+ * g16-1, TMO init: lib_tisp_init's tisp_tmo_init (oracle block tmoR) on the vendor-layout tmoInfo[0]
+ * (t33_swg_tmo_info), section = tparamsP + 10140 (t33_swg_tmo_sec, the bin's section copy), par = stIspInitPar
+ * of channel 0 with the sensor size (u16 width / height at 12 / 14, EV words 920 / 924 = fstframe_defaultp).
+ * Callees: tisp_tmo_tmo_size_update / _modechange_stat_refresh (tmoP), func_bin_para_update /
+ * func_tmo_ic_para_update / tisp_tmo_s2s3_ddrV_init (tmoA), tisp_{ev,bv}_intp_{uint8,int8,uint16}_t (blk, intp,
+ * intp2), tisp_tmo_tmo_lumcurve_ev_interp / _satcurve_ev_interp / _ramY_vi0_reg_refresh / _ramV_vi0_reg_refresh /
+ * _rcfg_reg_num_disV (r13A).  tisp_tmo_drc_ctrl (not ported) returns at once while the u16 at 10840 is not 1
+ * (vendor e055c; the init zeroes it, DRC never on in this driver): counted when it is.  The V table buffer
+ * (kmalloc 6000) = t33_tmo_pages (KSEG0, + 0x80000000 = its physical address as the vendor computes it).
+ * tisp_t33_tmo_rcfg_reg_num: the vendor sets 1701 before the register and its reg_init writes it as the
+ * length; the driver's list page holds 1024 words, so the register keeps the short layout and disV sets the
+ * vendor's final 196 (the list run is the same); slot stores before disV go to the page unchecked as in the
+ * vendor's tisp_reg_write_t33.  irqs 9 / 42 / 11: the driver's fixed set-up (counted when they differ).
+ * Before: the driver-form list builder t33_tmo_init (tx_isp_t33_tmo.h) on a separate state.
+ */
+static const u16 t33_tmo_curve_x[201] = {	/* static_tmo_curve_x (vendor .data +36544, 402 bytes) */
+	0, 508, 1018, 1528, 2038, 2548, 3057, 3566, 4075, 4584, 4839, 5094, 5350, 5478, 5606, 5733,
+	5861, 5925, 5989, 6053, 6117, 6180, 6244, 6308, 6372, 6404, 6436, 6468, 6500, 6532, 6564, 6596,
+	6628, 6660, 6692, 6724, 6756, 6788, 6820, 6852, 6884, 6900, 6917, 6933, 6949, 6965, 6981, 6997,
+	7013, 7029, 7045, 7061, 7077, 7093, 7110, 7126, 7142, 7158, 7174, 7190, 7206, 7222, 7239, 7255,
+	7271, 7287, 7303, 7319, 7336, 7352, 7368, 7384, 7400, 7409, 7417, 7425, 7433, 7441, 7449, 7457,
+	7465, 7473, 7482, 7490, 7498, 7506, 7514, 7522, 7530, 7538, 7547, 7555, 7563, 7571, 7579, 7587,
+	7595, 7603, 7612, 7620, 7628, 7636, 7644, 7652, 7661, 7669, 7677, 7685, 7693, 7701, 7710, 7718,
+	7726, 7734, 7742, 7751, 7759, 7767, 7775, 7784, 7792, 7800, 7808, 7817, 7825, 7833, 7841, 7850,
+	7858, 7866, 7875, 7883, 7891, 7900, 7908, 7916, 7924, 7929, 7933, 7937, 7941, 7945, 7949, 7954,
+	7958, 7962, 7966, 7970, 7974, 7979, 7983, 7987, 7991, 7995, 7999, 8004, 8008, 8012, 8016, 8020,
+	8024, 8028, 8033, 8037, 8041, 8045, 8049, 8053, 8058, 8062, 8066, 8070, 8074, 8078, 8083, 8087,
+	8091, 8095, 8099, 8103, 8108, 8112, 8116, 8120, 8124, 8128, 8132, 8137, 8141, 8145, 8149, 8153,
+	8157, 8161, 8166, 8170, 8174, 8178, 8182, 8186, 8191,
+};
+static u8 t33_swg_tmo_sec[T33_TMO_SEC_BYTES], t33_swg_tmo_refresh;	/* tparamsP + 10140, tispTmoRefresh */
+static u8 *t33_g16_tmo_info[4] = { (u8 *)t33_swg_tmo_info }, *t33_g16_tmo_tp[4];
+static u8 t33_g16_tmo_par[928];		/* stIspInitPar of channel 0 + the sensor size */
+static u16 t33_g16_tmo_regnum;		/* tisp_t33_tmo_rcfg_reg_num as tisp_tmo_init sets it (1701) */
+u32 t33_g16_runs[4];			/* tmo init, irq mismatches, DRC on (drc_ctrl not ported), bad slots */
+
+static const u8 *t33_g16_curve_x(void)
+{
+	return (const u8 *)t33_tmo_curve_x;	/* LE u16 like the vendor's .data (MIPS el) */
+}
+
+/* tisp_tmo_drc_ctrl: returns at once with the u16 at 10840 != 1 (vendor e055c) */
+static void t33_g16_tmo_drc(u32 ch)
+{
+	t33_g16_runs[2] += ((u16 *)t33_swg_tmo_info)[10840 / 2] == 1;
+	(void)ch;
+}
+
+/* tisp_reg_write_t33 on list 8 at init: the slot of the page (no length check, as the vendor) or the register */
+static void t33_g16_tmo_wr(u32 ch, u32 blk, u32 reg, u32 val)
+{
+	u32 *l;
+
+	(void)ch;
+	if (!t33_bst_cfg_mode) {
+		isp_wr(reg, val);
+		return;
+	}
+	l = (blk == T33_MOD_TMO && (t33_mod_built & (1ULL << T33_MOD_TMO))) ? t33_mod_buf(T33_MOD_TMO) : NULL;
+	if (l && reg + 1 < T33_SLOT_WORDS)
+		l[reg + 1] = val;
+	else
+		t33_g16_runs[3]++;
+}
+
+static void t33_g16_tmo_sysw(u32 reg, u32 val)
+{
+	isp_wr(reg, val);
+}
+
+static void t33_g16_tmo_v23(u32 ch)
+{
+	(void)ch;	/* tisp_tmo_ramV_vi23_reg_ctrl / _refresh: sensor modes >= 3 only (not supported) */
+}
+
+static const struct t33_r13a_ops t33_g16_r13a_init = {
+	t33_g16_tmo_drc, t33_g16_tmo_wr, t33_g16_tmo_sysw, t33_g16_tmo_v23,
+};
+
+static int t33_g16_tmo_reg(u32 ch, u32 id)
+{
+	return t33_g14_reg(ch, id, NULL);
+}
+
+static void t33_g16_tmo_regfail(void)
+{
+	t33_g14_reg_fail(16, -1);
+}
+
+static void *t33_g16_tmo_kmalloc(u32 size, u32 flags)
+{
+	(void)flags;
+	if (size == 10848) {
+		memset(t33_swg_tmo_info, 0, sizeof(t33_swg_tmo_info));
+		return t33_swg_tmo_info;
+	}
+	if (size == T33_TMO_V_BYTES && t33_tmo_pages)
+		return (void *)t33_tmo_pages;
+	return NULL;
+}
+
+static void t33_g16_tmo_allocfail(void)
+{
+	t33_g14_alloc_fail(16);
+}
+
+static void t33_g16_tmo_size(u32 ch)
+{
+	u32 *v = (u32 *)t33_g16_tmo_info[ch & 3];
+
+	t33_tmop_size_update(v, (u8 *)(unsigned long)v[T33_TMOA_SEC_PTR / 4], t33_g16_tmo_par);
+}
+
+static u32 t33_g16_tmop_rd(u32 a)
+{
+	return isp_rd(a);
+}
+
+static void t33_g16_tmop_soft(u32 ch)
+{
+	(void)ch;
+}
+
+static void t33_g16_tmop_sync(u32 a0, void *p, u32 n, u32 d)
+{
+	(void)a0;
+	(void)d;
+	dma_cache_wback_inv((unsigned long)p, n);
+}
+
+static void t33_g16_tmop_copy(void *d, const void *s, u32 n)
+{
+	memcpy(d, s, n);
+}
+
+static const struct t33_tmop_ops t33_g16_tmop_ops = {
+	t33_g16_tmop_rd, t33_g16_tmo_sysw, t33_g16_tmop_soft, t33_g16_tmop_sync, t33_g16_tmop_copy,
+};
+
+static void t33_g16_tmo_mode(u32 ch)
+{
+	t33_tmop_mode_refresh((u32 *)t33_g16_tmo_info[ch & 3], t33_g16_curve_x(), &t33_g16_tmop_ops);
+}
+
+static void t33_g16_tmo_bin(u32 ch)
+{
+	u32 *v = (u32 *)t33_g16_tmo_info[ch & 3];
+
+	t33_tmo_bin_para(v, (const u8 *)(unsigned long)v[T33_TMOA_SEC_PTR / 4]);
+}
+
+static u32 t33_g16_ev_u8(u32 x, const u8 *e, const u8 *t)
+{
+	return t33_ev_intp_u8(x, e, t);
+}
+
+static u32 t33_g16_ev_s8(u32 x, const u8 *e, const u8 *t)
+{
+	return (u32)t33_ev_intp_s8(x, e, t);
+}
+
+static u32 t33_g16_ev_u16(u32 x, const u8 *e, const u8 *t)
+{
+	return t33_ev_intp_u16(x, e, t);
+}
+
+static u32 t33_g16_bv_u8(u32 x, const u8 *e, const u8 *t)
+{
+	return t33_bv_intp_u8(x, e, t);
+}
+
+static u32 t33_g16_bv_s8(u32 x, const u8 *e, const u8 *t)
+{
+	return (u32)t33_bv_intp_s8(x, e, t);
+}
+
+static u32 t33_g16_bv_u16(u32 x, const u8 *e, const u8 *t)
+{
+	return t33_bv_intp_u16(x, e, t);
+}
+
+static void t33_g16_tmo_lum(u32 ch)
+{
+	t33_tmo_lumcurve_interp(t33_g16_tmo_info[ch & 3], t33_g16_curve_x());
+}
+
+static void t33_g16_tmo_sat(u32 ch)
+{
+	t33_tmo_satcurve_interp(t33_g16_tmo_info[ch & 3]);
+}
+
+static void t33_g16_tmo_ic(u32 ch)
+{
+	t33_tmo_ic_para((u32 *)t33_g16_tmo_info[ch & 3]);
+}
+
+static void t33_g16_tmo_ramy(u32 ch)
+{
+	t33_tmo_ramy_refresh(&t33_g16_r13a_init, t33_g16_tmo_info, t33_bst_cfg_mode, ch & 3);
+}
+
+/* tisp_tmo_s2s3_ddrV_init: the packed V table into the buffer, private_dma_cache_sync (0, buf, 6000, 1) */
+static void t33_g16_tmo_ddrv(u32 ch)
+{
+	const u8 *info = t33_g16_tmo_info[ch & 3];
+	u32 *out = (u32 *)(unsigned long)t33_le32(info + T33_TMOA_DDRV_PTR);
+
+	if (!out)
+		return;
+	t33_tmo_ddrv_pack(info, out);
+	dma_cache_wback_inv((unsigned long)out, T33_TMO_V_BYTES);
+}
+
+/* tisp_tmo_rcfg_reg_num_disV: stModuleAttr's list page pointer = the driver's list 8 page */
+static void t33_g16_tmo_disv(u32 ch)
+{
+	static u8 attr[236] __aligned(4);	/* stModuleAttr of channel 0 up to the list page pointer */
+	u32 *l = t33_mod_buf(T33_MOD_TMO);
+
+	if (!l || (ch & 0xff))
+		return;
+	*(u32 *)(attr + 232) = (u32)(unsigned long)l;
+	t33_tmo_rcfg_reg_num_disV(attr, &t33_tmo_reg_num, 0);
+}
+
+static void t33_g16_tmo_vi0(u32 ch)
+{
+	t33_tmo_ramv_refresh(&t33_g16_r13a_init, t33_g16_tmo_info, t33_le32((const u8 *)t33_st_isp_init_par_mode + 904),
+			     t33_bst_cfg_mode, ch & 3);
+}
+
+static void t33_g16_tmo_irq(u32 ch, u32 irq)
+{
+	(void)ch;
+	t33_g16_runs[1] += irq != 9U && irq != 42U && irq != 11U;
+}
+
+static const struct t33_tmoR_ops t33_g16_tmoR_ops = {
+	.module_register = t33_g16_tmo_reg, .warn_register = t33_g16_tmo_regfail, .kmalloc = t33_g16_tmo_kmalloc,
+	.warn_alloc = t33_g16_tmo_allocfail, .reg_write = t33_g16_tmo_wr, .sys_write = t33_g16_tmo_sysw,
+	.size_update = t33_g16_tmo_size, .modechange = t33_g16_tmo_mode, .bin_update = t33_g16_tmo_bin,
+	.intp = { { t33_g16_ev_u8, t33_g16_ev_s8, t33_g16_ev_u16 }, { t33_g16_bv_u8, t33_g16_bv_s8, t33_g16_bv_u16 } },
+	.lumcurve = t33_g16_tmo_lum, .satcurve = t33_g16_tmo_sat, .ic_para = t33_g16_tmo_ic, .ramy = t33_g16_tmo_ramy,
+	.ddrv_init = t33_g16_tmo_ddrv, .vi23_ctrl = t33_g16_tmo_v23, .vi23_refresh = t33_g16_tmo_v23,
+	.disv = t33_g16_tmo_disv, .vi0_refresh = t33_g16_tmo_vi0, .irq_set = t33_g16_tmo_irq,
+};
+
+/* lib_tisp_init's tisp_tmo_init (ch 0); s the bin's TMO section */
+static noinline_for_stack void t33_g16_tmo_init(const u8 *s, u32 width, u32 height)
+{
+	u32 iadam;
+
+	memcpy(t33_swg_tmo_sec, s, sizeof(t33_swg_tmo_sec));
+	memcpy(t33_g16_tmo_par, t33_st_isp_init_par_mode, sizeof(t33_g16_tmo_par));
+	t33_defog_put16(t33_g16_tmo_par + 12, (u16)width);
+	t33_defog_put16(t33_g16_tmo_par + 14, (u16)height);
+	t33_g16_tmo_tp[0] = t33_swg_tmo_sec - T33_TMOSW_SEC_OFF;
+	t33_tmoR_init(&t33_g16_tmoR_ops, 0, t33_g16_tmo_par, t33_g16_tmo_info, t33_g16_tmo_tp, &t33_bst_cfg_mode,
+		      &t33_swg_tmo_refresh, (const u8 *)t33_st_isp_init_par_mode, &iadam, &t33_g16_tmo_regnum);
+	t33_g16_runs[0]++;
+}
+
 #define T33_INIT_EV	0xffffffffU	/* the vendor's EV before the first AE run */
 
 #define T33_MOD_VB(blk, BLK, v)								\
@@ -1768,23 +2036,11 @@ static noinline_for_stack void t33_tisp_init_tone(const u8 *bin, u32 bytes)
 
 	off = t32_iq_section(bin, bytes, T33_SEC_TMO, &len);
 	if (off && len == T33_TMO_SEC_BYTES && !t32_core_sensor_size(&width, &height)) {
-		u32 *buf = t33_mod_buf(T33_MOD_TMO), *vt, i;
-
 		if (!t33_tmo_pages)
 			t33_tmo_pages = t32_dma_zpages(T33_TMO_ORDER);
-		if (buf && t33_tmo_pages) {
-			/* the V table uncached, then the vendor's direct writes (0x7094, V ram) */
-			vt = (u32 *)CKSEG1ADDR(virt_to_phys((void *)t33_tmo_pages));
-			t33_tmo_vtable(vt);
-			t33_mod_done(T33_MOD_TMO, t33_tmo_init(bin + off, width, height, T33_CCM_INIT_EV,
-							       (u32)virt_to_phys((void *)t33_tmo_pages), t33_tmo_v,
-							       buf, T33_SLOT_WORDS));
-			isp_wr(0x7094, 1);
-			isp_wr(0x32260, 0x101);
-			for (i = 0; i < T33_TMO_V_WORDS; i++)
-				isp_wr(0x32264, vt[i]);
-			isp_wr(0x32260, 0x10102);
-		}
+		/* tisp_tmo_init (group 16): the V table buffer, then the vendor's init incl. its direct writes */
+		if (t33_tmo_pages)
+			t33_g16_tmo_init(bin + off, width, height);
 	}
 	if (!t32_core_sensor_size(&width, &height)) {
 		u32 *buf = t33_mod_buf(T33_MOD_MSCA), i;
@@ -1954,6 +2210,8 @@ void t33_stats_show(struct seq_file *m)
 	t33_aec_show(m);
 	seq_printf(m, "t33 lce/lsf: irq8 %u irq30 %u curves %u list16 %u list37 %u ev %u\n", t33_lcepf_irq8s,
 		   t33_lcepf_irq30s, t33_lcepf_curves, t33_lcepf_lce_runs, t33_lcepf_lsf_runs, t33_lcepf_evs);
+	seq_printf(m, "t33 tmo: init %u irq %u drc %u bad %u regnum %u/%u\n", t33_g16_runs[0], t33_g16_runs[1],
+		   t33_g16_runs[2], t33_g16_runs[3], t33_g16_tmo_regnum, t33_tmo_reg_num);
 	seq_printf(m, "t33 tmo oneshot: disable %u enable %u tick %u\n", t33_tmo1s_runs[0], t33_tmo1s_runs[1],
 		   t33_tmo1s_runs[2]);
 	seq_printf(m, "t33 blc: %s init %u gain %u switch %u fd %u refresh %u\n", blc_para[0] ? "on" : "off",
@@ -3494,20 +3752,16 @@ static int tisp_lsc_write_reg(u32 idx, u32 mode)
 }
 
 #include "tx_isp_t33_swmid.h"
-#include "tx_isp_t33_tmoSW.h"
 
 /*
- * tisp_tmo_switch_para (oracle block tmoSW) on a vendor-layout tmoInfo block (t33_swg_tmo_info, 10880 bytes):
- * words 0..0xab0 the driver's TMO state (t33_tmo_v), 2732 the section pointer (a private copy of the new
- * section, tparamsP + 10140), 2736 / 3138 the u16 Y / saturation curves, 10808 / 10812 / 10816 the EV and BV
- * of tisp_tmo_ev_update (ev >> 10, ev >> 42, BV 0 as at init), 10840 / 10844 DRC off (as at init).
+ * tisp_tmo_switch_para (oracle block tmoSW) on the vendor-layout tmoInfo[0] (t33_swg_tmo_info, 10880 bytes) that
+ * tisp_tmo_init built (group 16): 2732 the section pointer (a private copy of the new section, tparamsP + 10140),
+ * 10808 / 10812 / 10816 the EV and BV of tisp_tmo_ev_update (ev >> 10, ev >> 42, BV 0 as at init).
  * Callees: func_bin_para_update / func_tmo_ic_para_update = the oracle-proven tmoA ports;
- * tisp_tmo_tmo_lumcurve_ev_interp / _satcurve_ev_interp = the curve blend of t33_tmo_init (both curves also
- * as u16 like the vendor); tisp_tmo_ramY_vi0_reg_refresh = tisp_tmo_drc_ctrl (DRC off: no change) and the
- * Y curve slots 91..195 (cfg mode) from the u16 curve; tisp_reg_write_t33 = the slot into a copy of list 8,
- * committed after the call (t33_gr_commit); system_reg_write = the direct register write.
+ * tisp_tmo_tmo_lumcurve_ev_interp / _satcurve_ev_interp / _ramY_vi0_reg_refresh = the r13A ports (drc_ctrl: DRC
+ * off, see group 16); tisp_reg_write_t33 = the slot into a copy of list 8, committed after the call
+ * (t33_gr_commit); system_reg_write = the direct register write.
  */
-static u8 t33_swg_tmo_sec[T33_TMO_SEC_BYTES], t33_swg_tmo_refresh;
 #define T33_TI(o_)	t33_swg_tmo_info[(o_) / 4]
 #define T33_TI16(o_)	((u16 *)t33_swg_tmo_info)[(o_) / 2]
 
@@ -3517,31 +3771,14 @@ static void t33_swg_tmo_bin(u32 ch)
 	t33_tmo_bin_para(t33_swg_tmo_info, (const u8 *)(unsigned long)T33_TI(T33_TMOA_SEC_PTR));
 }
 
-static void t33_swg_tmo_curve(u32 ch, int sat)
-{
-	static const u16 lt[11] = { 0x124a, 0x13dc, 0x428, 0x5ba, 0x74c, 0x8de, 0xa70, 0xc02, 0xd94, 0xf26, 0x10b8 };
-	const u8 *s = (const u8 *)(unsigned long)T33_TI(T33_TMOA_SEC_PTR);
-	u32 f, k, i, a, b, r;
-
-	(void)ch;
-	t33_tmo_curve_pick(s, T33_TI(10808), T33_TI(10812), T33_TI(10816), &f, &k);
-	for (i = 0; i < (sat ? 25U : 201U); i++) {
-		a = t32_tp_le16(s + (sat ? 0x1a4 + 0x32 * k : lt[k]) + 2 * i);
-		b = t32_tp_le16(s + (sat ? 0x1d6 + 0x32 * k : lt[k + 1]) + 2 * i);
-		r = (u32)((int)(a * f + (0x100 - f) * b) / 0x100) & 0xffff;
-		T33_TI((sat ? 0x8c : 0x1c0) + 4 * i) = r;
-		T33_TI16((sat ? 3138 : 2736) + 2 * i) = (u16)r;
-	}
-}
-
 static void t33_swg_tmo_lum(u32 ch)
 {
-	t33_swg_tmo_curve(ch, 0);
+	t33_g16_tmo_lum(ch);	/* tisp_tmo_tmo_lumcurve_ev_interp (r13A) */
 }
 
 static void t33_swg_tmo_sat(u32 ch)
 {
-	t33_swg_tmo_curve(ch, 1);
+	t33_g16_tmo_sat(ch);	/* tisp_tmo_tmo_satcurve_ev_interp (r13A) */
 }
 
 static void t33_swg_tmo_ic(u32 ch)
@@ -3560,22 +3797,19 @@ static void t33_swg_tmo_wr(u32 ch, u32 blk, u32 reg, u32 val)
 		t33_bst_bad++;
 }
 
-/* tisp_tmo_ramY_vi0_reg_refresh: tisp_tmo_drc_ctrl (u16 10840 != 1: DRC off, curve kept), slots 91 / 93..193 / 195 */
-static void t33_swg_tmo_y(u32 ch)
-{
-	u32 i, base = t33_bst_cfg_mode ? 93 : 0x32274;
-
-	t33_swg_tmo_wr(ch, 8, t33_bst_cfg_mode ? 91 : 0x32270, 0x101);
-	for (i = 0; i < 100; i++)
-		t33_swg_tmo_wr(ch, 8, base + i, (T33_TI16(2736 + 4 * i + 2) & 0x1fff) << 16 |
-						 (T33_TI16(2736 + 4 * i) & 0x1fff));
-	t33_swg_tmo_wr(ch, 8, base + 100, (T33_TI16(3136) & 0x1fff) << 16 | (T33_TI16(3136) & 0x1fff));
-	t33_swg_tmo_wr(ch, 8, t33_bst_cfg_mode ? 195 : 0x32270, 0x10102);
-}
-
 static void t33_swg_tmo_sysw(u32 reg, u32 val)
 {
 	isp_wr(reg, val);
+}
+
+/* tisp_tmo_ramY_vi0_reg_refresh (r13A) with its slot stores into the copy of list 8 */
+static const struct t33_r13a_ops t33_swg_r13a_ops = {
+	t33_g16_tmo_drc, t33_swg_tmo_wr, t33_swg_tmo_sysw, t33_g16_tmo_v23,
+};
+
+static void t33_swg_tmo_y(u32 ch)
+{
+	t33_tmo_ramy_refresh(&t33_swg_r13a_ops, t33_g16_tmo_info, t33_bst_cfg_mode, ch & 3);
 }
 
 static const struct t33_tmosw_ops t33_swg_tmo_ops = {
@@ -3587,18 +3821,15 @@ static noinline_for_stack void t33_swg_tmo(const u8 *sec, unsigned long long ev)
 {
 	u32 *buf;
 
-	if (!(t33_mod_built & (1ULL << T33_MOD_TMO)) || !(buf = t33_mod_buf(T33_MOD_TMO)) ||
-	    t32_tp_le16(sec + 0x1634) != 0)	/* static curve mode: no list 8 (t33_tmo_init) */
+	if (!(t33_mod_built & (1ULL << T33_MOD_TMO)) || !(buf = t33_mod_buf(T33_MOD_TMO)))
 		return;
 	memcpy(t33_swg_tmo_sec, sec, sizeof(t33_swg_tmo_sec));
-	memcpy(t33_swg_tmo_info, t33_tmo_v, sizeof(t33_tmo_v));
 	T33_TI(10808) = (u32)(ev >> 10);
 	T33_TI(10812) = (u32)(ev >> 42);
 	T33_TI(10816) = 0;
 	memcpy(t33_gr_tmp, buf, T33_SLOT_WORDS * 4);
 	t33_tmo_switch_para(&t33_swg_tmo_ops, 0, t33_swg_tmo_sec - T33_TMOSW_SEC_OFF, t33_swg_tmo_info,
 			    t33_bst_cfg_mode, &t33_swg_tmo_refresh);
-	memcpy(t33_tmo_v, t33_swg_tmo_info, sizeof(t33_tmo_v));
 	t33_gr_commit(T33_MOD_TMO, 1);
 }
 #undef T33_TI
