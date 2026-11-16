@@ -780,6 +780,10 @@ int t33_bin_ldc_par(u32 ch, u8 *par)
 /* defog statistics area (four 2 KiB parts, 0xa210..0xa21c), written by the core */
 static unsigned long t33_defog_pages;
 static u8 t33_defog_sec[T33_DEFOG_SEC_BYTES];
+static u8 *t33_defog_weight;		/* defog_weight[0] of tisp_defog_init (vmalloc) */
+static void t33_g15_defog_init(u32 width, u32 height);	/* tisp_defog_init (group 15, below) */
+extern u32 t33_g15_runs[3];
+static u32 t33_swg_defog_blk[14];		/* defog_info[0] (below) */
 #define T33_DEFOG_ORDER	get_order(T33_DEFOG_DMA_BYTES)
 /* LCE curve buffer (0xc0a4, written by us) and statistics buffer (0xc090.., by the core) */
 static unsigned long t33_lce_curve_pages, t33_lce_stat_pages;
@@ -827,6 +831,8 @@ static void t33_mod_free(void)
 	if (t33_defog_pages)
 		free_pages(t33_defog_pages, T33_DEFOG_ORDER);
 	t33_defog_pages = 0;
+	vfree(t33_defog_weight);
+	t33_defog_weight = NULL;
 	if (t33_lce_curve_pages)
 		free_pages(t33_lce_curve_pages, T33_LCE_CURVE_ORDER);
 	t33_lce_curve_pages = 0;
@@ -1969,6 +1975,8 @@ void t33_stats_show(struct seq_file *m)
 		   t33_g14_runs[11], t33_g14_runs[12]);
 	seq_printf(m, "t33 dpc: %s init %u gain %u switch %u refresh %u\n", t33_dpc_v[T33_DPC_SEC_WORD] ? "on" : "off",
 		   t33_g14_runs[13], t33_dpc_gains, t33_swg_runs[2], t33_bst_refresh[T33_BST_DPC]);
+	seq_printf(m, "t33 defog: %s init %u bad %u alloc %u\n", t33_swg_defog_blk[3] ? "on" : "off", t33_g15_runs[0],
+		   t33_g15_runs[1], t33_g15_runs[2]);
 }
 
 /* for ../t33/tx_isp_t33_awbc.c: register read, and the per-frame AWB results into lists 7 / 29 */
@@ -3059,23 +3067,12 @@ static void t33_tisp_init(const u8 *bin, u32 bytes)
 	}
 	off = t32_iq_section(bin, bytes, T33_SEC_DEFOG, &len);
 	if (off && len == T33_DEFOG_SEC_BYTES && !t32_core_sensor_size(&width, &height)) {
-		u32 *buf = t33_mod_buf(T33_MOD_DEFOG);
-
 		if (!t33_defog_pages)
 			t33_defog_pages = t32_dma_zpages(T33_DEFOG_ORDER);
-		/* a copy: weights for another size / zoom are recomputed into it */
+		/* tisp_defog_init (group 15): on a copy, weights for another size / zoom are recomputed into it */
 		memcpy(t33_defog_sec, bin + off, sizeof(t33_defog_sec));
-		if (t33_defog_weights_needed(t33_defog_sec, width, height)) {
-			u8 *m = vzalloc(t33_defog_scratch_bytes(width, height));
-
-			if (m)
-				t33_defog_count_weight(t33_defog_sec, width, height, m);
-			vfree(m);
-		}
-		if (buf && t33_defog_pages)
-			t33_mod_done(T33_MOD_DEFOG, t33_defog_init(t33_defog_sec, width, height,
-								   (u32)virt_to_phys((void *)t33_defog_pages),
-								   buf, T33_SLOT_WORDS));
+		if (t33_defog_pages)
+			t33_g15_defog_init(width, height);
 	}
 	off = t32_iq_section(bin, bytes, T33_SEC_AF, &len);
 	if (off && len == T33_AF_SEC_BYTES && !t32_core_sensor_size(&width, &height)) {
@@ -3293,8 +3290,8 @@ static void t33_sw_lce(const u8 *bin, u32 bytes)
 static u8 *t33_swg_tp8[4];
 static u8 t33_swg_csccr_sec[T32_CSCCR_BYTES];
 static u32 *t33_swg_csccr_info[4] = { t33_swg_csccr_blk };
-static u8 t33_swg_defog_tab[3184];	/* defog_info word 4: the para3 tables (bytes 2458..3177) */
-static u32 t33_swg_defog_blk[13], *t33_swg_defog_info[4] = { t33_swg_defog_blk };
+static u8 t33_swg_defog_tab[3948];	/* defog_info word 4 (tisp_defog_init: 3948 B; para3 tables 2458..3177) */
+static u32 t33_swg_defog_blk[14], *t33_swg_defog_info[4] = { t33_swg_defog_blk };
 /* tisp_ccm_interp_by_ct / _by_ev / no_interp / calc_para_refresh / write_reg: tx_isp_t33_ccmv.h */
 
 /* tisp_csccr_para_refresh_by_mode(mode, 0, section): the mode's range table into the section */
@@ -3371,6 +3368,123 @@ static int tisp_defog_write_reg_para3(u32 idx, u32 zero)
 						    (u32)virt_to_phys((void *)t33_defog_pages), t33_gr_tmp,
 						    T33_SLOT_WORDS));
 	return 0;
+}
+
+#include "tx_isp_t33_i9F.h"
+/*
+ * g15, DEFOG (list 12): lib_tisp_init's tisp_defog_init (port-loop block i9F, tx_isp_t33_i9F.h) on the vendor
+ * blocks: defog_info[0] = t33_swg_defog_blk (56 B: section, DMA buffer, its physical address, strength, the
+ * 3948 B table block t33_swg_defog_tab, sizes), the 8 KiB statistics buffer = t33_defog_pages (KSEG0, + 0x80000000
+ * = physical), defog_weight[0] (vmalloc), section = tparamsP + 23496 (t33_defog_sec copy).  The vendor's slot
+ * stores go through tisp_reg_write_t33 into the registered list 12; its callees: defog_count_weight35abc =
+ * t33_defog_count_weight (scratch = defog_weight), write_reg_para1 / write_reg_para2 / write_reg_para3 = the
+ * swmid-proven parts t33_defog_para1 / para2 (update_reg_para2 + write_reg_para2) / para3; interp_trans_k feeds
+ * the soft path only.  irq 10 / 47 and event 3: the driver's fixed set-up (counted when the numbers differ).
+ * Before: the init builder t33_defog_init into the list after a weight count on a vzalloc scratch.
+ */
+static u8 t33_g15_defog_b220[220];
+static u8 *t33_g15_defog_tp[4], *t33_g15_defog_info[4], *t33_g15_defog_wt[4];
+static u32 t33_g15_defog_max[4];
+static u8 t33_g15_defog_refresh;	/* tispDefogRefresh (list 12 starts with the init refresh set) */
+u32 t33_g15_runs[3];		/* defog init, irq / event number mismatches, allocation failures */
+
+static void *t33_g15_defog_kmalloc(u32 size, u32 flags)
+{
+	(void)flags;
+	switch (size) {
+	case sizeof(t33_swg_defog_blk):
+		memset(t33_swg_defog_blk, 0, sizeof(t33_swg_defog_blk));
+		return t33_swg_defog_blk;
+	case T33_DEFOG_DMA_BYTES:
+		return (void *)t33_defog_pages;
+	case sizeof(t33_swg_defog_tab):
+		return t33_swg_defog_tab;
+	case sizeof(t33_g15_defog_b220):
+		return t33_g15_defog_b220;
+	}
+	return NULL;
+}
+
+static void *t33_g15_defog_vmalloc(u32 size)
+{
+	vfree(t33_defog_weight);
+	t33_defog_weight = vmalloc(size);
+	return t33_defog_weight;
+}
+
+static void t33_g15_fill(void *p, u32 c, u32 n)
+{
+	if (p)
+		memset(p, (int)c, n);
+}
+
+static void t33_g15_copy(void *d, const void *s, u32 n)
+{
+	if (d)
+		memcpy(d, s, n);
+}
+
+static void t33_g15_defog_hook(u32 id, u32 a, u32 b, u32 c, u32 d)
+{
+	u32 *l = (t33_mod_built & (1ULL << T33_MOD_DEFOG)) ? t33_mod_buf(T33_MOD_DEFOG) : NULL;
+
+	switch (id) {
+	case T33_I9_RCFG:
+		if (t33_g14_reg(a, b, NULL))
+			t33_g14_reg_fail(15, -1);
+		break;
+	case T33_I9_ERR:
+		t33_g15_runs[2]++;
+		t33_g14_alloc_fail(15);
+		break;
+	case T33_I9_REGW:
+		tisp_reg_write_t33(a, b, c, d);
+		break;
+	case T33_I9_CNT_WEIGHT:	/* (ch, height, width, zoom): the section's weights for this size */
+		if (t33_defog_weight && t33_g15_defog_max[0] >= t33_defog_scratch_bytes(c, b)) {
+			memset(t33_defog_weight, 0, t33_g15_defog_max[0]);
+			t33_defog_count_weight(t33_defog_sec, c, b, t33_defog_weight);
+		}
+		break;
+	case T33_I9_PARA1:
+		if (l)
+			t33_defog_para1(t33_defog_sec, l);
+		break;
+	case T33_I9_PARA2_WR:
+		if (l)
+			t33_defog_para2(t33_defog_sec, l);
+		break;
+	case T33_I9_PARA3:
+		if (l)
+			t33_defog_para3(l);
+		break;
+	case T33_I9_IRQ:
+		t33_g15_runs[1] += b != 10U && b != 47U;
+		break;
+	case T33_I9_EVENT:
+		t33_g15_runs[1] += b != 3U;
+		break;
+	default:	/* interp_trans_k (soft path), update_reg_para2 (part of t33_defog_para2) */
+		break;
+	}
+}
+
+static const struct t33_i9_ops t33_g15_defog_ops = {
+	t33_g15_defog_kmalloc, t33_g15_defog_vmalloc, t33_g15_fill, t33_g15_copy, t33_g15_defog_hook,
+};
+
+static void t33_g15_defog_init(u32 width, u32 height)
+{
+	u8 sz[928];
+
+	/* stIspInitPar of channel 0 with the sensor size (u16 width / height at 12 / 14) */
+	memcpy(sz, t33_st_isp_init_par_mode, sizeof(sz));
+	t33_defog_put16(sz + 12, (u16)width);
+	t33_defog_put16(sz + 14, (u16)height);
+	t33_g15_defog_tp[0] = t33_defog_sec - 23496;
+	t33_defog_init_ctx(0, sz, t33_g15_defog_max, t33_g15_defog_wt, t33_g15_defog_info, t33_g15_defog_tp,
+			   &t33_bst_cfg_mode, &t33_g15_defog_refresh, &t33_g15_defog_ops);
+	t33_g15_runs[0]++;
 }
 
 /*
