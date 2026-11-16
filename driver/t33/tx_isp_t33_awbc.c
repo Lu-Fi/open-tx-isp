@@ -34,6 +34,9 @@
 #include "tx_isp_t32.h"
 #include "tx_isp_t33_awbalg.h"
 #include "tx_isp_t33_aemisc.h"
+#include "tx_isp_t33_awbQ.h"
+#include "tx_isp_t33_r11B.h"
+#include "tx_isp_t33_i9F.h"
 
 int isp_printf(unsigned int level, const char *fmt, ...);
 u32 t33_hw_rd(u32 reg);
@@ -77,30 +80,84 @@ static void awbc_ct_fn(struct work_struct *w)
 }
 static DECLARE_WORK(awbc_ct_work, awbc_ct_fn);
 
-static void *drv_alloc(void *p, u32 size)
-{
-	(void)p;
-	return size > 0x10000 ? vzalloc(size) : kzalloc(size, GFP_KERNEL);	/* the run state is 117 KiB */
-}
-static void drv_nop(void *p, u32 ch) { (void)p; (void)ch; }	/* no RISC-V AWB */
 /* tisp_awb_set_hardware_param: its list 29 words are in the init list; the state part here */
-static void drv_hw_param(void *p, u32 ch)
+static void drv_hw_param(void)
 {
-	(void)p;
-	(void)ch;
 	t33_awb_regional_threshold(&ai.a);
 	t33_awb_lum_th_freq(&ai.a);
 }
-static void drv_nop2(void *p, u32 ch, u32 v) { (void)p; (void)ch; (void)v; }
-static void drv_print(void *p, int ok)
+
+/*
+ * tisp_awb_init (group 15, port-loop block i9F, tx_isp_t33_i9F.h) on the vendor blocks: private_kmalloc by
+ * size = awbInfo[0] (awbv_blk), the ct_detect table, the hardware parameter block (awbv_aux, kept: the
+ * bytes of tisp_awb_malloc_info, which ran when list 29 was built), the run state, mode, the history block.
+ * Callees: tisp_awb_params_refresh = the proven awbQ port, tisp_awb_show_para_update = the proven r11B port,
+ * set_hardware_param = its state part (list 29 words are in the init list), set_gain = the T32 port (the
+ * start gains are in list 7); rcfg register, malloc_info, irq 3 / event 12, RISC-V: the driver's fixed set-up.
+ */
+static u8 *awbi_info[4], *awbi_ctd[4];
+static u32 awbi_runs[2];	/* init runs, irq / event number mismatches */
+static u8 *awbi_tp[4];
+static u8 awbi_riscv[4], awbi_g_refresh, awbi_refresh;
+
+static void *awbi_kmalloc(u32 size, u32 flags)
 {
-	(void)p;
-	if (!ok)
-		isp_printf(2, "tx-isp-t33: no memory for the AWB context\n");
+	(void)flags;
+	switch (size) {
+	case 24:
+		return awbv_blk;
+	case T33_AWBV_AUX_BYTES:
+		return awbv_aux;
+	case T32_AWBI_TBL_BYTES:
+		return ai.tbl = kzalloc(T32_AWBI_TBL_BYTES, GFP_KERNEL);
+	case 0x1345c:	/* the T33 run state; the T32-form struct over it is larger (T32-port words behind it) */
+		return ai.a.st = vzalloc(max_t(u32, sizeof(struct t32_awb_state), 0x1345cU));
+	case T32_AWBI_MODE_BYTES:
+		return ai.mode = kzalloc(T32_AWBI_MODE_BYTES, GFP_KERNEL);
+	case T32_AWBI_HW_BYTES:
+		return ai.a.hw = kzalloc(T32_AWBI_HW_BYTES, GFP_KERNEL);
+	}
+	return NULL;
 }
-static const struct t32_awb_init_ops drv_init_ops = {
-	NULL, drv_alloc, drv_nop, drv_hw_param, drv_nop2, drv_nop2, drv_print,
-};
+static void *awbi_vmalloc(u32 size) { (void)size; return NULL; }
+static void awbi_fill(void *p, u32 c, u32 n) { if (p) memset(p, (int)c, n); }
+static void awbi_copy(void *d, const void *s, u32 n) { if (d) memcpy(d, s, n); }
+static void awbi_hook(u32 id, u32 a, u32 b, u32 c, u32 d)
+{
+	struct t32_stats_write w[T32_AWB_MAX_WRITES];
+
+	(void)c; (void)d;
+	switch (id) {
+	case T33_I9_ERR:
+		isp_printf(2, "tx-isp-t33: no memory for the AWB context\n");
+		break;
+	case T33_I9_AWB_PARAMS:
+		if (ai.a.st)
+			t33_awbQ_params_refresh((u8 *)(unsigned long)b, ai.a.st->raw);
+		break;
+	case T33_I9_AWB_SHOW:
+		if (ai.a.hw)
+			t33_awb_show_para_update((struct t33_awb_ctx *const *)awbi_info, a);
+		break;
+	case T33_I9_HW:
+		if (ai.a.st && ai.a.hw)
+			drv_hw_param();
+		break;
+	case T33_I9_GAIN:
+		if (ai.a.st && ai.a.hw)
+			t32_awb_set_gain(&ai.a, w);
+		break;
+	case T33_I9_IRQ:
+		awbi_runs[1] += b != T32_AWBI_IRQ;
+		break;
+	case T33_I9_EVENT:
+		awbi_runs[1] += b != T32_AWBI_EVENT;
+		break;
+	default:	/* rcfg register 29 / 7, malloc_info, RISC-V: done by the driver / not used */
+		break;
+	}
+}
+static const struct t33_i9_ops awbi_ops = { awbi_kmalloc, awbi_vmalloc, awbi_fill, awbi_copy, awbi_hook };
 
 static u32 drv_rd(void *p, u32 reg) { (void)p; return t33_hw_rd(reg); }
 
@@ -289,9 +346,9 @@ static void awbc_set_hw_param(void)
  */
 int t33_awbc_attach(const u8 *sec, u32 len, u32 width, u32 height, const u8 *bufs)
 {
-	struct t32_stats_write w[T32_AWB_MAX_WRITES];
+	u8 sz[16] = { 0 };
 	u32 *stat;
-	int n, ret = 0;
+	int ret = 0;
 
 	cancel_work_sync(&awbc_work);
 	cancel_work_sync(&awbc_ct_work);
@@ -313,27 +370,26 @@ int t33_awbc_attach(const u8 *sec, u32 len, u32 width, u32 height, const u8 *buf
 		ret = -ENOMEM;
 		goto out;
 	}
-	n = t32_awb_init(&ai, 0, par_copy, width, height, 0, &drv_init_ops, w);
-	if (n < 0) {
-		ret = n;
+	memset(&ai, 0, sizeof(ai));
+	t33_aL_w16(sz, 12, width);
+	t33_aL_w16(sz, 14, height);
+	ai.a.par = (struct t32_awb_par *)par_copy;
+	awbi_tp[0] = par_copy - 3400;	/* the vendor par = tparamsP[ch] + 3400 */
+	t33_awb_init_ctx(0, sz, awbi_info, awbi_ctd, awbi_tp, (const u8 *)t32_awbi_gw_default, awbi_riscv,
+			 &awbi_g_refresh, &awbi_refresh, &awbi_ops);
+	awbi_runs[0]++;
+	if (!ai.tbl || !ai.a.st || !ai.mode || !ai.a.hw || !awbi_info[0] || !awbi_ctd[0]) {
+		ret = -ENOMEM;
 		goto out;
 	}
-	/* the T33 tisp_awb_init leaves the sat weight table zero (the T32 one sets it to 1) */
-	memset(ai.a.st->zt2, 0, sizeof(ai.a.st->zt2));
+	ai.a.st->spec_ring = -1;	/* the T32 spec_calculate port's ring slot (no word of the T33 state) */
 	ai.a.st->hist[0] = ai.a.hw->inv_r;
 	ai.a.st->hist[1] = ai.a.hw->inv_b;
-	t33_awb_aux_fill(ai.a.par->raw, awbv_aux);
 	t33_awb_tbl_set(ai.tbl, ai.a.st);
 	awbv.a = &ai.a;
 	awbv.ctd = ctd;
 	awbv.rd = drv_rd;
-	awbv_blk[T33_AWBV_PAR] = (u32)(unsigned long)ai.a.par;
-	awbv_blk[T33_AWBV_ST] = (u32)(unsigned long)ai.a.st;
-	awbv_blk[T33_AWBV_AUX] = (u32)(unsigned long)awbv_aux;
-	awbv_blk[T33_AWBV_MODE] = (u32)(unsigned long)ai.mode;
-	awbv_blk[T33_AWBV_HW] = (u32)(unsigned long)ai.a.hw;
-	awbv_blk[T33_AWBV_DROPS] = 0;
-	pst_awb_ct_detect[0] = (u32)(unsigned long)ai.tbl;
+	pst_awb_ct_detect[0] = (u32)(unsigned long)awbi_ctd[0];
 	awbInfo[0] = (u32)(unsigned long)awbv_blk;
 out:
 	if (ret)
@@ -375,10 +431,11 @@ void t33_awbc_show(struct seq_file *m)
 
 	mutex_lock(&awbc_lock);
 	info = (const u32 *)(unsigned long)awbInfo[0];
-	seq_printf(m, "t33 awb: %s frames %u drops %u refused %u ctd_bad %u gain r 0x%x b 0x%x ct %u tgain %u/0x%x ev %u/%u dn %u\n",
+	seq_printf(m, "t33 awb: %s frames %u drops %u refused %u ctd_bad %u gain r 0x%x b 0x%x ct %u tgain %u/0x%x ev %u/%u dn %u init %u bad %u\n",
 		   ready ? "on" : "off", awbc_st.frames, info ? info[T33_AWBV_DROPS] : 0, awbc_st.refused,
 		   awbv.ctd_bad, awbc_st.gain_r, awbc_st.gain_b, awbc_st.ct, awbc_st.tg_updates,
-		   ready ? ai.a.st->tgain : 0, awbc_st.ev_updates, ready ? ai.a.st->ev : 0, awbc_st.dn_refresh);
+		   ready ? ai.a.st->tgain : 0, awbc_st.ev_updates, ready ? ai.a.st->ev : 0, awbc_st.dn_refresh,
+		   awbi_runs[0], awbi_runs[1]);
 	mutex_unlock(&awbc_lock);
 }
 
