@@ -9,7 +9,7 @@ through the bo_ wrapper) against the vendor function.  Per conf (FUNCS first col
   missing  no bo_ definition / no header body found for the name
 A STUBS='name ...' line in the conf lists FUNCS/PROVES names that are known not to be real bodies yet: they stay in the oracle
 (regression value) but are NOT counted as proven.  --check fails when a stub/mock/missing name is not listed in STUBS, or a
-STUBS name is ok (the list must stay exact).  No vendor module needed (static source analysis)."""
+STUBS name is ok (the list must stay exact), or a block runs 0 mutations / loses mutation lines to a stray quote (openimp #99).  No vendor module needed (static source analysis)."""
 import argparse, glob, os, re, sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -160,17 +160,56 @@ def vendor_sizes():
         return {}
 
 
+def mutation_check(cf):
+    """(raw, got, run): MUTATIONS lines written in the conf vs lines the shell really sees after sourcing it.  A stray quote
+    (an apostrophe inside a mutation text) ends the MUTATIONS string early: fewer mutations run, in the worst case none (openimp #99, r13E)."""
+    import subprocess
+    raw = 0; inb = False
+    for ln in open(cf, errors='replace').read().split('\n'):
+        if not inb and ln.startswith("MUTATIONS='"):
+            inb = True; rest = ln[len("MUTATIONS='"):]
+            if rest.strip() and rest.strip() != "'":
+                raw += 1
+            if rest.endswith("'"):
+                inb = False
+            continue
+        if inb:
+            if ln == "'":
+                inb = False
+            elif ln.strip():
+                raw += 1
+    r = subprocess.run(['sh', '-c', '. "$1"; printf "%s\\n" "$MUTATIONS" | grep -c .; echo "RUN=$RUN"', 'sh', cf], capture_output=True, text=True)
+    o = r.stdout.split('\n')
+    try:
+        got = int(o[0])
+    except (ValueError, IndexError):
+        got = 0
+    return raw, got, (o[1][4:] if len(o) > 1 else '')
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--block'); ap.add_argument('--tsv'); ap.add_argument('--check', action='store_true')
     ap.add_argument('--list-real', action='store_true')
+    ap.add_argument('--mutation-conf', help='check only the mutation count of this conf (used by the t10 / t31 runners)')
     a = ap.parse_args()
+    if a.mutation_conf:
+        raw, got, run = mutation_check(a.mutation_conf)
+        if got == 0 or raw != got:
+            print('proof_audit FAIL: %s writes %d mutation lines, %d reach the shell (0 or a stray quote in MUTATIONS)' % (a.mutation_conf, raw, got)); sys.exit(1)
+        sys.exit(0)
     bad = 0; out = []; real = set(); vs = vendor_sizes()
     for cf in sorted(glob.glob(os.path.join(HERE, '*.conf'))):
         blk = os.path.basename(cf)[:-5]
         if a.block and blk != a.block:
             continue
         c = parse_conf(cf)
+        if a.check:
+            raw, got, run = mutation_check(cf)
+            if not run and got == 0:
+                print('proof_audit FAIL: block %s has no mutations (a block that runs 0 mutations proves nothing)' % blk); bad += 1
+            elif not run and raw != got:
+                print('proof_audit FAIL: block %s writes %d mutation lines but only %d reach the shell (stray quote in MUTATIONS?)' % (blk, raw, got)); bad += 1
         for fn, st, ev in audit_block(blk, c):
             if st == 'stub':       # a trivial body only is a stub when the vendor function is not trivial too
                 sz = vs.get(fn)

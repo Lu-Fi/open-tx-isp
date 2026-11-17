@@ -50,5 +50,6 @@ tx_isp_t33_mdnsR.h@	bw[8724 / 4] = 0xffffffffU;@	bw[8724 / 4] = 0;
 tx_isp_t32_tp.h@	v = (d >> 16) + ((d >> 15) & 1);@	v = (d >> 16);
 M
 echo "t33_binoracle mdnspr: mutations $NM detected, $NF not detected"
+[ $((NM + NF)) -gt 0 ] || { echo "t33_binoracle mdnspr: FAIL 0 mutations ran (a block with no mutation proves nothing; check MUTATIONS quoting, openimp #99)"; exit 1; }
 [ $NF = 0 ] || exit 1
 echo "t33_binoracle mdnspr: PASS"

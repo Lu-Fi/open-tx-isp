@@ -39,5 +39,6 @@ tx_isp_t33_bcsh.h@	if (st[0x2b] == 1)@	if (st[0x2b] == 2)
 tx_isp_t33_bcsh.h@	t32_bcsh_p32(st, sec[0x4c0] ? 0x14 : 0xc, (u32)(ev >> 32));@	t32_bcsh_p32(st, sec[0x4c0] ? 0x18 : 0xc, (u32)(ev >> 32));
 M
 echo "t33_binoracle bcshsw: mutations $NM detected, $NF not detected"
+[ $((NM + NF)) -gt 0 ] || { echo "t33_binoracle bcshsw: FAIL 0 mutations ran (a block with no mutation proves nothing; check MUTATIONS quoting, openimp #99)"; exit 1; }
 [ $NF = 0 ] || exit 1
 echo "t33_binoracle bcshsw: PASS"

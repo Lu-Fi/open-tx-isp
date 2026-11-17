@@ -41,5 +41,6 @@ tx_isp_t33_bcsh.h@	d = n < o ?@	d = (unsigned long long)n < (unsigned long long)
 tx_isp_t33_bcsh.h@	if (r)\n		return 0;\n	t33_bcsh_hue(st, sec);@	if (r)\n		return 0;\n	t33_bcsh_calc(st, sec);
 M
 echo "t33_binoracle bcshlist: mutations $NM detected, $NF not detected"
+[ $((NM + NF)) -gt 0 ] || { echo "t33_binoracle bcshlist: FAIL 0 mutations ran (a block with no mutation proves nothing; check MUTATIONS quoting, openimp #99)"; exit 1; }
 [ $NF = 0 ] || exit 1
 echo "t33_binoracle bcshlist: PASS"

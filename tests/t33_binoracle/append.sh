@@ -51,5 +51,6 @@ tx_isp_t33_append.h@				if (t33_ldc_extra_par(exist, par, ch, rec))@				if (t33_
 tx_isp_t33_append.h@		return -1;@		return 0;
 M
 echo "t33_binoracle append: mutations $NM detected, $NF not detected"
+[ $((NM + NF)) -gt 0 ] || { echo "t33_binoracle append: FAIL 0 mutations ran (a block with no mutation proves nothing; check MUTATIONS quoting, openimp #99)"; exit 1; }
 [ $NF = 0 ] || exit 1
 echo "t33_binoracle append: PASS"

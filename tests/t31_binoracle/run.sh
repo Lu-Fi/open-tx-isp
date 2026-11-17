@@ -11,6 +11,7 @@ KO=${T31_OEM_KO:-}; CC=${T31_CC:-${T33_CC:-${T40_CC:-}}}
 if [ ! -r "$KO" ] || [ ! -x "$CC" ] || ! python3 -c "import unicorn, elftools" 2>/dev/null; then
 	echo "t31_binoracle $B: SKIP (T31_OEM_KO / T31_CC / python3 unicorn+pyelftools missing)"; [ -z "$T40_ORACLE_STRICT" ] || exit 1; exit 0
 fi
+python3 "$H/../t33_binoracle/proof_audit.py" --mutation-conf "$H/$B.conf" >&2 || { echo "t31_binoracle $B: FAIL mutation guard (0 mutations or a stray quote in MUTATIONS)"; exit 1; }
 . "$H/$B.conf"
 W=$(mktemp -d); trap 'rm -rf "$W"' EXIT
 printf '%s\n' "$FUNCS" > "$W/spec"
@@ -31,5 +32,6 @@ PY
 	if $PY "$KO" "$W/m.o" "$W/spec" --n "${MUT_N:-400}" > /dev/null; then echo "t31_binoracle $B: mutation $i NOT detected: $m"; NF=$((NF + 1)); else NM=$((NM + 1)); fi
 done < "$W/muts"
 echo "t31_binoracle $B: mutations $NM detected, $NF not detected"
+[ $((NM + NF)) -gt 0 ] || { echo "t31_binoracle $B: FAIL 0 mutations ran (a block with no mutation proves nothing; check MUTATIONS quoting, openimp #99)"; exit 1; }
 [ $NF = 0 ] || exit 1
 echo "t31_binoracle $B: PASS"

@@ -53,5 +53,6 @@ tx_isp_t33_mipi.h@		if (s->dbus != 1) {@		if (s->dbus > 1) {
 tx_isp_t33_mipi.h@		} else if (s->index == 1) {@		} else if (s->index >= 1) {
 M
 echo "t33_binoracle mipiphy: mutations $NM detected, $NF not detected"
+[ $((NM + NF)) -gt 0 ] || { echo "t33_binoracle mipiphy: FAIL 0 mutations ran (a block with no mutation proves nothing; check MUTATIONS quoting, openimp #99)"; exit 1; }
 [ $NF = 0 ] || exit 1
 echo "t33_binoracle mipiphy: PASS"

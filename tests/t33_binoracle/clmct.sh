@@ -35,5 +35,6 @@ tx_isp_t33_clm.h@		return KCT(0) + HY(0) < ct ? n : 0;@		return KCT(0) + HY(0) <
 tx_isp_t33_clm.h@			f = (u32)((ct - base) * 0x1000) / (u32)(up - base);@			f = (u32)((ct - base) * 0x1001) / (u32)(up - base);
 M
 echo "t33_binoracle clmct: mutations $NM detected, $NF not detected"
+[ $((NM + NF)) -gt 0 ] || { echo "t33_binoracle clmct: FAIL 0 mutations ran (a block with no mutation proves nothing; check MUTATIONS quoting, openimp #99)"; exit 1; }
 [ $NF = 0 ] || exit 1
 echo "t33_binoracle clmct: PASS"

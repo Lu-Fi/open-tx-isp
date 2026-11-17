@@ -42,5 +42,6 @@ mut frame 'c->cur20[z * 20 + 9 + i] = a[10 + 2 * i];' 'c->cur20[z * 20 + 9 + i] 
 mut frame 'T33_SW(l37, T33_LSF_SLOT_STAT, stat_pa + part);' 'T33_SW(l37, T33_LSF_SLOT_STAT, stat_pa);'
 mut frame '(int)((u32)c->hist[i] * sm + (u32)c->prev[i] * (u32)om + 0x40) >> 7' '(int)((u32)c->hist[i] * sm + (u32)c->prev[i] * (u32)om) >> 7'
 echo "t33_lcepf_host: mutations $NM detected, $NF not detected"
+[ $((NM + NF)) -gt 0 ] || { echo "t33_lcepf_host: FAIL 0 mutations ran (a block with no mutation proves nothing; check MUTATIONS quoting, openimp #99)"; exit 1; }
 [ $NF = 0 ] || exit 1
 echo "t33_lcepf_host: PASS"

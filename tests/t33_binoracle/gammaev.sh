@@ -46,5 +46,6 @@ tx_isp_t33_gamma.h@			if ((int)e <= t33_s32(src + 0x106))@			if ((int)e < t33_s3
 tx_isp_t33_gamma.h@	x = c[0x80] * s + (0x100 - s) * 0xfff;@	x = c[0x80] * s + (0x100 - s) * 0xffe;
 M
 echo "t33_binoracle gammaev: mutations $NM detected, $NF not detected"
+[ $((NM + NF)) -gt 0 ] || { echo "t33_binoracle gammaev: FAIL 0 mutations ran (a block with no mutation proves nothing; check MUTATIONS quoting, openimp #99)"; exit 1; }
 [ $NF = 0 ] || exit 1
 echo "t33_binoracle gammaev: PASS"

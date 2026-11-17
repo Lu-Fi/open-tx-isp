@@ -36,5 +36,6 @@ tx_isp_t33_bcsh.h@	if (r)@	if (!r)
 tx_isp_t33_bcsh.h@	int r = t33_bcsh_ct_interp(st, sec, lut, ct, 0);@	int r = t33_bcsh_ct_interp(st, sec, lut, ct, 1);
 M
 echo "t33_binoracle bcshct: mutations $NM detected, $NF not detected"
+[ $((NM + NF)) -gt 0 ] || { echo "t33_binoracle bcshct: FAIL 0 mutations ran (a block with no mutation proves nothing; check MUTATIONS quoting, openimp #99)"; exit 1; }
 [ $NF = 0 ] || exit 1
 echo "t33_binoracle bcshct: PASS"

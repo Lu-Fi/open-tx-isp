@@ -51,5 +51,6 @@ chain,switch@tx_isp_t33_lceev.h@		t33_lcepf_write_curve(c, half2);@		(void)half2
 chain,switch@tx_isp_t33_lceev.h@	t33_lce_size(s, c->h, c->w);@	t33_lce_size(s, c->w, c->h);
 M
 echo "t33_binoracle lceev: mutations $NM detected, $NF not detected"
+[ $((NM + NF)) -gt 0 ] || { echo "t33_binoracle lceev: FAIL 0 mutations ran (a block with no mutation proves nothing; check MUTATIONS quoting, openimp #99)"; exit 1; }
 [ $NF = 0 ] || exit 1
 echo "t33_binoracle lceev: PASS"
