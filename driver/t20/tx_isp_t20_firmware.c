@@ -17754,8 +17754,15 @@ apply_gains:
 	t20_awb_last_gain_11 = gains[3];
 	t20_awb_last_color_temperature = t20_simple_awb_color_temperature;
 	tx_isp_t20_awb_write_gains();
-	if (awb_fsm[0]) {
-		/* Consume the active saturation and CCM calibrations for this CT. */
+	/*
+	 * Consume the active saturation and CCM calibrations for this CT.
+	 * OEM AWB_fsm_process_interrupt only reads the statistics; the CCM
+	 * update runs in the firmware thread (colour-matrix FSM, frame-end
+	 * event 11).  Only a parked thread leaves it to this interrupt path;
+	 * otherwise the irq would preempt the thread's color_matrix_update
+	 * and tear the CCM / LSC state (openimp #657).
+	 */
+	if (awb_fsm[0] && tx_isp_t20_fw_parked()) {
 		color_matrix_update((int32_t *)((u8 *)(uintptr_t)awb_fsm[0] +
 			0xee8));
 		t20_ccm_awb_updates++;

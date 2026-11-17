@@ -81,7 +81,7 @@ $(OUT)/t20fw-%.sym: $(OUT)/t20fw-% $(OUT)/fw-%.o
 	nm --defined-only $(OUT)/fw-$*.o | awk '$$2 ~ /^[dDbBtT]$$/ {print $$3}' | sort -u > $@.fw
 	nm -S -n --defined-only $< | awk 'NR==FNR {fw[$$1]=1; next} NF==4 {print $$0 ((($$3 ~ /^[dDbBtT]$$/) && ($$4 in fw)) ? " F" : "")}' $@.fw - > $@
 
-SCENARIOS ?= simple oem ext ext-oem oem-ae oem-ae-park
+SCENARIOS ?= simple simple-park oem ext ext-oem oem-ae oem-ae-park
 
 check: all
 	SCENARIOS="$(SCENARIOS)" ./compare.sh $(OUT) "$(CALIB)" $(REF) $(filter-out $(REF),$(VARIANTS))

@@ -253,10 +253,28 @@ static uint32_t reg_rd(uint32_t off, int w)
 	return v;
 }
 
+/*
+ * openimp #657: colour-matrix blend writes (0x398, color_matrix_update) by
+ * context.  The vendor runs color_matrix_update only from the colour-matrix
+ * FSM in the firmware thread (frame-end event 11); the compact AWB may call
+ * it from the AWB interrupt only while that thread is parked.
+ */
+bool tx_isp_t20_fw_parked(void);
+static int in_irq;
+static unsigned long ccm_thread, ccm_irq_parked, ccm_irq_unparked;
+
 static void reg_wr(uint32_t off, uint32_t v, int w)
 {
 	budget();
 	writes++;
+	if (off == 0x398) {
+		if (!in_irq)
+			ccm_thread++;
+		else if (tx_isp_t20_fw_parked())
+			ccm_irq_parked++;
+		else
+			ccm_irq_unparked++;
+	}
 	if (off + w > REG_SPACE) { EVF("W%d OOB %x %x", w * 8, off, v); return; }
 	memcpy(regs + off, &v, w);
 	if (verbose) EVF("W%d %05x %x", w * 8, off, v);
@@ -710,7 +728,10 @@ static void irq(int idx)
 {
 	ENTER();
 	if (irq_handler[idx].fn) {
-		int32_t r = ((int32_t (*)(int32_t))irq_handler[idx].fn)(irq_handler[idx].arg);
+		int32_t r;
+		in_irq = 1;
+		r = ((int32_t (*)(int32_t))irq_handler[idx].fn)(irq_handler[idx].arg);
+		in_irq = 0;
 		EVF("IRQ %d ret %d", idx, r);
 	}
 }
@@ -919,6 +940,7 @@ int main(int argc, char **argv)
 	int oem = 0, trace = 0, i, f;
 	int ext = 0, poke = 0, oemae = 0;
 	uint32_t awb_g_day[4], awb_ct_day, awb_ccm_day;
+	unsigned long ccm_thread_day;
 
 	stack_hi_mark = &top + 4096;
 	stack_lo_mark = &top - (1 << 20);
@@ -968,6 +990,7 @@ int main(int argc, char **argv)
 	checkpoint("day-converge");
 	t20fw_awb_gains(awb_g_day);
 	t20fw_awb_ct_ccm(&awb_ct_day, &awb_ccm_day);
+	ccm_thread_day = ccm_thread;
 
 	/* API: AE / AWB / anti-flicker / compensation knobs */
 	cmd(TALGORITHMS_H, AE_COMPENSATION_ID_H, 160, 0);
@@ -1001,8 +1024,10 @@ int main(int argc, char **argv)
 	checkpoint("day-again");
 	/* openimp #609: with the OEM AE the compact AWB must still run (the
 	 * vendor AWB has no "AE stable" start gate): the colour temperature
-	 * leaves the init value (5000 K, static WB) and the AWB keeps driving
-	 * the CCM.  Before the fix: static gains, ct 5000, 0 CCM updates. */
+	 * leaves the init value (5000 K, static WB) and the CCM keeps following
+	 * it.  Before the fix: static gains, ct 5000, 0 CCM updates.  #657: the
+	 * thread is not parked here, so the colour-matrix FSM (frame-end event
+	 * 11, firmware thread) runs color_matrix_update, not the AWB irq. */
 	{
 		uint32_t g[4], ct, ccm;
 		t20fw_awb_gains(g);
@@ -1010,7 +1035,7 @@ int main(int argc, char **argv)
 		rt_printf("AWB day %u/%u/%u/%u ct %u ccm-updates %u, day-again %u/%u/%u/%u ct %u ccm-updates %u\n",
 			  awb_g_day[0], awb_g_day[1], awb_g_day[2], awb_g_day[3], awb_ct_day, awb_ccm_day,
 			  g[0], g[1], g[2], g[3], ct, ccm);
-		if (oemae && !oem && (!awb_ccm_day || ccm <= awb_ccm_day ||
+		if (oemae && !oem && (!ccm_thread_day || ccm_thread <= ccm_thread_day ||
 				      awb_ct_day == 5000 || ct == 5000))
 			rt_printf("FAIL: OEM AE + compact AWB: AWB/CT/CCM did not follow the scene\n");
 	}
@@ -1228,6 +1253,15 @@ int main(int argc, char **argv)
 	if (cov_on)
 		cov_report();
 
+	/* openimp #657: no colour-matrix update in interrupt context while the
+	 * firmware thread runs the colour-matrix FSM (torn CCM / LSC state) */
+	rt_printf("CCM writes thread %lu irq-parked %lu irq-unparked %lu\n",
+		  ccm_thread, ccm_irq_parked, ccm_irq_unparked);
+	if (ccm_irq_unparked)
+		rt_printf("FAIL: colour matrix updated from an interrupt while the firmware thread is not parked (%lu writes)\n",
+			  ccm_irq_unparked);
+	if (fw_park_param && !oemae && !oem && !ccm_irq_parked)
+		rt_printf("FAIL: parked compact AWB no longer drives the colour matrix\n");
 	rt_printf("END frames=%u reads=%lu writes=%lu div64-by-zero=%lu\n", frame_no, reads, writes, rt_div0_count);
 	return 0;
 }

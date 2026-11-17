@@ -14,9 +14,11 @@
 # stack-poison bytes; a difference there means the firmware reads uninitialised
 # stack memory.
 #
-# SCENARIOS selects the scenario list, default "simple oem ext ext-oem oem-ae oem-ae-park".
+# SCENARIOS selects the scenario list, default "simple simple-park oem ext ext-oem oem-ae oem-ae-park".
 # oem-ae: OEM AE graph + compact AWB/NR; oem-ae-park: the same with the
-# t20_park_fw_after_first_pass gate (must not park, openimp #609).
+# t20_park_fw_after_first_pass gate (must not park, openimp #609);
+# simple-park: compact AE/AWB with the thread parked after its first pass
+# (the default load; the AWB irq drives the colour matrix, openimp #657).
 set -u
 LC_ALL=C; export LC_ALL
 out=$1; calib=${2:--}; ref=$3; shift 3
@@ -96,6 +98,7 @@ recheck_state() { # variant-a variant-b args keyfile
 scenario_args() {
 	case $1 in
 	simple) echo "";;
+	simple-park) echo "park";;
 	ext) echo "ext";;
 	ext-oem) echo "ext oem";;
 	poke) echo "poke";;
@@ -106,7 +109,7 @@ scenario_args() {
 	esac
 }
 
-for s in ${SCENARIOS:-simple oem ext ext-oem oem-ae oem-ae-park}; do
+for s in ${SCENARIOS:-simple simple-park oem ext ext-oem oem-ae oem-ae-park}; do
 	scen=$(scenario_args "$s"); tag=$s
 	run "$ref" "p5a $scen" "$out/run-$ref-$tag-p5a.txt"
 	run "$ref" "pa5 $scen" "$out/run-$ref-$tag-pa5.txt"
