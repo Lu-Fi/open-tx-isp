@@ -12,6 +12,8 @@ Runs functions of the SDK-built vendor tx-isp-t30.ko (4ea12e1f) and of our drive
   apical_sbus_write_u16 / sharpening_update     bus callback + byte path (#596); thresholds, LUT index, registers, FSM (#597)
   awb_normalise                                 +0x760..+0x76c, +0x18/+0x1a, stab[49]/[50]
   awb_detect_light_source                       light source +0x77d from the colour temperature +0x778 (#450)
+  awb_read_statistics                           zone records +0x58 + 8 i, sum +0x14 from 0x8740.. (#620, new in the T30 driver)
+  AWB_fsm_process_interrupt (simple_3a=0)       OEM path: statistics read + raise_event(*fsm, 4), return, FSM bytes (#620)
   apical_event_queue_push                       queue head, _qlock1
   luts_fetch / AWB_mesh / AWB_mesh_LUT / mesh_AWB_getKnownSourceLight_weight_LUT / compute_weight
   awb_calc_avg_weighted_gr_gb_mesh              every FSM byte, fifo state (vendor rg_avg/gb_avg)
@@ -307,6 +309,55 @@ def t_detect_ls(V, O, rnd, n):          # awb_detect_light_source: +0x77d from t
         if res[0] != res[1]:
             bad += 1
             if bad < 4: print("DIFF awb_detect_light_source ct=%d: vendor src %d ret %s, open src %d ret %s" % (ct, res[0][2][0x77d], res[0][1], res[1][2][0x77d], res[1][1]))
+    return bad
+
+def t_read_stats(V, O, rnd, n):         # #620 awb_read_statistics (vendor 0x32da0), new in the T30 driver
+    bad = 0
+    for k in range(n):
+        fsm = bytearray(rnd.getrandbits(8) for _ in range(0x800))
+        nz = rnd.choice([0, 1, 2, 15, rnd.randrange(0, 226)])
+        struct.pack_into("<H", fsm, 0x10, nz)
+        for off in (0x18, 0x1a): struct.pack_into("<H", fsm, off, rnd.choice([0, 1, 0x100, 0xffff, rnd.getrandbits(16)]))
+        regs = {}
+        for i in range(nz):
+            regs[0x8740 + 8 * i] = rnd.choice([0, rnd.getrandbits(32), rnd.getrandbits(32) & 0x0fff0fff])
+            regs[0x8744 + 8 * i] = rnd.choice([0, rnd.getrandbits(32), rnd.randrange(0, 4096)])
+        res = []
+        for m in (V, O):
+            wl = []; regfile(m, dict(regs), wl)
+            m.e.heap_reset(); f = m.e.alloc(0x800, fsm)
+            r = m.call("awb_read_statistics", f)
+            res.append((r.stop, m.e.read(f, 0x800), wl))
+        if res[0] != res[1]:
+            bad += 1
+            if bad < 4:
+                d = [i for i in range(0x800) if res[0][1][i] != res[1][1][i]]
+                print("DIFF awb_read_statistics nz=%d stop=%s/%s bytes %s" % (nz, res[0][0], res[1][0], [hex(x) for x in d[:8]]))
+    return bad
+
+def t_awb_irq(V, O, rnd, n):            # #620 AWB_fsm_process_interrupt, OEM path (simple_3a=0 in our module)
+    bad = 0
+    sa = O.e.symaddr.get("simple_3a")
+    if sa is None: print("  awb_irq: no simple_3a symbol in the open object"); return 1
+    O.e.write(sa, b"\0")
+    for k in range(n):
+        fsm = bytearray(rnd.getrandbits(8) for _ in range(0x800))
+        nz = rnd.choice([0, 1, 4, rnd.randrange(0, 64)]); struct.pack_into("<H", fsm, 0x10, nz)
+        ev = rnd.choice([4, 4, 3, 0x104, 0, rnd.getrandbits(8)])
+        ctx = rnd.getrandbits(32) & ~3
+        regs = {0x8740 + 4 * i: rnd.getrandbits(32) for i in range(2 * nz)}
+        res = []
+        for m in (V, O):
+            wl = []; regfile(m, dict(regs), wl)
+            m.hook("apical_isp_raise_event", m.rec("raise", 2, 0x5a))
+            m.e.heap_reset(); f = m.e.alloc(0x800, fsm); m.e.write(f, struct.pack("<I", ctx))
+            r = m.call("AWB_fsm_process_interrupt", f, ev)
+            res.append((r.stop, r.v0, list(m.log), m.e.read(f, 0x800)))
+            m.unhook("apical_isp_raise_event")
+        if res[0] != res[1]:
+            bad += 1
+            if bad < 4: print("DIFF AWB_fsm_process_interrupt ev=%#x nz=%d: vendor %s open %s" % (ev, nz, res[0][:3], res[1][:3]))
+    O.e.write(sa, b"\1")
     return bad
 
 def t_queue(V, O, rnd, n):
@@ -1303,7 +1354,7 @@ def t_matrix_yuv(V, O, rnd, n):
     return bad
 
 TESTS = [("nr_selectors", t_nr), ("general_frame_start", t_general), ("fsm_switch_state", t_fsm), ("crop_event", t_crop),
-         ("sbus_write_u8", t_sbus), ("sbus_write_u16", t_sbus16), ("sharpening_update", t_sharp), ("awb_normalise", t_normalise), ("awb_detect_light_source", t_detect_ls), ("event_queue_push", t_queue),
+         ("sbus_write_u8", t_sbus), ("sbus_write_u16", t_sbus16), ("sharpening_update", t_sharp), ("awb_normalise", t_normalise), ("awb_detect_light_source", t_detect_ls), ("awb_read_statistics", t_read_stats), ("awb_irq_oem", t_awb_irq), ("event_queue_push", t_queue),
          ("awb_mesh_chain", t_mesh), ("compute_weight", t_weight), ("awb_calc_mesh", t_calc),
          ("gp_lock_paths", t_gp_lock), ("ioctl_uaccess", t_uaccess),
          ("ptr_scale", t_ptr_scale), ("fsm_buffers", t_fsm_buffers), ("cm_initialize", t_cm_init), ("ptr_class_463", t_class463), ("fci_args", t_fci_args), ("sync_watchdog", t_sync), ("ldc_ncu_counts", t_counts), ("ldc_core_ops_init", t_ldc_init),

@@ -6954,6 +6954,7 @@ int32_t AWB_mesh_LUT(int32_t arg1, int32_t arg2, int32_t arg3, int32_t arg4, int
 int32_t mesh_AWB_getKnownSourceLight_weight_LUT(int32_t arg1, int16_t arg2, int16_t arg3, int32_t arg4, int32_t arg5);
 int32_t awb_coeffs_write(void);
 uint32_t awb_init(void *arg1);
+void awb_read_statistics(int32_t *fsm);
 int32_t AWB_fsm_process_interrupt(int32_t *arg1, char arg2);
 int32_t awb_zones_calculate(void);
 int32_t compute_weight(int32_t arg1, int32_t arg2, void *arg3, int32_t *arg4, void *arg5, void *arg6);
@@ -43001,18 +43002,63 @@ static void tx_isp_t30_simple_awb_update(int32_t *awb_fsm)
 			state->gain_10, state->gain_11);
 }
 
+/*
+ * OEM awb_read_statistics (SDK ko 0x32da0, void; instruction-equal to the T10/T20
+ * vendor function, whose port in driver/t20 is vendor-proven by vdiff).  For each
+ * of the u16 zone count (fsm+0x10) zones i: word 0x8740 + 8 i holds R/G (bits
+ * 0..11) and B/G (bits 16..27); scaled by the red/blue feedback (u16 fsm+0x18 /
+ * fsm+0x1a, >> 8, 0 -> 1) they are stored inverted (0xffff / x, u16) at
+ * fsm + 0x58 + 8 i, the zone count word 0x8744 + 8 i at +0x5c + 8 i and summed
+ * into fsm+0x14.  Before #620 the T30 driver had no such function, so the
+ * simple_3a=0 path never filled the zones the AWB mesh reads.
+ */
+void awb_read_statistics(int32_t *fsm)
+{
+	u8 *f = (u8 *)fsm;
+	u16 i;
+
+	*(u32 *)(f + 0x14) = 0;
+	for (i = 0; i < *(u16 *)(f + 0x10); i++) {
+		u32 raw = (u32)APICAL_READ_32(0x8740 + 8 * (u32)i);
+		u32 rg = (((raw & 0xfff) * *(u16 *)(f + 0x18)) >> 8) & 0xffff;
+		u32 bg = ((((raw >> 16) & 0xfff) * *(u16 *)(f + 0x1a)) >> 8) & 0xffff;
+		u8 *zone = f + 0x58 + 8 * (u32)i;
+		u32 cnt;
+
+		if (!rg)
+			rg = 1;
+		if (!bg)
+			bg = 1;
+		*(u16 *)zone = (u16)(0xffff / rg);
+		*(u16 *)(zone + 2) = (u16)(0xffff / bg);
+		cnt = (u32)APICAL_READ_32(0x8744 + 8 * (u32)i);
+		*(u32 *)(zone + 4) = cnt;
+		*(u32 *)(f + 0x14) += cnt;
+	}
+}
+
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000337a8 origin=model_output original=AWB_fsm_process_interrupt */
 int32_t AWB_fsm_process_interrupt(int32_t *arg1, char arg2)
 {
 	if ((arg2 & 0xff) != 4)
 		return 4;
 
-	if (simple_3a && simple_awb)
+	if (!simple_3a) {
+		/*
+		 * #620: the vendor flow (SDK ko 0x32ec8): read the zone statistics
+		 * and raise event 4; the AWB state graph (zones -> mesh -> light
+		 * source -> normalise) runs in the firmware thread and re-arms
+		 * source 4 from its wait state 11.
+		 */
+		awb_read_statistics(arg1);
+		return (int32_t)apical_isp_raise_event((void *)(uintptr_t)*arg1, 4);
+	}
+	if (simple_awb)
 		tx_isp_t30_simple_awb_update(arg1);
 	else
 		tx_isp_t30_awb_apply_calibrated_gains();
-	/* The quarantined OEM mesh normally re-arms source 4 via its state graph. */
-	return simple_3a ? AWB_request_interrupt(arg1, BIT(4)) : 0;
+	/* The compact controller bypasses the OEM state graph: re-arm source 4. */
+	return AWB_request_interrupt(arg1, BIT(4));
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000337fc origin=model_output original=awb_zones_calculate */
