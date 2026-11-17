@@ -2811,7 +2811,7 @@ static const struct file_operations isp_info_proc_fops ={
  * "ISP EV value us" the integration time in microseconds.
  *
  * The maxima are the limits the running AE actually clamps to.  The
- * compact AE (t20_simple_ae, default) partitions exposure between
+ * compact AE (t20_simple_ae=1) partitions exposure between
  * integration time and sensor analog gain only, up to the sensor
  * attribute limits and the SetMaxAgain ceiling (stab
  * global_max_sensor_analog_gain), and never applies sensor or ISP

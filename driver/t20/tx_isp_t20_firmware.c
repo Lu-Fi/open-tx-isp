@@ -712,7 +712,14 @@ static unsigned int t20_cmos_trace_count;
  * thread consuming the firmware events (stale exposure, openimp #627).  The
  * vendor has no such switch (its isp_fw_process never parks).
  */
-static bool t20_simple_ae = true;
+/*
+ * Default 0 (openimp #609, user decision 2026-11-17): the exposure runs the
+ * vendor AE graph (ae_calculate_exposure -> CMOS allocators), as the vendor
+ * firmware does; with the compact AWB (t20_simple_awb=1, measured in the
+ * light box 2026-11-17 at 3000 / 5000 K) the firmware thread does not park.
+ * t20_simple_ae=1 selects the compact histogram AE (the default before).
+ */
+static bool t20_simple_ae;
 module_param(t20_simple_ae, bool, 0444);
 MODULE_PARM_DESC(t20_simple_ae,
 	"use bounded histogram AE instead of the recovered OEM AE state graph");
