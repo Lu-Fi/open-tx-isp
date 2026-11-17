@@ -189,7 +189,6 @@ static inline int t33_msca_ctrl_reg_write_v(const struct t33_mscacur *m, u32 id,
 	const u8 *e = m->attr[i] + 22 * c;
 
 	multi = t33_mc_w(m->init_par, 904) == 1;
-	stride = (t33_mc_h(e, 14) + 15) & ~15U;
 	m->reg_write(i, 23, cfg ? b + 0x1a : (c + 0xf01) << 8, t33_mc_h(e, 6) << 16 | t33_mc_h(e, 8));
 	m->reg_write(i, 23, cfg ? (multi ? 2 * (c + 0xca) : b + 0x35) : d + 0xf0170, t33_mc_h(e, 2));
 	m->reg_write(i, 23, cfg ? b + 0x1b : d + 0xf0104, t33_mc_h(e, 10) << 16 | t33_mc_h(e, 12));
@@ -208,8 +207,7 @@ static inline int t33_msca_ctrl_reg_write_v(const struct t33_mscacur *m, u32 id,
 	else
 		m->reg_write(i, 23, cfg ? b + 0x23 : d + 0xf0128, 0);
 	m->reg_write(i, 23, cfg ? b + 0x22 : d + 0xf0124, 0xffffffff);
-	if (c == 0 && m->sys_read(0x100) == 5)
-		stride = 0x1000;
+	stride = t33_msca_stride(c, t33_mc_h(e, 14), c == 0 ? m->sys_read(0x100) : 0);
 	if (multi) {
 		m->sys_write(d + 0xf0140, stride);
 		m->sys_write(d + 0xf0160, stride);

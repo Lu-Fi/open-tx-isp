@@ -21,7 +21,11 @@ Both modules accept the vendor glue parameters (`clk_name`, `isp_clk`, ...,
 `direct_mode`, `ivdc_*`). The T33 module implements IVDC direct mode
 (`direct_mode=1`, as the T33L vendor glue loads it: `ivdc_mem_line=1080
 ivdc_threshold_line=800`): `../t32/tx_isp_t32_ivdcdrv.c` with the ported
-IVDC code (openimp #349), shared with the T32 module.
+IVDC code (openimp #349), shared with the T32 module. In direct mode top
+0x100 is 5 (4 buffered) and channel 0 has the stride 0x1000, as the vendor's
+`tisp_top_init` / `tisp_msca_t33_ctrl_reg_write`; both channels then start
+on the vendor list path (MSCA list 23), so a later list 23 run (ISP OSD, mask,
+draw) keeps them running (openimp #680).
 
 Evidence: the ioctl numbers and payload sizes the T32 driver serves are all
 issued by the T33 2.0.2.1 libimp with the same values; 279 public typedefs of

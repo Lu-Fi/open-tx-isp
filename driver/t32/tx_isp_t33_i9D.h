@@ -76,23 +76,7 @@ static inline int t33_top_start(u32 id, const u8 *info)
 		system_reg_write(392, v | t33_top_deir_en[1] << 20);
 	else
 		printk("t33 top_init: bad id %u\n", (u32)ch);
-	switch (info[43]) {
-	case 0:
-		a3 = 4;
-		break;
-	case 1:
-		a3 = ch == 0 ? 5 : 4;
-		break;
-	case 2:
-		a3 = ch < 2 ? 5 : 4;
-		break;
-	case 3:
-		a3 = ch < 3 ? 5 : 4;
-		break;
-	default:
-		a3 = 5;
-		break;
-	}
+	a3 = t33_top_ipc_mode(ch, info[43]);
 	tisp_reg_write_t33(ch, 33, ipcCfgMode ? 10 : 256, a3);
 	tisp_top_reg_cfg(ch);
 	tisp_top_restart_cfg(ch);

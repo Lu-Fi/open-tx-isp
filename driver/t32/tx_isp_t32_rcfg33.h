@@ -85,18 +85,47 @@ static inline int t33_rcfg_build(struct t32_rcfg_list *l, u32 *buf, u32 cap,
 }
 
 /*
+ * tisp_top_init: top 0x100 of sensor ch for the init parameter byte +0x2b (direct_mode): 4 buffered, 5 with the
+ * channel 0 output over the IVDC (vendor traces with and without direct_mode; block i9D).
+ */
+static inline u32 t33_top_ipc_mode(u32 ch, u32 dm)
+{
+	switch (dm) {
+	case 0:
+		return 4;
+	case 1:
+		return ch == 0 ? 5 : 4;
+	case 2:
+		return ch < 2 ? 5 : 4;
+	case 3:
+		return ch < 3 ? 5 : 4;
+	default:
+		return 5;
+	}
+}
+
+/*
+ * tisp_msca_t33_ctrl_reg_write: the Y / UV stride of MSCA channel ch with output width w, 0x1000 for channel 0
+ * while top 0x100 reads 5 (IVDC direct; top100 is only read for channel 0, block mscacur).
+ */
+static inline u32 t33_msca_stride(u32 ch, u32 w, u32 top100)
+{
+	return ch == 0 && top100 == 5 ? 0x1000 : (w + 15) & ~15U;
+}
+
+/*
  * tisp_top_init + tisp_top_reg_cfg + tisp_top_restart_cfg of the T33
  * module, pipeline 0: sec = IQ section 0 (108 bytes; the T32's fields 8
  * bytes later).  lw: the top list (module 33), dw: direct writes before
- * the lists.  bayer from t32_mbus_to_bayer; direct: IVDC direct mode
- * (0x100 = 5, buffered 4: vendor traces with and without direct_mode).
+ * the lists.  bayer from t32_mbus_to_bayer; dm: direct_mode (0x100 from
+ * t33_top_ipc_mode).
  */
 #define T33_FW(w, n, r, v) do { (w)[(n)].reg = (r); (w)[(n)].val = (v); (n)++; } while (0)
 #define T33_TOP_BYTES		108U
 #define T33_TOP_LIST_WRITES	7
 #define T33_TOP_DIRECT_WRITES	4
 
-static inline void t33_top_init(const u8 *sec, u32 width, u32 height, u32 bayer, int direct,
+static inline void t33_top_init(const u8 *sec, u32 width, u32 height, u32 bayer, u32 dm,
 				struct t32_front_write *lw, struct t32_front_write *dw)
 {
 	u32 size = width << 16 | height, en = 0, ctl = 0, sta = 0, fmt;
@@ -119,7 +148,7 @@ static inline void t33_top_init(const u8 *sec, u32 width, u32 height, u32 bayer,
 	T33_FW(lw, n, 0x6c, ctl);
 	T33_FW(lw, n, 0x70, size);
 	T33_FW(lw, n, 0x78, fmt);
-	T33_FW(lw, n, 0x100, direct ? 5 : 4);
+	T33_FW(lw, n, 0x100, t33_top_ipc_mode(0, dm));
 	T33_FW(lw, n, 0x2f4, 5);
 	n = 0;
 	T33_FW(dw, n, 0x80, size);

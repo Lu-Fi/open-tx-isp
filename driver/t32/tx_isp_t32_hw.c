@@ -1374,7 +1374,8 @@ static void t32_front_init(void)
 	if (off && len == T33_TOP_BYTES) {
 		struct t32_front_write dw[T33_TOP_DIRECT_WRITES];
 
-		t33_top_init(bin + off, width, height, (u32)bayer, 0, w, dw);	/* buffered path only */
+		/* 0x100 = 5 for IVDC direct mode (vendor tisp_top_init: init par byte 0x2b == 1, sensor 0), else 4 (#680) */
+		t33_top_init(bin + off, width, height, (u32)bayer, t32_ivdc_direct(0), w, dw);
 		for (i = 0; i < T33_TOP_DIRECT_WRITES; i++)
 			isp_wr(dw[i].reg, dw[i].val);
 		if (t32_ldc_top_hldc())	/* tisp_top_ldc_bypass_refresh: HLDC takes the LDC out of bypass */
@@ -3464,7 +3465,7 @@ static void t33_sw_top(const u8 *bin, u32 bytes, u32 width, u32 height, int baye
 	if (!off || len != T33_TOP_BYTES || bayer < 0 || !(t33_mod_built & (1ULL << T33_MOD_TOP)) ||
 	    !(buf = t33_mod_buf(T33_MOD_TOP)))
 		return;
-	t33_top_init(bin + off, width, height, (u32)bayer, 0, tisp_w, dw);
+	t33_top_init(bin + off, width, height, (u32)bayer, t32_ivdc_direct(0), tisp_w, dw);
 	if (t32_ldc_top_hldc())
 		tisp_w[0].val &= ~0x800000U;
 	T33_SW_TMP();
@@ -4734,7 +4735,11 @@ static u32 t33_msca_direct, t33_msca_listed;
  * (t32_fs_msca_attr), tisp_msca_t33_chx_cfg_load (scaling_algorithm, curve_calc, ch_curve_write,
  * ctrl_reg_write: sizes, steps, curves, 0xf0128, strides, chx_en, the list 23 trigger), chx_stream_on and
  * chx_en.  The direct (T32) way only without list 23 / the attribute block, or when the output the vendor
- * attribute describes is not the buffer's (w x h, stride = 16-aligned width).
+ * attribute describes is not the buffer's (w x h, stride = the one tisp_msca_t33_ctrl_reg_write writes:
+ * 0x1000 for channel 0 while top 0x100 reads 5 (IVDC direct mode), else the 16-aligned width).  #680: in
+ * direct mode channel 0 (stride 0x1000) went direct and took channel 1 with it; the next list 23 run (an ISP
+ * OSD / mask / draw request) then wrote the list's idle channel words (0xf0040 = 0, channel 1 at the input
+ * size) and channel 1 stopped.
  */
 int t32_fs_msca_attr(int ch, u32 in_w, u32 in_h, u32 *a);	/* tx_isp_t32_fs.c */
 int t33_msca_chx_start(u32 ch, const u32 *a);			/* tx_isp_t33_osd.c */
@@ -4745,7 +4750,8 @@ static bool t33_msca_list_start(int ch, u32 w, u32 h, u32 stride, u32 in_w, u32 
 	int r;
 
 	if (!l || t33_msca_direct || l[0] < 0x12d || !t32_fs_msca_attr(ch, in_w, in_h, a) || a[6] != w ||
-	    a[7] != h || stride != ((a[6] + 15) & ~15U) || (r = t33_msca_chx_start((u32)ch, a)) < 0) {
+	    a[7] != h || stride != t33_msca_stride((u32)ch, a[6], ch == 0 ? isp_rd(0x100) : 0) ||
+	    (r = t33_msca_chx_start((u32)ch, a)) < 0) {
 		t33_msca_direct |= 1U << ch;
 		t33_msca_direct_starts++;
 		return false;
