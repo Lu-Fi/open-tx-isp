@@ -30,6 +30,11 @@ marked otherwise. Release tags `vYYYY.MM.DD[-rcN]` are set on the `aperto` branc
 - T33L .122 (test ko from /tmp, installed ko restored): isposd 5/5 extra flow with `direct_mode=0` and `direct_mode=1`, 0 oopses.
 - Cross-SoC: the T32 vendor `tisp_top_init` has the same 0x100 rule; our T32 writes 4 always -> openimp #687 (the T32 channel start is direct-register, so the channel-1 stall does not apply).
 
+## 2026-11-17: vdiff compares the frame-end flip countdown of T10/T20 (openimp #664; host, harness only)
+
+- `tests/t20_fw/vdiff/emu.py`: `vdiff --ext` reported a one-byte data diff in `apical_interrupt_frame_end` (vendor `.sbss`+0 = 0xac, ours 0xad). Cause: harness, not driver. The vendor keeps the post-flip countdown byte at `.sbss`+0 without a usable symbol; ours is `__key_0`. The two were not paired, so each side counted its own copy and only the vendor byte was compared; the diff showed only when a sampled call fell inside the 180-frame countdown. New `SECT_STATICS` table pairs `__key_0` with vendor `.sbss`+0 (1 byte).
+- Driver code unchanged. vdiff with the fix: `--ext` frame_end same (1100 calls), SUMMARY 0; default 378/0; `--dis` 389/0. Not yet proven: two mutation probes (reload `0xb4` -> `0xb3`, countdown step -1 -> -2) were not detected (38 compared frame_end calls, 0 differing), so no compared call lies inside a countdown; a scenario that samples a call after a flip is still needed.
+
 ## 2026-11-17: T10/T20 exposure now runs the vendor AE graph by default (openimp #609; host + T10 .31)
 
 - **T10/T20 exposure now runs the vendor AE graph by default (#609).** `driver/t20/tx_isp_t20_firmware.c` (T10 + T20): `t20_simple_ae` defaults to 0 (before 1): AE statistics event 1 -> `ae_calculate_exposure` -> exposure event 8 -> CMOS allocators -> sensor writes at frame start, as the vendor firmware. `t20_simple_awb` stays 1 (compact AWB, now started without the compact-AE gate, #609 part 2, and without irq-context colour-matrix updates, #657); the firmware thread therefore never parks (`t20_park_fw_after_first_pass` has no effect). This is the combination measured in the T10 light box on 2026-11-17 at 3000 and 5000 K and approved by the user. `t20_simple_ae=1` (insmod) restores the compact histogram AE. The full vendor AWB (`t20_simple_awb=0`) is the later target and needs its own light-box run first.

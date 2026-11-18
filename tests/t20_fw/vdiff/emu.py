@@ -237,6 +237,10 @@ ENV_FUNCS = [
 ]
 # vendor object -> our renamed object of identical layout
 ALIASES = {'API2FRM_IDX': 't20_api2frm_idx', 'rg_avg': 'fifo_rg_avg', 'gb_avg': 'fifo_gb_avg'}
+# vendor statics that only have a size-0 label (__key.0, several of them at .sbss+0): our name -> (vendor section, offset, size).
+# apical_interrupt_frame_end's flip countdown (vendor lbu/sb .sbss+0, 0xb4 frames after a flip; ours __key_0).  Unpaired, each side
+# counted its own copy and the replay compared only the vendor byte (#664: V=0xac O=0xad in the one sampled call inside a countdown).
+SECT_STATICS = {'__key_0': ('.sbss', 0, 1)}
 # our helpers outside the vendor's firmware (stubbed for both)
 OUR_ONLY_STUBS = {'t20fw_bug', 'tx_isp_t20_fw_parked', 'tx_isp_t20_simple_ae_apply'}
 CB_NAMES = ['hw_reset_disable', 'hw_reset_enable', 'alloc_again', 'alloc_dgain', 'alloc_it',
@@ -397,6 +401,11 @@ class Machine:
             if vn in self.V.sym and on in self.O.sym and self.V.sym[vn][1] == self.O.sym[on][1]:
                 out.append((on, self.V.sym[vn][0], self.O.sym[on][0], self.O.sym[on][1]))
         wr = lambda img, a: any(s <= a < s + n for s, n in img.writable)
+        # vendor statics without a usable symbol (size-0 label), paired by section offset (#664)
+        for on, (sec, off, size) in SECT_STATICS.items():
+            vi = [i for i, a in self.V.secaddr.items() if self.V.elf.secname[i] == sec]
+            if vi and on in self.O.sym:
+                out.append((on, self.V.secaddr[vi[0]] + off, self.O.sym[on][0], size))
         for n, (a, s, t) in self.O.sym.items():
             if t != 'O' or n not in self.V.sym or n in ALIASES:
                 continue
