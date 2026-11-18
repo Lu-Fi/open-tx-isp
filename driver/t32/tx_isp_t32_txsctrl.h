@@ -214,10 +214,27 @@ static inline int t32_tx_sc_day_night(u32 ch, u32 isp, u32 ctrl)
 	return -145;
 }
 
+/*
+ * 0x73 core block offsets: private block of the core subdev, the input's LSC words and the
+ * sensor flip entry { pending, mode } (index 5 of the frame-done sensor updates).  T33
+ * (vendor tx-isp-t33.ko tx_isp_core_ops_s_ctrl 0x8374..0x8554, kernel 3.10 subdev): +276,
+ * +380 / +384 + 104 ch, +1340 / +1344 + 96 ch; T32: +280, +384 / +388, +1344 / +1348 (openimp #669).
+ */
+#ifdef TX_ISP_T33
+#define T32_SC_CORE_PRIV	276
+#define T32_SC_FLIP_LSC		380
+#define T32_SC_FLIP_PEND	1340
+#else
+#define T32_SC_CORE_PRIV	280
+#define T32_SC_FLIP_LSC		384
+#define T32_SC_FLIP_PEND	1344
+#endif
+
 /* 0x73: ISP mirror / flip of the three channels of input ch, then the LSC flip */
 static inline int t32_tx_sc_hv_flip(u32 ch, u32 isp, u32 ctrl)
 {
-	u32 core = t32_tx_ld(t32_tx_ld(isp, 0), 280), a = t32_tx_ld(core, 384 + 104 * ch), b = t32_tx_ld(core, 388 + 104 * ch);
+	u32 core = t32_tx_ld(t32_tx_ld(isp, 0), T32_SC_CORE_PRIV), a = t32_tx_ld(core, T32_SC_FLIP_LSC + 104 * ch),
+	    b = t32_tx_ld(core, T32_SC_FLIP_LSC + 4 + 104 * ch);
 	u32 v[24], f = 0, k, h, vv, in;
 	int r = (int)t32_tx_os_copy_from_user(v, t32_tx_ld(ctrl, 4), 16);
 
@@ -248,8 +265,8 @@ static inline int t32_tx_sc_hv_flip(u32 ch, u32 isp, u32 ctrl)
 	h = v[0] == 2 || v[0] == 3;
 	vv = v[0] == 1 || v[0] == 3;
 	t32_tx_os_tisp_lsc_hvflip(ch, a, b, h, vv);
-	t32_tx_st(core, 1344 + 96 * ch, 1);
-	t32_tx_st(core, 1348 + 96 * ch, v[0]);
+	t32_tx_st(core, T32_SC_FLIP_PEND + 96 * ch, 1);
+	t32_tx_st(core, T32_SC_FLIP_PEND + 4 + 96 * ch, v[0]);
 	t32_tx_st(isp, 28 + 32 * ch, v[0]);
 	return 0;
 }

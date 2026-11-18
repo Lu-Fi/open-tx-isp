@@ -211,6 +211,7 @@ struct t32_sensor_reginfo {
  * struct { int vinum; int value; } argument */
 #define T32_EVENT_SENSOR_SET_REG	0x02000011U	/* 64 B register block, in only */
 #define T32_EVENT_SENSOR_GET_REG	0x02000012U	/* 64 B register block, in and out */
+#define T32_EVENT_SENSOR_FLIP		0x02000010U	/* { vinum, u32 *msg }: msg[0] mirror / flip mode */
 #define T32_EVENT_SENSOR_FPS		0x0200000aU	/* value fps_num << 16 | fps_den */
 #define T32_EVENT_SENSOR_EXPO		0x02000017U	/* value again << 16 | integration lines (cv8001: arg + 4) */
 

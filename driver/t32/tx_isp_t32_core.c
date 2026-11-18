@@ -1448,6 +1448,34 @@ int t32_core_sensor_expo(u32 packed)
 	return ioctl(vi->sd, T32_EVENT_SENSOR_EXPO, &sv);
 }
 
+#ifdef TX_ISP_T33
+/*
+ * sensor mirror / flip (TX_ISP_EVENT_SENSOR_FLIP 0x2000010, vendor tx_isp_core_shvflip through
+ * ispcore_sensor_ops_ioctl): arg { ch, &msg }, msg[0] = mode (0 normal, 1 mirror, 2 flip,
+ * 3 both), the sensor answers msg[1] (frames to hold, cv2005: 2) / msg[2]; -ENOIOCTLCMD counts as 0 (openimp #669)
+ */
+int t32_core_sensor_flip(u32 ch, u32 mode, u32 *frames)
+{
+	struct t32_vi *vi = &core.vi[0];
+	u32 msg[3] = { mode, 0, 0 };
+	struct { u32 vinum; u32 *msg; } sv = { ch, msg };
+	int (*ioctl)(void *sd, unsigned int cmd, void *arg);
+	void *ops, *grp;
+	int r;
+
+	if (!vi->registered || !vi->sd)
+		return -ENODEV;
+	ops = T32_AT(vi->sd, T32_SD_OPS, void *);
+	grp = ops ? T32_AT(ops, T32_OPS_SENSOR, void *) : NULL;
+	ioctl = grp ? T32_AT(grp, T32_SENSOR_OPS_IOCTL, void *) : NULL;
+	if (!ioctl)
+		return 0;
+	r = ioctl(vi->sd, T32_EVENT_SENSOR_FLIP, &sv);
+	*frames = msg[1];
+	return r == -ENOIOCTLCMD ? 0 : r;
+}
+#endif
+
 /* the sensor's frame length (VTS) from its attributes, 0 when unknown */
 u32 t32_core_sensor_vts(void)
 {

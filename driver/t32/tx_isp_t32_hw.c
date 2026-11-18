@@ -105,6 +105,9 @@ static void t33_lcepf_ev(u32 lo, u32 hi, u32 bv);
 static void t32_bringup_ae_kick(void);
 #ifdef TX_ISP_T33
 static struct work_struct t33_stats_w;
+static struct work_struct t33_flip_w;
+static void t33_flip_kick(void);
+static void t33_vic_hold_tick(u32 sta);
 #endif
 
 /* Linux IRQ numbers: INTC source + XBURST_SOC_IRQ_BASE (8) on PRJ007 */
@@ -265,6 +268,7 @@ static irqreturn_t t32_isp_irq(int irq, void *dev)
 			t33_rcfg_runs++;
 		}
 		t32_tunctl_frame_done(0);	/* isp_frame_done_wakeup (tuning id 0x08000091) */
+		t33_flip_kick();		/* ispcore_irq_fd_work0: pending sensor flip (#669) */
 #else
 		t32_tunctl_frame_done(0);	/* isp_frame_done_wakeup (tuning id 0x08000091) */
 #endif
@@ -356,6 +360,9 @@ static irqreturn_t t32_vic_irq(int irq, void *dev)
 	writel(t0, isp_base + T32_VIC_BASE(1) + T32_VIC_INT_CLR);
 	writel(t1, isp_base + T32_VIC_BASE(1) + T32_VIC_INT_CLR2);
 	t32_hw_stats.vic_irqs++;
+#ifdef TX_ISP_T33
+	t33_vic_hold_tick(s0);		/* the sensor flip's VIC hold (#669) */
+#endif
 #ifndef TX_ISP_T33
 	/* RAW snapshot through the VIC's MDMA (vendor lib_tisp_vic_intp_handle, openimp #491) */
 	t32_snap_vic_irq(0, s0, s1);
@@ -2203,8 +2210,103 @@ static void t33_stats_work(struct work_struct *w)
 }
 static DECLARE_WORK(t33_stats_w, t33_stats_work);
 
+/*
+ * Sensor mirror / flip (openimp #669): tx_isp_core_shvflip (vendor tx-isp-t33.ko 0x102e0c) as the
+ * vendor's ispcore_irq_fd_work0 runs it for the pending frame-done entry 5 that 0x73 queues
+ * (tx_isp_core_ops_s_ctrl, the IMPISPHVFLIPAttr sensor_mode): after the next frame end, in process
+ * context (the sensor writes over i2c), VIC control 0x4444 on both VICs (lib_tisp_vic_ctrl:
+ * 0x801a8 / 0x811a8: the VICs hold the frames), the sensor ioctl 0x2000010 { ch, &msg } with
+ * msg[0] = the mode, the entry cleared, then the core event 0x1000007 { max(msg[1], 1), 0x1000009 }:
+ * ispcore_core_ops_ioctl passes it to the subdevs, vic_core_ops_ioctl arms a frame count
+ * (vic +2384 / +2400 / +2404), and isp_vic_interrupt_service_routine counts VIC frame starts
+ * (0x1e0 bit 4) down and then writes 0x4440 (linear) back to both VICs (t33_vic_hold_tick) and
+ * notifies 0x1000009.  That notify (ispcore_core_ops_ioctl 0x1000009: mbus_to_bayer_write for an
+ * input whose synced video_in +48 flag is set) rewrites the bayer of the unchanged mbus code: the
+ * T33 sensors keep the code and move the bayer phase themselves (cv2005 register 0x3028), so it is
+ * not run here.  Without the count the VICs stay on 0x4444 and the ISP gets no frame (device, #669).
+ */
+static DEFINE_SPINLOCK(t33_flip_lock);
+static u32 t33_flip_pend, t33_flip_mode;
+static int t33_vic_hold;		/* VIC frame starts left before 0x4440 (vic +2384) */
+static struct {
+	u32 requests, applied, mode, holds, releases;
+	int ret;
+} t33_flip_st;
+
+/* isp_vic_interrupt_service_routine, frame start (0x1e0 bit 4) with the hold armed: count down, release */
+static void t33_vic_hold_tick(u32 sta)
+{
+	unsigned long fl;
+	bool rel = false;
+
+	if (!ACCESS_ONCE(t33_vic_hold) || !(sta & 0x10))
+		return;
+	spin_lock_irqsave(&t33_flip_lock, fl);
+	if (t33_vic_hold && --t33_vic_hold <= 0) {
+		t33_vic_hold = 0;
+		t33_flip_st.releases++;
+		rel = true;
+	}
+	spin_unlock_irqrestore(&t33_flip_lock, fl);
+	if (rel) {
+		t32_vic_wr(0, 0x1a8, 0x4440);
+		t32_vic_wr(1, 0x1a8, 0x4440);
+	}
+}
+
+static void t33_flip_work(struct work_struct *w)
+{
+	unsigned long fl;
+	u32 mode, frames = 0;
+	int ret;
+
+	(void)w;
+	spin_lock_irqsave(&t33_flip_lock, fl);
+	mode = t33_flip_mode;
+	ret = t33_flip_pend;
+	spin_unlock_irqrestore(&t33_flip_lock, fl);
+	if (!ret || !isp_base || !t32_core_clk_active())
+		return;
+	t32_vic_wr(0, 0x1a8, 0x4444);
+	t32_vic_wr(1, 0x1a8, 0x4444);
+	ret = t32_core_sensor_flip(0, mode, &frames);
+	spin_lock_irqsave(&t33_flip_lock, fl);
+	t33_flip_pend = 0;
+	t33_vic_hold = (int)frames > 0 ? (int)frames : 1;	/* core event 0x1000007 { max(msg[1], 1), .. } */
+	t33_flip_st.holds++;
+	t33_flip_st.applied++;
+	t33_flip_st.mode = mode;
+	t33_flip_st.ret = ret;
+	spin_unlock_irqrestore(&t33_flip_lock, fl);
+}
+static DECLARE_WORK(t33_flip_w, t33_flip_work);
+
+/* 0x73 (tx_isp_t32_tunctl.c): the vendor's +1340 / +1344 entry of input ch; one input on T33 */
+void t33_core_flip_request(u32 ch, u32 mode)
+{
+	unsigned long fl;
+
+	if (ch)
+		return;
+	spin_lock_irqsave(&t33_flip_lock, fl);
+	t33_flip_pend = 1;
+	t33_flip_mode = mode;
+	t33_flip_st.requests++;
+	spin_unlock_irqrestore(&t33_flip_lock, fl);
+}
+
+/* frame end (the vendor queues ispcore_irq_fd_work0 there) */
+static void t33_flip_kick(void)
+{
+	if (ACCESS_ONCE(t33_flip_pend))
+		schedule_work(&t33_flip_w);
+}
+
 void t33_stats_show(struct seq_file *m)
 {
+	seq_printf(m, "t33 flip: requests %u applied %u mode %u ret %d pending %u vic holds %u releases %u left %d\n",
+		   t33_flip_st.requests, t33_flip_st.applied, t33_flip_st.mode, t33_flip_st.ret, t33_flip_pend,
+		   t33_flip_st.holds, t33_flip_st.releases, t33_vic_hold);
 	seq_printf(m, "t33 statistics: awb %u (bad %u) grid %ux%u white %u/%u rg %u bg %u tag %u\n",
 		   t33_st.awb_frames, t33_st.awb_bad, t33_awb_cols, t33_awb_rows, t33_st.awb.white,
 		   t33_st.awb.zones, t33_st.awb.rg, t33_st.awb.bg, t33_st.awb.tag);
@@ -5026,6 +5128,9 @@ void t32_hw_exit(void)
 	t32_blk_exit();				/* block event work (after the LCE state is gone) */
 #ifdef TX_ISP_T33
 	cancel_work_sync(&t33_stats_w);	/* it reads registers and the statistics buffers */
+	cancel_work_sync(&t33_flip_w);	/* it writes VIC registers and the sensor */
+	t33_flip_pend = 0;
+	t33_vic_hold = 0;
 	t33_evq_free();
 	kfree(t33_gr_tmp);
 	t33_gr_tmp = NULL;

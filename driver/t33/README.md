@@ -67,7 +67,7 @@ ae_cache / stAeInfo and awbInfo / stAwbStatBuff blocks since wiring groups
 gain goes to list 7). The AWB attribute ids (only-read, weight get / set) and
 the CCM get run the oracle-proven attrAWB glue. The AE 5-bin histogram bounds of a
 new AE context come from the statistics config (vendor
-`tisp_ae_hist_last + 0x414`). Mask / draw / OSD ids (0x74, 0xa0..0xa2) are
+`tisp_ae_hist_last + 0x414`). Mirror / flip 0x73 (openimp #669): the ISP output flags go to the MSCA (tx_isp_t33_osd.c); the sensor mode (IMPISPHVFLIPAttr sensor_mode) is queued as the vendor's frame-done entry 5 (T33 layout +1340 / +1344, block hvflip) and applied after the next frame end as `tx_isp_core_shvflip` does it (VIC control 0x4444, sensor ioctl 0x2000010; `t33 flip:` line of isp-m0). Mask / draw / OSD ids (0x74, 0xa0..0xa2) are
 stored and read back as the vendor's, not drawn (no MSCA OSD path yet); AF ids
 answer the stored weight / zeros (no AF block). QEMU apitest with the OpenIMP
 libimp: 255 PASS / 16 FAIL on this module, 254 / 17 on the vendor module, no
