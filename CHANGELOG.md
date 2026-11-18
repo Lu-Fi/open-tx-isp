@@ -33,7 +33,7 @@ marked otherwise. Release tags `vYYYY.MM.DD[-rcN]` are set on the `aperto` branc
 ## 2026-11-17: vdiff compares the frame-end flip countdown of T10/T20 (openimp #664; host, harness only)
 
 - `tests/t20_fw/vdiff/emu.py`: `vdiff --ext` reported a one-byte data diff in `apical_interrupt_frame_end` (vendor `.sbss`+0 = 0xac, ours 0xad). Cause: harness, not driver. The vendor keeps the post-flip countdown byte at `.sbss`+0 without a usable symbol; ours is `__key_0`. The two were not paired, so each side counted its own copy and only the vendor byte was compared; the diff showed only when a sampled call fell inside the 180-frame countdown. New `SECT_STATICS` table pairs `__key_0` with vendor `.sbss`+0 (1 byte).
-- Driver code unchanged. vdiff with the fix: `--ext` frame_end same (1100 calls), SUMMARY 0; default 378/0; `--dis` 389/0. Not yet proven: two mutation probes (reload `0xb4` -> `0xb3`, countdown step -1 -> -2) were not detected (38 compared frame_end calls, 0 differing), so no compared call lies inside a countdown; a scenario that samples a call after a flip is still needed.
+- Driver code unchanged. vdiff with the fix: `--ext` frame_end same (1100 calls), SUMMARY 0; default 378/0; `--dis` 389/0. `compare()` skipped objects shorter than one word, so the 1-byte `__key_0` was never compared; it now compares a sub-word tail zero-padded. Mutation probe (countdown step -1 -> -2) is now detected: `--ext` frame_end DIFF (38 compared, 1 differing); clean tree again 0 diff (default 378/0, `--dis` 389/0).
 
 ## 2026-11-17: T10/T20 exposure now runs the vendor AE graph by default (openimp #609; host + T10 .31)
 
