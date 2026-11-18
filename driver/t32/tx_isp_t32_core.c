@@ -18,6 +18,7 @@
 #include <linux/uaccess.h>
 #include <linux/i2c.h>
 #include <linux/slab.h>
+#include <linux/vmalloc.h>
 #include <linux/mutex.h>
 #include <linux/list.h>
 #include <linux/gfp.h>
@@ -109,9 +110,6 @@ struct t32_alloc {
 	u32 pa;
 	u32 size;
 	unsigned int order;
-#ifdef TX_ISP_T33
-	bool retired;		/* freed by libimp while it held the IQ bin: pages kept until t32_free_all (#628) */
-#endif
 };
 
 struct t32_vi {
@@ -354,14 +352,25 @@ static int t32_sensor_stream(struct t32_vi *vi, int on)
 /* through /dev/mem (IQ bins for SET_TIZIANO_PAR)                      */
 
 /*
- * T33: the list is changed under core.lock (ioctls, release) but t32_core_iq_bin walks it from the AE / AWB event
- * work without core.lock (the block refreshes, t33_gr_lock): the changes and that walk take t32_alloc_lock
- * (openimp #579).  The vendor keeps the parsed bin in its own tparamsP copy (no list walk).  T32 build: no-ops.
+ * T33: the list is changed under core.lock (ioctls, release); t32_core_iq_bin is called from the AE / AWB event
+ * work without core.lock (the block refreshes, t33_gr_lock) and reads the bin copy below: the copy's switch and
+ * that read take t32_alloc_lock (openimp #579).  T32 build: no-ops.
+ *
+ * T33 IQ bin copy (openimp #684 / #690): the vendor module parses the bin of SET_TIZIANO_PAR into its own
+ * vmalloc'ed tparamsP (tisp_bin_data_parse, private_vmalloc), so libimp's MEMORY_FREE of the 150 KB kmalloc
+ * buffer right after it frees the pages at once.  The blocks here read the bin in place, so the driver keeps
+ * a vmalloc copy (order-0 pages) of the bin (pa up to the end of its buffer) instead of keeping libimp's
+ * order-6 buffer: before, every streamer start left one order-6 block "retired" until rmmod (#628), and after
+ * ~12 restarts no order-6 block was left for the next bin (AddSensor ENOMEM).  The copy before the last one is
+ * kept until the next switch, so an event work that took the pointer before a switch never reads freed memory.
  */
 #ifdef TX_ISP_T33
 static DEFINE_SPINLOCK(t32_alloc_lock);
 #define T32_ALLOC_LOCK()	spin_lock(&t32_alloc_lock)
 #define T32_ALLOC_UNLOCK()	spin_unlock(&t32_alloc_lock)
+static u8 *t33_bin_cur, *t33_bin_prev;
+static u32 t33_bin_cur_bytes;
+u32 t33_bin_copies;	/* SET_TIZIANO_PAR copies (/proc/jz/isp/isp) */
 #else
 #define T32_ALLOC_LOCK()	do { } while (0)
 #define T32_ALLOC_UNLOCK()	do { } while (0)
@@ -373,9 +382,6 @@ static struct t32_alloc *t32_alloc_find_kva(u32 kva)
 
 	list_for_each_entry(a, &core.allocs, node)
 		if ((u32)(unsigned long)a->kva == kva)
-#ifdef TX_ISP_T33
-			if (!a->retired)
-#endif
 			return a;
 	return NULL;
 }
@@ -386,9 +392,6 @@ static struct t32_alloc *t32_alloc_find_pa(u32 pa)
 
 	list_for_each_entry(a, &core.allocs, node)
 		if (pa >= a->pa && pa < a->pa + a->size)
-#ifdef TX_ISP_T33
-			if (!a->retired)
-#endif
 			return a;
 	return NULL;
 }
@@ -426,21 +429,7 @@ static int t32_free(const struct t32_buf_info *bi)
 
 	if (!a)
 		return -EINVAL;
-#ifdef TX_ISP_T33
-	/*
-	 * openimp #628: the vendor module parses the IQ bin into its own tparamsP copy (tisp_bin_data_parse,
-	 * private_vmalloc), so libimp freeing its buffer never takes the bin from the running blocks.  Here the
-	 * blocks read the bin in place (t32_core_iq_bin, used after the lookup's unlock): the pages that hold it
-	 * are kept (retired, no longer found by kva / pa) and freed by t32_free_all at the release; the FREE
-	 * itself succeeds as before.
-	 */
-	if (core.tiziano_pa >= a->pa && core.tiziano_pa < a->pa + a->size) {
-		T32_ALLOC_LOCK();
-		a->retired = true;
-		T32_ALLOC_UNLOCK();
-		return 0;
-	}
-#endif
+	/* T33: the blocks read the driver's copy of the bin (openimp #628, #684), the pages go at once */
 	T32_ALLOC_LOCK();
 	if (core.tiziano_pa >= a->pa && core.tiziano_pa < a->pa + a->size)
 		core.tiziano_pa = 0;
@@ -475,6 +464,27 @@ static int t32_set_tiziano_par(const struct t32_tiziano_par *par)
 
 	if (!a)
 		return -EINVAL;
+#ifdef TX_ISP_T33
+	{
+		/* the vendor's tisp_bin_data_parse copy (private_vmalloc), see t32_alloc_lock above (#684) */
+		u32 bytes = a->pa + a->size - pa;
+		u8 *c = vmalloc(bytes), *old;
+
+		if (!c) {
+			isp_printf(2, "tx-isp-t32: no memory for the IQ bin copy (%u bytes)\n", bytes);
+			return -ENOMEM;
+		}
+		memcpy(c, (const void *)CKSEG1ADDR(pa), bytes);	/* libimp wrote it through /dev/mem */
+		T32_ALLOC_LOCK();
+		old = t33_bin_prev;
+		t33_bin_prev = t33_bin_cur;
+		t33_bin_cur = c;
+		t33_bin_cur_bytes = bytes;
+		T32_ALLOC_UNLOCK();
+		vfree(old);
+		t33_bin_copies++;
+	}
+#endif
 	core.tiziano_pa = pa;
 	if (par->vinum < T32_BIN_VIS) {
 		core.bin_wdr[par->vinum] = par->wdr;
@@ -1379,6 +1389,13 @@ static int t32_isp_release(struct inode *inode, struct file *file)
 		t33_hw_lib_deinit();	/* lib_tisp_deinit: tisp_all_reset, LDC mask */
 #endif
 		t32_clks_deactivate();
+#ifdef TX_ISP_T33
+		/*
+		 * vendor tx_isp_release: the last close kfrees every MEMORY_MALLOC slot libimp left (16 slots at
+		 * core + 0x170); here the whole list.  Before, a killed streamer's buffers stayed until rmmod (#690).
+		 */
+		t32_free_all();
+#endif
 	}
 	mutex_unlock(&core.lock);
 	return 0;
@@ -1607,6 +1624,21 @@ static int t32_proc_show(struct seq_file *m, void *v)
 	seq_printf(m, "isp mem pa %#x size %#x, iq pa %#x, ioctls %u, memopt %u\n",
 		   vi->isp_mem_pa, vi->isp_mem_size, core.tiziano_pa, core.ioctls,
 		   isp_memopt);
+#ifdef TX_ISP_T33
+	{
+		struct t32_alloc *al;
+		u32 n = 0, kb = 0;
+
+		T32_ALLOC_LOCK();
+		list_for_each_entry(al, &core.allocs, node) {
+			n++;
+			kb += (PAGE_SIZE << al->order) >> 10;
+		}
+		T32_ALLOC_UNLOCK();
+		seq_printf(m, "memory malloc: live %u (%u KB), iq bin copy %u bytes, copies %u\n",
+			   n, kb, t33_bin_cur_bytes, t33_bin_copies);
+	}
+#endif
 	seq_printf(m, "irqs isp %u vic %u frame ends %u stream ons %u\n",
 		   t32_hw_stats.isp_irqs, t32_hw_stats.vic_irqs,
 		   t32_hw_stats.frame_ends, t32_hw_stats.stream_ons);
@@ -1664,18 +1696,15 @@ u32 t32_core_sensor_fps(void)
 int t32_core_iq_bin(const u8 **bin, u32 *bytes)
 {
 #ifdef TX_ISP_T33
-	struct t32_alloc *a;
 	int r = -ENOENT;
 
+	/* the driver's copy of the last SET_TIZIANO_PAR bin (#684); kept over libimp's FREE and the release */
 	T32_ALLOC_LOCK();
-	if (core.tiziano_pa)
-		list_for_each_entry(a, &core.allocs, node)
-			if (core.tiziano_pa >= a->pa && core.tiziano_pa < a->pa + a->size) {
-				*bin = (const u8 *)CKSEG1ADDR(core.tiziano_pa);
-				*bytes = a->pa + a->size - core.tiziano_pa;
-				r = 0;
-				break;
-			}
+	if (t33_bin_cur) {
+		*bin = t33_bin_cur;
+		*bytes = t33_bin_cur_bytes;
+		r = 0;
+	}
 	T32_ALLOC_UNLOCK();
 	return r;
 #else
@@ -1825,6 +1854,11 @@ void tx_isp_t32_core_exit(void)
 	t32_snapldc_exit();
 	t32_ivdc_exit();
 	t32_hw_exit();
+#ifdef TX_ISP_T33
+	vfree(t33_bin_prev);	/* after the block works are gone (t32_hw_exit) */
+	vfree(t33_bin_cur);
+	t33_bin_prev = t33_bin_cur = NULL;
+#endif
 	t32_fs_exit();
 	misc_deregister(&t32_ivdc_misc);
 	misc_deregister(&t32_m0_misc);
