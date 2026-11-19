@@ -32370,19 +32370,19 @@ int32_t image_resize_width(void *arg1, int32_t arg2, char arg3, uint32_t *arg4)
 			idx = width - 0x13;
 			switch (idx) {
 			case 0:
-				((void **)(uintptr_t)base)[0x14b2 / 2] = (uint16_t)arg2;
+				*(uint16_t *)((uintptr_t)base + 0x14b2) = (uint16_t)arg2;	/* #695: byte offset (vendor sh) */
 				break;
 			case 1:
-				((void **)(uintptr_t)base)[0x14c0 / 2] = (uint16_t)arg2;
+				*(uint16_t *)((uintptr_t)base + 0x14c0) = (uint16_t)arg2;	/* #695: byte offset (vendor sh) */
 				break;
 			case 2:
-				((void **)(uintptr_t)base)[0x14ca / 2] = (uint16_t)arg2;
+				*(uint16_t *)((uintptr_t)base + 0x14ca) = (uint16_t)arg2;	/* #695: byte offset (vendor sh) */
 				break;
 			case 3:
-				((void **)(uintptr_t)base)[0x14d4 / 2] = (uint16_t)arg2;
+				*(uint16_t *)((uintptr_t)base + 0x14d4) = (uint16_t)arg2;	/* #695: byte offset (vendor sh) */
 				break;
 			case 4:
-				((void **)(uintptr_t)base)[0x14de / 2] = (uint16_t)arg2;
+				*(uint16_t *)((uintptr_t)base + 0x14de) = (uint16_t)arg2;	/* #695: byte offset (vendor sh) */
 				break;
 			}
 			return 0;
@@ -32441,11 +32441,11 @@ int32_t image_resize_height(void *arg1, int32_t arg2, char arg3, uint32_t *arg4)
     if (mode == 0) {
         if (height - 0x13 < 5) {
             idx = height - 0x13;
-            ((void **)(uintptr_t)base)[(size_t)resize_height_write_table[idx] / 2] = (uint16_t)arg2;
+            *(uint16_t *)((uintptr_t)base + resize_height_write_table[idx]) = (uint16_t)arg2;	/* #695: vendor sh 5300.. */
             return 0;
         }
         *arg4 = 1;
-        return 0;
+        return 5;	/* #695: vendor 219ec..21a7c li v0,5 */
     }
 
     if (mode != 1) {
@@ -32474,14 +32474,14 @@ int32_t image_crop_xoffset(void *arg1, int32_t arg2, char arg3, uint32_t *arg4)
 
     if (mode == 0) {
         if (type == 0x14) {
-            ((void **)(uintptr_t)p)[0x14c4 / 2] = (uint16_t)arg2;
+            *(uint16_t *)((uintptr_t)p + 0x14c4) = (uint16_t)arg2;	/* #695: byte offset (vendor sh) */
         } else if (type == 0x16) {
-            ((void **)(uintptr_t)p)[0x14d8 / 2] = (uint16_t)arg2;
+            *(uint16_t *)((uintptr_t)p + 0x14d8) = (uint16_t)arg2;	/* #695: byte offset (vendor sh) */
         } else if (type != 0x13) {
             *arg4 = 1;
             return 5;
         } else {
-            ((void **)(uintptr_t)p)[0x14b6 / 2] = (uint16_t)arg2;
+            *(uint16_t *)((uintptr_t)p + 0x14b6) = (uint16_t)arg2;	/* #695: byte offset (vendor sh) */
         }
         return 0;
     }

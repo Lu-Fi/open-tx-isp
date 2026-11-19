@@ -12,11 +12,23 @@
  * a1,5304(a0)) and oopsed with a store TLB miss behind the module end.
  * Pass: "cycles done", no Oops in dmesg, dmesg "core set fmt ch=0 1920x1080
  * ... crop=1".
+ *
+ * Second argument "check" (#695 stride): while ch0 streams, read the core FR
+ * crop block (ISP core 0x13380000 + 0x4c0..0x4d0, written by _update_fr from
+ * the crop FSM fields the image_resize_width / height / crop_x/yoffset
+ * setters store) and require enable 1, x 12, y 20, w 1920, h 1080.  Before
+ * the fix the width/height setters stored at void * index (byte +0x2964 ..),
+ * the FSM kept 0xffff and _update_fr clamped to 1936x1089 (sensor 1948x1109
+ * minus the offsets): the FR writer then produced 1936-pixel lines (line
+ * pitch 1952 in the 1920-wide buffer on the ABUS T30N).
  */
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
 #include <unistd.h>
+#include <stdint.h>
+#include <fcntl.h>
+#include <sys/mman.h>
 #include <imp/imp_common.h>
 #include <imp/imp_system.h>
 #include <imp/imp_isp.h>
@@ -25,6 +37,20 @@
 int main(int argc, char **argv)
 {
     int n = argc > 1 ? atoi(argv[1]) : 3;
+    int check = argc > 2 && !strcmp(argv[2], "check");
+    volatile uint32_t *core = NULL;
+    int bad = 0;
+    if (check) {
+        int fd = open("/dev/mem", O_RDONLY | O_SYNC);
+        void *m = fd < 0 ? MAP_FAILED : mmap(NULL, 0x1000, PROT_READ, MAP_SHARED, fd, 0x13380000);
+        if (fd >= 0)
+            close(fd);
+        if (m == MAP_FAILED) {
+            printf("cannot map /dev/mem at 0x13380000\n");
+            return 2;
+        }
+        core = m;
+    }
     IMPSensorInfo si; memset(&si, 0, sizeof si);
     strcpy(si.name, "sc4236"); si.cbus_type = TX_SENSOR_CONTROL_INTERFACE_I2C;
     strcpy(si.i2c.type, "sc4236"); si.i2c.addr = 0x30; si.i2c.i2c_adapter = 0;
@@ -39,10 +65,21 @@ int main(int argc, char **argv)
         int g = IMP_FrameSource_EnableChn(0);
         printf("cycle %d init=%d open=%d add=%d en=%d c0=%d e0=%d\n", i, a, b, c, d, e, g); fflush(stdout);
         usleep(500000);
+        if (core) {
+            uint32_t en = core[0x4c0 / 4] & 1, x = core[0x4c4 / 4] & 0xffff, y = core[0x4c8 / 4] & 0xffff;
+            uint32_t w = core[0x4cc / 4] & 0xffff, h = core[0x4d0 / 4] & 0xffff;
+            printf("cycle %d fr crop en=%u x=%u y=%u w=%u h=%u\n", i, en, x, y, w, h);
+            if (en != 1 || x != 12 || y != 20 || w != 1920 || h != 1080)
+                bad++;
+        }
         IMP_FrameSource_DisableChn(0); IMP_FrameSource_DestroyChn(0);
         IMP_ISP_DisableSensor(); IMP_ISP_DelSensor(&si); IMP_ISP_Close(); IMP_System_Exit();
         if (a || b || c || d || e || g)
             return 1;
+    }
+    if (bad) {
+        printf("FR crop wrong in %d cycles\n", bad);
+        return 1;
     }
     printf("cycles done\n");
     return 0;

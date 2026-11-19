@@ -949,7 +949,13 @@ def b_clip(m, r):                        # dis_clip_gmv_vector: two-word vector 
     v = m.e.alloc(8, struct.pack("<ii", r.randrange(-80, 80), r.randrange(-80, 80)))
     return (ctx if r.random() < 0.9 else 0, v), (), [(v, 8)]
 
+def b_resize_crop(m, r):
+    # openimp #695: image_resize_width / image_resize_height / image_crop_xoffset (types 0x13..0x17, bad types, get/set)
+    b = rbuf(m, r, 0x6000); out = m.e.alloc(4, b"\xaa" * 4)
+    return (b, (r.choice([0x13, 0x14, 0x15, 0x16, 0x17, 0x12, 0x18, 0]) << 16) | r.getrandbits(16), r.choice([0, 0, 1, 1, 2]), out), (), [(b, 0x6000), (out, 4)]
+
 CLASS463 = (("cmos_antiflicker_update", b_antiflicker), ("general_frame_end", b_gfe), ("image_crop_yoffset", b_crop_y),
+            ("image_resize_width", b_resize_crop), ("image_resize_height", b_resize_crop), ("image_crop_xoffset", b_resize_crop),
             ("awb_range_high", b_awb_high), ("scene_mode", b_scene), ("defect_pixel_table_write", b_dpc),
             ("mscaler_core_ops_init", b_msc), ("get_gmv_gauss_method_fast_v2", b_gmv), ("dis_analyze", b_dis), ("dis_clip_gmv_vector", b_clip))
 def t_class463(V, O, rnd, n):
