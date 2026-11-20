@@ -20,6 +20,11 @@ marked otherwise. Release tags `vYYYY.MM.DD[-rcN]` are set on the `aperto` branc
 - **Cause.** The T32 build freed a MEMORY_MALLOC buffer only on MEMORY_FREE or at rmmod; a streamer killed without FREE left its physically contiguous pages until rmmod. Vendor tx-isp-t32.ko `tx_isp_release` kfrees all 16 slots (core + 0x168) at the last close, as the T33 module does (fixed for T33 in #684 / #690).
 - **Fix (vendor-equal).** `t32_isp_release` calls `t32_free_all` at the last close on both SoCs (the `TX_ISP_T33` guard is gone; `driver/t32/tx_isp_t32_core.c`). On T32 the IQ bin is read in place only by init paths under `core.lock`. T33 module bit-identical.
 - **Evidence.** QEMU see the issue comment. Not device-tested (no T32 test camera).
+## 2026-11-20: T30 NCU denoise is configured by libimp; driver stream-on checked vendor-equal (openimp #701; no code change)
+
+- **Context.** The vendor T30 libimp (1.0.4 stock ABUS firmware, 1.0.5) runs the NCU 3D denoiser from `/etc/sensor/ncu_<sensor>.bin` entirely from user space: `ncu_hal_init` / `ncu_all_buf_config` / `ncu_func_par_download` write the NCU block 0x13090000 through `/dev/mem` (0x24 bits 31:8, 0x38..0xac buffers and strides, 0x180..0x400 per-gain parameters, 0x0c shadow load). OpenIMP now does the same (OpenIMP `src/t30/t30_ncu.c`).
+- **Driver check.** Vendor tx-isp-t30.ko `ncu_pad_event_handle` stream-on (0x131c0..0x13394): strides 0x34/0x44/0x3c/0x4c/0x54/0x5c = width, RESET bit 0 = 0, `tx_isp_reg_set(0x24, 0, 7, ctrl)`, FRAME_SIZE 0x2c, STOP, START bit 1, INT, SREG. Ours writes the same set and keeps 0x24 bits 31:8, so the libimp configuration survives stream-on. Comment added at the write. `driver/t30/tx_isp_t30_recovered.c`.
+- **Evidence.** OpenIMP #701 QEMU T30 run (NCU registers read back while streaming). Device run on the ABUS camera pending.
 
 ## 2026-11-20: T30 core crop: the stream-on top-control restore no longer bypasses the FR crop again (openimp #695 crop3; QEMU)
 

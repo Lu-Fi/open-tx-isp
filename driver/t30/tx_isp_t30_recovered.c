@@ -19961,6 +19961,14 @@ static int tx_isp_t30_ncu_stream_on(struct tx_isp_t30_subdev_pad *pad)
 	}
 
 	tx_isp_reg_set(&ncu->sd, TX_ISP_T30_NCU_RESET, 0, 0, 0);
+	/*
+	 * Only bits 7:0 (input / output mode) belong to the driver, as in the
+	 * vendor ko (0x13300: tx_isp_reg_set(sd, 0x24, 0, 7, v)).  The denoise
+	 * enables in bits 31:8, the reference / statistics buffers (0x38..0xac)
+	 * and the per-gain parameters (0x180..0x400) are written by libimp
+	 * through /dev/mem from /etc/sensor/ncu_<sensor>.bin (vendor ncu_hal_*,
+	 * OpenIMP src/t30/t30_ncu.c, openimp #701) and must survive stream-on.
+	 */
 	tx_isp_reg_set(&ncu->sd, TX_ISP_T30_NCU_FUNCTION_CONTROL,
 			   0, 7, control);
 	tx_isp_t30_ncu_writel(ncu, TX_ISP_T30_NCU_FRAME_SIZE,
