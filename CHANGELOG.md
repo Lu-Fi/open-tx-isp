@@ -9,6 +9,9 @@ marked otherwise. Release tags `vYYYY.MM.DD[-rcN]` are set on the `aperto` branc
 - **Cause.** With the reference C of upstream PR #15 present, ten oracles failed (aeab, aead, aeae, aeb, aev, aev3, awbad, awblg4, awblg6 here; txsctrl was repaired on the #689 branch) with "mutation did not apply": the driver text moved its offsets into `T32_AER_HI(..)` / `T32_AWB_SO(..)`, the `.conf` sed lines still named the plain numbers. In next the oracles SKIP without the reference C, so the drift stayed invisible.
 - **Fix.** The 22 stale sed lines now match the current text (`tests/t32_oracle/t32_*_oracle.conf`); the two `aev3` bounds mutations are scoped to `t32_aev_st_tab`. Every mutation still has to be detected: the nine oracles pass with the reference C (23 .. 44 of 44 mutations detected each).
 - **Evidence.** A scan applying every `MUTATIONS` line of all `.conf` files to its header shows no line that fails to apply any more.
+## 2026-11-20: T32 reference-function recount tool (openimp #645; host)
+
+- `tests/t32_oracle/refs_audit.py` counts per reference function whether an oracle that links it calls it (comments stripped): 1574 distinct REFS names, 1287 called, 158 only named, 129 only linked as callees. A source-level bound for "N functions proven"; the real-body audit of T32 (as `tests/t33_binoracle/proof_audit.py` does for T33) is still open. No reference C needed.
 
 ## 2026-11-20: T32 top 0x100 follows the vendor direct-mode rule (openimp #687; binary oracle, QEMU)
 
