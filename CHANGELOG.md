@@ -17,6 +17,12 @@ marked otherwise. Release tags `vYYYY.MM.DD[-rcN]` are set on the `aperto` branc
 - **Vendor.** tx-isp-t33.ko / tx-isp-t32.ko `subdev_sensor_ops_ioctl` (VIN): sensor of block word 8, per-sensor lock, sensor CORE op `g_register` (+0x10) / `s_register` (+0x1c); -ENOIOCTLCMD counts as 0; no active sensor -> "Don't have active sensor!" and -1.
 - **Fix (vendor-equal).** `t32_vin_sensor_reg` in `driver/t32/tx_isp_t32_core.c` follows that flow on both SoCs.
 - **Evidence.** QEMU -M ingenic-t33 apitest `sensorreg`: 0x2005 PASS (was 0x0000 FAIL), set/read-back PASS, oops 0. T33L device: see openimp #709.
+## 2026-11-20: T33 SetSharpness runs the vendor tisp_set_sharpness (openimp #707; binary oracle, QEMU, T33L device)
+
+- **Cause.** On T33 `t32_tx_os_tisp_set_sharpness` was a stub: the level was stored and read back, the picture did not change (vendor detail energy 4.1 at 20 / 29.2 at 235, open 4.17 / 4.17).
+- **Vendor.** tx-isp-t33.ko `tisp_set_sharpness`: `tisp_dmsc_sharpness_set` (dmscInfo word 672 = level, demosaic refresh at the stored gain without the gain gate), then the 32 YSP strength tables of 11 gain points (working section bytes 0x454 + 11 n) rebuilt from the bin copy `ysp_paramsP` (level <= 128: point * level / 128, above: towards 255 by (level - 128) / 128), YSP bin / gain interpolation / reg-data refresh and all 91 YSP register stores (or refresh flag 2 with list 14 busy).
+- **Fix (vendor-equal).** `driver/t32/tx_isp_t33_sharp.h` (`t33_set_sharpness`), `t33_dmsc_sharpness_set` in `tx_isp_t33_i9N.h`, wired in `tx_isp_t33_g14glue.h` / `tx_isp_t32_hw.c` (`t33_tisp_set_sharpness`, under the tuning lock) and `tx_isp_t32_tunctl.c`. T32 module unchanged (T33-only code).
+- **Evidence.** Binary oracles `sharp` (tisp_set_sharpness: 2004 cases, 0 mismatches, 15/15 mutations) and `dsharp` (tisp_dmsc_sharpness_set: 2000 cases, 0 mismatches, 4/4 mutations). QEMU -M ingenic-t33 `t33gaps`: SetSharpness 20 / 235 / 128 ret 0, frames flow, oops 0 (QEMU has no sharpening model). T33L device: see openimp #707.
 ## 2026-11-20: T32 oracle mutation lines follow the current driver text (openimp #704; host oracles)
 
 - **Cause.** With the reference C of upstream PR #15 present, ten oracles failed (aeab, aead, aeae, aeb, aev, aev3, awbad, awblg4, awblg6 here; txsctrl was repaired on the #689 branch) with "mutation did not apply": the driver text moved its offsets into `T32_AER_HI(..)` / `T32_AWB_SO(..)`, the `.conf` sed lines still named the plain numbers. In next the oracles SKIP without the reference C, so the drift stayed invisible.

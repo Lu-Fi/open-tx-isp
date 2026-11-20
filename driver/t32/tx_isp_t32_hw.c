@@ -2797,6 +2797,24 @@ void t33_tisp_set_bcsh(u32 ch, u32 which, u32 v)
 	mutex_unlock(&t33_gr_lock);
 }
 
+/*
+ * tisp_set_sharpness (tx_isp_core_ops_s_ctrl, openimp #707): DMSC sharpness byte + refresh, the YSP strength
+ * tables from the bin copy, YSP refresh and register stores (tx_isp_t33_sharp.h).  Needs the YSP / DMSC
+ * inits of the running bin (section pointers set).
+ */
+void t33_tisp_set_sharpness(u32 ch, u32 v)
+{
+	unsigned long flags;
+
+	if (ch || !t33_ysp_v[2172 / 4] || !t33_g14_yspp[0] || !t33_dmsc_v[670])
+		return;
+	mutex_lock(&t33_gr_lock);
+	local_irq_save(flags);
+	t33_set_sharpness(0, v);
+	local_irq_restore(flags);
+	mutex_unlock(&t33_gr_lock);
+}
+
 /* tisp_gamma_irq_frame_done (system irq 46, interrupt context) */
 static void t33_gamma_fd(void)
 {

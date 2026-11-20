@@ -122,4 +122,18 @@ static inline void t33_dmsc_par_step(u32 ch, u32 gain, u32 thr)
 	v[671] = gain;
 }
 
+/*
+ * tisp_dmsc_sharpness_set (vendor 0x66fd8, from tisp_set_sharpness, openimp #707): the level byte goes into
+ * state word 672 (the tisp_ratio byte of the five sharpness words), then the refresh runs at the stored gain
+ * (word 671) without the gain gate: threshold 0, the gain word keeps its value.
+ */
+static inline void t33_dmsc_sharpness_set(u32 ch, u32 level)
+{
+	u32 *v = dmscInfo[ch];
+	u32 gain = v[671];
+
+	v[672] = level & 0xff;
+	t33_dmsc_par_step(ch, gain, 0);
+}
+
 #endif /* TX_ISP_T33_I9N_H */
