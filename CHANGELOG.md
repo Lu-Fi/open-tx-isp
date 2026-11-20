@@ -4,6 +4,12 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD[-rcN]` are set on the `aperto` branch, the same tag in open-tx-isp and OpenIMP: RC1 `v2026.10.11-rc1`, RC2 `v2026.10.25-rc2`, RC3 `v2026.11.07-rc3` (2026-11-07). Gate SoCs of RC3 and Release 1: T10, T20, T21, T23, T30, T31, T40, T41 (T32/T33 planned, QEMU only); release notes: [docs/releases/ in OpenIMP](https://github.com/Lu-Fi/openimp/blob/next/docs/releases/README.md). Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-11-20: T32/T33 GetSensorRegister / SetSensorRegister reach the sensor like the vendor VIN (openimp #709; QEMU, T33L device)
+
+- **Cause.** G_REGISTER 0x8040540e / S_REGISTER 0xc040540d sent the 64 B block to the sensor's sensor-ops ioctl as event 0x02000012 / 0x02000011. The vendor sensor modules ignore those events there (sensor_cv2005_t33.ko jump table: both -> return 0), so the block came back unchanged: chip id read 0x0000 instead of 0x2005.
+- **Vendor.** tx-isp-t33.ko / tx-isp-t32.ko `subdev_sensor_ops_ioctl` (VIN): sensor of block word 8, per-sensor lock, sensor CORE op `g_register` (+0x10) / `s_register` (+0x1c); -ENOIOCTLCMD counts as 0; no active sensor -> "Don't have active sensor!" and -1.
+- **Fix (vendor-equal).** `t32_vin_sensor_reg` in `driver/t32/tx_isp_t32_core.c` follows that flow on both SoCs.
+- **Evidence.** QEMU -M ingenic-t33 apitest `sensorreg`: 0x2005 PASS (was 0x0000 FAIL), set/read-back PASS, oops 0. T33L device: see openimp #709.
 ## 2026-11-20: T32 oracle mutation lines follow the current driver text (openimp #704; host oracles)
 
 - **Cause.** With the reference C of upstream PR #15 present, ten oracles failed (aeab, aead, aeae, aeb, aev, aev3, awbad, awblg4, awblg6 here; txsctrl was repaired on the #689 branch) with "mutation did not apply": the driver text moved its offsets into `T32_AER_HI(..)` / `T32_AWB_SO(..)`, the `.conf` sed lines still named the plain numbers. In next the oracles SKIP without the reference C, so the drift stayed invisible.
