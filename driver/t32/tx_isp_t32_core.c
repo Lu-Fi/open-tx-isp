@@ -515,11 +515,26 @@ static int t32_set_tiziano_par(const struct t32_tiziano_par *par)
 /*
  * Vendor /dev/tx-isp commands the vendor libimp 2.0.2.1 issues (openimp #429):
  *
- * G_REGISTER 0x8040540e (tx_isp_sensor_g_register, T33 vendor module
- * 0x267a0 branch at 0x8040540e): 64 B block copied in, sensor ioctl event
- * 0x02000012, block copied out; a sensor without a handler (-ENOIOCTLCMD
- * -515) is skipped, any other error is returned, no sensor answers 0.
+ * G_REGISTER 0x8040540e / S_REGISTER 0xc040540d (tx_isp_sensor_g_register /
+ * tx_isp_sensor_s_register, T33 vendor module 0x267a0, lines 0x3c4/0x3d2 and
+ * 0x3a9): the 64 B block is copied in and handed to the VIN subdevice as
+ * sensor-ops event 0x02000012 / 0x02000011.  The VIN (vendor
+ * subdev_sensor_ops_ioctl, T33 0x150e8, T32 vendor ko the same with the sd
+ * ops at 0x108) does NOT forward the event to the sensor's sensor-ops ioctl
+ * (sensor_cv2005_t33.ko answers 0x02000012 with 0 and no read, jump table
+ * .rodata+0x20 -> 0x14a0): it takes the sensor of block word 8 (vinum), locks
+ * it and calls the sensor's CORE op g_register (core ops +0x10, cv2005
+ * 0x36c) / s_register (core ops +0x1c, cv2005 0x14cc) with the block;
+ * -ENOIOCTLCMD (-515) or a missing op count as 0, no active sensor is
+ * "Don't have active sensor!" (vin lines 0x26f / 0x281) and -1.  G_REGISTER
+ * then copies the block back (openimp #709: the old sensor-ops ioctl call
+ * left the block at 0, chip id read 0x0000 instead of 0x2005).
  */
+#define T32_REG_BLOCK		64
+#define T32_REG_BLOCK_VINUM	8	/* u32 word: input number */
+#define T32_CORE_G_REGISTER	0x10
+#define T32_CORE_S_REGISTER	0x1c
+
 /* the sensor picture size of the running input (T33 OSD bounds) */
 void t32_core_in_size(u32 *w, u32 *h)
 {
@@ -527,27 +542,38 @@ void t32_core_in_size(u32 *w, u32 *h)
 	*h = core.vi[0].height;
 }
 
-static long t32_sensor_g_register(struct t32_vi *vi, unsigned long arg)
+/* vendor VIN 0x02000011 / 0x02000012 (subdev_sensor_ops_ioctl) */
+static int t32_vin_sensor_reg(u32 *b, unsigned int op, const char *fn, int line)
 {
-	u8 b[64];
-	int (*ioctl)(void *sd, unsigned int cmd, void *arg);
-	void *ops, *grp;
+	int (*reg)(void *sd, void *arg);
+	struct t32_vi *vi;
+	void *ops, *cops;
+	int r;
+
+	vi = b[T32_REG_BLOCK_VINUM] < T32_MAX_VI ? &core.vi[b[T32_REG_BLOCK_VINUM]] : NULL;
+	if (!vi || !vi->registered || !vi->sd) {
+		isp_printf(1, "[ %s:%d ] Don't have active sensor!\n", fn, line);
+		return -1;
+	}
+	ops = T32_AT(vi->sd, T32_SD_OPS, void *);
+	cops = ops ? T32_AT(ops, T32_OPS_CORE, void *) : NULL;
+	reg = cops ? T32_AT(cops, op, void *) : NULL;
+	r = reg ? reg(vi->sd, b) : -ENOIOCTLCMD;
+	return r == -ENOIOCTLCMD ? 0 : r;
+}
+
+static long t32_sensor_g_register(unsigned long arg)
+{
+	u32 b[T32_REG_BLOCK / 4];
+	int r;
 
 	if (copy_from_user(b, (void __user *)arg, sizeof(b))) {
 		isp_printf(2, "[ %s:%d ] copy from user error\n", "tx_isp_sensor_g_register", 0x3c4);
 		return -EFAULT;
 	}
-	if (vi->registered && vi->sd) {
-		ops = T32_AT(vi->sd, T32_SD_OPS, void *);
-		grp = ops ? T32_AT(ops, T32_OPS_SENSOR, void *) : NULL;
-		ioctl = grp ? T32_AT(grp, T32_SENSOR_OPS_IOCTL, void *) : NULL;
-		if (ioctl) {
-			int r = ioctl(vi->sd, T32_EVENT_SENSOR_GET_REG, b);
-
-			if (r && r != -ENOIOCTLCMD)
-				return r;
-		}
-	}
+	r = t32_vin_sensor_reg(b, T32_CORE_G_REGISTER, "tx_isp_vin_g_register", 0x26f);
+	if (r)
+		return r;
 	if (copy_to_user((void __user *)arg, b, sizeof(b))) {
 		isp_printf(2, "[ %s:%d ] copy from user error\n", "tx_isp_sensor_g_register", 0x3d2);
 		return -EFAULT;
@@ -555,33 +581,15 @@ static long t32_sensor_g_register(struct t32_vi *vi, unsigned long arg)
 	return 0;
 }
 
-/*
- * S_REGISTER 0xc040540d (tx_isp_sensor_s_register, T33 vendor module 0x267a0,
- * line 0x3a9): 64 B block in, sensor event 0x02000011, ENOIOCTLCMD skipped,
- * other errors returned, nothing copied back, no sensor answers 0.
- */
-static long t32_sensor_s_register(struct t32_vi *vi, unsigned long arg)
+static long t32_sensor_s_register(unsigned long arg)
 {
-	u8 b[64];
-	int (*ioctl)(void *sd, unsigned int cmd, void *arg);
-	void *ops, *grp;
+	u32 b[T32_REG_BLOCK / 4];
 
 	if (copy_from_user(b, (void __user *)arg, sizeof(b))) {
 		isp_printf(2, "[ %s:%d ] copy from user error\n", "tx_isp_sensor_s_register", 0x3a9);
 		return -EFAULT;
 	}
-	if (vi->registered && vi->sd) {
-		ops = T32_AT(vi->sd, T32_SD_OPS, void *);
-		grp = ops ? T32_AT(ops, T32_OPS_SENSOR, void *) : NULL;
-		ioctl = grp ? T32_AT(grp, T32_SENSOR_OPS_IOCTL, void *) : NULL;
-		if (ioctl) {
-			int r = ioctl(vi->sd, T32_EVENT_SENSOR_SET_REG, b);
-
-			if (r && r != -ENOIOCTLCMD)
-				return r;
-		}
-	}
-	return 0;
+	return t32_vin_sensor_reg(b, T32_CORE_S_REGISTER, "tx_isp_vin_s_register", 0x281);
 }
 
 /*
@@ -974,10 +982,10 @@ static long t32_isp_ioctl(struct file *file, unsigned int cmd, unsigned long arg
 		ret = t32_tunctl_ae_start(cmd, arg);
 		break;
 	case T32_IOC_SET_SENSOR_REGISTER:
-		ret = t32_sensor_s_register(vi, arg);
+		ret = t32_sensor_s_register(arg);
 		break;
 	case T32_IOC_GET_SENSOR_REGISTER:
-		ret = t32_sensor_g_register(vi, arg);
+		ret = t32_sensor_g_register(arg);
 		break;
 	case T32_IOC_BYPASS_SENSOR: {
 		/*
