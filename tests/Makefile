@@ -1606,8 +1606,11 @@ t31_binoracle_bcshlut:
 t31_binoracle_adralgo:
 	./t31_binoracle/run.sh adralgo
 
-t31_binoracle_fixpt: t31_binoracle_adrfpga:
-	./t31_binoracle/run.sh fixpt adrfpga
+t31_binoracle_fixpt:
+	./t31_binoracle/run.sh fixpt
+
+t31_binoracle_adrfpga:
+	./t31_binoracle/run.sh adrfpga
 
 # T33 gamma EV update (openimp #507): "gammaev" tisp_gamma_ev_update vs the vendor instructions (SKIP without
 # T33_OEM_KO / T33_CC)
