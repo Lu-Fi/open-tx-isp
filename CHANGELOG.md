@@ -4,6 +4,12 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD[-rcN]` are set on the `aperto` branch, the same tag in open-tx-isp and OpenIMP: RC1 `v2026.10.11-rc1`, RC2 `v2026.10.25-rc2`, RC3 `v2026.11.07-rc3` (2026-11-07). Gate SoCs of RC3 and Release 1: T10, T20, T21, T23, T30, T31, T40, T41 (T32/T33 planned, QEMU only); release notes: [docs/releases/ in OpenIMP](https://github.com/Lu-Fi/openimp/blob/next/docs/releases/README.md). Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-11-20: T30 NCU denoise is configured by libimp; driver stream-on checked vendor-equal (openimp #701; no code change)
+
+- **Context.** The vendor T30 libimp (1.0.4 stock ABUS firmware, 1.0.5) runs the NCU 3D denoiser from `/etc/sensor/ncu_<sensor>.bin` entirely from user space: `ncu_hal_init` / `ncu_all_buf_config` / `ncu_func_par_download` write the NCU block 0x13090000 through `/dev/mem` (0x24 bits 31:8, 0x38..0xac buffers and strides, 0x180..0x400 per-gain parameters, 0x0c shadow load). OpenIMP now does the same (OpenIMP `src/t30/t30_ncu.c`).
+- **Driver check.** Vendor tx-isp-t30.ko `ncu_pad_event_handle` stream-on (0x131c0..0x13394): strides 0x34/0x44/0x3c/0x4c/0x54/0x5c = width, RESET bit 0 = 0, `tx_isp_reg_set(0x24, 0, 7, ctrl)`, FRAME_SIZE 0x2c, STOP, START bit 1, INT, SREG. Ours writes the same set and keeps 0x24 bits 31:8, so the libimp configuration survives stream-on. Comment added at the write. `driver/t30/tx_isp_t30_recovered.c`.
+- **Evidence.** OpenIMP #701 QEMU T30 run (NCU registers read back while streaming). Device run on the ABUS camera pending.
+
 ## 2026-11-20: T30 core crop: the stream-on top-control restore no longer bypasses the FR crop again (openimp #695 crop3; QEMU)
 
 - **Observed.** With the setter fix (crop2) on the ABUS T30N: isp-m3 follows isp-m2 and every crop / writer / NCU / LFB / mscaler register reads 1920x1080 (FR crop 0x4c0..0x4d0 = 1 / 12 / 20 / 0x780 / 0x438, writers 0xb04 / 0xb84 = 0x04380780, line offsets 0x780). The Y plane still had a line period of 1952 (Y-plane autocorrelation), and core 0x40 read 0x33242193.
