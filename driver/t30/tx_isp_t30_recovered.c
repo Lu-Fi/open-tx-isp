@@ -13895,11 +13895,16 @@ static int tx_isp_t30_ispcore_stream_on(struct tx_isp_t30_subdev_pad *pad)
 		ret = isp_lfb_ctrl_hw_recovery(1);
 		if (ret)
 			return ret;
-		g_switch_lfb_on = 1;
-		for (retry = 100; retry && g_switch_lfb_on; retry--)
-			private_msleep(5);
-		if (!retry && g_switch_lfb_on)
-			pr_err("tx-isp-t30: LFB open handshake timed out\n");
+		/*
+		 * #695 diagnostic variant: enable the LFB here as the stock kernel
+		 * does (FABLE.md, calls at 0x8023800c / 0x8023801c with argument 1),
+		 * not through the frame-end handshake.
+		 */
+		ret = isp_lfb_ctrl_flb_enable(1);
+		if (ret)
+			return ret;
+		pr_err("tx-isp-t30: LFB enabled at stream-on (#695 variant)\n");
+		(void)retry;
 	}
 
 	memset(chan->bank_flag, 0, sizeof(chan->bank_flag));
