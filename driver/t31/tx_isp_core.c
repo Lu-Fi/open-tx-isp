@@ -13,6 +13,7 @@
 #include <linux/seq_file.h>
 #include <linux/uaccess.h>
 #include <linux/math64.h>
+#include "tx_isp_t31_fixvendor.h"
 #include "include/tx_isp.h"
 #include "include/tx_isp_core.h"
 #include "tx_isp_t31_autozoom.h"
@@ -5426,9 +5427,10 @@ int tx_isp_handle_sync_sensor_attr_event(struct tx_isp_subdev *sd, struct tx_isp
 }
 EXPORT_SYMBOL(tx_isp_handle_sync_sensor_attr_event);
 
+/* #710: bit-exact to the vendor 0x107d0 over the full input range */
 uint32_t tisp_math_exp2(uint32_t val, uint32_t shift, uint32_t base)
 {
-    return tx_isp_exp2_u32(val, shift, base);
+    return t31_vendor_exp2_u32(val, shift, base);
 }
 EXPORT_SYMBOL(tisp_math_exp2);
 

@@ -4,25 +4,29 @@
 #include <linux/types.h>
 #include <linux/math64.h>
 #include "../../include/tx_isp/tx_isp_math.h"
+#include "../tx_isp_t31_fixvendor.h"
 
 /* 32-bit Q-format fixed-point helpers used by AE1 exposure code.
  * q: number of fractional bits (0..31)
  * All operations saturate naturally in 32-bit; callers must choose q to avoid overflow.
  */
 
+/* #710: bit-exact to the vendor 0x11014 over the full input range */
 static inline u32 fix_point_mult2_32(u32 q, u32 a, u32 b)
 {
-    return tx_isp_fixmul_u32(q, a, b);
+    return t31_vendor_fixmul_u32(q, a, b);
 }
 
+/* #710: bit-exact to the vendor 0x11058 over the full input range */
 static inline u32 fix_point_mult3_32(u32 q, u32 a, u32 b, u32 c)
 {
-    return tx_isp_fixmul3_u32(q, a, b, c);
+    return t31_vendor_fixmul3_u32(q, a, b, c);
 }
 
+/* #710: bit-exact to the vendor 0x11084 over the full input range */
 static inline u32 fix_point_div_32(u32 q, u32 num, u32 den)
 {
-    return tx_isp_fixdiv_u32(q, num, den);
+    return t31_vendor_fixdiv_u32(q, num, den);
 }
 
 /* 64-bit Q-format fixed-point helpers.

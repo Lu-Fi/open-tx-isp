@@ -4,6 +4,12 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD[-rcN]` are set on the `aperto` branch, the same tag in open-tx-isp and OpenIMP: RC1 `v2026.10.11-rc1`, RC2 `v2026.10.25-rc2`, RC3 `v2026.11.07-rc3` (2026-11-07). Gate SoCs of RC3 and Release 1: T10, T20, T21, T23, T30, T31, T40, T41 (T32/T33 planned, QEMU only); release notes: [docs/releases/ in OpenIMP](https://github.com/Lu-Fi/openimp/blob/next/docs/releases/README.md). Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-11-21: T31 fixed-point helpers bit-exact to the vendor over the full input range (openimp #710; host oracle)
+
+- `fix_point_mult2_32`, `fix_point_mult3_32`, `fix_point_div_32` (`driver/t31/include/tx_isp_fixpt.h`) and `tisp_math_exp2` (`tx_isp_core.c`) now use `driver/t31/tx_isp_t31_fixvendor.h`. That header holds bit-exact C of the vendor tx-isp-t31.ko 0x11014 / 0x11058 / 0x11084 / 0x107d0.
+- The shared `tx_isp_math.h` helpers (unchanged for the other SoCs) differed from the vendor only outside the AE/ADR ranges: 32-bit wrap, q = 0, the d == 2r early stop of the divide, and an exp2 integer part >= 32.
+- Proof: new `tests/t31_binoracle` block `fixpt` (in `make check-oracles`). Full u32 range: 3000 cases per function, 0 mismatches; 4 mutations detected. Before: 960 / 845 / 1785 of 3000 mismatches. T31 ko builds.
+
 ## 2026-11-20: T32 SetFaceAe runs the vendor face AE on the live AE (openimp #686; host oracles, QEMU)
 
 - **Cause.** `t32_tx_os_tisp_ae_face_set` (non-T33 branch of `driver/t32/tx_isp_t32_tunctl.c`) only clamped the target and kept a copy: the face zone bounds, `tisp_ae_roi_point` and the face flag were never set, so SetFaceAe could not change the AE mean or target; the AE chain passed literal 0 zone bounds to `tisp_ae_weight_mean`.
