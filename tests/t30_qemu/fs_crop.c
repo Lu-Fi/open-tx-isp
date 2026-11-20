@@ -38,6 +38,7 @@ int main(int argc, char **argv)
 {
     int n = argc > 1 ? atoi(argv[1]) : 3;
     int check = argc > 2 && !strcmp(argv[2], "check");
+    int fps = argc > 3 ? atoi(argv[3]) : 0;   /* third argument: SetSensorFPS(fps, 1) after EnableChn (sensor mode change) */
     volatile uint32_t *core = NULL;
     int bad = 0;
     if (check) {
@@ -64,11 +65,17 @@ int main(int argc, char **argv)
         int e = IMP_FrameSource_CreateChn(0, &fs0);
         int g = IMP_FrameSource_EnableChn(0);
         printf("cycle %d init=%d open=%d add=%d en=%d c0=%d e0=%d\n", i, a, b, c, d, e, g); fflush(stdout);
+        if (fps) {
+            int t1 = IMP_ISP_EnableTuning(), t2 = IMP_ISP_Tuning_SetSensorFPS(fps, 1);
+            printf("cycle %d tuning=%d fps(%d)=%d\n", i, t1, fps, t2);
+            usleep(1000000);
+        }
         usleep(500000);
         if (core) {
             uint32_t en = core[0x4c0 / 4] & 1, x = core[0x4c4 / 4] & 0xffff, y = core[0x4c8 / 4] & 0xffff;
             uint32_t w = core[0x4cc / 4] & 0xffff, h = core[0x4d0 / 4] & 0xffff;
-            printf("cycle %d fr crop en=%u x=%u y=%u w=%u h=%u\n", i, en, x, y, w, h);
+            printf("cycle %d fr crop en=%u x=%u y=%u w=%u h=%u (0x40=%08x writer 0xb04=%08x 0xb20=%u 0xb84=%08x 0xba0=%u)\n", i, en, x, y, w, h,
+                   core[0x40 / 4], core[0xb04 / 4], core[0xb20 / 4], core[0xb84 / 4], core[0xba0 / 4]);
             if (en != 1 || x != 12 || y != 20 || w != 1920 || h != 1080)
                 bad++;
         }
