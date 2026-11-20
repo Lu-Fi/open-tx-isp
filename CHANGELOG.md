@@ -4,6 +4,12 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD[-rcN]` are set on the `aperto` branch, the same tag in open-tx-isp and OpenIMP: RC1 `v2026.10.11-rc1`, RC2 `v2026.10.25-rc2`, RC3 `v2026.11.07-rc3` (2026-11-07). Gate SoCs of RC3 and Release 1: T10, T20, T21, T23, T30, T31, T40, T41 (T32/T33 planned, QEMU only); release notes: [docs/releases/ in OpenIMP](https://github.com/Lu-Fi/openimp/blob/next/docs/releases/README.md). Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-11-20: T32 oracle mutation lines follow the current driver text (openimp #704; host oracles)
+
+- **Cause.** With the reference C of upstream PR #15 present, ten oracles failed (aeab, aead, aeae, aeb, aev, aev3, awbad, awblg4, awblg6 here; txsctrl was repaired on the #689 branch) with "mutation did not apply": the driver text moved its offsets into `T32_AER_HI(..)` / `T32_AWB_SO(..)`, the `.conf` sed lines still named the plain numbers. In next the oracles SKIP without the reference C, so the drift stayed invisible.
+- **Fix.** The 22 stale sed lines now match the current text (`tests/t32_oracle/t32_*_oracle.conf`); the two `aev3` bounds mutations are scoped to `t32_aev_st_tab`. Every mutation still has to be detected: the nine oracles pass with the reference C (23 .. 44 of 44 mutations detected each).
+- **Evidence.** A scan applying every `MUTATIONS` line of all `.conf` files to its header shows no line that fails to apply any more.
+
 ## 2026-11-20: T32 top 0x100 follows the vendor direct-mode rule (openimp #687; binary oracle, QEMU)
 
 - **Cause.** `t32_top_init` always wrote top 0x100 = 4. Vendor tx-isp-t32.ko `tisp_top_init` writes 5 for sensor 0 when the init parameter byte 0x27 is non-zero; `ispcore_core_ops_init` fills that byte with the `direct_mode` module parameter (IVDC direct). Same rule as the T33 module (byte 0x2b, #680).
