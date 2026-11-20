@@ -644,17 +644,15 @@ long t32_tunctl_ctrl(u32 *w, unsigned long arg)
 	mutex_lock(&t32_tc_lock);
 	if (!w[1]) {
 		r = t32_tx_core_ops_s_ctrl(ch, T32_TX_A(t32_tc_isp), T32_TX_A(&w[2]));
-#ifdef TX_ISP_T33
 		/*
-		 * openimp #669: a sensor flip mode 0x73 queued as the vendor's pending frame-done entry 5
-		 * (core +1340 / +1344 + 96 ch) goes to the live core, which runs tx_isp_core_shvflip at
-		 * the next frame end (ispcore_irq_fd_work0).
+		 * openimp #669 (T33) / #689 (T32): a sensor flip mode 0x73 queued as the vendor's pending
+		 * frame-done entry 5 (core +1340 / +1344 + 96 ch on T33, +1344 / +1348 on T32) goes to the
+		 * live core, which runs tx_isp_core_shvflip at the next frame end (ispcore_irq_fd_work0).
 		 */
 		if (w[2] == T32_TC_ID_FIRST + 0x73 && t32_tc_core[(T32_SC_FLIP_PEND + 96 * ch) / 4]) {
 			t32_tc_core[(T32_SC_FLIP_PEND + 96 * ch) / 4] = 0;
 			t33_core_flip_request(ch, t32_tc_core[(T32_SC_FLIP_PEND + 4 + 96 * ch) / 4]);
 		}
-#endif
 	} else {
 		r = t32_tx_core_ops_g_ctrl(ch, T32_TX_A(t32_tc_isp), T32_TX_A(&w[2]));
 		if ((!r || r == -ENOIOCTLCMD) && copy_to_user((void __user *)arg, w, 16))
