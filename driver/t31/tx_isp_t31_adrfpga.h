@@ -14,19 +14,22 @@
 static int subsection_up(uint32_t *out, const uint32_t *ct_list,
                          const uint32_t *ct_table, uint32_t scale)
 {
+    /* vendor 0x1c364: signed compares (slt) and signed div, as the OEM; an
+     * index sum of 0 gives -1 (openimp #563) */
     int i;
     out[0] = 0;
     out[8] = 0xfff;
 
     for (i = 1; i < 8; i++) {
-        uint32_t target = ct_list[i];
-        int best_j = 0, best_count = 0;
-        uint32_t best_dist = 10000;
+        int32_t target = (int32_t)ct_list[i];
+        int32_t best_j = 0, best_count = 0;
+        int32_t best_dist = 10000;
         int j;
 
         for (j = 0; j < 512; j++) {
-            uint32_t dist = (ct_table[j] >= target) ?
-                (ct_table[j] - target) : (target - ct_table[j]);
+            int32_t t = (int32_t)ct_table[j];
+            int32_t dist = (target < t) ? (int32_t)((uint32_t)t - (uint32_t)target) :
+                                          (int32_t)((uint32_t)target - (uint32_t)t);
             if (dist < best_dist) {
                 best_j = j;
                 best_count = 1;
@@ -38,13 +41,15 @@ static int subsection_up(uint32_t *out, const uint32_t *ct_list,
         }
         if (best_count <= 0)
             best_count = 1;
-        out[i] = ((best_j << 12) / best_count + 0x800) / 0x1000 * scale - 1;
+        out[i] = (uint32_t)(((int32_t)((uint32_t)best_j << 12) / best_count + 0x800) / 0x1000) * scale - 1U;
     }
     return out[7];
 }
 
 /* OEM EXACT: subsection_light — LSC light source blending.
- * Decompiled from OEM at 0x1c3e8. Blends two mesh sets based on distance. */
+ * Decompiled from OEM at 0x1c3e8. Blends two mesh sets based on distance.
+ * Vendor 0x1c438: signed compare and signed div by 1000 (a curve entry of -1
+ * from subsection_up stays below the table, openimp #563). */
 static int subsection_light(const uint32_t *mesh_a, const uint32_t *mesh_b,
                             uint32_t weight, uint32_t *out)
 {
@@ -52,20 +57,13 @@ static int subsection_light(const uint32_t *mesh_a, const uint32_t *mesh_b,
     for (i = 0; i < 9; i++) {
         uint32_t a = mesh_a[i];
         uint32_t b = mesh_b[i];
-        uint32_t base;
-        uint32_t dist;
         uint32_t val;
 
-        if (b >= a) {
-            base = b;
-            dist = b - a;
-        } else {
-            base = a;
-            dist = a - b;
-        }
-
-        val = base * 1000U - dist * weight;
-        out[i] = val / 1000U;
+        if ((int32_t)b < (int32_t)a)
+            val = a * 1000U - (a - b) * weight;
+        else
+            val = b * 1000U - (b - a) * weight;
+        out[i] = (uint32_t)((int32_t)val / 1000);
     }
     return 1000;
 }
