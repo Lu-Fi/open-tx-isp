@@ -4,6 +4,12 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD[-rcN]` are set on the `aperto` branch, the same tag in open-tx-isp and OpenIMP: RC1 `v2026.10.11-rc1`, RC2 `v2026.10.25-rc2`, RC3 `v2026.11.07-rc3` (2026-11-07). Gate SoCs of RC3 and Release 1: T10, T20, T21, T23, T30, T31, T40, T41 (T32/T33 planned, QEMU only); release notes: [docs/releases/ in OpenIMP](https://github.com/Lu-Fi/openimp/blob/next/docs/releases/README.md). Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-11-20: T32 frame-channel stream-off waits for the MSCA work state like the vendor (openimp #652; host build, QEMU blocked)
+
+- **Cause.** `t32_fs_streamoff` (T32 build) cleared the MSCA channel enable and the address fifo in one go under the channel lock. Vendor tx-isp-t32.ko `ispcore_frame_channel_streamoff` (0xb5cd4, recovered C ported in `tx_isp_t32_ispsoff.h`) releases the lock after the stream off and waits up to 502 x msleep(1) for `tisp_msca_work_state(pipe, work id)` (bit work id of 0xf0054) before `tisp_msca_addr_fifo_clear_byindex`. The same gap gave a garbage first frame after fast size-change restarts on T33 (#651).
+- **Fix (vendor-equal).** The T33 stop order is now common: `t32_hw_msca_stop_begin` / `_wait` / `_end` (`driver/t32/tx_isp_t32_hw.c`, `tx_isp_t32_fs.c`, `tx_isp_t32.h`); `t32_hw_msca_stop` (snapshot pause, rmmod) runs begin + end. The work id is the MSCA channel: the same byte (fc + 120) is the channel argument of `tisp_msca_addr_fifo_write` in `ispcore_pad_event_handle` (0xb8b04). The T33 path is unchanged apart from the renamed functions.
+- **Evidence.** T32 and T33 modules build (kernel 3.10 trees, no new warnings in the touched code). Not run in QEMU (no 4.4.94 T32 kernel tree on the host) and not device-tested; plan in the issue comment.
+
 ## 2026-11-21: T31 fixed-point helpers bit-exact to the vendor over the full input range (openimp #710; host oracle)
 
 - `fix_point_mult2_32`, `fix_point_mult3_32`, `fix_point_div_32` (`driver/t31/include/tx_isp_fixpt.h`) and `tisp_math_exp2` (`tx_isp_core.c`) now use `driver/t31/tx_isp_t31_fixvendor.h`. That header holds bit-exact C of the vendor tx-isp-t31.ko 0x11014 / 0x11058 / 0x11084 / 0x107d0.
