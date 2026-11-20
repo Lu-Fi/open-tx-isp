@@ -4,6 +4,10 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD[-rcN]` are set on the `aperto` branch, the same tag in open-tx-isp and OpenIMP: RC1 `v2026.10.11-rc1`, RC2 `v2026.10.25-rc2`, RC3 `v2026.11.07-rc3` (2026-11-07). Gate SoCs of RC3 and Release 1: T10, T20, T21, T23, T30, T31, T40, T41 (T32/T33 planned, QEMU only); release notes: [docs/releases/ in OpenIMP](https://github.com/Lu-Fi/openimp/blob/next/docs/releases/README.md). Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-11-20: T32 reference-function recount tool (openimp #645; host)
+
+- `tests/t32_oracle/refs_audit.py` counts per reference function whether an oracle that links it calls it (comments stripped): 1574 distinct REFS names, 1287 called, 158 only named, 129 only linked as callees. A source-level bound for "N functions proven"; the real-body audit of T32 (as `tests/t33_binoracle/proof_audit.py` does for T33) is still open. No reference C needed.
+
 ## 2026-11-20: T32 top 0x100 follows the vendor direct-mode rule (openimp #687; binary oracle, QEMU)
 
 - **Cause.** `t32_top_init` always wrote top 0x100 = 4. Vendor tx-isp-t32.ko `tisp_top_init` writes 5 for sensor 0 when the init parameter byte 0x27 is non-zero; `ispcore_core_ops_init` fills that byte with the `direct_mode` module parameter (IVDC direct). Same rule as the T33 module (byte 0x2b, #680).
