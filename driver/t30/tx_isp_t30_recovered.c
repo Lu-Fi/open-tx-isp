@@ -13403,6 +13403,7 @@ static void tx_isp_t30_restore_linear_irq_pipeline(
 	u32 height = core->vin.mbus.height;
 	u32 pattern = tx_isp_t30_bayer_pattern(core->vin.mbus.code,
 					       core->control.pattern);
+	u32 top40, top44, index;
 
 	/* Match isp_config_input_port() to the synchronized sensor mode. */
 	APICAL_WRITE_32(0x100, 0x00100001);
@@ -13424,8 +13425,39 @@ static void tx_isp_t30_restore_linear_irq_pipeline(
 	       width, height, core->vin.mbus.code, pattern);
 
 	/* OEM T30 linear-mode module enables the processing blocks below. */
-	APICAL_WRITE_32(0x40, 0x33242193);
-	APICAL_WRITE_32(0x44, 0x00000c76);
+	top40 = 0x33242193;
+	top44 = 0x00000c76;
+	/*
+	 * #695: the crop / scaler bypass bits belong to the channel formats
+	 * (vendor ispcore_frame_channel_set_crop.isra.0 0xc0d0..0xc0ec: 0x40 bit 18
+	 * FR crop, bit 24 DS1 crop, 0x44 bit 1 DS2 crop; set_scaler: 0x40 bit 25,
+	 * 0x44 bit 2).  The vendor never rewrites 0x40 / 0x44 as a whole, so a
+	 * crop set before this restore (mscaler stream on sends the ispw / isph
+	 * format upstream) stays active.  The constant above has all of them set
+	 * (bypass): with ispw/isph the FR crop was bypassed again and the core
+	 * wrote full sensor-width lines (1948 px, pitch 1952 on the ABUS T30N).
+	 */
+	if (core->channels && !IS_ERR(core->channels)) {
+		for (index = 0; index < min_t(u32, core->num_channels, 3); index++) {
+			struct tx_isp_t30_frame_image_format *f = &core->channels[index].fmt;
+			u32 crop = index == 0 ? BIT(18) : index == 1 ? BIT(24) : 0;
+
+			if (f->crop_enable) {
+				if (index == 2)
+					top44 &= ~BIT(1);
+				else
+					top40 &= ~crop;
+			}
+			if (f->scaler_enable) {
+				if (index == 1)
+					top40 &= ~BIT(25);
+				else if (index == 2)
+					top44 &= ~BIT(2);
+			}
+		}
+	}
+	APICAL_WRITE_32(0x40, top40);
+	APICAL_WRITE_32(0x44, top44);
 
 	/*
 	 * APICAL source routing: frame end, AE/AWB statistics, FR/DS writers,

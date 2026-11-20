@@ -20,7 +20,10 @@
  * the fix the width/height setters stored at void * index (byte +0x2964 ..),
  * the FSM kept 0xffff and _update_fr clamped to 1936x1089 (sensor 1948x1109
  * minus the offsets): the FR writer then produced 1936-pixel lines (line
- * pitch 1952 in the 1920-wide buffer on the ABUS T30N).
+ * pitch 1952 in the 1920-wide buffer on the ABUS T30N).  The FR crop bypass
+ * bit (core 0x40 bit 18) must be clear: the stream-on restore of the top
+ * control rewrote 0x40 = 0x33242193 after the crop was set and bypassed it
+ * again (#695 crop3).
  */
 #include <stdio.h>
 #include <string.h>
@@ -76,7 +79,7 @@ int main(int argc, char **argv)
             uint32_t w = core[0x4cc / 4] & 0xffff, h = core[0x4d0 / 4] & 0xffff;
             printf("cycle %d fr crop en=%u x=%u y=%u w=%u h=%u (0x40=%08x writer 0xb04=%08x 0xb20=%u 0xb84=%08x 0xba0=%u)\n", i, en, x, y, w, h,
                    core[0x40 / 4], core[0xb04 / 4], core[0xb20 / 4], core[0xb84 / 4], core[0xba0 / 4]);
-            if (en != 1 || x != 12 || y != 20 || w != 1920 || h != 1080)
+            if (en != 1 || x != 12 || y != 20 || w != 1920 || h != 1080 || (core[0x40 / 4] & (1u << 18)))   /* 0x40 bit 18 = FR crop bypass */
                 bad++;
         }
         IMP_FrameSource_DisableChn(0); IMP_FrameSource_DestroyChn(0);
