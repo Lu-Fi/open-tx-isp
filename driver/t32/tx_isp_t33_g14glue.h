@@ -418,6 +418,33 @@ static u8 *t33_g14_yspp[4];		/* ysp_paramsP */
 #undef tisp_dmsc_t33_frame_done_interrupt
 #undef tisp_ysp_t33_frame_done_interrupt
 
+/*
+ * openimp #707: tisp_set_sharpness (tx_isp_t33_sharp.h, oracles sharp / dsharp) on the same state: yspInfo
+ * (working section = t33_ysp_sec, word 543), ysp_paramsP[0] = t33_swg_ysp_par (the bin copy the strength
+ * tables are rebuilt from), the YSP list helpers of i9M and t33_dmsc_sharpness_set (i9N) for the DMSC part.
+ */
+static u32 t33_g14_ysp_ratio = 0x80;	/* vendor ysp_ratio (.data, 0x80) */
+#define T33_SHARP_GLUE	1
+#define yspCfgMode	t33_bst_cfg_mode
+#define tispYspRefresh	t33_bst_refresh[T33_BST_YSP]
+#define tisp_ysp_bin_data_refresh	t33_swg_ysp_bin
+#define tisp_ysp_reg_data_refresh	t33_swg_ysp_reg
+#define tisp_mdns_decode_reg_write	t33_swg_mdns_dec
+#define ysp_paramsP	t33_g14_yspp
+#define ysp_ratio	t33_g14_ysp_ratio
+#define tisp_dmsc_sharpness_set	t33_dmsc_sharpness_set
+#define t33_ysp_wr	t33_i9m_wr
+#include "tx_isp_t33_sharp.h"
+#undef yspCfgMode
+#undef tispYspRefresh
+#undef tisp_ysp_bin_data_refresh
+#undef tisp_ysp_reg_data_refresh
+#undef tisp_mdns_decode_reg_write
+#undef ysp_paramsP
+#undef ysp_ratio
+#undef tisp_dmsc_sharpness_set
+#undef t33_ysp_wr
+
 /* lib_tisp_init's tisp_dmsc_init on the bin section (copied into its tparamsP slot); refresh as the other inits */
 static void t33_g14_dmsc_init(const u8 *sec)
 {
