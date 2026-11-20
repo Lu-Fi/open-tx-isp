@@ -4,6 +4,12 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD[-rcN]` are set on the `aperto` branch, the same tag in open-tx-isp and OpenIMP: RC1 `v2026.10.11-rc1`, RC2 `v2026.10.25-rc2`, RC3 `v2026.11.07-rc3` (2026-11-07). Gate SoCs of RC3 and Release 1: T10, T20, T21, T23, T30, T31, T40, T41 (T32/T33 planned, QEMU only); release notes: [docs/releases/ in OpenIMP](https://github.com/Lu-Fi/openimp/blob/next/docs/releases/README.md). Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-11-20: T32 frees the MEMORY_MALLOC buffers at the last close of /dev/tx-isp (openimp #694; QEMU)
+
+- **Cause.** The T32 build freed a MEMORY_MALLOC buffer only on MEMORY_FREE or at rmmod; a streamer killed without FREE left its physically contiguous pages until rmmod. Vendor tx-isp-t32.ko `tx_isp_release` kfrees all 16 slots (core + 0x168) at the last close, as the T33 module does (fixed for T33 in #684 / #690).
+- **Fix (vendor-equal).** `t32_isp_release` calls `t32_free_all` at the last close on both SoCs (the `TX_ISP_T33` guard is gone; `driver/t32/tx_isp_t32_core.c`). On T32 the IQ bin is read in place only by init paths under `core.lock`. T33 module bit-identical.
+- **Evidence.** QEMU see the issue comment. Not device-tested (no T32 test camera).
+
 ## 2026-11-20: T30 core crop: the stream-on top-control restore no longer bypasses the FR crop again (openimp #695 crop3; QEMU)
 
 - **Observed.** With the setter fix (crop2) on the ABUS T30N: isp-m3 follows isp-m2 and every crop / writer / NCU / LFB / mscaler register reads 1920x1080 (FR crop 0x4c0..0x4d0 = 1 / 12 / 20 / 0x780 / 0x438, writers 0xb04 / 0xb84 = 0x04380780, line offsets 0x780). The Y plane still had a line period of 1952 (Y-plane autocorrelation), and core 0x40 read 0x33242193.
