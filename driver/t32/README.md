@@ -367,7 +367,10 @@ dispatchers (`tx_isp_t32_txsctrl.h` / `tx_isp_t32_txgctrl.h`): BCSH bytes,
 anti-flicker, mirror / flip, module control, module ratio, CSC, CCM, gamma
 (presets), statistics config, AE / AWB / AF attributes and weights, face AE /
 AWB, WDR output mode, scaler level, CT trend offset, CSC-CR, HB line space,
-sensor attributes, autozoom, frame-done wait; AE start EV on `/dev/tx-isp`
+sensor attributes, autozoom, frame-done wait; the sensor mode of mirror / flip 0x73 is queued as the
+vendor's frame-done entry 5 (core +1344 / +1348) and applied after the next frame end as
+`tx_isp_core_shvflip` does it (VIC 0x1a8 = 0x4444, sensor ioctl 0x2000010, VIC frame-start countdown,
+then 0x4440 / 0x4410 for sensor data type 2; `t32 flip:` line of isp-m0, openimp #689); AE start EV on `/dev/tx-isp`
 `0xc0045436/7`. The AE / AWB / statistics ids are bound to the per-frame AE
 and AWB blocks (`tx_isp_t32_tunblk.c`: the ported `.isra` wrappers, `tisp_[sg]_*`
 API and `t32_aea_*` / `t32_awb_*` block API, so a Set is read by the next AE /

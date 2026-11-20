@@ -290,14 +290,17 @@ void t33_tgain_refresh(u32 gain);	/* tx_isp_t32_hw.c: event 4 block refreshes */
 void t33_ev_refresh(u32 lo, u32 hi, u32 bv, u32 bvh);
 void t33_ct_refresh(u32 ct);
 void t33_set_csccr(u32 ch, u32 night);
-void t33_core_flip_request(u32 ch, u32 mode);	/* tx_isp_t32_hw.c: 0x73 sensor flip (tx_isp_core_shvflip, #669) */
-int t32_core_sensor_flip(u32 ch, u32 mode, u32 *frames);	/* tx_isp_t32_core.c: sensor ioctl 0x2000010 */
 void t33_refresh_para(u32 mode);	/* tx_isp_t32_hw.c: IQ bin switch (lib_tisp_refresh_para, #504) */
 void t33_evq_free(void);
 int t32_core_sensor_ae_src(const u8 **video_in, const u8 **attr);
 u32 t32_core_sensor_alloc_again(u32 log2_q16, u32 *reg);
 int t32_core_sensor_set_fps(u32 fps);
 #endif
+/* sensor mirror / flip of 0x73 (tx_isp_core_shvflip; T33 #669, T32 #689) */
+void t33_core_flip_request(u32 ch, u32 mode);	/* tx_isp_t32_hw.c */
+int t32_core_sensor_flip(u32 ch, u32 mode, u32 *frames);	/* tx_isp_t32_core.c: sensor ioctl 0x2000010 */
+u32 t32_core_sensor_data_type(void);	/* tx_isp_t32_core.c: attribute +0x94 (T32 VIC release) */
+void t32_flip_show(struct seq_file *m);	/* tx_isp_t32_hw.c */
 
 /* tx_isp_t32_sinfo.c (shared registry, driver/common/tx_isp_sinfo.c) */
 int tx_isp_sinfo_init(void);

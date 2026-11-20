@@ -1465,7 +1465,6 @@ int t32_core_sensor_expo(u32 packed)
 	return ioctl(vi->sd, T32_EVENT_SENSOR_EXPO, &sv);
 }
 
-#ifdef TX_ISP_T33
 /*
  * sensor mirror / flip (TX_ISP_EVENT_SENSOR_FLIP 0x2000010, vendor tx_isp_core_shvflip through
  * ispcore_sensor_ops_ioctl): arg { ch, &msg }, msg[0] = mode (0 normal, 1 mirror, 2 flip,
@@ -1490,6 +1489,19 @@ int t32_core_sensor_flip(u32 ch, u32 mode, u32 *frames)
 	r = ioctl(vi->sd, T32_EVENT_SENSOR_FLIP, &sv);
 	*frames = msg[1];
 	return r == -ENOIOCTLCMD ? 0 : r;
+}
+
+#ifndef TX_ISP_T33
+/* the sensor attribute's data type (+0x94, linear / WDR): the T32 VIC release value of a flip (#689) */
+u32 t32_core_sensor_data_type(void)
+{
+	struct t32_vi *vi = &core.vi[0];
+	void *attr;
+
+	if (!vi->registered || !vi->sd)
+		return 0;
+	attr = T32_AT(vi->sd, T32_SENSOR_VIDEO + T32_VIDEO_ATTR, void *);
+	return attr ? T32_AT(attr, T32_ATTR_DATA_TYPE, u32) : 0;
 }
 #endif
 
@@ -1675,6 +1687,8 @@ static int t32_proc_show(struct seq_file *m, void *v)
 		   t32_core_sensor_fps(), t32_rcfg_runs, t32_rcfg_last_len, t32_rcfg_timeouts);
 #ifdef TX_ISP_T33
 	t33_stats_show(m);
+#else
+	t32_flip_show(m);	/* #689 */
 #endif
 	t32_fs_show(m);
 	t32_snapldc_show(m);

@@ -9,6 +9,12 @@ marked otherwise. Release tags `vYYYY.MM.DD[-rcN]` are set on the `aperto` branc
 - **Cause.** `t32_top_init` always wrote top 0x100 = 4. Vendor tx-isp-t32.ko `tisp_top_init` writes 5 for sensor 0 when the init parameter byte 0x27 is non-zero; `ispcore_core_ops_init` fills that byte with the `direct_mode` module parameter (IVDC direct). Same rule as the T33 module (byte 0x2b, #680).
 - **Fix (vendor-equal).** `t32_top_init` takes the direct mode, `t32_front_init` passes `t32_ivdc_direct(0)` (`driver/t32/tx_isp_t32_front.h`, `tx_isp_t32_hw.c`). T33 module bit-identical.
 - **Evidence.** `t32_top_oracle` now drives info byte 39 with 0..255 (random + 67 IQ bins): 20804 compared, 0 mismatches, 13/13 mutations detected, the old behaviour (always 4) among them. QEMU see the issue comment. Not device-tested (no T32 test camera).
+## 2026-11-20: T32 applies the sensor mirror / flip of SetHVFLIP (vendor tx_isp_core_shvflip flow, openimp #689; QEMU)
+
+- **Cause.** 0x73 queued the IMPISPHVFLIPAttr sensor mode as the vendor frame-done entry 5 (core +1344 / +1348), but the live T32 path had no reader: the sensor never got ioctl 0x2000010 (same gap as T33 #669).
+- **Vendor (tx-isp-t32.ko).** `ispcore_irq_fd_work0` entry 5 -> `tx_isp_core_shvflip`: VIC 0x1a8 = 0x4444 on both VICs, sensor ioctl 0x2000010 { ch, &msg }, entry cleared, core event 0x1000007 { max(msg[1], 1), 0x1000009 }; `isp_vic_interrupt_service_routine` counts VIC frame starts down and writes 0x4440 back (0x4410 when the sensor attribute data type +0x94 is 2).
+- **Fix (vendor-equal).** The T33 #669 flow now also runs on T32 (frame-end kick, VIC frame-start countdown, work item, exit cleanup), with the T32 release value rule; isp-m0 line `t32 flip:`. `driver/t32/tx_isp_t32_hw.c`, `tx_isp_t32_core.c`, `tx_isp_t32_tunctl.c`, `tx_isp_t32.h`. T33 module bit-identical.
+- **Evidence.** `t32_txsctrl_oracle` (0x73 queue offsets vs the vendor flow): 40000 cases equal, 43/43 mutations (two stale mutation lines from #669 repaired, T33 offsets as mutations). QEMU see the issue comment. Not device-tested (no T32 test camera).
 
 ## 2026-11-20: T30 core crop: the stream-on top-control restore no longer bypasses the FR crop again (openimp #695 crop3; QEMU)
 
