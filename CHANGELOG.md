@@ -15,6 +15,11 @@ marked otherwise. Release tags `vYYYY.MM.DD[-rcN]` are set on the `aperto` branc
 - **Vendor (tx-isp-t32.ko).** `ispcore_irq_fd_work0` entry 5 -> `tx_isp_core_shvflip`: VIC 0x1a8 = 0x4444 on both VICs, sensor ioctl 0x2000010 { ch, &msg }, entry cleared, core event 0x1000007 { max(msg[1], 1), 0x1000009 }; `isp_vic_interrupt_service_routine` counts VIC frame starts down and writes 0x4440 back (0x4410 when the sensor attribute data type +0x94 is 2).
 - **Fix (vendor-equal).** The T33 #669 flow now also runs on T32 (frame-end kick, VIC frame-start countdown, work item, exit cleanup), with the T32 release value rule; isp-m0 line `t32 flip:`. `driver/t32/tx_isp_t32_hw.c`, `tx_isp_t32_core.c`, `tx_isp_t32_tunctl.c`, `tx_isp_t32.h`. T33 module bit-identical.
 - **Evidence.** `t32_txsctrl_oracle` (0x73 queue offsets vs the vendor flow): 40000 cases equal, 43/43 mutations (two stale mutation lines from #669 repaired, T33 offsets as mutations). QEMU see the issue comment. Not device-tested (no T32 test camera).
+## 2026-11-20: T32 frees the MEMORY_MALLOC buffers at the last close of /dev/tx-isp (openimp #694; QEMU)
+
+- **Cause.** The T32 build freed a MEMORY_MALLOC buffer only on MEMORY_FREE or at rmmod; a streamer killed without FREE left its physically contiguous pages until rmmod. Vendor tx-isp-t32.ko `tx_isp_release` kfrees all 16 slots (core + 0x168) at the last close, as the T33 module does (fixed for T33 in #684 / #690).
+- **Fix (vendor-equal).** `t32_isp_release` calls `t32_free_all` at the last close on both SoCs (the `TX_ISP_T33` guard is gone; `driver/t32/tx_isp_t32_core.c`). On T32 the IQ bin is read in place only by init paths under `core.lock`. T33 module bit-identical.
+- **Evidence.** QEMU see the issue comment. Not device-tested (no T32 test camera).
 
 ## 2026-11-20: T30 core crop: the stream-on top-control restore no longer bypasses the FR crop again (openimp #695 crop3; QEMU)
 

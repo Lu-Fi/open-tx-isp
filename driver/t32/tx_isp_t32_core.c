@@ -1389,13 +1389,13 @@ static int t32_isp_release(struct inode *inode, struct file *file)
 		t33_hw_lib_deinit();	/* lib_tisp_deinit: tisp_all_reset, LDC mask */
 #endif
 		t32_clks_deactivate();
-#ifdef TX_ISP_T33
 		/*
-		 * vendor tx_isp_release: the last close kfrees every MEMORY_MALLOC slot libimp left (16 slots at
-		 * core + 0x170); here the whole list.  Before, a killed streamer's buffers stayed until rmmod (#690).
+		 * vendor tx_isp_release (tx-isp-t33.ko and tx-isp-t32.ko): the last close kfrees every MEMORY_MALLOC
+		 * slot libimp left (16 slots at core + 0x170 / + 0x168); here the whole list.  Before, a killed
+		 * streamer's buffers stayed until rmmod (T33 #690, T32 #694).  T32: the IQ bin is read in place only
+		 * by the init paths under core.lock, which a later open runs again after the next SET_TIZIANO_PAR.
 		 */
 		t32_free_all();
-#endif
 	}
 	mutex_unlock(&core.lock);
 	return 0;
