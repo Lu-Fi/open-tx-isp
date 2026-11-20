@@ -376,7 +376,10 @@ and AWB blocks (`tx_isp_t32_tunblk.c`: the ported `.isra` wrappers, `tisp_[sg]_*
 API and `t32_aea_*` / `t32_awb_*` block API, so a Set is read by the next AE /
 AWB frame and a Get answers the live statistics and exposure state). AE and AWB
 run live from stream-on (openimp #350: the AE context built by the statistics
-init is no longer freed by the tisp init). Vendor UB kept: the face AE weight
+init is no longer freed by the tisp init). Face AE (0x35, `IMP_ISP_Tuning_SetFaceAe`) runs
+`tisp_ae_sepc_area` / `tisp_ae_roi_point` on the live AE (openimp #686): enable R + 1520,
+face zone bounds read by `tisp_ae_weight_mean`, AE ROI window 0x17090 / 0x17094, target 10..200;
+`vendor AE face:` line of isp-m0. Vendor UB kept: the face AE weight
 id (0x2a, `IMP_ISP_Tuning_SetFaceAeWeiget`; third word = AE smoothing window length) is not
 bounded by the vendor; a value above 221 makes the next AE frame write past the
 AE state block (kernel memory corruption, the vendor module hangs as well). The other

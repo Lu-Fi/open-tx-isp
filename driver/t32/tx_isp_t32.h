@@ -89,6 +89,9 @@ struct t32_ae_blk;
 struct t32_aec_drv_stats {
 	u32 frames, events, writes, expo_sets, fps_sets;
 	u32 mean, target, it, again, dgain, tgain;	/* the last frame */
+#ifndef TX_ISP_T33
+	u32 face_sets, face_en, face_zone, face_target;	/* tisp_ae_face_set on the live AE (#686) */
+#endif
 };
 extern struct t32_aec_drv_stats t32_aec_stats;
 int t32_aec_attach(const struct t32_ae_blk *b, u8 *S, const u8 *zones);
@@ -101,6 +104,8 @@ void t32_aec_api_put(void);
 void t32_aec_api_sleep(u32 ms);
 u32 t32_aec_api_bv(void);
 u32 t32_aec_api_dcw(void);
+int t32_aec_face_set(u32 ch, void *buf);
+int t32_aec_face_get(u32 ch, void *buf);
 const u8 *t32_hw_ae_zones(void);
 
 /* tx_isp_t32_awbc.c: the per-frame vendor AWB (tisp_awb_init state, tisp_awb_process), behind T32_PP_AWB */

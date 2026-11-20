@@ -1673,6 +1673,12 @@ static int t32_proc_show(struct seq_file *m, void *v)
 		   t32_aec_stats.frames, t32_aec_stats.events, t32_aec_stats.writes, t32_aec_stats.expo_sets,
 		   t32_aec_stats.fps_sets, t32_aec_stats.mean, t32_aec_stats.target, t32_aec_stats.it,
 		   t32_aec_stats.again, t32_aec_stats.dgain, t32_aec_stats.tgain);
+#ifndef TX_ISP_T33
+	seq_printf(m, "vendor AE face: sets %u en %u zones h %u..%u v %u..%u target %u on %u\n",
+		   t32_aec_stats.face_sets, t32_aec_stats.face_en, t32_aec_stats.face_zone & 0xff,
+		   t32_aec_stats.face_zone >> 8 & 0xff, t32_aec_stats.face_zone >> 16 & 0xff,
+		   t32_aec_stats.face_zone >> 24, t32_aec_stats.face_target & 0xff, t32_aec_stats.face_target >> 8);
+#endif
 	seq_printf(m, "vendor AWB: frames %u writes %u refused %u; ct %u gain r %u b %u; ev %u tgain %u updates\n",
 		   t32_awbc_stats.frames, t32_awbc_stats.writes, t32_awbc_stats.refused, t32_awbc_stats.ct,
 		   t32_awbc_stats.gain_r, t32_awbc_stats.gain_b, t32_awbc_stats.ev_updates,

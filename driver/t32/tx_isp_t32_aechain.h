@@ -117,6 +117,11 @@ struct t32_aec {
 	struct t32_stats_write w[T32_AEC_MAX_WRITES];
 	unsigned int n;			/* register writes of the last call */
 	u32 tab_ctx[4], tab_par[4];	/* 32 bit pointer tables of the table-shaped ports */
+#ifndef TX_ISP_T33
+	/* the face ROI zone bounds of tisp_ae_sepc_area (vendor .bss e151c / e1518 / e1524 / e1520[ch] =
+	 * h_roi_block_start / _end, v_roi_block_start / _end), read by tisp_ae_weight_mean (openimp #686) */
+	u8 roi[4];
+#endif
 };
 
 /* the hooks of the ported functions have no context argument: one chain runs at a time */
@@ -252,7 +257,11 @@ static const struct t32_aeu_ops t32_aec_uops = { &t32_aec_aeops, &t32_aec_evops 
 /* ---- tisp_ae_algorithm ---- */
 static inline u32 t32_aec_algorithm(struct t32_aec *a, u32 ch)
 {
-	struct t32_ae_ctx c = { a->b.T, a->b.B, 0, 0, 0, 0 };	/* ROI bytes e151c.. are .bss (0) */
+#ifndef TX_ISP_T33
+	struct t32_ae_ctx c = { a->b.T, a->b.B, a->roi[0], a->roi[1], a->roi[2], a->roi[3] };
+#else
+	struct t32_ae_ctx c = { a->b.T, a->b.B, 0, 0, 0, 0 };	/* T33: own chain (tx_isp_t33_aealg.h) */
+#endif
 	u32 mean = 0, ratio[2] = { 0, 0 }, wsum[2] = { 0, 0 }, ww = 1, wh = 1;
 	u8 rp[8], wp[8];
 

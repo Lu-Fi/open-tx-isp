@@ -161,9 +161,13 @@ int t32_aec_attach(const struct t32_ae_blk *b, u8 *S, const u8 *zones)
 {
 	int ret = 0;
 
+	u8 roi[4];
+
 	mutex_lock(&aec_lock);
 	kfree(aec.hist); kfree(aec.comp); kfree(aec.lum);
+	memcpy(roi, aec.roi, sizeof(roi));	/* vendor .bss: the face ROI bounds survive tisp_ae_init */
 	memset(&aec, 0, sizeof(aec));
+	memcpy(aec.roi, roi, sizeof(roi));
 	aec.b = *b;
 	aec.S = S;
 	aec.zones = zones;
@@ -187,12 +191,16 @@ int t32_aec_attach(const struct t32_ae_blk *b, u8 *S, const u8 *zones)
 
 void t32_aec_detach(void)
 {
+	u8 roi[4];
+
 	WRITE_ONCE(aec_ready, false);
 	cancel_work_sync(&aec_work);
 	wait_event(aec_api_wq, !READ_ONCE(aec_api_busy));	/* a tuning call may be in t32_aec_api_sleep */
 	mutex_lock(&aec_lock);
 	kfree(aec.hist); kfree(aec.comp); kfree(aec.lum);
+	memcpy(roi, aec.roi, sizeof(roi));
 	memset(&aec, 0, sizeof(aec));
+	memcpy(aec.roi, roi, sizeof(roi));
 	aec_tgain_valid = false;
 	mutex_unlock(&aec_lock);
 }
@@ -263,4 +271,69 @@ u32 t32_aec_api_bv(void)
 u32 t32_aec_api_dcw(void)
 {
 	return aec.dcw;
+}
+
+/*
+ * Face AE (openimp #686): tisp_ae_face_set -> tisp_ae_sepc_area and
+ * tisp_ae_face_get -> tisp_ae_api_get_faceae of the vendor tx-isp-t32.ko on
+ * the live AE blocks.  sepc_area (t32_aea_sepc_area, oracle t32_aeae) keeps
+ * the enable word R + 1520, the face zone bounds aec.roi (vendor e151c /
+ * e1518 / e1524 / e1520) that tisp_ae_weight_mean reads in the next AE frame
+ * (t32_aec_algorithm, oracle t32_aechain), the target R + 1296 (10..200,
+ * also written back to the caller's block) and the six words R + 1500 ..;
+ * its tisp_ae_roi_point (t32_ae_roi_point, oracle t32_aeroi) writes the AE
+ * ROI window 0x17090 / 0x17094, the trigger 0x17010 (direct mode, cfgMode 0
+ * as in this driver) and the face flag R + 1297.  Channel 0 only (the
+ * per-frame AE runs on channel 0); -1 while the AE is not attached.
+ */
+static void aec_roi_wr(void *priv, u32 reg, u32 val)
+{
+	(void)priv;
+	t32_hw_wr(reg, val);
+}
+
+static void aec_roi_msg(void *priv, u32 which, u32 x0, u32 x1, u32 y0, u32 y1)
+{
+	(void)priv;
+	if (which == 0)
+		isp_printf(1, "Abnormal input coordinates !!!, x0 is %d, x1 is %d, y0 is %d, y1 is %d \n",
+			   (int)x0, (int)x1, (int)y0, (int)y1);
+	else if (which == 1)
+		isp_printf(1, "The size entered is out of range !!!\n");
+	else
+		isp_printf(1, "x0 is %d, x1 is %d, y0 is %d, y2 is %d\n", (int)x0, (int)x1, (int)y0, (int)y1);
+}
+
+static const struct t32_aea_roi_ops aec_roi_ops = { aec_roi_wr, aec_roi_msg };
+
+static void aec_roi_point(void *priv, u32 ch, u32 x0, u32 y0, u32 x1, u32 y1)
+{
+	(void)ch;
+	t32_ae_roi_point(priv, 0, x0, y0, x1, y1, &aec_roi_ops, NULL);
+}
+
+int t32_aec_face_set(u32 ch, void *buf)
+{
+	struct t32_aea_ctx c;
+
+	if (ch || !t32_aec_api_get(&c))
+		return -1;
+	t32_aea_sepc_area(&c, 0, buf, &aec.roi[0], &aec.roi[2], &aec.roi[1], &aec.roi[3], aec_roi_point, c.st);
+	t32_aec_stats.face_sets++;
+	t32_aec_stats.face_en = t32_ld32(c.st, T32_AEA_ST_SEPC);
+	t32_aec_stats.face_zone = aec.roi[0] | aec.roi[1] << 8 | aec.roi[2] << 16 | aec.roi[3] << 24;
+	t32_aec_stats.face_target = c.st[T32_AEA_ST_SEPC_STR] | c.st[T32_AEA_ST_FACE_ON] << 8;
+	t32_aec_api_put();
+	return 0;
+}
+
+int t32_aec_face_get(u32 ch, void *buf)
+{
+	struct t32_aea_ctx c;
+
+	if (ch || !t32_aec_api_get(&c))
+		return -1;
+	t32_aea_get_faceae(&c, buf);
+	t32_aec_api_put();
+	return 0;
 }

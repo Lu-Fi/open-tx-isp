@@ -2156,6 +2156,54 @@ static inline void t32_aea_sepc_area(const struct t32_aea_ctx *c, u32 ch, u8 *in
 }
 
 /*
+ * tisp_ae_roi_point (vendor 0x30c6c), checked by t32_aeroi_oracle (openimp
+ * #686): the AE ROI window registers from the corners (x0, y0) - (x1, y1),
+ * all taken as u16.  x1 < x0 or y1 < y0 -> message 0, -1; a window of
+ * (x1 - x0) * (y1 - y0) >> 2 (signed shift of the 32 bit product) >= 0x100000
+ * -> messages 1 and 2, -1; else x1 << 16 | x0 -> 0x17090, y1 << 16 | y0 ->
+ * 0x17094, 1 -> 0x17010 (shadow list slots 0x753 / 0x754 / 0x73d with
+ * cfg_mode != 0), and the face flag st + 1297 = (st + 1520 == 1) that
+ * tisp_ae_weight_mean reads; 0.  st is the channel's AE state block (vendor
+ * ae_cache[ch & 0xff]).
+ */
+#define T32_AEA_ROI_X		0x17090U
+#define T32_AEA_ROI_Y		0x17094U
+#define T32_AEA_ROI_TRIG	0x17010U
+#define T32_AEA_ROI_X_SH	0x753U
+#define T32_AEA_ROI_Y_SH	0x754U
+#define T32_AEA_ROI_TRIG_SH	0x73dU
+#define T32_AEA_ROI_AREA_MAX	0x100000U
+#define T32_AEA_ST_FACE_ON	1297U
+
+struct t32_aea_roi_ops {
+	void (*reg_write)(void *priv, u32 reg, u32 val);			/* system_reg_write */
+	void (*msg)(void *priv, u32 which, u32 x0, u32 x1, u32 y0, u32 y1);	/* isp_printf(1, ..) */
+};
+
+static inline int t32_ae_roi_point(u8 *st, u8 cfg_mode, u32 x0, u32 y0, u32 x1, u32 y1,
+				   const struct t32_aea_roi_ops *o, void *priv)
+{
+	x0 &= 0xffff;
+	y0 &= 0xffff;
+	x1 &= 0xffff;
+	y1 &= 0xffff;
+	if (x1 < x0 || y1 < y0) {
+		o->msg(priv, 0, x0, x1, y0, y1);
+		return -1;
+	}
+	if ((u32)((int)((x1 - x0) * (y1 - y0)) >> 2) >= T32_AEA_ROI_AREA_MAX) {
+		o->msg(priv, 1, x0, x1, y0, y1);
+		o->msg(priv, 2, x0, x1, y0, y1);
+		return -1;
+	}
+	o->reg_write(priv, cfg_mode ? T32_AEA_ROI_X_SH : T32_AEA_ROI_X, x1 << 16 | x0);
+	o->reg_write(priv, cfg_mode ? T32_AEA_ROI_Y_SH : T32_AEA_ROI_Y, y1 << 16 | y0);
+	o->reg_write(priv, cfg_mode ? T32_AEA_ROI_TRIG_SH : T32_AEA_ROI_TRIG, 1);
+	st[T32_AEA_ST_FACE_ON] = t32_ld32(st, T32_AEA_ST_SEPC) == 1;
+	return 0;
+}
+
+/*
  * AE / AWB info blocks (vendor tisp_set_ae_info, tisp_get_awb_info,
  * tisp_set_awb_info), checked by t32_aeaf_oracle.  Layout of the info block:
  * word at +4 = payload size, payload at +27 (unaligned).  tisp_set_ae_info

@@ -74,6 +74,13 @@ static u32 rnd(void)
 	rs ^= rs << 13; rs ^= rs >> 17; rs ^= rs << 5;
 	return rs;
 }
+/* a second stream for the face ROI inputs (#686): the case stream of rnd() stays as before */
+static u32 rs2 = 0x2545f491u;
+static u32 rnd2(void)
+{
+	rs2 ^= rs2 << 13; rs2 ^= rs2 >> 17; rs2 ^= rs2 << 5;
+	return rs2;
+}
 
 /* ---- one sensor model, logged per side ---- */
 #define NLOG 64
@@ -329,6 +336,19 @@ static int run_case(const char *tag, const u8 *sec, int c, int trace)
 	A.mode = t32_data_e1510[0];
 	A.dcw = dcw;
 	A.ops = &OPS;
+	/* the face ROI zone bounds (tisp_ae_sepc_area, openimp #686): 0 (no face AE call) in a quarter of the cases,
+	 * else random 0..15 (end below start included); the face flag R + 1297 and the face weights R + 1532 / 1536 */
+	for (i = 0; i < 4; i++)
+		A.roi[i] = rnd2() % 4 ? (u8)(rnd2() % 16) : 0;
+	t32_data_e151c[0] = A.roi[0]; t32_data_e1518[0] = A.roi[1];
+	t32_data_e1524[0] = A.roi[2]; t32_data_e1520[0] = A.roi[3];
+	if (rnd2() & 1) {
+		u8 *vR = T32O_HOST(t32_data_e1588[0]);
+
+		vR[1297] = A.b.R[1297] = 1;
+		t32_wr32(vR, 1532, rnd2() % 256); t32_wr32(vR, 1536, rnd2() % 256);
+		memcpy(A.b.R + 1532, vR + 1532, 8);
+	}
 	if (!A.b.ctx || !A.lum) {
 		printf("t32_aechain_oracle: pool exhausted\n");
 		exit(2);
