@@ -1393,7 +1393,8 @@ static void t32_front_init(void)
 #endif
 	off = t32_iq_section(bin, bytes, T32_IQ_SEC_TOP, &len);
 	if (off && T32_IQ_SEC_OK(len, T32_TOP_BYTES)) {
-		n = t32_top_init(bin + off, width, height, (u32)bayer, 0, w);
+		/* 0x100 = 5 in IVDC direct mode (vendor tisp_top_init: sensor info byte 0x27 = direct_mode, #687) */
+		n = t32_top_init(bin + off, width, height, (u32)bayer, 0, (u32)t32_ivdc_direct(0), w);
 		for (i = 0; i < n; i++)
 			isp_wr(w[i].reg, w[i].val);
 	}

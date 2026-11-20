@@ -8,7 +8,7 @@
  * Compared bit-exact: every register write (address, value, order).  The
  * vendor runs for channel 0 with one pipeline (state +900 = 1), the direct
  * register path (t32_data_d03a0 = 0) and the sensor info { width, height,
- * bayer word, ..., byte 36, byte 39 = 0 (no WDR) }.  The IQ section is
+ * bayer word, ..., byte 36, byte 39 = direct_mode (0..255; top 0x100, #687) }.  The IQ section is
  * section 0 of the bin (tuning base), 100 bytes.
  * Inputs: random sections (random enable/ctl/state bytes), every colour order
  * and depth class of t32_mbus_to_bayer, random sizes, info byte 36 0/1; and
@@ -42,13 +42,13 @@ static void put32(u8 *p, u32 v)
 
 static unsigned int compared, failed;
 
-static int run_case(const char *what, const u8 *sec, u32 w, u32 h, u32 bayer, u32 b36)
+static int run_case(const char *what, const u8 *sec, u32 w, u32 h, u32 bayer, u32 b36, u32 dm)
 {
 	struct t32_front_write ow[16];
 	u8 *base, *info;
 	unsigned int on, i;
 
-	on = t32_top_init(sec, w, h, bayer, b36, ow);
+	on = t32_top_init(sec, w, h, bayer, b36, dm, ow);
 
 	t32o_reset();
 	base = t32o_alloc(SECB + 16);
@@ -58,7 +58,7 @@ static int run_case(const char *what, const u8 *sec, u32 w, u32 h, u32 bayer, u3
 	put32(info + 4, h);
 	put32(info + 8, bayer);
 	info[36] = (u8)(b36 | (rnd() & 0xfe));	/* only bit 0 counts */
-	info[39] = 0;
+	info[39] = (u8)dm;	/* direct_mode (ispcore_core_ops_init), top 0x100 (#687) */
 	t32_data_dd0a4[0] = T32O_PTR(base);
 	*(u32 *)(t32_data_dc284 + 900) = 1;
 	t32o_call((t32o_fn)(void (*)(void))tisp_top_init, 0, T32O_PTR(info), 0, 0, 0);
@@ -120,7 +120,7 @@ static int bin_cases(const char *dir)
 			continue;
 		nbins++;
 		for (k = 0; k < 12; k++)
-			run_case(e->d_name, bin + off, 1920 + 64 * k, 1080 + 8 * k, (u32)t32_mbus_to_bayer(T32_MBUS_SBGGR8 + k), k & 1);
+			run_case(e->d_name, bin + off, 1920 + 64 * k, 1080 + 8 * k, (u32)t32_mbus_to_bayer(T32_MBUS_SBGGR8 + k), k & 1, k % 3);
 	}
 	closedir(d);
 	return nbins;
@@ -139,7 +139,7 @@ int main(void)
 		for (i = 0; i < SECB; i++)
 			sec[i] = (c % 3) ? (u8)rnd() : (u8)(rnd() & 1);
 		run_case("random", sec, rnd() & (c % 5 ? 0xffff : 0xffffffff), rnd() & (c % 7 ? 0xffff : 0xffffffff),
-			 bayer_word(), rnd() & 1);
+			 bayer_word(), rnd() & 1, c % 4 ? c % 3 : rnd() & 0xff);
 	}
 	rc_r = compared;
 	nbins = bin_cases(dir ? dir : "../external/ingenic-sdk/sensor-iq/t32");

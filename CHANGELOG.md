@@ -4,6 +4,12 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD[-rcN]` are set on the `aperto` branch, the same tag in open-tx-isp and OpenIMP: RC1 `v2026.10.11-rc1`, RC2 `v2026.10.25-rc2`, RC3 `v2026.11.07-rc3` (2026-11-07). Gate SoCs of RC3 and Release 1: T10, T20, T21, T23, T30, T31, T40, T41 (T32/T33 planned, QEMU only); release notes: [docs/releases/ in OpenIMP](https://github.com/Lu-Fi/openimp/blob/next/docs/releases/README.md). Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-11-20: T32 top 0x100 follows the vendor direct-mode rule (openimp #687; binary oracle, QEMU)
+
+- **Cause.** `t32_top_init` always wrote top 0x100 = 4. Vendor tx-isp-t32.ko `tisp_top_init` writes 5 for sensor 0 when the init parameter byte 0x27 is non-zero; `ispcore_core_ops_init` fills that byte with the `direct_mode` module parameter (IVDC direct). Same rule as the T33 module (byte 0x2b, #680).
+- **Fix (vendor-equal).** `t32_top_init` takes the direct mode, `t32_front_init` passes `t32_ivdc_direct(0)` (`driver/t32/tx_isp_t32_front.h`, `tx_isp_t32_hw.c`). T33 module bit-identical.
+- **Evidence.** `t32_top_oracle` now drives info byte 39 with 0..255 (random + 67 IQ bins): 20804 compared, 0 mismatches, 13/13 mutations detected, the old behaviour (always 4) among them. QEMU see the issue comment. Not device-tested (no T32 test camera).
+
 ## 2026-11-20: T30 core crop: the stream-on top-control restore no longer bypasses the FR crop again (openimp #695 crop3; QEMU)
 
 - **Observed.** With the setter fix (crop2) on the ABUS T30N: isp-m3 follows isp-m2 and every crop / writer / NCU / LFB / mscaler register reads 1920x1080 (FR crop 0x4c0..0x4d0 = 1 / 12 / 20 / 0x780 / 0x438, writers 0xb04 / 0xb84 = 0x04380780, line offsets 0x780). The Y plane still had a line period of 1952 (Y-plane autocorrelation), and core 0x40 read 0x33242193.

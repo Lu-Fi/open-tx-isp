@@ -203,11 +203,16 @@ static inline int t32_csccr_init(const u8 *sec, struct t32_front_write *w)
  * through a table (identity below 4, +4 up to 19, 0 above) and flags the
  * DE-IR variants (order >= 4).
  *
+ * dm = info byte 39 (0x27), which ispcore_core_ops_init fills with the
+ * direct_mode (IVDC): 0x100 of sensor 0 is 5 for any non-zero mode
+ * (1: sensor 0, 2: sensors < 2, 3: sensors < 3, else all), 4 otherwise
+ * (openimp #687; T33: byte 0x2b, #680).
+ *
  * Checked bit-exact against the vendor flow (Matt Davis' recovered C, PR #15)
  * by tests/t32_oracle (t32_top_oracle).
  */
 static inline unsigned int t32_top_init(const u8 *sec, u32 width, u32 height, u32 bayer, u32 info36,
-					struct t32_front_write *w)
+					u32 dm, struct t32_front_write *w)
 {
 	u32 size = width << 16 | height, en = 0, ctl = 0, sta = 0;
 	u32 idx = bayer & 0x1f, deir = idx < 4 ? 0 : 1;
@@ -230,7 +235,7 @@ static inline unsigned int t32_top_init(const u8 *sec, u32 width, u32 height, u3
 	T32_FW(w, n, 0x88, deir << 20 | bit16 | depth);
 	T32_FW(w, n, 0x48, 0xffffffff);
 	T32_FW(w, n, 0x48, 0xfff7ffff);
-	T32_FW(w, n, 0x100, 4);
+	T32_FW(w, n, 0x100, dm ? 5 : 4);
 	T32_FW(w, n, 0x40, en);
 	T32_FW(w, n, 0x60, sta);
 	T32_FW(w, n, 0x6c, ctl);
