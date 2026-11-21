@@ -835,9 +835,9 @@ void t32_pf_start(void)
  * contexts (openimp #534): tisp_bin_data_parse puts the new bin's sections into tparamsP, then the blocks'
  * dn_params_refresh run in the vendor order.  Here each block's new section is a private copy, handed to
  * the ported tisp_<blk>_dn_params_refresh as tparamsP + the vendor offset (the T33 pattern), the old copy
- * freed; the block keeps its own gain.  Wired in this order: dpc, gib, dmsc, ysp, mdns, ydns, sdns, cdns, rdns.
- * Defog: tisp_defog_dn_params_refresh in tx_isp_t32_defogd.c (#854).
- * The other blocks of the vendor list (top, ae, awb, lsc, tmo, gamma, ccm, clm, bcsh, lce,
+ * freed; the block keeps its own gain.  Wired in this order: dpc, gib, dmsc, gamma, ysp, mdns, ydns, sdns,
+ * cdns, rdns.  Defog: tisp_defog_dn_params_refresh in tx_isp_t32_defogd.c (#854).
+ * The other blocks of the vendor list (top, ae, awb, lsc, tmo, ccm, clm, bcsh, lce,
  * decmp, csccr) keep the parameters of the stream-on bin (counted in t32_pf_stats.dn_missing).
  */
 static u8 *pf_dn_sec(const u8 *bin, u32 bytes, unsigned int idx, u32 need)
@@ -883,6 +883,39 @@ int t32_pf_dn_refresh(const u8 *bin, u32 bytes, u32 mode)
 	}
 	PF_DN(T32_PP_DMSC, T32_SEC_DMSC, T32_DMSC_SEC_BYTES,
 	      (os = pf.dmsc.sec, pf_flush(t32_dmsc_dn_params_refresh(&pf.dmsc, ns - 27612, pf_w)), os));
+	/*
+	 * tisp_gamma_dn_params_refresh (vendor 0x470f4): section 13 at tuning base + 0x81a8, interp_by_ev at the
+	 * kept exposure, curve, strength transform, LUT request.  The vendor's payload pointer is the parse
+	 * table's, which tisp_bin_data_parse rewrote: here the new bin's payload replaces the private copy.
+	 */
+	if (pf.gamma) {
+		u32 glen, goff = t32_iq_section(bin, bytes, T32_SEC_GAMMA, &glen);
+
+		if (goff && T32_IQ_SEC_OK(glen, T32_GAMMA_SEC_BYTES)) {
+			const u8 *g13 = bin + goff;
+			u32 need = t32_front_le32(g13) < T32_GAMMA_MULTI_ID ? T32_GAMMA_CURVE_BYTES :
+				   T32_GAMMA_REC_BYTES * g13[0x5a];
+			u8 *gs = NULL, *gp = NULL;
+
+			if (need && bytes - goff - glen >= need) {
+				gs = kmemdup(g13, T32_GAMMA_SEC_BYTES, GFP_KERNEL);
+				gp = kmemdup(g13 + glen, need, GFP_KERNEL);
+			}
+			if (gs && gp) {
+				kfree(pf.gamma->sec);
+				kfree(pf.gamma->pl);
+				pf.gamma->sec = gs;
+				pf.gamma->pl = gp;
+				pf.gamma->plbytes = need;
+				t32_gamma_dn_params_refresh(pf.gamma, 0, gs - 0x81a8, NULL);
+				pf_flush(t32_gamma_frame_done(pf.gamma, pf_w));	/* interrupt 46's LUT write */
+				done++;
+			} else {
+				kfree(gs);
+				kfree(gp);
+			}
+		}
+	}
 	if (pf.have[T32_PP_YSP] && pf.ysp_dn)
 		PF_DN(T32_PP_YSP, T32_SEC_YSP, T32_YSP_SEC_BYTES,
 		      (os = pf.ysp.sec, pf_flush(t32_ysp_dn_params_refresh(&pf.ysp, 0, ns - 0xd630, pf.ysp_dn, pf_w)), os));
