@@ -5088,6 +5088,7 @@ int tisp_ae_g_scene_luma(uint32_t *out);
 static int tisp_event_push(void *event);
 static int system_reg_write_ae(int ae_id, uint32_t reg, uint32_t value);
 static int32_t tisp_log2_fixed_to_fixed(uint32_t input_val, int32_t in_precision, char out_precision);
+uint32_t AePweightCalculate(uint32_t q, uint32_t ev, uint32_t ag, uint32_t dg);
 static void JZ_Isp_Ae_Dg2reg(uint32_t q, uint32_t *out_regs, uint32_t dg_val, uint32_t *linear_pair);
 static void tisp_set_sensor_integration_time(uint32_t time);
 static uint32_t tisp_set_sensor_analog_gain(uint32_t requested_gain);
@@ -5376,194 +5377,80 @@ static void ae0_weight_mean2(
     uint32_t *out_b_ratio,  /* arg22: OUTPUT B-weighted color ratio */
     uint32_t *out_r_ratio)  /* arg23: OUTPUT R-weighted color ratio */
 {
+    /*
+     * #748: vendor-equal.  The vendor (tx-isp-t31.ko 0x4f98c) keeps all nine
+     * accumulators in 32 bit and divides with divu, so bright scenes wrap
+     * exactly as there; the zone correction is AePweightCalculate of the
+     * dark / net / bright share (0x4fc9c / 0x4fcc4 / 0x4fcf8) and
+     * fix_point_mult2_32(q, sum, sum) (0x4fd14).  corr_param_a/b are the
+     * vendor's 5th/6th AePweightCalculate arguments, which it never reads.
+     * Kept beyond the vendor only as crash guards: a zero zone area or
+     * denominator (the vendor divu would give an undefined result).
+     */
     uint32_t *param = (uint32_t *)ae_param;
-    int32_t q = q_ptr ? *q_ptr : 10;
+    uint32_t q = q_ptr ? (uint32_t)*q_ptr : 10;
     uint32_t qm = q & 31;
-    uint32_t threshold = param[0x8c / 4];  /* OEM: *(arg8 + 0x8c) */
-    uint32_t cols = param[0xc / 4];        /* OEM: *(arg8 + 0xc) = ae_param[3] */
-    uint32_t rows = param[4 / 4];          /* OEM: *(arg8 + 4) = ae_param[1] */
-    uint32_t corr_threshold = param[0x88 / 4]; /* OEM: *(arg8 + 0x88) */
-    int32_t corr_mode = corr_cfg ? *((int32_t *)corr_cfg + 1) : 1; /* *(arg11+4) */
-    int32_t corr_enabled = awb_cfg ? *((int32_t *)awb_cfg + 9) : 0; /* *(arg10+0x24) */
+    uint32_t threshold = param[0x8c / 4];
+    uint32_t cols = param[0xc / 4];
+    uint32_t rows = param[4 / 4];
+    uint32_t thr_dark = param[0x88 / 4] + 1;
+    uint32_t thr_net = threshold - 1 - param[0x88 / 4];
+    int32_t corr_mode = *((int32_t *)corr_cfg + 1);
+    int32_t corr_enabled = *((int32_t *)awb_cfg + 9);
+    uint32_t acc_bright_mix = 0, acc_dark_mix = 0, acc_total_wt = 0;
+    uint32_t wmean_num = 0, wmean_den = 0;
+    uint32_t acc_b_num = 0, acc_b_den = 0, acc_r_num = 0, acc_r_den = 0;
+    uint32_t r, c, i, wmean, total_q;
 
-    uint32_t r, c, idx;
-    uint32_t s1_offset = 0;   /* byte offset into zone arrays per row */
+    (void)corr_param_a;
+    (void)corr_param_b;
+    for (r = 0; r != rows; r++) {
+        for (c = 0; c != cols; c++) {
+            uint32_t zone_area = param[0x4c / 4 + r] * param[4 + c];
+            uint32_t raw_sum, norm, bright_m, dark_m, net, total_wt, mixed, correction = 1;
 
-    /* OEM: 9 uint32 accumulators, zeroed via memset(&var_d8_1, 0, 0x24) */
-    uint32_t acc_bright_mix = 0;  /* var_d8: sum of bright*mix_b */
-    uint32_t acc_dark_mix = 0;    /* var_d4: sum of dark*mix_r */
-    uint32_t acc_total_wt = 0;    /* var_d0: sum of total_weight */
-    uint64_t wmean_num = 0;       /* var_cc:var_c8: weighted numerator (64-bit) */
-    uint64_t wmean_den = 0;       /* var_c8:???: weighted denominator (64-bit) */
-    uint64_t acc_b_num = 0;       /* var_c4:var_c0: B correction numerator */
-    uint64_t acc_b_den = 0;       /* var_c0:var_bc: B correction denominator */
-    uint64_t acc_r_num = 0;       /* var_bc:var_b8: R correction numerator */
-    uint64_t acc_r_den = 0;       /* var_b8:???: R correction denominator */
-
-    if (cols == 0) cols = 1;
-    if (rows == 0) rows = 1;
-
-    /* Main double loop: iterate over row × col zone grid */
-    for (r = 0; r < rows; r++) {
-        /* OEM: col spacing array starts at ae_param + 0x10 (= param[4+col]) */
-        uint32_t *col_spacing_p = &param[4];
-        /* OEM: zone weights for this row */
-        uint32_t *wt_p = &zone_wt[s1_offset / 4];
-        /* OEM: pointers into zone arrays at current row offset */
-        uint32_t *rp = &zone_r[s1_offset / 4];
-        uint32_t *gp = &zone_g[s1_offset / 4];
-        uint32_t *bp = &zone_b[s1_offset / 4];
-        uint32_t *outp = &out_zones[s1_offset / 4];
-        int32_t  *bcp = b_corr ? &b_corr[s1_offset / 4] : NULL;
-        int32_t  *rcp = r_corr ? &r_corr[s1_offset / 4] : NULL;
-        uint32_t *brp = bright_pix ? &bright_pix[s1_offset / 4] : NULL;
-        uint32_t *dkp = dark_pix ? &dark_pix[s1_offset / 4] : NULL;
-
-        for (c = 0; c < cols; c++) {
-            /* OEM: zone_area = param[0x4c/4 + row] * col_spacing[col]
-             * param[0x4c/4] = param[19] = row spacing array */
-            uint32_t zone_area = param[0x4c / 4 + r] * col_spacing_p[c];
-            uint32_t raw_sum, norm, bright, dark, net, total_wt;
-            int32_t mixed, correction;
-
-            if (zone_area == 0) zone_area = 1;
-
-            /* OEM: raw_sum = R[i] + G[i] + B[i] */
-            raw_sum = rp[c] + gp[c] + bp[c];
-
-            /* OEM: norm = raw_sum / zone_area → per-zone brightness */
-            norm = raw_sum / zone_area;
-            outp[c] = norm;
-
-            /* OEM: *arg21 += norm (accumulated total) */
+            i = r * cols + c;
+            raw_sum = zone_r[i] + zone_g[i] + zone_b[i];
+            norm = zone_area ? raw_sum / zone_area : 0;
+            out_zones[i] = norm;
             *out_total += norm;
-
-            /* OEM: B/R correction accumulation */
-            {
-                int32_t bc = bcp ? bcp[c] : 1;
-                int32_t rc = rcp ? rcp[c] : 1;
-                acc_b_num += (uint64_t)raw_sum * (uint32_t)bc;
-                acc_b_den += (uint64_t)zone_area * (uint32_t)bc;
-                acc_r_num += (uint64_t)raw_sum * (uint32_t)rc;
-                acc_r_den += (uint64_t)zone_area * (uint32_t)rc;
-            }
-
-            /* OEM: pixel classification */
-            bright = brp ? brp[c] : 0;
-            dark = dkp ? dkp[c] : 0;
-            net = zone_area - bright - dark;
-
-            /* OEM: total_wt = bright*mix_b + dark*mix_r + net_pixels */
-            total_wt = bright * mix_b + dark * mix_r + net;
-
-            /* OEM: mixed = mix_b*B + mix_r*R + G (channel-weighted luminance) */
-            mixed = mix_b * (int32_t)bp[c] + mix_r * (int32_t)rp[c]
-                    + (int32_t)gp[c];
-
-            /* OEM: accumulate per-category pixel sums */
-            acc_bright_mix += bright * mix_b;
-            acc_dark_mix += dark * mix_r;
+            acc_b_num += raw_sum * (uint32_t)b_corr[i];
+            acc_b_den += zone_area * (uint32_t)b_corr[i];
+            acc_r_num += raw_sum * (uint32_t)r_corr[i];
+            acc_r_den += zone_area * (uint32_t)r_corr[i];
+            bright_m = bright_pix[i] * (uint32_t)mix_b;
+            dark_m = dark_pix[i] * (uint32_t)mix_r;
+            net = zone_area - bright_pix[i] - dark_pix[i];
+            total_wt = bright_m + dark_m + net;
+            mixed = (uint32_t)mix_b * zone_b[i] + (uint32_t)mix_r * zone_r[i] + zone_g[i];
+            acc_bright_mix += bright_m;
+            acc_dark_mix += dark_m;
             acc_total_wt += total_wt;
-
-            /* OEM: per-zone correction factor.
-             * When *(arg10+0x24) != 0 && *(arg11+4) != 1: compute
-             * AWB-aware correction from color ratios within the zone.
-             * Default (GC2053 standard mode): correction = 1. */
-            correction = 1;
             if (corr_enabled && corr_mode != 1) {
-                /* OEM: 3-band correction from dark/net/bright pixel ratios.
-                 * Uses fix_point_div for normalized ratios, then combines:
-                 * correction = (mult2(q, combined_ratio) >> q >> 2) + 1 */
-                uint32_t band_dark = 0, band_net = 0, band_bright = 0;
+                uint32_t sum = AePweightCalculate(q, dark_m, total_wt, thr_dark) +
+                               AePweightCalculate(q, net, total_wt, thr_net) +
+                               AePweightCalculate(q, bright_m, total_wt, 0x100 - threshold);
 
-                if (total_wt > 0) {
-                    band_dark = fix_point_div_32(q,
-                        ((uint32_t)(dark * mix_r)) << qm,
-                        total_wt << qm);
-                    band_net = fix_point_div_32(q,
-                        net << qm, total_wt << qm);
-                    band_bright = fix_point_div_32(q,
-                        ((uint32_t)(bright * mix_b)) << qm,
-                        total_wt << qm);
-                }
-
-                {
-                    uint32_t sum = fix_point_div_32(q,
-                            band_dark, (corr_threshold + 1) << qm);
-                    sum += fix_point_div_32(q,
-                            band_net,
-                            ((uint32_t)(threshold - 1 - corr_threshold)) << qm);
-                    sum += fix_point_div_32(q,
-                            band_bright,
-                            ((uint32_t)(256 - threshold)) << qm);
-
-                    correction = (int32_t)((fix_point_mult2_32(q, sum,
-                                    corr_param_a << qm) >> qm >> 2) + 1);
-                }
+                correction = ((fix_point_mult2_32(q, sum, sum) >> qm) >> 2) + 1;
             }
-
-            /* OEM: 64-bit weighted accumulation
-             * wmean_num += mixed * zone_weight * correction
-             * wmean_den += total_wt * zone_weight * correction */
-            {
-                int32_t weight = (int32_t)wt_p[c];
-                wmean_num += (uint64_t)((uint32_t)(mixed * weight))
-                             * (uint32_t)correction;
-                wmean_den += (uint64_t)((uint32_t)(total_wt * weight))
-                             * (uint32_t)correction;
-            }
+            wmean_num += mixed * zone_wt[i] * correction;
+            wmean_den += total_wt * zone_wt[i] * correction;
         }
-
-        s1_offset += cols * 4;  /* advance byte offset for next row */
     }
 
-    /* OEM: spinlock-protected copy of per-zone brightness to output buffer.
-     * The OEM copies under its own spinlock (BN shows lock addr 0).
-     * Our caller passes ae0_zone_copy and then calls tisp_ae_update_zone_data
-     * which handles the proper spinlock in tx_isp_ae_zone.c. */
+    /* OEM: spinlock-protected copy; the caller hands the copy to
+     * tisp_ae_update_zone_data, which takes the real lock */
     memcpy(zone_copy, out_zones, 0x384);
 
-    /* OEM: B-weighted color ratio output */
-    if (acc_b_den > 0) {
-        uint64_t tmp = acc_b_num;
-        do_div(tmp, (uint32_t)acc_b_den);
-        *out_b_ratio = (uint32_t)tmp;
-    } else {
-        *out_b_ratio = 0;
-    }
-
-    /* OEM: R-weighted color ratio output */
-    if (acc_r_den > 0) {
-        uint64_t tmp = acc_r_num;
-        do_div(tmp, (uint32_t)acc_r_den);
-        *out_r_ratio = (uint32_t)tmp;
-    } else {
-        *out_r_ratio = 0;
-    }
-
-    /* OEM: weighted mean brightness */
-    {
-        uint32_t wmean;
-        if (wmean_den > 0) {
-            uint64_t tmp = wmean_num;
-            do_div(tmp, (uint32_t)wmean_den);
-            wmean = (uint32_t)tmp;
-        } else {
-            wmean = 0;
-        }
-        if (wmean == 0) wmean = 1;
-        *out_wmean = wmean;
-    }
-
-    /* OEM: bright/dark pixel ratio outputs in Q-format */
-    {
-        uint32_t total_q = acc_total_wt << qm;
-        if (total_q == 0) total_q = 1;
-        out_ratios[0] = fix_point_div_32(q,
-                acc_bright_mix << qm, total_q);
-        out_ratios[1] = fix_point_div_32(q,
-                acc_dark_mix << qm, total_q);
-    }
+    *out_b_ratio = acc_b_den ? acc_b_num / acc_b_den : 0;
+    *out_r_ratio = acc_r_den ? acc_r_num / acc_r_den : 0;
+    wmean = wmean_den ? wmean_num / wmean_den : 0;
+    *out_wmean = wmean ? wmean : 1;
+    total_q = acc_total_wt << qm;
+    if (total_q == 0)
+        total_q = 1;
+    out_ratios[0] = fix_point_div_32(q, acc_bright_mix << qm, total_q);
+    out_ratios[1] = fix_point_div_32(q, acc_dark_mix << qm, total_q);
 }
 
 /* tisp_ae_target — OEM EXACT: Interpolate AE brightness target from EV tables.

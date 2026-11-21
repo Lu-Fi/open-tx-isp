@@ -4,6 +4,14 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD[-rcN]` are set on the `aperto` branch, the same tag in open-tx-isp and OpenIMP: RC1 `v2026.10.11-rc1`, RC2 `v2026.10.25-rc2`, RC3 `v2026.11.07-rc3` (2026-11-07). Gate SoCs of RC3 and Release 1: T10, T20, T21, T23, T30, T31, T40, T41 (T32/T33 planned, QEMU only); release notes: [docs/releases/ in OpenIMP](https://github.com/Lu-Fi/openimp/blob/next/docs/releases/README.md). Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-11-21: T31 ae0_weight_mean2 vendor-equal: 32-bit accumulators and AePweightCalculate correction (openimp #748, #553)
+
+- `ae0_weight_mean2` (driver/t31/tx_isp_tuning.c) now matches the vendor tx-isp-t31.ko (0x4f98c):
+  - all nine accumulators are 32 bit with plain divisions, so bright scenes wrap as in the vendor; ours summed in 64 bit and divided by a truncated denominator;
+  - the zone correction is `AePweightCalculate` of the dark / net / bright share plus `fix_point_mult2_32(q, sum, sum)`; ours used a `fix_point_div_32` approximation and the unused 5th argument.
+- This changes the T31 day AE working point (the #553 day EV gap is the suspected effect); it needs a T31 day check.
+- New T31 binoracle block `wmean2` (`make t31_binoracle_wmean2`): 2000 cases, 0 mismatches, 12/12 mutations detected (before the fix: 166/200 mismatches). `tests/t31_binoracle/run.sh` gained `EXTRACT`, which tests functions that live in a .c file (tests/t31_binoracle/extract.py).
+
 ## 2026-11-21: T32 bin switch refreshes MDNS too (openimp #534 step 2a; QEMU T32)
 
 - **Fix (T32 build):** `t32_pf_dn_refresh` runs `tisp_mdns_dn_params_refresh` (`t32_mdns_dn_params_refresh`, section at tuning base + 0x875c, the night/day dn rows, all MDNS registers, trigger) on the live MDNS context, in the vendor `lib_tisp_refresh_para` order (after ysp, before ydns); the block keeps its own gain. 9 of 22 vendor blocks now refreshed; top, ae, awb, lsc, tmo, gamma, ccm, clm, bcsh, defog, lce, decmp and csccr still keep the stream-on bin.

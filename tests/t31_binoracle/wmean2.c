@@ -7,6 +7,7 @@
 #include <stddef.h>
 #include <stdint.h>
 #include "tx_isp_t31_fixvendor.h"
+#include "../../driver/include/tx_isp/tx_isp_math.h"
 
 typedef uint32_t u32;
 void *memcpy(void *d, const void *s, unsigned int n);
@@ -15,6 +16,7 @@ static inline u32 fix_point_mult2_32(u32 q, u32 a, u32 b) { return t31_vendor_fi
 static inline u32 fix_point_div_32(u32 q, u32 n, u32 d) { return t31_vendor_fixdiv_u32(q, n, d); }
 
 #pragma GCC diagnostic ignored "-Wunused-variable"
+uint32_t AePweightCalculate(uint32_t q, uint32_t ev, uint32_t ag, uint32_t dg);
 #include "t31_extract.h"
 
 void bo_ae0_weight_mean2(uint32_t *r, uint32_t *g, uint32_t *b, uint32_t unused4, uint32_t *dark,
