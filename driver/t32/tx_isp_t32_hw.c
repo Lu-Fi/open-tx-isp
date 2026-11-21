@@ -63,6 +63,7 @@ static void t33_lcepf_ev(u32 lo, u32 hi, u32 bv);
 #include "tx_isp_t33_mdns.h"
 #include "tx_isp_t33_ae.h"
 #include "tx_isp_t33_awb.h"
+#include "tx_isp_t33_binsw.h"
 #include "tx_isp_t33_stats.h"
 #include <linux/seq_file.h>
 #include "tx_isp_t32_lsc.h"
@@ -2326,6 +2327,85 @@ static void t33_flip_kick(void)
 		schedule_work(&t33_flip_w);
 }
 
+#ifdef TX_ISP_T33
+/*
+ * SET_TIZIANO_PAR of a streaming sensor (openimp #692): the vendor ispcore_core_ops_ioctl 0x100001e
+ * (tx-isp-t33.ko 3028d4ac 0x103d8c..0x103eac, tx_isp_t33_binsw.h): VICs on 0x4444, wait until the
+ * IPC output position (0x30200) is 0 (2 ms steps, 101 tries), lib_tisp_refresh_para +
+ * lib_tisp_set_csccr, then the core event 0x1000007 { 1 } arms one VIC frame start, after which the
+ * VIC interrupt writes 0x4440 back (t33_vic_hold_tick).  One sensor (priv +1192 == 1).  Not streaming
+ * the vendor leaves the VICs on 0x4444 until the stream-on sequence rewrites 0x1a8 and refreshes
+ * nothing (ispInitFinish): here nothing is done then (the same picture, no VIC write before the
+ * clocks run).
+ */
+static struct {
+	u32 calls, holds, ipc_waits, ipc_timeouts;
+} t33_binsw_st;
+
+static void t33_binsw_vic_ctrl(u32 vic, u32 val)
+{
+	t32_vic_wr((int)vic, 0x1a8, val);
+}
+
+static u32 t33_binsw_ipc_pos(void)
+{
+	u32 v = isp_rd(0x30200);	/* lib_tisp_get_ipc_output_pos: system_reg_read(0x30200) */
+
+	if (v)
+		t33_binsw_st.ipc_waits++;
+	return v;
+}
+
+static void t33_binsw_msleep(u32 ms)
+{
+	msleep(ms);
+}
+
+static void t33_binsw_print(u32 level, u32 line)
+{
+	t33_binsw_st.ipc_timeouts++;
+	isp_printf(level, "ispcore_core_ops_ioctl[%u]: IPC output position not 0 before the bin switch\n", line);
+}
+
+static void t33_binsw_refresh(const u8 *req)
+{
+	t33_refresh_para(req[12]);
+}
+
+static int t33_binsw_event(u32 sd, u32 cmd, const u32 *ev)
+{
+	unsigned long fl;
+
+	(void)sd;
+	(void)cmd;
+	spin_lock_irqsave(&t33_flip_lock, fl);
+	t33_vic_hold = (int)ev[0] > 0 ? (int)ev[0] : 1;	/* vic_core_ops_ioctl 0x1000007: max(ev[0], 1) frames */
+	t33_flip_st.holds++;
+	t33_binsw_st.holds++;
+	spin_unlock_irqrestore(&t33_flip_lock, fl);
+	return 0;
+}
+
+static const struct t33_binsw_ops t33_binsw_ops = {
+	.vic_ctrl = t33_binsw_vic_ctrl,
+	.ipc_pos = t33_binsw_ipc_pos,
+	.msleep = t33_binsw_msleep,
+	.print = t33_binsw_print,
+	.refresh_para = t33_binsw_refresh,
+	.set_csccr = t33_set_csccr,
+	.event = t33_binsw_event,
+};
+
+/* tx_isp_t32_core.c t32_set_tiziano_par: req = the 20-byte request, vinum 0 while streaming */
+void t33_core_bin_switch(const void *req)
+{
+	if (!isp_base || !t32_core_clk_active())
+		return;
+	t33_binsw_st.calls++;
+	t33_core_binsw(&t33_binsw_ops, 1, 1, 1, req);
+}
+#endif
+
 #ifndef TX_ISP_T33
 extern u32 t32_msca_vendor_starts, t32_msca_direct_starts;	/* #730 (below) */
 
@@ -2355,6 +2435,8 @@ void t33_stats_show(struct seq_file *m)
 	seq_printf(m, "t33 flip: requests %u applied %u mode %u ret %d pending %u vic holds %u releases %u left %d\n",
 		   t33_flip_st.requests, t33_flip_st.applied, t33_flip_st.mode, t33_flip_st.ret, t33_flip_pend,
 		   t33_flip_st.holds, t33_flip_st.releases, t33_vic_hold);
+	seq_printf(m, "t33 binsw: calls %u holds %u ipc waits %u timeouts %u\n", t33_binsw_st.calls,
+		   t33_binsw_st.holds, t33_binsw_st.ipc_waits, t33_binsw_st.ipc_timeouts);
 	seq_printf(m, "t33 statistics: awb %u (bad %u) grid %ux%u white %u/%u rg %u bg %u tag %u\n",
 		   t33_st.awb_frames, t33_st.awb_bad, t33_awb_cols, t33_awb_rows, t33_st.awb.white,
 		   t33_st.awb.zones, t33_st.awb.rg, t33_st.awb.bg, t33_st.awb.tag);
