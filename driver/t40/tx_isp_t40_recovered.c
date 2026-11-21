@@ -72411,9 +72411,34 @@ static unsigned char __attribute__((aligned(4))) stMainAeInterOri[17772] = {
 };
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000023b34 origin=fragment_seed original=tisp_ae_main_init */
+
+/* #749 (beyond vendor, user decision 2026-11-21): a fresh ISP start runs the AE in auto.  The vendor
+ * (tisp_ae_set_exprinfo_attr 0x3c774 / tisp_ae_main_manual_set 0x3a3a0) keeps the manual flags of
+ * tisp_ae_{main,sec}_ctrls across every ISP open until the module is reloaded, so a manual AE of a
+ * previous streamer run (SetAeExprInfo / SetAeFreeze) survived a streamer restart (white picture).
+ * Cleared: the ae / it / ag / isp-dg / sensor-dg manual flags of the long (c[0], c[13], c[14], c[15],
+ * c[36]) and the short frame (c[24], c[16], c[17], c[26], c[37]), see tx_isp_t40_ae_leaf.h; the
+ * manual values stay (unused while the flags are 0). */
+static void t40_ae_ctrls_auto(uint32_t *c)
+{
+    static const uint8_t flag[] = { 0, 13, 14, 15, 36, 24, 16, 17, 26, 37 };
+    unsigned int i;
+
+    for (i = 0; i < sizeof(flag); i++)
+        c[flag[i]] = 0;
+}
+
 int64_t tisp_ae_main_init(uint32_t a0, uint32_t a1)
 {
     uint32_t __lg = REGTRACE_LOOPGUARD_BUDGET;
+
+    t40_ae_ctrls_auto(tisp_ae_main_ctrls_storage);   /* #749 */
+    t40_ae_ctrls_auto(tisp_ae_sec_ctrls_storage);
+    /* the open AE loop's copy of the last SetAeExprInfo (freeze / manual it, ag, dg, isp dg) */
+    t40_ae_ex.freeze = 0;
+    t40_ae_ex.it_manual = t40_ae_ex.again_manual = t40_ae_ex.dgain_manual = t40_ae_ex.ispdgain_manual = 0;
+    t40_ae_ex_manual_it_lines = 0;
+    WRITE_ONCE(t40_ae_ex_manual_again_idx, 0);
     /*
      * OEM stack scratch buffers. The loop at label 0x17c byte-copies 420 bytes
      * (sensor_ctrl_main+4) into &local_10, and the loop at 0x160 copies 152

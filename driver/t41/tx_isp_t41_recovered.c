@@ -71018,6 +71018,11 @@ int64_t tisp_ae_init(uint32_t channel, uintptr_t par)
     uint32_t margin_height;
     uint32_t *callbacks = (uint32_t *)(void *)tpm_cb_storage;
     int ret;
+    /* #749 (beyond vendor, user decision 2026-11-21): a fresh ISP start runs the AE in auto; the manual
+     * freeze / IT / again of a previous streamer run (SetAeExprInfo) no longer survive the open. */
+    WRITE_ONCE(t41_ae_man_freeze, 0);
+    WRITE_ONCE(t41_ae_man_it, 0);
+    WRITE_ONCE(t41_ae_man_again, 0);
 
     if (channel >= ARRAY_SIZE(ae_info) || !par)
         return -EINVAL;

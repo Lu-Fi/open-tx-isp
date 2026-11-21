@@ -4,6 +4,15 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD[-rcN]` are set on the `aperto` branch, the same tag in open-tx-isp and OpenIMP: RC1 `v2026.10.11-rc1`, RC2 `v2026.10.25-rc2`, RC3 `v2026.11.07-rc3` (2026-11-07). Gate SoCs of RC3 and Release 1: T10, T20, T21, T23, T30, T31, T40, T41 (T32/T33 planned, QEMU only); release notes: [docs/releases/ in OpenIMP](https://github.com/Lu-Fi/openimp/blob/next/docs/releases/README.md). Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-11-21: T40 / T41 AE back to auto on a fresh ISP start (openimp #749, beyond vendor)
+
+- User decision 2026-11-21: a fresh ISP start always runs the AE in auto.
+  - T40: `tisp_ae_main_init` clears the manual flags of `tisp_ae_main_ctrls` / `tisp_ae_sec_ctrls` (ae / it / ag / isp-dg / sensor-dg, long and short frame) and the open AE loop's copy of the last SetAeExprInfo (`t40_ae_ex`).
+  - T41: `tisp_ae_init` clears `t41_ae_man_freeze` / `_it` / `_again`.
+- Vendor T40 keeps a manual AE until the module is reloaded, which left the Eufy white after a test tool's manual AE (#682).
+- T31 needs no change: its AE init clears `tisp_ae_ctrls` like the vendor (tx_isp_tuning.c:17757).
+- Device (T40 Eufy .N, RAM only): fair_preload manual (aemode 1), then a timps restart; afterwards aemode 0 and IT 916 (the exposure moves again); restore ok, 0 oops. T41: build only.
+
 ## 2026-11-21: T31 ae0_weight_mean2 vendor-equal: 32-bit accumulators and AePweightCalculate correction (openimp #748, #553)
 
 - `ae0_weight_mean2` (driver/t31/tx_isp_tuning.c) now matches the vendor tx-isp-t31.ko (0x4f98c):
