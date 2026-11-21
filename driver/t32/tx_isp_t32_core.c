@@ -918,6 +918,8 @@ static long t32_isp_ioctl(struct file *file, unsigned int cmd, unsigned long arg
 
 #ifdef TX_ISP_T33
 				t32_ldc_input_latch(core.ldc_mode);	/* ispcore init: 0x5000007 -> stIspInitPar +0x2c */
+#else
+				t32_ldc_input_latch(vi->width, vi->height);	/* 0x5000007 -> stIspInitPar +0x28, tisp_ldc_init (#751) */
 #endif
 
 				ret = attr ? t32_hw_input_setup(attr, vi->width, vi->height) : -ENODEV;
@@ -927,6 +929,10 @@ static long t32_isp_ioctl(struct file *file, unsigned int cmd, unsigned long arg
 			vi->input_on = 1;
 			ia.vinum = (s32)((vi->width << 16) | vi->height);
 		} else {
+#ifndef TX_ISP_T33
+			if (vi->input_on)
+				t32_ldc_input_off();	/* lib_tisp_deinit -> tisp_ldc_deinit */
+#endif
 			vi->input_on = 0;
 			ia.vinum = 0;
 		}
@@ -936,9 +942,7 @@ static long t32_isp_ioctl(struct file *file, unsigned int cmd, unsigned long arg
 		ret = T32_GET(arg, bi);
 		if (!ret) {
 			bi.size = 0;		/* no IPC (RISC-V) memory in S1 */
-#ifdef TX_ISP_T33
-			bi.size += t32_ldc_ipc_size(vi->width, vi->height);	/* online LDC (#491) */
-#endif
+			bi.size += t32_ldc_ipc_size(vi->width, vi->height);	/* online LDC (T33 #491, T32 #751) */
 			ret = T32_PUT(arg, bi);
 		}
 		break;
@@ -947,9 +951,7 @@ static long t32_isp_ioctl(struct file *file, unsigned int cmd, unsigned long arg
 		if (!ret) {
 			vi->ipc_mem_pa = bi.word1;
 			vi->ipc_mem_size = bi.size;
-#ifdef TX_ISP_T33
 			t32_ldc_ipc_set(bi.word1, vi->width, vi->height);
-#endif
 		}
 		break;
 	case T32_IOC_GET_ISP_MEM_INFO:
@@ -1063,10 +1065,8 @@ static long t32_isp_ioctl(struct file *file, unsigned int cmd, unsigned long arg
 		ret = T32_GET(arg, v);
 		if (!ret)
 			core.ldc_mode = v;
-#ifdef TX_ISP_T33
 		if (!ret)
 			t32_ldc_mode_set(v);
-#endif
 		break;
 	case T32_IOC_LDC_ONLINE_PROBE:
 		t32_ldc_probe_count();

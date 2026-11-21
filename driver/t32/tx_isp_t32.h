@@ -281,6 +281,13 @@ unsigned int t32_ldc_stream_list(struct t32_front_write *w);
 int t32_ldc_top_hldc(void);
 int t32_ldc_top_refresh(void);
 void t32_ldc_stream_on(void);
+#else
+/* T32 online LDC at ISP init (openimp #751, snapldc.c) */
+void t32_ldc_mode_set(u32 mode);
+void t32_ldc_input_latch(u32 w, u32 h);
+void t32_ldc_input_off(void);
+u32 t32_ldc_ipc_size(u32 w, u32 h);
+void t32_ldc_ipc_set(u32 pa, u32 w, u32 h);
 #endif
 
 /* tx_isp_t32_ivdcdrv.c: IVDC direct mode (#349) */

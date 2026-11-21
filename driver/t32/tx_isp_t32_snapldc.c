@@ -41,9 +41,10 @@
  *   88-byte block, word 1 = LDC parameters of the IQ bin present (the 80
  *   bytes from word 2).  With LDC mode 1 (offline, 0xc00454b8) the LDC
  *   answers both with 0 and does nothing (vendor).
- *   The attribute is kept and computed as the vendor's; it is not applied to
- *   the pipeline: the vendor applies it only when the ISP was initialised
- *   with LDC on (stIspInitPar +0x2c), which this module never does yet.
+ *   The vendor applies it only when the ISP was initialised with LDC on
+ *   (LDC mode 0 set before S_INPUT): T33 below (#491), T32 after ldc_rd
+ *   (#751: tisp_online_ldc_set_attr, LDC part of the IPC memory, the LDC
+ *   block and WDMA / RDMA at SET_ISP_IPC_MEM).
  *
  * /dev/offline_ldc (misc, tx_isp_ldc_probe): open enables the LDC interrupt
  *   (Linux IRQ "isp-m1", INTC 38), release disables it, wakes a waiter and
@@ -422,25 +423,6 @@ long t32_ldc_online_ioctl(unsigned int cmd, unsigned long arg, u32 ldc_mode)
 	}
 	return 0;
 }
-#else
-/* T32: 0x5000006 with a 24-byte block {LDC id, ..}; 0xc00454b9 / bb are not served (0) */
-long t32_ldc_online_ioctl(unsigned int cmd, unsigned long arg, u32 ldc_mode)
-{
-	u32 b[6];
-
-	if (cmd != T32_IOC_LDC_ONLINE_INIT)
-		return 0;
-	if (copy_from_user(b, (void __user *)arg, sizeof(b))) {
-		isp_printf(2, "[ %s:%d ] copy from user error\n", "tx_ldc_online_init", 56);
-		return -EFAULT;
-	}
-	if (b[0] < T32_LDC_VIS) {
-		ldc_on[b[0]].w0 = b[0];
-		ldc_on[b[0]].size = b[2] & 0xffff;
-		ldc_on[b[0]].valid = 1;
-	}
-	return 0;
-}
 #endif
 
 /* ------------------------------------------------------------------ */
@@ -478,6 +460,272 @@ static inline u32 ldc_rd(u32 off)
 	return readl(ldc_base + off);
 #endif
 }
+
+#ifndef TX_ISP_T33
+/*
+ * T32 online LDC at ISP init (openimp #751), vendor tx-isp-t32.ko 2.2.0 (Ghidra t32 addresses):
+ * - 0xc00454b8 mode 0 (ldc_core_ops_ioctl 0x2015c, cmd 0x5000005): ldc +0x1a4 = 1, never cleared.
+ * - S_INPUT: ispcore_core_ops_init asks 0x5000007 (0xba364..0xba390) and stores the flag in
+ *   stIspInitPar +0x28; lib_tisp_init -> tisp_ldc_init 0xb3d84 allocates the context (3240 B) with
+ *   the sensor size when the flag is 1.
+ * - 0xc00454ba (0x5000006): the 24-byte block {id, -, u16 enable | u16 mode2 << 16, -, -, user
+ *   pointer of the 1076-byte parameter block} -> tisp_online_ldc_set_attr 0xb44dc.
+ * - GET_ISP_IPC_MEM (0x1a07c: the kernel flag from 0x5000007 in the request's byte 2) ->
+ *   lib_tisp_get_isp_ipc_memory_space 0x38034: + lib_tisp_ldc_get_mem_size 0xb3a30
+ *   = 2 * (((W*H+7)&~7) + ((W*H/2+7)&~7)).
+ * - SET_ISP_IPC_MEM -> lib_tisp_set_isp_ipc_memory_space 0x381b0: buf0 = pa, buf1 = pa + Y bytes;
+ *   with the flag the tisp_ldc_load_reg_cfg body (tuning words / tables of tparamsP + 0xe800 =
+ *   IQ bin section 23 + 4, tisp_ldc_reg_cfg, tisp_ldc_mem_cfg, LDC 8 = 1, 0x70 = 0, 4 = 1) and
+ *   tisp_ldc_dma_cfg -> tisp_func_ldc_dma_cfg 0x9fe10 (WDMA 0x20054.., RDMA 0x21048..,
+ *   ISP 0x20 |= 1 << 31).
+ * - lib_tisp_deinit -> tisp_ldc_deinit: LDC 0x70 = ~0, context freed.
+ * Not done (as the vendor for one sensor): tisp_ldc_reg_reflash runs only with two sensors.
+ * The top IPC words of tisp_top_ipc_set_mem_cfg are not part of this (separate issue).
+ * Better than vendor: 0xc00454ba without a context (LDC never set online) answers 0 instead of
+ * the vendor's NULL store at +0xc9c.
+ */
+#include "tx_isp_t32_iq.h"
+/* the host-checked headers name ops members get_fs / set_fs / copy_from_user: keep the kernel macros out */
+#pragma push_macro("get_fs")
+#pragma push_macro("set_fs")
+#undef get_fs
+#undef set_fs
+#include "tx_isp_t32_dma.h"
+#pragma pop_macro("set_fs")
+#pragma pop_macro("get_fs")
+#pragma push_macro("copy_from_user")
+#undef copy_from_user
+#include "tx_isp_t32_ldcattr.h"
+#pragma pop_macro("copy_from_user")
+
+#define T32_LDC_IQ_SEC		23		/* stParSel +0x5c -> tparamsP + 0xe7fc, 0x434 bytes */
+#define T32_LDC_TUN_BASE	0xe7fcU
+#define T32_LDC_MAX_WRITES	(10 + 2 * T32_LDC_TAB_N + 4 + 3)
+
+static int t32_ldc_sticky;			/* ldc +0x1a4 */
+static u32 t32_ldc_ipc_set_n, t32_ldc_dma_n;
+static u8 t32_ldc_tun[T32_LDC_PARAM_BYTES];	/* tparamsP + 0xe7fc .. 0xec2f */
+static struct t32_front_write t32_ldc_w[T32_LDC_MAX_WRITES];
+
+static void *t32_ldc_kmalloc(u32 size, u32 flags)
+{
+	(void)flags;
+	return kzalloc(size, GFP_KERNEL);
+}
+
+static void t32_ldc_kfree(void *p)
+{
+	kfree(p);
+}
+
+static u32 t32_ldc_dma_wr(u32 reg, u32 val)
+{
+	t32_hw_wr(reg, val);
+	return 0;
+}
+
+static const struct t32_dma_ops t32_ldc_dma_ops = { .reg_write = t32_ldc_dma_wr, .reg_read = t32_hw_rd };
+static struct t32_ldc_dev t32_ldc;
+
+/* tisp_func_ldc_dma_cfg: the header calls it inside tisp_ldc_load_reg_cfg, before the queued LDC block
+ * writes are flushed; kept here and run after them, the vendor order (LDC block, then WDMA / RDMA) */
+static struct { int pending; u32 w0, h0, buf, w; } t32_ldc_dma_req;
+
+static void t32_ldc_dma(u32 w0, u32 h0, u32 buf, u32 w)
+{
+	t32_ldc_dma_req.pending = 1;
+	t32_ldc_dma_req.w0 = w0;
+	t32_ldc_dma_req.h0 = h0;
+	t32_ldc_dma_req.buf = buf;
+	t32_ldc_dma_req.w = w;
+}
+
+static void t32_ldc_dma_run(void)
+{
+	struct t32_dma_dev d = { .ops = &t32_ldc_dma_ops,
+				 .ldc0 = (const struct t32_dma_ldc_rec *)&t32_ldc.mem[0] };
+
+	if (!t32_ldc_dma_req.pending)
+		return;
+	t32_ldc_dma_req.pending = 0;
+	t32_func_ldc_dma_cfg(&d, t32_ldc_dma_req.w0, t32_ldc_dma_req.h0, t32_ldc_dma_req.buf, t32_ldc_dma_req.w);
+	t32_ldc_dma_n++;
+}
+
+static void t32_ldc_dma_stride_cb(u32 w)
+{
+	struct t32_dma_dev d = { .ops = &t32_ldc_dma_ops,
+				 .ldc0 = (const struct t32_dma_ldc_rec *)&t32_ldc.mem[0] };
+
+	t32_func_ldc_dma_stride(&d, w);
+}
+
+static const struct t32_ldc_ops t32_ldc_ops = {
+	.kmalloc = t32_ldc_kmalloc, .kfree = t32_ldc_kfree, .dma_cfg = t32_ldc_dma,
+	.dma_stride = t32_ldc_dma_stride_cb, .reg_read = ldc_rd,
+};
+
+static unsigned long t32_ldc_cfu(void *to, const void *from, unsigned long n)
+{
+	return copy_from_user(to, (const void __user *)from, n);
+}
+
+static int t32_ldc_printf(int level, const char *fmt, ...)
+{
+	va_list ap;
+	char buf[96];
+
+	va_start(ap, fmt);
+	vsnprintf(buf, sizeof(buf), fmt, ap);
+	va_end(ap);
+	return isp_printf(level, "%s", buf);
+}
+
+#pragma push_macro("copy_from_user")
+#undef copy_from_user
+static const struct t32_ldcattr_ops t32_ldcattr_k = { .copy_from_user = t32_ldc_cfu, .isp_printf = t32_ldc_printf };
+#pragma pop_macro("copy_from_user")
+
+static void t32_ldc_flush(unsigned int n)
+{
+	unsigned int i;
+
+	for (i = 0; i < n; i++)
+		ldc_wr(t32_ldc_w[i].reg, t32_ldc_w[i].val);
+}
+
+void t32_ldc_mode_set(u32 mode)
+{
+	if (mode == 0)
+		t32_ldc_sticky = 1;
+}
+
+/* tisp_ldc_deinit (lib_tisp_deinit): LDC interrupts masked, context freed */
+static void t32_ldc_deinit_locked(void)
+{
+	unsigned int n = 0;
+
+	t32_ldc_deinit(&t32_ldc, 0, t32_ldc_w, &n);
+	if (ldc_base)
+		t32_ldc_flush(n);
+	t32_ldc.chan[0].enable = 0;
+}
+
+/* S_INPUT: stIspInitPar +0x28 = the 0x5000007 flag, tisp_ldc_init with the sensor size */
+void t32_ldc_input_latch(u32 w, u32 h)
+{
+	struct t32_ldc_cfg cfg = { .width = w, .height = h, .enable = (u8)t32_ldc_sticky };
+
+	mutex_lock(&ldc_lock);
+	t32_ldc.ops = &t32_ldc_ops;
+	if (t32_ldc.ctx[0])
+		t32_ldc_deinit_locked();	/* a context of an earlier init (the vendor's leaks) */
+	t32_ldc.chan[0].enable = cfg.enable;
+	if (t32_ldc_init(&t32_ldc, 0, &cfg))
+		t32_ldc.chan[0].enable = 0;
+	mutex_unlock(&ldc_lock);
+}
+
+void t32_ldc_input_off(void)
+{
+	mutex_lock(&ldc_lock);
+	if (t32_ldc.chan[0].enable == 1)
+		t32_ldc_deinit_locked();
+	mutex_unlock(&ldc_lock);
+}
+
+/* GET_ISP_IPC_MEM_INFO: lib_tisp_ldc_get_mem_size when the flag is set (single sensor) */
+u32 t32_ldc_ipc_size(u32 w, u32 h)
+{
+	if (!t32_ldc_sticky)
+		return 0;
+	return (u32)t32_ldc_get_mem_size(&t32_ldc, w, h);
+}
+
+/* SET_ISP_IPC_MEM_INFO: the LDC part of lib_tisp_set_isp_ipc_memory_space */
+void t32_ldc_ipc_set(u32 pa, u32 w, u32 h)
+{
+	const u8 *bin;
+	u32 bytes, off, len, n;
+	unsigned int cnt = 0;
+
+	(void)w;
+	(void)h;
+	if (!t32_ldc_sticky || !ldc_base)
+		return;
+	mutex_lock(&ldc_lock);
+	t32_ldc.mem[0].buf[0] = pa;
+	t32_ldc.mem[0].buf[1] = pa + t32_ldc.mem[0].y_bytes;
+	if (t32_ldc.chan[0].enable == 1 && t32_ldc.ctx[0]) {
+		/* tparamsP + 0xe7fc: the bin's section 23 (tisp_bin_data_parse copies 0x434 bytes) */
+		memset(t32_ldc_tun, 0, sizeof(t32_ldc_tun));
+		if (!t32_core_iq_bin(&bin, &bytes)) {
+			off = t32_iq_section(bin, bytes, T32_LDC_IQ_SEC, &len);
+			if (off) {
+				n = bytes - off < sizeof(t32_ldc_tun) ? bytes - off : sizeof(t32_ldc_tun);
+				memcpy(t32_ldc_tun, bin + off, n);
+			}
+		}
+		t32_ldc.tuning[0] = t32_ldc_tun - T32_LDC_TUN_BASE;	/* the header reads +0xe800 .. +0xec2f */
+		{
+			struct t32_ldc_cfg cfg = { .enable = 1 };
+
+			t32_ldc_load_reg_cfg(&t32_ldc, 0, &cfg, t32_ldc_w, &cnt);
+		}
+		t32_ldc_flush(cnt);
+		t32_ldc_dma_run();
+		t32_ldc_ipc_set_n++;
+	}
+	mutex_unlock(&ldc_lock);
+}
+
+/* 0xc00454ba (tx_ldc_online_init -> tisp_online_ldc_set_attr); 0xc00454bb: not served (0) */
+long t32_ldc_online_ioctl(unsigned int cmd, unsigned long arg, u32 ldc_mode)
+{
+	struct t32_ldc_online_set in;
+	u32 b[6];
+	int r = 0;
+
+	(void)ldc_mode;
+	if (cmd != T32_IOC_LDC_ONLINE_INIT)
+		return 0;
+	if (copy_from_user(b, (void __user *)arg, sizeof(b))) {
+		isp_printf(2, "[ %s:%d ] copy from user error\n", "tx_ldc_online_init", 68);
+		return -EFAULT;
+	}
+	ldc_inits++;
+	if (b[0] < T32_LDC_VIS) {
+		ldc_on[b[0]].w0 = b[0];
+		ldc_on[b[0]].size = b[2] & 0xffff;
+		ldc_on[b[0]].type = b[2] >> 16;
+		ldc_on[b[0]].lut = b[5];
+		ldc_on[b[0]].valid = 1;
+	}
+	in.mode = (u16)b[2];
+	in.mode2 = (u16)(b[2] >> 16);
+	in.rsvd = 0;
+	in.param = b[5];
+	mutex_lock(&ldc_lock);
+	if (b[0] < T32_LDC_CHANS && b[0] < T32_LDC_SLOTS && t32_ldc.ctx[b[0]])
+		r = t32_online_ldc_set_attr(&t32_ldcattr_k, t32_ldc.ctx[b[0]], t32_ldc.chan[b[0]].enable, &in);
+	mutex_unlock(&ldc_lock);
+	if (r) {
+		isp_printf(2, "[ %s:%d ] Failed to ioctl!\n", "ldc_core_ops_ioctl", 107);
+		return r;
+	}
+	return 0;
+}
+
+static void t32_ldc_online_show(struct seq_file *m)
+{
+	const struct t32_ldc_ctx *c = t32_ldc.ctx[0];
+
+	seq_printf(m, "ldc online T32: flag %d enable %u ctx %s mode %u/%u %ux%u buf %#x/%#x total %u ipc-set %u dma %u\n",
+		   t32_ldc_sticky, t32_ldc.chan[0].enable, c ? "yes" : "no", c ? c->mode : 0, c ? c->mode2 : 0,
+		   c ? c->width : 0, c ? c->height : 0, t32_ldc.mem[0].buf[0], t32_ldc.mem[0].buf[1],
+		   t32_ldc.mem[0].total_bytes, t32_ldc_ipc_set_n, t32_ldc_dma_n);
+}
+#endif
 
 #ifdef TX_ISP_T33
 extern u32 t33_st_isp_init_par_mode[1008];	/* stIspInitPar (tx_isp_t32_hw.c) */
@@ -763,6 +1011,9 @@ void t32_snapldc_show(struct seq_file *m)
 	seq_printf(m, "snapraw: %u requests, %u done, %u timeouts; offline_ldc: %u jobs, %u timeouts, %u irqs (%u errors)\n",
 		   snap.snaps, snap.done, snap.timeouts, ldc_jobs, ldc_job_timeouts, ldc_irqs, ldc_errors);
 	seq_printf(m, "ldc online: %u probes, %u attributes\n", ldc_probes, ldc_inits);
+#ifndef TX_ISP_T33
+	t32_ldc_online_show(m);
+#endif
 	for (i = 0; i < T32_LDC_VIS; i++)
 		if (ldc_on[i].valid)
 			seq_printf(m, "ldc online VI%d: type %u size %#x out %#x block %u stride %u lut %#x angle %u\n", i,
@@ -847,6 +1098,9 @@ void t32_snapldc_exit(void)
 		}
 	}
 #else
+	kfree(t32_ldc.ctx[0]);
+	t32_ldc.ctx[0] = NULL;
+	t32_ldc.chan[0].enable = 0;
 	if (ldc_base)
 		iounmap(ldc_base);
 	ldc_base = NULL;

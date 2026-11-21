@@ -422,7 +422,10 @@ No tisp/3A, no IQ bin parsing (the bin's physical address is kept), no
 image-pipeline register programming (the QEMU model does not process pixels,
 so this needs a camera); the stream-on list carries the LSC block only. The channel parameter words
 are the vendor's cv8001/PRJ007 values until the bin parser provides them.
-Day/night, WDR, LDC, AOV/RISC-V hand-over: off (ISP OSD, IVDC direct mode: above).
+Day/night, WDR, AOV/RISC-V hand-over: off (ISP OSD, IVDC direct mode: above).
+Online LDC at ISP init (openimp #751): as the vendor 2.2.0 when libimp sets LDC mode 0 before
+`IMP_ISP_AddSensor` (`tx_isp_t32_snapldc.c`: attribute `0xc00454ba`, IPC memory + 2 * (Y + UV),
+LDC block 0x13040000 and WDMA / RDMA at `SET_ISP_IPC_MEM`); QEMU only, no picture proof (no T32 camera).
 
 ## Build
 
