@@ -4,6 +4,12 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD[-rcN]` are set on the `aperto` branch, the same tag in open-tx-isp and OpenIMP: RC1 `v2026.10.11-rc1`, RC2 `v2026.10.25-rc2`, RC3 `v2026.11.07-rc3` (2026-11-07). Gate SoCs of RC3 and Release 1: T10, T20, T21, T23, T30, T31, T40, T41 (T32/T33 planned, QEMU only); release notes: [docs/releases/ in OpenIMP](https://github.com/Lu-Fi/openimp/blob/next/docs/releases/README.md). Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-11-21: T32 GetModuleControl and the line-space get / set reach the vendor ports (openimp #717 part 1; QEMU T32)
+
+- **Cause.** In the T32 build the glue `t32_tx_os_tisp_g_module_control` and `t32_tx_os_lib_tisp_api_set/get_line_space` (`driver/t32/tx_isp_t32_tunctl.c`) only kept a copy; the ports never ran.
+- **Fix (vendor-equal, T32 only; T33 module unchanged, md5 e17e7084).** GetModuleControl = `tisp_g_module_control`: the 22 enable bits of top register 0x40 (direct mode). Line space (ctrl 0xa7) = `lib_tisp_api_set_line_space` / `_get_line_space` (vendor 0xb3304 / 0xb32cc), the oracle-proven `t32_api_set/get_line_space` (`tx_isp_t32_bayer.h`, `t32_regapi_oracle`): bits 31..16 of register 0x90.
+- **Evidence.** QEMU T32 (3.10 thingino image): GetModuleControl gives 0x00300004 = register 0x40 & 0x3fffff (next: 0, the never-set copy). Not wired yet (#717 part 2, need live block states): SetModuleControl (LCE top change on the LCE state), H/V flip, gamma, WDR output mode, autozoom, LSC hvflip.
+
 ## 2026-11-21: T32 real-body proof audit of the oracle references (openimp #645; host, no driver change)
 
 - New `tests/t32_oracle/real_audit.py` (`make -C tests t32_real_audit`, info only), the T32 counterpart of the T33 proof_audit. A REFS function counts as proven only when an oracle that calls it also drives a driver/t32 function with a real body (header closure of the oracle, at least 4 effective lines through header callees, T32 build: the `TX_ISP_T33` branches are dropped).

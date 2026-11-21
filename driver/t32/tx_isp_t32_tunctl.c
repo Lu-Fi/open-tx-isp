@@ -45,6 +45,7 @@
 #include "tx_isp_t33_attrAWB.h"
 #endif
 #include "tx_isp_t32.h"
+#include "tx_isp_t32_bayer.h"
 #include "tx_isp_t32_txsctrl.h"
 #include "tx_isp_t32_txgctrl.h"
 #include "tx_isp_t32_tunpre.h"
@@ -395,7 +396,8 @@ int t32_tx_os_tisp_g_module_control(u32 ch, void *buf)
 	*(u32 *)buf = t33_module_control_get(ch);
 	return 0;
 #endif
-	*(u32 *)buf = t32_tc[ch].module_ctl;
+	/* T32 (openimp #717): tisp_g_module_control = the 22 enable bits of the top register 0x40 (direct mode) */
+	*(u32 *)buf = t32_hw_rd(0x40) & 0x3fffffU;
 	return 0;
 }
 
@@ -459,6 +461,31 @@ int t32_tx_os_tisp_get_fps(u32 ch, u32 arg)
 	return 0;
 }
 
+#ifndef TX_ISP_T33
+/*
+ * T32 (openimp #717): lib_tisp_api_set_line_space / _get_line_space (vendor 0xb3304 / 0xb32cc) are the
+ * proven ports of tx_isp_t32_bayer.h (t32_regapi_oracle): bits 31..16 of the top register 0x90 through
+ * system_reg_read / _write, bits 15..0 kept.
+ */
+static u32 t32_tc_sys_rd(void *ctx, u32 reg) { (void)ctx; return t32_hw_rd(reg); }
+static u32 t32_tc_sys_wr(void *ctx, u32 reg, u32 val) { (void)ctx; t32_hw_wr(reg, val); return 0; }
+static const struct t32_regio t32_tc_io = { .sys_read = t32_tc_sys_rd, .sys_write = t32_tc_sys_wr };
+
+void t32_tx_os_lib_tisp_api_set_line_space(u32 v)
+{
+	t32_tc_line_space = (u16)v;
+	t32_api_set_line_space(&t32_tc_io, v);
+}
+
+int t32_tx_os_lib_tisp_api_get_line_space(void *buf)
+{
+	unsigned short s;
+
+	t32_api_get_line_space(&t32_tc_io, &s);
+	*(u16 *)buf = s;
+	return 0;
+}
+#else
 void t32_tx_os_lib_tisp_api_set_line_space(u32 v)
 {
 	t32_tc_line_space = (u16)v;
@@ -469,6 +496,7 @@ int t32_tx_os_lib_tisp_api_get_line_space(void *buf)
 	*(u16 *)buf = t32_tc_line_space;
 	return 0;
 }
+#endif
 
 /* statistics / read-only state: zeroed until the statistics are wired */
 static int t32_tc_zero(void *buf, u32 n)
