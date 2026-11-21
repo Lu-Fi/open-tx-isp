@@ -299,7 +299,10 @@ class Diff:
             px, py = a['pre'][key], b['pre'].get(key, b'')
             if x == y or (x == px and y == py):
                 continue
-            n = min(len(x), len(y), len(px), len(py)) // 4
+            # a tail shorter than a word (1-byte statics such as __key_0, #664) is compared zero-padded
+            m4 = min(len(x), len(y), len(px), len(py))
+            x, y, px, py = (z[:m4] + bytes(-m4 % 4) for z in (x, y, px, py))
+            n = (m4 + 3) // 4
             wx = struct.unpack_from('<%dI' % n, x)
             wy = struct.unpack_from('<%dI' % n, y)
             vx = struct.unpack_from('<%dI' % n, px)
