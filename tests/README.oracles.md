@@ -199,6 +199,7 @@ The T33 status page counts a T33-only vendor function as proven when it is an en
 of these blocks or of `t33_lcepf_host`.
 The block `t32-mscafifo` (make target `t32_binoracle_mscafifo`, openimp #529) runs the same harness on the vendor `tx-isp-t32.ko` (`T32_OEM_KO`, local only): `tisp_msca_addr_fifo_read` vs `driver/t32/tx_isp_t32_msca_fifo.h`.
 The block `t32-ldcdma` (make target `t32_binoracle_ldcdma`, openimp #751): `tisp_func_ldc_dma_cfg` / `tisp_func_ldc_dma_stride` of the vendor `tx-isp-t32.ko` (LDC memory record = `stMemInfo`) vs `driver/t32/tx_isp_t32_dma.h`.
+The block `t32-topipc` (make target `t32_binoracle_topipc`, openimp #759): `tisp_top_ipc_get_mem_size` / `tisp_top_ipc_set_mem_cfg` (config words = `stMemInfo`) vs `driver/t32/tx_isp_t32_front.h`.
 
 ## T31 binary oracle (`tests/t31_binoracle`, openimp #533)
 

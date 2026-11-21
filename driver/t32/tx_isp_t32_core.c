@@ -43,6 +43,11 @@
 #endif
 #include "tx_isp_t32_msca.h"
 #include "tx_isp_t32_soc.h"
+#ifndef TX_ISP_T33
+#include "tx_isp_t32_front.h"	/* t32_top_ipc_get_mem_size / _set_mem_cfg (#759) */
+
+static int isp_cache_line;	/* module parameter (defined with the others below) */
+#endif
 
 static unsigned int isp_memopt = T32_MEMOPT_DEFAULT;
 module_param(isp_memopt, uint, 0444);
@@ -127,6 +132,9 @@ struct t32_vi {
 	u32 width, height;
 	u32 isp_mem_pa, isp_mem_size;
 	u32 ipc_mem_pa, ipc_mem_size;
+#ifndef TX_ISP_T33
+	u32 top_ipc[19];		/* T32: stMemInfo words of tisp_top_ipc_* (9 = base, 13 = size; #759) */
+#endif
 };
 
 static struct t32_core {
@@ -942,6 +950,10 @@ static long t32_isp_ioctl(struct file *file, unsigned int cmd, unsigned long arg
 		ret = T32_GET(arg, bi);
 		if (!ret) {
 			bi.size = 0;		/* no IPC (RISC-V) memory in S1 */
+#ifndef TX_ISP_T33
+			/* tisp_top_ipc_get_mem_size with raw = isp_cache_line (tx_isp_get_isp_ipc_mem, #759) */
+			bi.size = t32_top_ipc_get_mem_size(vi->width, (u32)isp_cache_line, &vi->top_ipc[13]);
+#endif
 			bi.size += t32_ldc_ipc_size(vi->width, vi->height);	/* online LDC (T33 #491, T32 #751) */
 			ret = T32_PUT(arg, bi);
 		}
@@ -951,7 +963,19 @@ static long t32_isp_ioctl(struct file *file, unsigned int cmd, unsigned long arg
 		if (!ret) {
 			vi->ipc_mem_pa = bi.word1;
 			vi->ipc_mem_size = bi.size;
+#ifndef TX_ISP_T33
+			{
+				/* lib_tisp_set_isp_ipc_memory_space: tisp_top_ipc_set_mem_cfg, the LDC part after it (#759) */
+				struct t32_front_write tw[6];
+				unsigned int i, n = t32_top_ipc_set_mem_cfg(vi->top_ipc, bi.word1, tw);
+
+				for (i = 0; i < n; i++)
+					t32_hw_wr(tw[i].reg, tw[i].val);
+				t32_ldc_ipc_set(bi.word1 + vi->top_ipc[13], vi->width, vi->height);
+			}
+#else
 			t32_ldc_ipc_set(bi.word1, vi->width, vi->height);
+#endif
 		}
 		break;
 	case T32_IOC_GET_ISP_MEM_INFO:
@@ -1166,7 +1190,11 @@ static int isp_ch0_pre_dequeue_time, isp_cache_line, atlas_open, zeratul_open;
 module_param(isp_ch0_pre_dequeue_time, int, 0444);
 MODULE_PARM_DESC(isp_ch0_pre_dequeue_time, "isp pre dequeue time, unit ms (accepted, unused)");
 module_param(isp_cache_line, int, 0444);
+#ifdef TX_ISP_T33
 MODULE_PARM_DESC(isp_cache_line, "isp cache line (accepted, unused)");
+#else
+MODULE_PARM_DESC(isp_cache_line, "isp cache line (top IPC memory lines, #759)");
+#endif
 module_param(atlas_open, int, 0444);
 MODULE_PARM_DESC(atlas_open, "atlas open (accepted, unused)");
 module_param(zeratul_open, int, 0444);
