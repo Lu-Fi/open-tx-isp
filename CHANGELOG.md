@@ -15,12 +15,6 @@ marked otherwise. Release tags `vYYYY.MM.DD[-rcN]` are set on the `aperto` branc
 - New debug parameter `ivdc_trace=1`: every IVDC register write and each IVDC step at KERN_EMERG.
 - T33L device (RAM-only insmod, `direct_mode=1 ivdc_mem_line=1080 ivdc_threshold_line=800`, timps): before 1 of 1 spin (and #509's 4 earlier hangs); after: see openimp #509 for the trial count; per run fe3s 76, IVDC frames with 0 misses, RTSP ch0 1920x1080 decodes clean, real picture.
 
-## 2026-11-21: T32 / T33 IVDC core init before the sensor stream-on, as the vendor (openimp #509)
-
-- **Cause:** `t32_sensor_stream` ran `ivdc_core_ops_init` (IVDC soft reset + mode word) after the sensor S_STREAM. On the T33L the soft reset then never completed and the streamer spun in the unbounded busy-bit poll in kernel context, so `direct_mode=1` never streamed.
-- **Fix:** the vendor `tx-isp-t33.ko` runs `ivdc_core_ops_init` (0xd074) while `IMP_ISP_AddSensor`, long before the sensor streams; ours now runs it before the sensor core init / S_STREAM and stops the IVDC again when the sensor start fails. Also `ivdc_trace=1` (IVDC debug trace, one KERN_EMERG per IVDC write).
-- **Evidence:** T33L, runtime insmod, `direct_mode=1`: 4/4 runs stream and 3/3 restarts, 1080p decode clean, real picture; the old order spun. Follow-ups: #516, #756 (reset wait timeout).
-
 ## 2026-11-21: T33 /proc/tisp debug view like the vendor (openimp #589)
 
 - `/proc/tisp` (T33 only): the vendor tisp debug view. `echo help|0..4 > /proc/tisp` selects it as `tisp_write_proc` does (default level 1, other numbers ignored, no number -EINVAL); `cat` prints level 0 the S0 basic info (size, bayer, direct mode), 1 the VIC / ISP error and interrupt tables, module-done / list counters and the LDC line, 3 the TOP bypass bytes, 4 the VIC info, tisp version, interrupt / back0 / dma counters and sensor size (2 prints nothing, as the vendor).
