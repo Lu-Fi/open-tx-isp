@@ -2324,6 +2324,9 @@ void t32_flip_show(struct seq_file *m)
 	seq_printf(m, "t32 flip: requests %u applied %u mode %u ret %d pending %u vic holds %u releases %u left %d\n",
 		   t33_flip_st.requests, t33_flip_st.applied, t33_flip_st.mode, t33_flip_st.ret, t33_flip_pend,
 		   t33_flip_st.holds, t33_flip_st.releases, t33_vic_hold);
+	/* #652: frame-channel stream-offs, work-state wait timeouts, length of the last wait */
+	seq_printf(m, "t32 msca: soff %u timeout %u last %u ms\n", t33_msca_soff_waits, t33_msca_soff_timeouts,
+		   t33_msca_soff_last_ms);
 }
 #endif
 
