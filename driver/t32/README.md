@@ -303,7 +303,10 @@ generation-shared come from the shared code instead:
   in order (direct register mode, `t32_data_d03a0` = 0). Wired: DMSC, YSP, MDNS, DPC (long-frame gain),
   CDNS, YDNS, SDNS (contexts as the vendor's `tisp_<blk>_init` leaves them:
   the init-edited section copy, zeroed value block, last gain -1, YDNS
-  hysteresis -1, DMSC sharpness 0x80; MDNS keeps the value block and frame size of its init), GIB, RDNS (openimp #234: context as
+  hysteresis -1, DMSC sharpness 0x80; DMSC and YSP: values at 0x10000 and gain 0x10000, their inits end
+  with `tisp_<blk>_refresh(ch, 0x10000)`, openimp #715; YSP also keeps the section copy `ysp_paramsP`
+  for `tisp_set_sharpness`, which runs on these contexts, `tx_isp_t32_sharp.h`, oracle `t32-sharp`,
+  openimp #711; MDNS keeps the value block and frame size of its init), GIB, RDNS (openimp #234: context as
   `tisp_rdns_init` leaves it, vendor row table `t32_data_c0ac0` in `tx_isp_t32_rdnstab.h`; programmed at
   stream-on only on its ported path), LSC strength (`tisp_lsc_tgain_update`: register 0x5050, context
   from the stream-on list, current values as `tisp_lsc_init` leaves them, `t32_lscx_oracle`), LCE state and

@@ -443,11 +443,12 @@ int t32_tx_os_tisp_set_sharpness(u32 ch, u32 v) { t33_tisp_set_sharpness(ch, v);
 int t32_tx_os_tisp_set_saturation(u32 ch, u32 v) { t33_tisp_set_bcsh(ch, 2, v); return 0; }
 int t32_tx_os_tisp_set_contrast(u32 ch, u32 v) { t33_tisp_set_bcsh(ch, 1, v); return 0; }
 #else
-int t32_tx_os_tisp_set_hue(u32 ch, u32 v) { return 0; }
-int t32_tx_os_tisp_set_brightness(u32 ch, u32 v) { return 0; }
-int t32_tx_os_tisp_set_sharpness(u32 ch, u32 v) { return 0; }
-int t32_tx_os_tisp_set_saturation(u32 ch, u32 v) { return 0; }
-int t32_tx_os_tisp_set_contrast(u32 ch, u32 v) { return 0; }
+/* T32: tisp_set_* -> tisp_bcsh_api_set_* on the BCSH state of tx_isp_t32_ctup.c (openimp #716) */
+int t32_tx_os_tisp_set_hue(u32 ch, u32 v) { t32_ctup_bcsh_set(ch, 3, (u8)v); return 0; }
+int t32_tx_os_tisp_set_brightness(u32 ch, u32 v) { t32_ctup_bcsh_set(ch, 0, (u8)v); return 0; }
+int t32_tx_os_tisp_set_sharpness(u32 ch, u32 v) { t32_pf_set_sharpness(ch, v); return 0; }	/* #711 */
+int t32_tx_os_tisp_set_saturation(u32 ch, u32 v) { t32_ctup_bcsh_set(ch, 2, (u8)v); return 0; }
+int t32_tx_os_tisp_set_contrast(u32 ch, u32 v) { t32_ctup_bcsh_set(ch, 1, (u8)v); return 0; }
 #endif
 
 int t32_tx_os_tisp_set_fps(u32 ch, u32 fps) { return 0; }

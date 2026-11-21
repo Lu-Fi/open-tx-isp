@@ -12,6 +12,19 @@ marked otherwise. Release tags `vYYYY.MM.DD[-rcN]` are set on the `aperto` branc
   - BCSH / sharpness / fps setters (openimp #716; sharpness #711).
   - Glue that stores although a real port exists, partly oracle-proven: LSC hvflip, module control, line space, hv_flip, gamma, WDR output mode, autozoom (openimp #717).
   - switch_bin / bin path / wait-for-completion, deliberately unserved (#289).
+## 2026-11-21: T32 SetBrightness / SetContrast / SetSaturation / SetBcshHue run the vendor tisp_bcsh_api_set_* (openimp #716; QEMU T32)
+
+- **Cause.** The four T32 glue setters in `driver/t32/tx_isp_t32_tunctl.c` (non-T33 branch) returned 0 and applied nothing.
+- **Vendor (tx-isp-t32.ko).** `tisp_set_brightness` (0xb0c90) / `_contrast` (0xb0cc8) / `_saturation` (0xb0cf0) / `_hue` (0xb0d18) pass the byte to `tisp_bcsh_api_set_*`: section mode byte = 2 (API value), ap[0..3] = value, `tisp_bcsh_interp_by_ev` forced, `tisp_bcsh_calc_para_refresh(ch, 0)`, write request for `tisp_bcsh_irq_frame_down`.
+- **Fix (vendor-equal).** `t32_ctup_bcsh_set` (`tx_isp_t32_ctup.c`) runs the existing ports `t32_bcsh_api_set_*` (`tx_isp_t32_bcsh.h`, recovered-C oracle `t32_bcshx_oracle`) on the BCSH state of the stream (the one the CT / EV paths use) under its lock; the write request goes out at once, as on those paths.
+- **Evidence.** QEMU T32 (3.10 thingino image, gc4653): each Set 20 / 235 / 128 of the four rc 0, read-back equal, 5..26 of the 64 BCSH words (0xf000..0xf0fc) change per call; next module: only the CT / EV updates change them. Once set, a value stays in API mode (section mode byte 2, as the vendor), so 128 set by the API is not the bin's automatic curve. SetFps (also in #716) is not wired yet: see the issue.
+
+## 2026-11-21: T32 SetSharpness runs the vendor tisp_set_sharpness (openimp #711, #715; host oracle, QEMU T32)
+
+- **Cause.** `t32_tx_os_tisp_set_sharpness` (non-T33 branch of `driver/t32/tx_isp_t32_tunctl.c`) returned 0 without applying the level (store-only stub; T33 fixed in #707).
+- **Vendor (tx-isp-t32.ko 0xb0c44).** level & 0xff; `tisp_dmsc_sharpness_set` (dmsc_info +0x10 = level, `tisp_dmsc_intp` at the context gain with the level as tisp_ratio byte, noref / ref register cfg, 0x8010 trigger); then the inlined tail of `tisp_ysp_sharpness_set`: ysp_ratio = level, the 32 x 11 strength bytes at section +0x89d rebuilt from `ysp_paramsP` (the section copy of `tisp_ysp_init`), `tisp_ysp_intp` at the context gain, noref / ref cfg, 0x11010 trigger, 0xdce0..0xdd18, 0xd014 trigger.
+- **Fix (vendor-equal).** New `driver/t32/tx_isp_t32_sharp.h` (`t32_sharpness_set` = the existing `t32_dmsc_sharpness_set` + `t32_ysp_sharpness_set`), `t32_pf_set_sharpness` in `tx_isp_t32_tisp.c` on the per-frame contexts under `pf_lock` (stream contexts only, channel 0). The YSP attach keeps the section copy (`ysp_paramsP`). #715: DMSC / YSP contexts now leave the attach as the vendor init leaves them (values at 0x10000, gain 0x10000) instead of gain -1 / zero values, so a SetSharpness before the first per-frame run interpolates at gain 1.0, not at table index 10.
+- **Evidence.** New binary oracle `t32-sharp` (`make -C tests t32_binoracle_sharp`, vendor T32 ko, the vendor's own intp / reg_cfg / tisp_ratio code runs on its side, tisp_reg_write sequence compared): 2007 cases, 0 mismatches, 13/13 mutations. QEMU -M ingenic-t32 (3.10 thingino kernel, gc4653 model, OpenIMP next libimp): SetSharpness 20 / 235 / 128 / 0 / 255 / 128 rc 0, read-back equal; with this module 3 DMSC and 16 YSP register words change per level and level 128 gives back the bin registers (checksums equal to the next module's), next: no register change. T33 module unchanged (md5 e17e7084 before and after). `make -C tests check` rc 0. No T32 test camera (no device proof).
 
 ## 2026-11-21: T31 fixed-point helpers bit-exact to the vendor over the full input range (openimp #710; host oracle)
 

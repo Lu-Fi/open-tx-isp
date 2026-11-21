@@ -13,7 +13,9 @@
  *  - At stream-on the init path hands each block its IQ bin section (the copy
  *    the init function already edited, as the vendor keeps tparams) and the
  *    context is built the way the vendor's tisp_<blk>_init leaves it: zeroed
- *    value block, last gain -1 (YDNS also hysteresis -1), DMSC sharpness 0x80.
+ *    value block, last gain -1 (YDNS also hysteresis -1), DMSC sharpness 0x80;
+ *    DMSC and YSP: values interpolated at 0x10000 and gain 0x10000 (their
+ *    inits end with tisp_<blk>_refresh(ch, 0x10000), openimp #715).
  *  - Every AE histogram interrupt schedules one run of the ported
  *    tisp_long_tgain_update (t32_long_tgain_update, oracle t32_longtg) whose
  *    refresh hooks call the ported tisp_<blk>_refresh functions unchanged
@@ -44,6 +46,7 @@
 #include "tx_isp_t32_tp.h"
 #include "tx_isp_t32_dmsc.h"
 #include "tx_isp_t32_ysp.h"
+#include "tx_isp_t32_sharp.h"
 #include "tx_isp_t32_cdns.h"
 #include "tx_isp_t32_ydns.h"
 #include "tx_isp_t32_sdns.h"
@@ -99,6 +102,8 @@ bool t32_pp_on(enum t32_pp blk)
 static struct {
 	struct t32_dmsc_ctx dmsc;
 	struct t32_ysp_ctx ysp;
+	u8 *ysp_dn;		/* vendor ysp_paramsP: the section copy tisp_ysp_init makes (tisp_set_sharpness) */
+	u32 ysp_ratio;		/* vendor ysp_ratio */
 	struct t32_cdns_ctx cdns;
 	struct t32_ydns_ctx ydns;
 	struct t32_sdns_ctx sdns;
@@ -289,6 +294,7 @@ static void pf_free_locked(void)
 	kfree(pf.dmsc.param);
 	kfree(pf.ysp.sec);
 	kfree(pf.ysp.param);
+	kfree(pf.ysp_dn);
 	kfree(pf.cdns.sec);
 	kfree(pf.cdns.param);
 	kfree(pf.ydns.sec);
@@ -315,6 +321,24 @@ static void pf_free_locked(void)
 	ae_free();
 }
 
+/*
+ * tisp_set_sharpness (tx_isp_core_ops_s_ctrl 0x93, openimp #711): the DMSC
+ * sharpness byte and refresh, the YSP strength bytes rebuilt from the section
+ * copy and the YSP refresh, both at the gain the per-frame path last accepted
+ * (tx_isp_t32_sharp.h, oracle t32-sharp).  Only while a stream's contexts
+ * exist (stream-on init to stream-off); a block without an IQ section is
+ * skipped.  Single-pipeline driver: channel 0 only.
+ */
+void t32_pf_set_sharpness(u32 ch, u32 level)
+{
+	mutex_lock(&pf_lock);
+	if (!ch && pf_w && pf.ready)
+		pf_flush(t32_sharpness_set(pf.have[T32_PP_DMSC] ? &pf.dmsc : NULL,
+					   pf.have[T32_PP_YSP] ? &pf.ysp : NULL, 0, pf.ysp_dn,
+					   &pf.ysp_ratio, level, pf_w));
+	mutex_unlock(&pf_lock);
+}
+
 /* stream-on, before the init blocks: drop the contexts of the last stream */
 void t32_pf_reset(void)
 {
@@ -322,6 +346,7 @@ void t32_pf_reset(void)
 	mutex_lock(&pf_lock);
 	pf_free_locked();
 	BUILD_BUG_ON(T32_MDNS_MAX_WRITES > T32_PF_MAX_WRITES);
+	BUILD_BUG_ON(T32_SHARP_MAX_WRITES > T32_PF_MAX_WRITES);
 	if (!pf_w)
 		pf_w = kmalloc_array(T32_PF_MAX_WRITES, sizeof(*pf_w), GFP_KERNEL);
 	mutex_unlock(&pf_lock);
@@ -366,15 +391,25 @@ void t32_pf_attach(enum t32_pp blk, u8 *sec)
 	mutex_lock(&pf_lock);
 	switch (blk) {
 	case T32_PP_DMSC:
+		/*
+		 * tisp_dmsc_init ends with tisp_dmsc_refresh(ch, 0x10000): from the
+		 * -1 gain that is the full refresh, so the vendor context leaves the
+		 * init with the values interpolated at 0x10000 and gain 0x10000
+		 * (openimp #715; the registers are the ones t32_dmsc_init wrote).
+		 */
 		pf.dmsc.sec = sec;
 		pf.dmsc.param = param;
-		pf.dmsc.gain = (u32)-1;
 		pf.dmsc.sharpness = 0x80;
+		t32_dmsc_intp(&pf.dmsc, 0x10000);
+		pf.dmsc.gain = 0x10000;
 		break;
 	case T32_PP_YSP:
+		/* tisp_ysp_init: ysp_paramsP = copy of the section, then tisp_ysp_refresh(ch, 0x10000) (#711, #715) */
+		pf.ysp_dn = kmemdup(sec, T32_YSP_SEC_BYTES, GFP_KERNEL);
 		pf.ysp.sec = sec;
 		pf.ysp.param = param;
-		pf.ysp.gain = (u32)-1;
+		t32_ysp_intp(sec, param, 0x10000);
+		pf.ysp.gain = 0x10000;
 		break;
 	case T32_PP_CDNS:
 		pf.cdns.sec = sec;
