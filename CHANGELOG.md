@@ -4,6 +4,13 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD[-rcN]` are set on the `aperto` branch, the same tag in open-tx-isp and OpenIMP: RC1 `v2026.10.11-rc1`, RC2 `v2026.10.25-rc2`, RC3 `v2026.11.07-rc3` (2026-11-07). Gate SoCs of RC3 and Release 1: T10, T20, T21, T23, T30, T31, T40, T41 (T32/T33 planned, QEMU only); release notes: [docs/releases/ in OpenIMP](https://github.com/Lu-Fi/openimp/blob/next/docs/releases/README.md). Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-11-21: T33/T32 IVDC direct mode streams: IVDC core init before the sensor stream-on (openimp #509, #526)
+
+- `t32_sensor_stream` (driver/t32/tx_isp_t32_core.c) now runs the IVDC core init (`ivdc_core_ops_init`: soft reset, mode word 0x5c) before the sensor core init / S_STREAM instead of after it, as the vendor does (vendor tx-isp-t33.ko `ivdc_core_ops_init` 0xd074 runs while `IMP_ISP_AddSensor`, PC-sampled in the reset poll at +0x118). On a failed sensor start the IVDC is stopped again.
+- Cause of #509: with the reset issued right after the sensor stream-on, the T33L IVDC busy bit 0 never cleared; `timpsd` spun in the (vendor, unbounded) poll in kernel context (PC sampler: `__delay` called from `t32_ivdc_stream`), the stream never started. Not a bus hang: the system stayed reachable. A ~4 ms console print before the reset already let it complete.
+- New debug parameter `ivdc_trace=1`: every IVDC register write and each IVDC step at KERN_EMERG.
+- T33L device (RAM-only insmod, `direct_mode=1 ivdc_mem_line=1080 ivdc_threshold_line=800`, timps): before 1 of 1 spin (and #509's 4 earlier hangs); after: see openimp #509 for the trial count; per run fe3s 76, IVDC frames with 0 misses, RTSP ch0 1920x1080 decodes clean, real picture.
+
 ## 2026-11-21: T33 /proc/tisp debug view like the vendor (openimp #589)
 
 - `/proc/tisp` (T33 only): the vendor tisp debug view. `echo help|0..4 > /proc/tisp` selects it as `tisp_write_proc` does (default level 1, other numbers ignored, no number -EINVAL); `cat` prints level 0 the S0 basic info (size, bayer, direct mode), 1 the VIC / ISP error and interrupt tables, module-done / list counters and the LDC line, 3 the TOP bypass bytes, 4 the VIC info, tisp version, interrupt / back0 / dma counters and sensor size (2 prints nothing, as the vendor).

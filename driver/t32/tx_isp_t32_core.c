@@ -332,14 +332,22 @@ static int t32_sensor_stream(struct t32_vi *vi, int on)
 	init = t32_sd_op(vi->sd, T32_OPS_CORE, T32_CORE_INIT);
 	stream = t32_sd_op(vi->sd, T32_OPS_VIDEO, T32_VIDEO_S_STREAM);
 	if (on) {
+		/*
+		 * IVDC core init (soft reset, mode word) before the sensor
+		 * streams, as the vendor (ivdc_core_ops_init 0xd074 runs while
+		 * IMP_ISP_AddSensor, long before the sensor S_STREAM).  Issued
+		 * right after the sensor stream on, the T33L IVDC soft reset
+		 * did not complete (busy bit 0 polled forever, openimp #509).
+		 */
+		t32_ivdc_stream(1);
 		if (init)
 			ret = init(vi->sd, &arg);
 		if (!ret && stream)
 			ret = stream(vi->sd, &arg);
-		if (!ret) {
-			t32_ivdc_stream(1);
+		if (!ret)
 			t32_hw_stream_on();
-		}
+		else
+			t32_ivdc_stream(0);
 	} else {
 		t32_hw_stream_off();
 		t32_ivdc_stream(0);

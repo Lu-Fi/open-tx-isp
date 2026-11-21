@@ -400,7 +400,9 @@ vendor module: see CHANGELOG.
 IVDC (ISP -> encoder line buffer, 0x13100000, INTC 57) instead of memory, as
 the vendor module. `tx_isp_t32_ivdcdrv.c` runs the oracle-proven ports of the
 vendor IVDC code on vendor-layout subdev / private objects:
-`ivdc_core_ops_init` at the ISP stream-on (reset, mode word 0x5c),
+`ivdc_core_ops_init` at the ISP stream-on before the sensor S_STREAM (reset, mode word 0x5c;
+the vendor runs it while AddSensor; right after the sensor stream-on the T33L
+IVDC soft reset never completed, openimp #509),
 `ivdc_misc_unlocked_ioctl` on `/dev/misc-ivdc` (GET/SET_DIRECT, SET_PADDR,
 MEM_LINE, MAX_STRIDE, SET_MEM_LINE), `ivdc_pad_event_handle` for frame
 channel 0 (SET_FRAME_FORMAT: geometry; REQBUFS: DDR ring 0x30 / 0x34 / 0x38;
@@ -445,6 +447,7 @@ against a thingino T32 kernel 4.4.94 tree. Host tests:
 | `direct_mode` | 0 | 1 = frame channel 0 over the IVDC to the encoder (2..4 refused) |
 | `ivdc_mem_line`, `ivdc_mem_stride`, `ivdc_threshold_line` | 0, 3840, 0 | IVDC DDR ring lines (0: half the picture), ring stride (modes >= 2), threshold line (0: half) |
 | `ivdc_irq` | 65 | Linux IRQ of the IVDC (INTC 57) |
+| `ivdc_trace` | 0 | debug: 1 prints every IVDC register write and step at KERN_EMERG (console), openimp #509 |
 | `lsc_ct` | 5000 | colour temperature for the LSC mesh at stream-on |
 | `bringup_ae` | 0 | 1 = bring-up exposure controller (not the vendor AE) |
 | `bringup_target` | 64 | its target mean histogram bin (0..255) |
