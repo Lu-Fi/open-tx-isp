@@ -134,6 +134,7 @@ int t32_ctup_attach_clm(const u8 *sec, u32 len, u32 avail);
 void t32_ctup_detach(void);
 void t32_ctup_ev(u32 lo, u32 hi, u32 x, u32 y);
 void t32_ctup_run(u32 ct);
+void t32_ctup_bcsh_set(u32 ch, u32 which, u8 v);	/* tisp_set_{brightness,contrast,saturation,hue} (#716) */
 struct t32_awb_ctx;
 bool t32_awbc_api_get(struct t32_awb_ctx *c);
 void t32_awbc_api_put(void);
@@ -177,6 +178,7 @@ void t32_lsc_drv_frame_done(void);
 void t32_pf_stop(void);
 void t32_pf_start(void);
 void t32_pf_kick(void);
+void t32_pf_set_sharpness(u32 ch, u32 level);	/* tisp_set_sharpness (openimp #711) */
 void t32_pf_exit(void);
 
 /* tx_isp_t32_blkirq.c: block interrupt paths (vendor LCE bits 8 / 30, event 14, behind T32_PP_LCE;

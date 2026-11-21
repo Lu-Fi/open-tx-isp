@@ -182,6 +182,30 @@ int t32_ctup_attach_bcsh(const u8 *sec, u32 len, u32 avail, const u8 *csc)
 	return n < 0 ? -EINVAL : 0;
 }
 
+/*
+ * tisp_set_brightness / _contrast / _saturation / _hue (tx_isp_core_ops_s_ctrl 0x92 / 0x95 / 0x94 / 0x81,
+ * openimp #716): the byte into tisp_bcsh_api_set_* (ap[which], exposure forced, calc mode 0, write
+ * request) on the block state of this stream; the request goes out at once, as the CT / EV paths here do
+ * (the vendor writes it from tisp_bcsh_irq_frame_down).  which: 0 brightness, 1 contrast, 2 saturation,
+ * 3 hue.  Without the state (before stream-on / block bypassed in the bin) nothing happens.
+ */
+void t32_ctup_bcsh_set(u32 ch, u32 which, u8 v)
+{
+	if (ch)
+		return;
+	mutex_lock(&ctup_lock);
+	if (bcsh_on) {
+		switch (which) {
+		case 0: t32_bcsh_api_set_brightness(&bcsh, v); break;
+		case 1: t32_bcsh_api_set_contrast(&bcsh, v); break;
+		case 2: t32_bcsh_api_set_saturation(&bcsh, v); break;
+		default: t32_bcsh_api_set_hue(&bcsh, v); break;
+		}
+		ct_flush(t32_bcsh_frame_done(&bcsh, ct_w));
+	}
+	mutex_unlock(&ctup_lock);
+}
+
 /* stream-on, CLM section 20 (after the one-shot t32_clm_init): the block state tisp_clm_init leaves */
 int t32_ctup_attach_clm(const u8 *sec, u32 len, u32 avail)
 {
