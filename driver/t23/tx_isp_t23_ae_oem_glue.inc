@@ -499,6 +499,18 @@ static void t23_aelift_start(void)
 	}
 	if (!ret && resume)
 		t23_aelift_state_copy(false);
+	/* #749 (beyond vendor, user decision 2026-11-21): a fresh ISP start runs the AE in auto.  The resumed
+	 * state would bring back a manual AE (SetAeAttr / SetAeFreeze) of the previous streamer run: clear the
+	 * freeze / it / again / dgain / ISP-dgain manual words of the long (0, 15, 16, 17, 38) and the short
+	 * frame (26, 18, 19, 28, 39), see t23x_ae_manual_set; the manual values stay (unused). */
+	if (!ret) {
+		static const uint8_t man[] = { 0, 15, 16, 17, 38, 26, 18, 19, 28, 39 };
+		uint32_t *c = (uint32_t *)(void *)oem_tisp_ae_ctrls;
+		unsigned int k;
+
+		for (k = 0; k < sizeof(man); k++)
+			c[man[k]] = 0;
+	}
 	mutex_unlock(&t23_aelift_mutex);
 	if (!ret && resume) {
 		spin_lock_irqsave(&t23_aelift_ev_lock, flags);
