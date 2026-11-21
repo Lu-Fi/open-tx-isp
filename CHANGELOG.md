@@ -4,6 +4,18 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD[-rcN]` are set on the `aperto` branch, the same tag in open-tx-isp and OpenIMP: RC1 `v2026.10.11-rc1`, RC2 `v2026.10.25-rc2`, RC3 `v2026.11.07-rc3` (2026-11-07). Gate SoCs of RC3 and Release 1: T10, T20, T21, T23, T30, T31, T40, T41 (T32/T33 planned, QEMU only); release notes: [docs/releases/ in OpenIMP](https://github.com/Lu-Fi/openimp/blob/next/docs/releases/README.md). Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-11-21: T32 sensor mirror / flip runs the vendor LSC mirror flip on the live LSC state (openimp #722; binary oracle, QEMU T32)
+
+- **Cause.** `t32_tx_os_tisp_lsc_hvflip` (`driver/t32/tx_isp_t32_tunctl.c`) was a constant `return 0`, so a sensor mirror / flip (tuning id 0x73 with a new sensor value) never reached the LSC.
+- **Fix.** `t32_lsc_drv_hvflip` (`tx_isp_t32_lscct.c`) = vendor `tisp_lsc_hvflip` (0xc258c) -> `tisp_lsc_mirror_flip` (0x55b88) on the live LSC state of the colour-temperature path:
+  - under the channel lock, flip == 1 exchanges the mesh lines and mirror == 1 the elements of every line, of every table and plane. This is `t32_lsc_mesh_flip`, the exchange part factored out of the oracle-proven `t32_lsc_mirror_flip` (`tx_isp_t32_lsc.h`). It runs on the section copy's grid tables (+ 0x2910 = vendor `stLutInfo[ch]` + 0x14 + 2), with the grid of `tisp_lsc_calc_para_refresh` and section byte 0x74 as the table count;
+  - then cur + 0xc = 5, `tisp_lsc_interp_by_ct(ch, ct, 1)`, `tisp_lsc_write_all_reg(ch, 2, 0, 1)` (the mesh goes out through the LSC list at the next LSC frame done) and the vendor printk of the flip / mirror counters. /proc: "LSC hvflip: flips N mirrors M". T33 stays a stub (#727).
+- **Vendor behaviour kept** (#728): with ring-format bins (section byte 65 = 1, all PRJ007 gc4653 bins) the vendor exchanges the grid payload, which the ring interpolation does not read, so the mesh that goes out does not change. The dispatcher also derives (flip, mirror) from the new sensor value only, while the exchange works in place, so the toggles add up.
+- **Evidence.**
+  - New binary oracle `t32_binoracle_lscmf` (`tests/t33_binoracle/t32-lscmf`) vs the vendor tx-isp-t32.ko `tisp_lsc_mirror_flip`: 304 cases, 0 mismatches, 8/8 mutations. `tools/ko_emu` got a memmove HLE (the vendor `lsc_exchange_line` calls it).
+  - QEMU T32 (gc4653, t32glue `f1000 f2000 f3000 f0000`, rcfg trace): with the PRJ007 bin (ring format) there are 4 LSC list runs with identical mesh words. With byte 65 cleared (grid format) the mesh port words follow the exchange (1db097f0 / 30d68605 / 2922201d / 2922201d for mirror / + flip / both again / none). flips 2, mirrors 2, no oops, rmmod ok.
+  - make check 624 / 0. T33 module unchanged (md5 22e9613f). No device proof (no T32 camera).
+
 ## 2026-11-21: T32 SetModuleControl, ISP H/V flip, gamma, WDR output mode and SetFps run the vendor flows (openimp #717 part 2, #716; binary oracles, QEMU T32)
 
 - **Cause.** In the T32 build the glue of `driver/t32/tx_isp_t32_tunctl.c` kept copies only: SetModuleControl, Set/GetHVFLIP (ISP part), Set/GetGammaAttr, Set/GetWdrOutputMode, and `tisp_set_fps` after SetSensorFPS never ran.

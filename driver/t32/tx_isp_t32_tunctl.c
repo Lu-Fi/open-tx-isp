@@ -537,7 +537,16 @@ int t32_tx_os_tisp_s_hv_flip(u32 ch, void *flags)
 	return 0;
 }
 
+#ifdef TX_ISP_T33
 int t32_tx_os_tisp_lsc_hvflip(u32 ch, u32 a, u32 b, u32 h, u32 v) { return 0; }
+#else
+/* T32 (openimp #722): tisp_lsc_hvflip -> tisp_lsc_mirror_flip(ch, a, b, h, v) on the live LSC (tx_isp_t32_lscct.c) */
+int t32_tx_os_tisp_lsc_hvflip(u32 ch, u32 a, u32 b, u32 h, u32 v)
+{
+	(void)a; (void)b;
+	return t32_lsc_drv_hvflip(ch, h, v);
+}
+#endif
 
 /* BCSH bytes: the dispatcher keeps them in the ISP device (+16 + 32 ch) */
 #ifdef TX_ISP_T33

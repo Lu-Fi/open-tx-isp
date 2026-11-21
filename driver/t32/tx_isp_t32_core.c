@@ -1702,6 +1702,9 @@ static int t32_proc_show(struct seq_file *m, void *v)
 		   t32_lsc_drv_stats.attaches, t32_lsc_drv_stats.ct_calls, t32_lsc_drv_stats.mesh_writes,
 		   t32_lsc_drv_stats.ct, t32_lsc_drv_stats.tgains, t32_lsc_drv_stats.frames,
 		   t32_lsc_drv_stats.list_runs, t32_lsc_drv_stats.waits, t32_lsc_drv_stats.timeouts);
+#ifndef TX_ISP_T33
+	seq_printf(m, "LSC hvflip: flips %u mirrors %u\n", t32_lsc_drv_stats.flips, t32_lsc_drv_stats.mirrors);
+#endif
 	seq_printf(m, "sensor fps %#x, stream-on list runs %u (last %u words) timeouts %u\n",
 		   t32_core_sensor_fps(), t32_rcfg_runs, t32_rcfg_last_len, t32_rcfg_timeouts);
 #ifdef TX_ISP_T33
