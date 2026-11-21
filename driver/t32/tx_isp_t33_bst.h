@@ -353,6 +353,7 @@ static void t33_blc_switch(const u8 *sec)
  * init builder (t33_lsc_init, the same words; tisp_rcfg reg_init checks it).
  */
 #include "tx_isp_t33_lscv.h"
+#include "tx_isp_t33_lscmf.h"
 #define T33_LSC_IRQ_BIT		4	/* system irq 36 */
 static struct t33_lsc_vblk t33_lsc_b;
 static u32 *lsc_para[4];
@@ -361,6 +362,7 @@ static u8 t33_lsc_refresh;			/* tispLscRefresh */
 static u32 t33_lsc_count[4];			/* lsc_count */
 static const u8 *t33_lsc_tab;			/* stLutInfo[0] + 0x14: the CT tables */
 u32 t33_lsc_runs[3];				/* init, switches, frame dones with a refresh */
+u32 t33_lsc_flips;				/* tisp_lsc_mirror_flip runs (t33_lsc_hvflip, openimp #727) */
 
 static void t33_lsc_wr(u32 ch, u32 blk, u32 sel, u32 val)
 {

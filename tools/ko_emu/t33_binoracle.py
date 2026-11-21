@@ -91,6 +91,12 @@ KERNEL_HLE = {
     # an error message only (e.g. isp_rdns_itp_update_ks with a zero range): no state, returns 0; list printk in
     # CALLS to compare it as a call instead
     'printk': lambda e: (0, 0),
+    # scratch buffers of a function under test (do_mirror_flip's line buffer, openimp #727): a fresh heap block per
+    # call, freed as a no-op (the heap is reset per case)
+    'vmalloc': lambda e: (e.alloc(max(_r(e, 0), 4)), 0),
+    '__kmalloc': lambda e: (e.alloc(max(_r(e, 0), 4)), 0),
+    'vfree': lambda e: (0, 0),
+    'kfree': lambda e: (0, 0),
 }
 EDGE32 = [0, 1, 2, 3, 0x7fffffff, 0x80000000, 0xffffffff, 0xfffffffe, 0x100, 0x1000, 0x10000]
 

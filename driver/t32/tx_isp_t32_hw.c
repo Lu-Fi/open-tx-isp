@@ -2362,8 +2362,8 @@ void t33_stats_show(struct seq_file *m)
 #endif
 	seq_printf(m, "t33 blc: %s init %u gain %u switch %u fd %u refresh %u\n", blc_para[0] ? "on" : "off",
 		   t33_blc_runs[0], t33_blc_runs[1], t33_blc_runs[2], t33_blc_runs[3], t33_blc_refresh);
-	seq_printf(m, "t33 lsc: %s init %u switch %u fd %u refresh %u count %u\n", lsc_para[0] ? "on" : "off",
-		   t33_lsc_runs[0], t33_lsc_runs[1], t33_lsc_runs[2], t33_lsc_refresh, t33_lsc_count[0]);
+	seq_printf(m, "t33 lsc: %s init %u switch %u fd %u refresh %u count %u mirror_flip %u\n", lsc_para[0] ? "on" : "off",
+		   t33_lsc_runs[0], t33_lsc_runs[1], t33_lsc_runs[2], t33_lsc_refresh, t33_lsc_count[0], t33_lsc_flips);
 	seq_printf(m, "t33 ccm: %s init %u ct %u ev %u switch %u fd %u refresh %u api %u\n", ccm_para[0] ? "on" : "off",
 		   t33_ccm_runs[0], t33_ccm_runs[1], t33_ccm_runs[2], t33_ccm_runs[3], t33_ccm_runs[4], tispCcmRefresh,
 		   t33_g14d_ccm_api);
@@ -3912,6 +3912,34 @@ static int func_lsc_para_update(u32 idx)
 static int tisp_lsc_write_reg(u32 idx, u32 mode)
 {
 	t33_lsc_write_reg(idx, mode);
+	return 0;
+}
+
+/*
+ * tisp_lsc_hvflip (vendor 0xf9c18, tuning id 0x73 after the sensor mirror / flip, openimp #727) ->
+ * tisp_lsc_mirror_flip (0x3feb0, tx_isp_t33_lscmf.h, oracle block t33-lscmf) on the live lsc_para[0] and its CT
+ * tables (t33_lsc_tab = stLutInfo[0] + 0x14: the driver's IQ bin copy or the appended-table copy, both kept until
+ * the next bin): the tables flipped in place, then interp_by_ct / func_lsc_para_update / write_reg (list 6 slots,
+ * tispLscRefresh: the LSC frame done starts the list) and the vendor's message.  The vendor takes no lock; here
+ * the interrupts are off around it as around tisp_lsc_switch_para (the frame done reads lsc_para).  Always 0.
+ */
+static const struct t33_lscmf_ops t33_lscmf_ops = { tisp_lsc_interp_by_ct, func_lsc_para_update, tisp_lsc_write_reg };
+
+
+int t33_lsc_hvflip(u32 ch, u32 flip, u32 mirror)
+{
+	unsigned long flags;
+	const u8 *cnt;
+
+	if ((ch & 3) || !lsc_para[0] || !t33_lsc_tab)
+		return 0;
+	local_irq_save(flags);
+	t33_lsc_mirror_flip(ch, lsc_para[0], (u8 *)t33_lsc_tab, flip, mirror, &t33_lscmf_ops);
+	local_irq_restore(flags);
+	t33_lsc_flips++;
+	cnt = (const u8 *)(unsigned long)lsc_para[0][3];
+	isp_printf(0, "\n  [func is %s, line is %d] lsc filp times is %d, mirror times is %d\n", "tisp_lsc_mirror_flip",
+		   0x5c0, cnt[8], cnt[9]);
 	return 0;
 }
 
