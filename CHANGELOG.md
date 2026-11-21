@@ -4,6 +4,10 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD[-rcN]` are set on the `aperto` branch, the same tag in open-tx-isp and OpenIMP: RC1 `v2026.10.11-rc1`, RC2 `v2026.10.25-rc2`, RC3 `v2026.11.07-rc3` (2026-11-07). Gate SoCs of RC3 and Release 1: T10, T20, T21, T23, T30, T31, T40, T41 (T32/T33 planned, QEMU only); release notes: [docs/releases/ in OpenIMP](https://github.com/Lu-Fi/openimp/blob/next/docs/releases/README.md). Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-11-21: T30 init/boot trace prints demoted to pr_debug (openimp #757; host)
+
+- `driver/t30/tx_isp_t30_recovered.c`: ~115 progress/trace `pr_err("tx-isp-t30 ...")` lines (fw-init, isp-init, apical-init, set-input, sync, notify, core/NCU stream, and per-frame IRQ traces) are now `pr_debug`. On a UART console each line costs several ms; the vendor ko prints none of them. Real error messages stay `pr_err`. No sleeps changed: the vendor-ko sleep sites (msleep in csi init, stream on/off, reset; usleep_range in the sequence player and sensor interface) are all equal in ours. Device timing: see the issue.
+
 ## 2026-11-21: T33/T32 IVDC direct mode streams: IVDC core init before the sensor stream-on (openimp #509, #526)
 
 - `t32_sensor_stream` (driver/t32/tx_isp_t32_core.c) now runs the IVDC core init (`ivdc_core_ops_init`: soft reset, mode word 0x5c) before the sensor core init / S_STREAM instead of after it, as the vendor does (vendor tx-isp-t33.ko `ivdc_core_ops_init` 0xd074 runs while `IMP_ISP_AddSensor`, PC-sampled in the reset poll at +0x118). On a failed sensor start the IVDC is stopped again.
