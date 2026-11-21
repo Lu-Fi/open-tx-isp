@@ -282,6 +282,45 @@ int t32_isposd_msca_chx_start(u32 set, const u32 *a, u32 stride)
 	return 0;
 }
 
+/*
+ * openimp #721: tisp_s_autozoom_control -> tisp_msca_api_set_autozoom (vendor 0xc16a8 / 0x96284) on the live
+ * parameter block: per set the window (or the saved front crop, or the sensor size) and the autozoom flag;
+ * the next MSCA frame done applies it (tisp_msca_cfg_shd step 3: para_calc, curve_calc, init_chx_cfg of
+ * all three sets, curves pending).  tisp_g_autozoom_control -> tisp_msca_api_get_autozoom.  buf: 15 words.
+ * Return -1 without the live state (the caller keeps its stored copy then).
+ */
+int t32_isposd_autozoom_set(u32 vi, const void *buf)
+{
+	unsigned long fl;
+
+	if (vi != 0)
+		return -1;
+	spin_lock_irqsave(&osd_lock, fl);
+	if (!msca_live) {
+		spin_unlock_irqrestore(&osd_lock, fl);
+		return -1;
+	}
+	t32_msca_api_set_autozoom(osd_sb, buf, msca_saved, msca_def, &msca_az);
+	spin_unlock_irqrestore(&osd_lock, fl);
+	return 0;
+}
+
+int t32_isposd_autozoom_get(u32 vi, void *buf)
+{
+	unsigned long fl;
+
+	if (vi != 0)
+		return -1;
+	spin_lock_irqsave(&osd_lock, fl);
+	if (!msca_live) {
+		spin_unlock_irqrestore(&osd_lock, fl);
+		return -1;
+	}
+	t32_msca_api_get_autozoom(osd_sb, buf);
+	spin_unlock_irqrestore(&osd_lock, fl);
+	return 0;
+}
+
 /* stream off (ispcore_frame_channel_streamoff, lock half): lib_tisp_msca_chx_stream_off + _chx_reg_stream_off */
 int t32_isposd_msca_chx_stop(u32 set)
 {
