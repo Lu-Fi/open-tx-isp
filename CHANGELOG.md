@@ -4,6 +4,12 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD[-rcN]` are set on the `aperto` branch, the same tag in open-tx-isp and OpenIMP: RC1 `v2026.10.11-rc1`, RC2 `v2026.10.25-rc2`, RC3 `v2026.11.07-rc3` (2026-11-07). Gate SoCs of RC3 and Release 1: T10, T20, T21, T23, T30, T31, T40, T41 (T32/T33 planned, QEMU only); release notes: [docs/releases/ in OpenIMP](https://github.com/Lu-Fi/openimp/blob/next/docs/releases/README.md). Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-11-21: T20 GetExpr / SetExpr one integer line time (openimp #744; T20 light box)
+
+- **Cause:** for a sensor without `one_line_expr_in_us` (jxf23) the GetExpr fallback reported the truncated line time (29 us at 15 fps, vts 2250) while SetExpr(UNIT_US) converted with the exact line rate (29.63 us): lines x 29 us came back 2.2 % short (674 -> 660). The OEM antiflicker quantisation (vendor tx-isp-t20 3.12.0 `get_quantised_integration_time` 0x1f238 / `cmos_antiflicker_update` 0x1f2f4: floor to fps x vts / 100 = 337 lines at 50 Hz, kept vendor-equal) then cut every manual time just below a multiple to one period less: sensor IT register 0x0151 = 337 lines at a reported 670 (gain 4), 0x03f3 = 1011 at 1340 (gain 2). Light box 5000 K, same manual exposure: mean Y 85 / 109 vs vendor 125 / 127.
+- **Fix:** `t20_expr_fallback_line_us()` (tx-isp-expr-time.h): 1e6 / (vts x fps) rounded to the nearest us, used by the GetExpr fallback AND by SetExpr, which now divides by it as the SDK does with a sensor that declares its line time (`time / one_line_expr_in_us`; jxf23 -> 30, the SDK's "30, // 29.6us" and the vendor-compatible build). lines -> us -> lines is exact again (host test: every line count 2..2246).
+- **Evidence:** host `t20_expr_time_host_test`; light-box re-check see openimp #744.
+
 ## 2026-11-21: T32 bin switch refreshes MDNS too (openimp #534 step 2a; QEMU T32)
 
 - **Fix (T32 build):** `t32_pf_dn_refresh` runs `tisp_mdns_dn_params_refresh` (`t32_mdns_dn_params_refresh`, section at tuning base + 0x875c, the night/day dn rows, all MDNS registers, trigger) on the live MDNS context, in the vendor `lib_tisp_refresh_para` order (after ysp, before ydns); the block keeps its own gain. 9 of 22 vendor blocks now refreshed; top, ae, awb, lsc, tmo, gamma, ccm, clm, bcsh, defog, lce, decmp and csccr still keep the stream-on bin.
