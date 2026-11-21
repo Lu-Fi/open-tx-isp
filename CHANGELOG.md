@@ -4,6 +4,12 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD[-rcN]` are set on the `aperto` branch, the same tag in open-tx-isp and OpenIMP: RC1 `v2026.10.11-rc1`, RC2 `v2026.10.25-rc2`, RC3 `v2026.11.07-rc3` (2026-11-07). Gate SoCs of RC3 and Release 1: T10, T20, T21, T23, T30, T31, T40, T41 (T32/T33 planned, QEMU only); release notes: [docs/releases/ in OpenIMP](https://github.com/Lu-Fi/openimp/blob/next/docs/releases/README.md). Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-11-21: T33 gain fan-out skips the blocks whose TOP bypass bit is set, like tisp_long_tgain_update (openimp #507; QEMU T33)
+
+- **Cause:** the T33 per-frame gain refresh (`t33_gr_refresh` from `t33_tgain_refresh`) ran every block's gain update. The vendor `tisp_long_tgain_update` (oracle block tgB) skips each block whose `tisp_top_get_bypass` bit is set: DPC 0, BLC 1, DMSC 6, MDNS 12, YDNS 13, YSP 16, SDNS 17, CDNS 18, RDNS 20. The PRJ008 night TOP word 0x00e4c098 sets MDNS and CDNS: the vendor keeps CDNS list 21 (0x12070 = 0x283f3f80) at night and after a day -> night switch, ours rewrote it in 8 frames (0x163f3f46 .. 0x143f3f40).
+- **Fix (T33 build):** the fan-out reads the TOP bypass word and skips those blocks; the bin switch's own block refresh is not gated (as `lib_tisp_refresh_para`). tx-isp-t32.ko identical.
+- **Evidence:** QEMU -M ingenic-t33 deterministic runs (icount, 150 frames) against a fresh vendor run: day 151, night 121, day -> night switch 172 exposure steps equal; lists 2..14, 16..23, 29..31, 33 equal per frame in all three (L21 before: night and switch differed); 0 oops, rmmod clean. Left: list 15 0xd018 = 0 lands in frame 1 in the vendor, frame 6 in ours (MDNS frame-done trigger timing).
+
 ## 2026-11-21: docs: T33 in the "kernel module smaller than the vendor module" row (openimp #732 evidence)
 
 - tx-isp-t33.ko (next 24780fd88, `strip --strip-unneeded`) 904 KB file / 275 KB xz against the vendor tx-isp-t33.ko 1532 / 294 KB; loaded on the T33L .122 1,073,030 B against 1,428,423 B. The same runtime test (30 libimp sample cycles + 5 timps starts) showed the #684 MEMORY_MALLOC fix holds: MemFree and free order >= 6 blocks flat, 0 allocation failures (openimp #732, a duplicate of #684 in the older flashed module).
