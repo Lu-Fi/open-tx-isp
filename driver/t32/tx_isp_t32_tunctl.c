@@ -316,6 +316,9 @@ int t32_tx_os_tisp_g_autozoom(u32 ch, void *buf)
 #ifdef TX_ISP_T33
 	if (!t33_msca_autozoom_get(ch, buf))
 		return 0;
+#else
+	if (!t32_isposd_autozoom_get(ch, buf))	/* #721: the live parameter block */
+		return 0;
 #endif
 
 	memset(buf, 0, 60);
@@ -329,6 +332,9 @@ int t32_tx_os_tisp_s_autozoom_control(u32 ch, void *buf)
 {
 #ifdef TX_ISP_T33
 	if (!t33_msca_autozoom_set(ch, buf))
+		return 0;
+#else
+	if (!t32_isposd_autozoom_set(ch, buf))	/* #721: applied at the next MSCA frame done */
 		return 0;
 #endif
 	return t32_tc_put(t32_tc[ch].autozoom, buf, 60);

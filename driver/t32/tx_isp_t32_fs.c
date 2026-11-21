@@ -177,10 +177,9 @@ int t32_fs_crop(int ch, u32 *pos, u32 *size)
 	return 1;
 }
 
-#ifdef TX_ISP_T33
 /*
  * The channel attribute of the vendor's S_FMT (ispcore_pad_event_handle 0x3000002) from the stored format of
- * channel ch, for tisp_msca_t33_channel_attr_set: a[0..2] scaler enable / out size (else the front crop size),
+ * channel ch, for tisp_msca_t33_channel_attr_set / T32 lib_tisp_msca_channel_attr_set (#730): a[0..2] scaler enable / out size (else the front crop size),
  * a[3..7] crop enable / left / top / size (else 0, 0, the scaler size), a[8..12] front crop enable / left / top /
  * size (else 0, 0, the sensor size in_w x in_h).  Returns 0 for a channel out of range.
  */
@@ -206,7 +205,6 @@ int t32_fs_msca_attr(int ch, u32 in_w, u32 in_h, u32 *a)
 	a[7] = a[3] ? t32_g_rd32(f, 17 * 4) : a[2];
 	return 1;
 }
-#endif
 
 /* IVDC frame start of sensor ch (its interrupt): the next queued buffer is done */
 int t32_fs_ivdc_frame(u32 ch)

@@ -2323,6 +2323,8 @@ static void t33_flip_kick(void)
 }
 
 #ifndef TX_ISP_T33
+extern u32 t32_msca_vendor_starts, t32_msca_direct_starts;	/* #730 (below) */
+
 void t32_flip_show(struct seq_file *m)
 {
 	seq_printf(m, "t32 flip: requests %u applied %u mode %u ret %d pending %u vic holds %u releases %u left %d\n",
@@ -2331,6 +2333,14 @@ void t32_flip_show(struct seq_file *m)
 	/* #652: frame-channel stream-offs, work-state wait timeouts, length of the last wait */
 	seq_printf(m, "t32 msca: soff %u timeout %u last %u ms\n", t33_msca_soff_waits, t33_msca_soff_timeouts,
 		   t33_msca_soff_last_ms);
+	{
+		u32 live, inits, starts, stops;
+
+		/* #730: the vendor channel start on the live MSCA state */
+		t32_isposd_msca_status(&live, &inits, &starts, &stops);
+		seq_printf(m, "t32 msca chx: live %u init %u start %u (direct %u) stop %u\n", live, inits,
+			   t32_msca_vendor_starts, t32_msca_direct_starts, stops);
+	}
 }
 #endif
 
@@ -4725,6 +4735,15 @@ void t32_hw_stream_on(void)
 	t32_pf_reset();		/* before the statistics init: it builds the AE context (t32_pf_attach_ae) */
 	t32_stats_init();
 	t32_tisp_init();
+#ifndef TX_ISP_T33
+	{
+		u32 mw, mh;
+
+		/* lib_tisp_init's last block: tisp_msca_init (openimp #730) */
+		if (!t32_core_sensor_size(&mw, &mh))
+			t32_isposd_msca_init(mw, mh);
+	}
+#endif
 	if (T32_SOC_LIST_IRQ) {
 		int ch;
 
@@ -4977,6 +4996,39 @@ static bool t33_msca_list_stop_begin(int ch)
 	return true;
 }
 
+#else /* !TX_ISP_T33 */
+/*
+ * openimp #730: the vendor T32 channel start (ispcore_pad_event_handle 0x3000002 / 0x3000003 of
+ * tx-isp-t32.ko: lib_tisp_msca_channel_attr_set, tisp_msca_channel_start -> tisp_msca_chx_cfg_load,
+ * lib_tisp_msca_chx_stream_on, lib_tisp_api_set_msca_dma_stride) on the live MSCA state of
+ * tx_isp_t32_isposd.c.  The direct start below only without that state (no section 25 in the bin) or when the
+ * output the S_FMT attribute describes is not the buffer's.
+ */
+int t32_fs_msca_attr(int ch, u32 in_w, u32 in_h, u32 *a);	/* tx_isp_t32_fs.c */
+static u32 t32_msca_listed;			/* channels started on the vendor path */
+u32 t32_msca_vendor_starts, t32_msca_direct_starts;
+
+static bool t32_msca_live_start(int ch, u32 w, u32 h, u32 stride, u32 in_w, u32 in_h)
+{
+	u32 a[13];
+
+	if (!t32_fs_msca_attr(ch, in_w, in_h, a) || a[6] != w || a[7] != h ||
+	    t32_isposd_msca_chx_start((u32)ch, a, stride)) {
+		t32_msca_direct_starts++;
+		return false;
+	}
+	t32_msca_listed |= 1U << ch;
+	t32_msca_vendor_starts++;
+	return true;
+}
+
+static bool t32_msca_live_stop_begin(int ch)
+{
+	if (!(t32_msca_listed & (1U << ch)))
+		return false;
+	t32_msca_listed &= ~(1U << ch);
+	return !t32_isposd_msca_chx_stop((u32)ch);
+}
 #endif /* TX_ISP_T33 */
 
 /* tisp_msca_addr_fifo_clear_byindex */
@@ -4997,6 +5049,9 @@ void t32_hw_msca_stop_begin(int ch)
 {
 #ifdef TX_ISP_T33
 	if (t33_msca_list_stop_begin(ch))
+		return;
+#else
+	if (t32_msca_live_stop_begin(ch))
 		return;
 #endif
 	curve_geom[ch].on = false;
@@ -5047,6 +5102,9 @@ void t32_hw_msca_start(int ch, u32 w, u32 h, u32 stride, u32 in_w, u32 in_h)
 #ifdef TX_ISP_T33
 	if (t33_msca_list_start(ch, w, h, stride, in_w, in_h))
 		return;
+#else
+	if (t32_msca_live_start(ch, w, h, stride, in_w, in_h))
+		return;
 #endif
 
 	curve_geom[ch].in_w = in_w;
@@ -5065,7 +5123,11 @@ void t32_hw_msca_start(int ch, u32 w, u32 h, u32 stride, u32 in_w, u32 in_h)
 	t32_isposd_ram_unlock(fl);
 	ch_wr(ch, T32_MSCA_CTRL, 0);
 	ch_wr(ch, T32_MSCA_SCL_SIZE, size);
+#ifdef TX_ISP_T33
 	ch_wr(ch, T32_MSCA_PARAM2, T32_MSCA_PARAM2_DEFAULT);
+#else
+	ch_wr(ch, T32_MSCA_PARAM2, in_w);	/* the MSCA input width (vendor tisp_msca_init / init_chx_cfg, #735) */
+#endif
 	ch_wr(ch, T32_MSCA_CROP_POS, 0);
 	ch_wr(ch, T32_MSCA_CROP_SIZE, size);
 	ch_wr(ch, T32_MSCA_PARAM0, T32_MSCA_PARAM0_DEFAULT);

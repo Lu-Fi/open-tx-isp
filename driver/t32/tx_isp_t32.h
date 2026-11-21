@@ -78,6 +78,12 @@ u32 t32_hw_rd(u32 off);
 long t32_isposd_ctrl(u32 vi, u32 get, u32 id, u32 uptr);
 void t32_isposd_frame_done(void);
 void t32_isposd_msca_start(u32 in_w, u32 in_h);
+int t32_isposd_msca_init(u32 w, u32 h);				/* #730: tisp_msca_init */
+int t32_isposd_msca_chx_start(u32 set, const u32 *a, u32 stride);	/* #730: vendor channel start */
+int t32_isposd_msca_chx_stop(u32 set);
+int t32_isposd_autozoom_set(u32 vi, const void *buf);		/* #721 */
+int t32_isposd_autozoom_get(u32 vi, void *buf);
+void t32_isposd_msca_status(u32 *live, u32 *inits, u32 *starts, u32 *stops);
 void t32_isposd_status(u32 *pending, u32 *refused, u32 *fixes);
 unsigned long t32_isposd_ram_lock(void);
 void t32_isposd_ram_unlock(unsigned long flags);
