@@ -205,6 +205,46 @@ void t32_aec_detach(void)
 	mutex_unlock(&aec_lock);
 }
 
+/*
+ * tisp_set_fps (vendor 0xc0b58, openimp #716), the tisp part of tuning id 0x08000070 after the sensor took the
+ * rate: tisp_ae_api_set_fps (0x46ccc: AE tune word +0x6cc == 1, the exposure list mode, refuses with the vendor's
+ * print; else, when the sensor block's fps word S +0x38 differs, its entry S +0xd4 = sensor_set_fps (0x2515c),
+ * which hands the rate on only when the input's live fps word differs), then the entry S +0x90 =
+ * sensor_fps_control (0x25108): its block refresh goes to the caller's stack, its result is the input word after
+ * the fps word (ispcore input +0x18c, which sensor_init / lib_tisp_sync_sensor_attr copy to S +0x3c; here
+ * struct tx_isp_video_in +72 next to the fps word +68, the mapping of t32_ae_sensor_blk), < 0 -> "fps get wrong!"
+ * and -1; then tisp_ae_clac_deflicker_cfg (0x40400) on the AE blocks (inputs T +0x67c / +0x6c8, R +0x4ec / +0x4f0,
+ * B +0x216a, output B +0x322a and R +0x6a4: the port t32_ae_clac_deflicker_cfg).  fps = num << 16 | den.
+ * Without the live AE (before stream-on) nothing runs here; returns 0.
+ */
+int t32_aec_tisp_set_fps(u32 ch, u32 fps)
+{
+	const u8 *vin, *attr;
+	int r = 0;
+
+	if (ch)
+		return 0;
+	mutex_lock(&aec_lock);
+	if (!aec_ready) {
+		mutex_unlock(&aec_lock);
+		return 0;
+	}
+	if (t32_ld32(aec.b.T, 0x6cc) == 1) {
+		isp_printf(1, "[%s, %d]:EXP LIST MODE, SET FPS FAILED \n", "tisp_ae_api_set_fps", 0x16f1);
+	} else if (t32_ld32(aec.S, 0x38) != fps && t32_core_sensor_fps() != fps) {
+		t32_aec_stats.fps_sets++;
+		t32_core_sensor_set_fps(fps);
+	}
+	if (!t32_core_sensor_ae_src(&vin, &attr) && (int)t32_ld32(vin, 72) < 0) {
+		isp_printf(2, "fps get wrong!\n");
+		r = -1;
+	} else {
+		t32_ae_clac_deflicker_cfg(&aec.b, &t32_aec_iops);
+	}
+	mutex_unlock(&aec_lock);
+	return r;
+}
+
 /* the last long total gain of the vendor AE (event 4, log2 Q16); false before the first one */
 bool t32_aec_tgain(u32 *g)
 {

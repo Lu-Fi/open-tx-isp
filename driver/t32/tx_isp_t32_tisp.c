@@ -63,6 +63,7 @@
 #include "tx_isp_t32_lsc.h"
 #include "tx_isp_t32_lcetg.h"
 #include "tx_isp_t32_lcem.h"
+#include "tx_isp_t32_gamma.h"
 
 /*
  * Vendor t32_data_d03a0: 1 = registers go into the shadow image / register
@@ -117,6 +118,7 @@ static struct {
 	struct t32_lsc_dwr lsc_dlog[2];
 	u8 *lce_st;		/* vendor t32_data_e1da8[0]: 0x22850 B, vmalloc */
 	u8 *lce_sec;		/* the section copy the state works on (state word 0) */
+	struct t32_gamma *gamma;	/* vendor gamma_para[0]: tisp_gamma_init state, its section / payload copies (#717) */
 	bool have[T32_PP_COUNT];
 	bool ready;		/* every block of this stream attached */
 	u32 last_tgain[1];	/* vendor t32_data_dd... last low gain word, per channel */
@@ -295,6 +297,12 @@ static void pf_free_locked(void)
 	kfree(pf.ysp.sec);
 	kfree(pf.ysp.param);
 	kfree(pf.ysp_dn);
+	if (pf.gamma) {
+		kfree(pf.gamma->sec);
+		kfree(pf.gamma->pl);
+		kfree(pf.gamma);
+		pf.gamma = NULL;
+	}
 	kfree(pf.cdns.sec);
 	kfree(pf.cdns.param);
 	kfree(pf.ydns.sec);
@@ -337,6 +345,91 @@ void t32_pf_set_sharpness(u32 ch, u32 level)
 					   pf.have[T32_PP_YSP] ? &pf.ysp : NULL, 0, pf.ysp_dn,
 					   &pf.ysp_ratio, level, pf_w));
 	mutex_unlock(&pf_lock);
+}
+
+/*
+ * tisp_lce_top_change_state (tisp_s_module_control, openimp #717): on the LCE state of this stream
+ * (tx_isp_t32_blkirq.c); before the LCE attach (no state) nothing happens.  Channel 0 only.
+ */
+void t32_pf_lce_top_change_state(u32 ch)
+{
+	mutex_lock(&pf_lock);
+	if (!ch && pf.lce_st)
+		t32_blk_lce_top_change_state(pf.lce_st);
+	mutex_unlock(&pf_lock);
+}
+
+/*
+ * Gamma (openimp #717): tisp_gamma_init with the state kept (t32_gamma_start on copies of section 13 and its
+ * look-up table payload: one 0x102 byte curve, or sec[0x5a] records of 266 bytes), so that tisp_s_Gamma /
+ * tisp_g_Gamma run tisp_gamma_api_set / _get on it.  Returns the init's register writes (as t32_gamma_init).
+ */
+int t32_pf_attach_gamma(const u8 *sec, const u8 *lut, u32 lutbytes, struct t32_front_write *w)
+{
+	u32 need = t32_front_le32(sec) < T32_GAMMA_MULTI_ID ? T32_GAMMA_CURVE_BYTES : T32_GAMMA_REC_BYTES * sec[0x5a];
+	struct t32_gamma *g;
+	int n;
+
+	if (!need || lutbytes < need)
+		return t32_gamma_init(sec, lut, lutbytes, w);
+	g = kzalloc(sizeof(*g), GFP_KERNEL);
+	if (g) {
+		g->sec = kmemdup(sec, T32_GAMMA_SEC_BYTES, GFP_KERNEL);
+		g->pl = kmemdup(lut, need, GFP_KERNEL);
+	}
+	if (!g || !g->sec || !g->pl) {
+		if (g) {
+			kfree(g->sec);
+			kfree(g->pl);
+			kfree(g);
+		}
+		return t32_gamma_init(sec, lut, lutbytes, w);
+	}
+	n = t32_gamma_start(g, g->sec, g->pl, need, w);
+	mutex_lock(&pf_lock);
+	if (pf.gamma) {
+		kfree(pf.gamma->sec);
+		kfree(pf.gamma->pl);
+		kfree(pf.gamma);
+	}
+	pf.gamma = n < 0 ? NULL : g;
+	mutex_unlock(&pf_lock);
+	if (n < 0) {
+		kfree(g->sec);
+		kfree(g->pl);
+		kfree(g);
+	}
+	return n;
+}
+
+/*
+ * tisp_s_Gamma -> tisp_gamma_api_set on the kept state; the LUT request goes out at once (the vendor writes it
+ * from tisp_gamma_irq_frame_done, interrupt 46; the BCSH / CT paths here do the same).  -ENODEV without the
+ * state (before stream-on), else the api_set result (-1: mode > 4, mode stored).
+ */
+int t32_pf_gamma_api_set(u32 ch, const u8 *api, const u8 *const preset[3])
+{
+	int r = -ENODEV;
+
+	mutex_lock(&pf_lock);
+	if (!ch && pf.gamma && pf_w) {
+		r = t32_gamma_api_set(pf.gamma, 0, api, preset, NULL);
+		pf_flush(t32_gamma_frame_done(pf.gamma, pf_w));
+	}
+	mutex_unlock(&pf_lock);
+	return r;
+}
+
+/* tisp_g_Gamma -> tisp_gamma_api_get: the API block (264 B); -ENODEV without the state */
+int t32_pf_gamma_api_get(u32 ch, u8 *buf)
+{
+	int r = -ENODEV;
+
+	mutex_lock(&pf_lock);
+	if (!ch && pf.gamma)
+		r = t32_gamma_api_get(pf.gamma, buf);
+	mutex_unlock(&pf_lock);
+	return r;
 }
 
 /* stream-on, before the init blocks: drop the contexts of the last stream */

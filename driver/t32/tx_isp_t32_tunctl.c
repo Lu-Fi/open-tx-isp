@@ -37,6 +37,7 @@
 #include <linux/slab.h>
 #include <linux/delay.h>
 #include <linux/mutex.h>
+#include <linux/spinlock.h>
 #include <linux/wait.h>
 #include <linux/sched.h>
 #include <linux/jiffies.h>
@@ -49,6 +50,11 @@
 #include "tx_isp_t32_txsctrl.h"
 #include "tx_isp_t32_txgctrl.h"
 #include "tx_isp_t32_tunpre.h"
+#ifndef TX_ISP_T33
+#include "tx_isp_t32_api_ctl.h"
+#include "tx_isp_t32_msca_api.h"
+#include "tx_isp_t32_msca_cfg.h"
+#endif
 
 #define T32_TC_CH		3
 #define T32_TC_ID_FIRST		0x08000000U
@@ -197,14 +203,27 @@ T32_TC_PAIR(csccr_mode, csccr)
 /*
  * tisp_s_Gamma -> tisp_gamma_api_set (tx_isp_t32_gamma.h t32_gamma_api_set): the API block
  * { u32 mode, u8 curve[258] } takes the mode; 1..3 the preset curves, 4 the caller's curve,
- * > 4 returns -1 after storing the mode.  Mode 0 (back to the tuned curve) keeps the last
- * curve here: the gamma block state is not kept after the init yet.
+ * > 4 returns -1 after storing the mode.  T32 (openimp #717): while a stream's gamma state
+ * exists (stream-on to the next stream-on) the call runs tisp_gamma_api_set on it and the LUT
+ * is written at once; this store answers before the first stream-on only.
  */
 int t32_tx_os_tisp_s_gamma(u32 ch, void *buf)
 {
 	static const u32 *const preset[3] = { t32_tun_gamma_bf754, t32_tun_gamma_bf650, t32_tun_gamma_bf54c };
 	u8 *b = t32_tc[ch].gamma;
 	u32 v = *(u32 *)buf;
+
+#ifndef TX_ISP_T33
+	/* T32 (openimp #717): tisp_gamma_api_set on the gamma state of the stream (tx_isp_t32_tisp.c), LUT at once */
+	{
+		static const u8 *const pre8[3] = { (const u8 *)t32_tun_gamma_bf754, (const u8 *)t32_tun_gamma_bf650,
+						   (const u8 *)t32_tun_gamma_bf54c };
+		int r = t32_pf_gamma_api_set(ch, buf, pre8);
+
+		if (r != -ENODEV)
+			return r;
+	}
+#endif
 
 	*(u32 *)b = v;
 	if (v >= 1 && v <= 3)
@@ -218,6 +237,10 @@ int t32_tx_os_tisp_s_gamma(u32 ch, void *buf)
 
 int t32_tx_os_tisp_g_gamma(u32 ch, void *buf)
 {
+#ifndef TX_ISP_T33
+	if (!t32_pf_gamma_api_get(ch, buf))	/* T32: tisp_gamma_api_get on the live state (#717) */
+		return 0;
+#endif
 	return t32_tc_put(buf, t32_tc[ch].gamma, 264);
 }
 
@@ -363,11 +386,31 @@ int t32_tx_os_tisp_ae_face_get(u32 ch, void *buf)
 int t32_tx_os_tisp_s_tmo_faceae(u32 ch, void *buf) { return t32_tc_put(t32_tc[ch].tmo_faceae, buf, 56); }
 int t32_tx_os_tisp_set_scaler_level_control(u32 ch, void *buf) { return t32_tc_put(t32_tc[ch].scaler, buf, 12); }
 
+#ifndef TX_ISP_T33
+/*
+ * T32 (openimp #717): tisp_set_wdr_output_mode (vendor 0xc232c) maps modes 0..3 to themselves and any other to 3
+ * with "The change mode is not supported."; tisp_wdr_api_set_output_mode keeps it as a u16 (wdr block +0x116) and
+ * runs tisp_wdr_params_hard_refresh / tisp_wdr_direct_reg_refresh.  The open T32 driver runs no WDR block (linear
+ * sensors only): the mode is kept as the vendor stores it, the WDR refresh has nothing to run on.
+ */
+int t32_tx_os_tisp_set_wdr_output_mode(u32 ch, void *buf)
+{
+	u32 m = *(u32 *)buf;
+
+	if (m > 3) {
+		t32_tx_os_isp_printf(1, "The change mode is not supported.\n");
+		m = 3;
+	}
+	t32_tc[ch].wdr_mode = (u16)m;
+	return 0;
+}
+#else
 int t32_tx_os_tisp_set_wdr_output_mode(u32 ch, void *buf)
 {
 	t32_tc[ch].wdr_mode = *(u32 *)buf;
 	return 0;
 }
+#endif
 
 int t32_tx_os_tisp_get_wdr_output_mode(u32 ch, void *buf)
 {
@@ -378,6 +421,22 @@ int t32_tx_os_tisp_get_wdr_output_mode(u32 ch, void *buf)
 #ifdef TX_ISP_T33
 void t33_module_control_set(u32 ch, u32 v);	/* tx_isp_t32_hw.c: the TOP bypass word (block top) */
 u32 t33_module_control_get(u32 ch);
+#else
+/*
+ * T32 (openimp #717): tisp_s_module_control (vendor 0xc09b4) = t32_s_module_control (tx_isp_t32_api_ctl.h, binary
+ * oracle t32-modctl) in direct mode: tisp_mdns_start (0xd018 = 1, 0xd014 = 1) before and tisp_mdns_reg_trig
+ * (0xd014 = 1) after the write when bit 11 changes, tisp_lce_top_change_state on the stream's LCE state when bit 4
+ * or 10 changes (oracle t32-lcetcs), the low 22 bits of 0x40 replaced.
+ */
+static u32 t32_tc_mc_rd(u32 ch, u32 a) { (void)ch; return t32_hw_rd(a); }
+static int t32_tc_mc_wr(u32 ch, u32 a, u32 v) { (void)ch; t32_hw_wr(a, v); return 0; }
+static void t32_tc_mc_warn(void) { }
+static int t32_tc_mdns_start(u32 ch) { (void)ch; t32_hw_wr(0xd018, 1); t32_hw_wr(0xd014, 1); return 0; }
+static int t32_tc_mdns_trig(u32 ch) { (void)ch; t32_hw_wr(0xd014, 1); return 0; }
+static int t32_tc_lce_tcs(u32 ch) { t32_pf_lce_top_change_state(ch); return 0; }
+static const struct t32_api_ctl_ops t32_tc_mc_ops = {
+	t32_tc_mc_rd, t32_tc_mc_wr, t32_tc_mc_warn, t32_tc_mdns_start, t32_tc_lce_tcs, t32_tc_mdns_trig,
+};
 #endif
 /* tisp_s_module_control: the low 22 bits of the top enable word are the user's */
 int t32_tx_os_tisp_s_module_control(u32 ch, u32 v)
@@ -387,6 +446,10 @@ int t32_tx_os_tisp_s_module_control(u32 ch, u32 v)
 	return 0;
 #endif
 	t32_tc[ch].module_ctl = (t32_tc[ch].module_ctl & ~0x3fffffU) | (v & 0x3fffffU);
+#ifndef TX_ISP_T33
+	if (!ch)
+		t32_s_module_control(&t32_tc_mc_ops, 0, ch, v);
+#endif
 	return 0;
 }
 
@@ -406,6 +469,30 @@ int t32_tx_os_tisp_g_module_control(u32 ch, void *buf)
 int t33_msca_hv_flip_set(u32 ch, void *flags);	/* ../t33/tx_isp_t33_osd.c: tisp_msca_t33_api_{set,get}_mirr_flip */
 int t33_msca_hv_flip_get(u32 ch, void *flags);
 #endif
+#ifndef TX_ISP_T33
+/*
+ * T32 (openimp #717): tisp_msca_set_mirr_flip / _get_mirr_flip (vendor 0x96480 / 0x96574, t32_msca_*_mirr_flip of
+ * tx_isp_t32_msca_api.h) on the mirror words of the three output sets of channel 0 (st_msca_chx_cfg[0] + 48 +
+ * 872 set; the open driver keeps no other part of that block), and at the next MSCA frame done (interrupt bit 33)
+ * the mirror part of tisp_msca_cfg_shd: the bits into 0xf0050 (t32_msca_mirr_word), flag mirrflip cleared.
+ */
+static u8 t32_tc_msca_sb[3 * T32_MSCA_SET_SZ];
+static u8 t32_tc_mirrflip;
+static DEFINE_SPINLOCK(t32_tc_mf_lock);
+
+void t32_tunctl_msca_frame_done(void)
+{
+	unsigned long f;
+
+	spin_lock_irqsave(&t32_tc_mf_lock, f);
+	if (t32_tc_mirrflip) {
+		t32_hw_wr(0xf0050, t32_msca_mirr_word(t32_tc_msca_sb, t32_hw_rd(0xf0050)));
+		t32_tc_mirrflip = 0;
+	}
+	spin_unlock_irqrestore(&t32_tc_mf_lock, f);
+}
+#endif
+
 int t32_tx_os_tisp_g_hv_flip(u32 ch, void *flags)
 {
 	u8 *f = flags;
@@ -413,6 +500,15 @@ int t32_tx_os_tisp_g_hv_flip(u32 ch, void *flags)
 #ifdef TX_ISP_T33
 	if (!t33_msca_hv_flip_get(ch, flags))
 		return 0;
+#else
+	if (!ch) {
+		unsigned long fl;
+
+		spin_lock_irqsave(&t32_tc_mf_lock, fl);
+		t32_msca_get_mirr_flip(t32_tc_msca_sb, f);
+		spin_unlock_irqrestore(&t32_tc_mf_lock, fl);
+		return 0;
+	}
 #endif
 
 	*f = (u8)((*f & 3) | (t32_tc[ch].flip[*f & 3] & 0x3c));
@@ -426,6 +522,15 @@ int t32_tx_os_tisp_s_hv_flip(u32 ch, void *flags)
 #ifdef TX_ISP_T33
 	if (!t33_msca_hv_flip_set(ch, flags))
 		return 0;
+#else
+	if (!ch) {
+		unsigned long fl;
+
+		spin_lock_irqsave(&t32_tc_mf_lock, fl);
+		t32_msca_set_mirr_flip(t32_tc_msca_sb, f, &t32_tc_mirrflip);
+		spin_unlock_irqrestore(&t32_tc_mf_lock, fl);
+		return 0;
+	}
 #endif
 
 	t32_tc[ch].flip[*f & 3] = *f & 0x3c;
@@ -453,7 +558,12 @@ int t32_tx_os_tisp_set_saturation(u32 ch, u32 v) { t32_ctup_bcsh_set(ch, 2, (u8)
 int t32_tx_os_tisp_set_contrast(u32 ch, u32 v) { t32_ctup_bcsh_set(ch, 1, (u8)v); return 0; }
 #endif
 
+#ifdef TX_ISP_T33
 int t32_tx_os_tisp_set_fps(u32 ch, u32 fps) { return 0; }
+#else
+/* T32 (openimp #716): tisp_set_fps on the live AE (tx_isp_t32_ae.c); 0x70 itself is answered by tx_isp_t32_core.c */
+int t32_tx_os_tisp_set_fps(u32 ch, u32 fps) { return t32_aec_tisp_set_fps(ch, fps); }
+#endif
 
 /* 0x70 is answered by tx_isp_t32_core.c; tisp_get_fps: the sensor's fps word */
 int t32_tx_os_tisp_get_fps(u32 ch, u32 arg)

@@ -1584,6 +1584,11 @@ static long t32_m0_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 			}
 		} else if (w[2] == T32_TUNING_ID_SENSOR_FPS && w[1] == T32_TUNING_DIR_SET) {
 			ret = t32_sensor_fps_set(vi, w[3]);
+#ifndef TX_ISP_T33
+			/* the vendor's 0x70 then runs tisp_set_fps (tx_isp_t32_ae.c, openimp #716) */
+			if (!ret)
+				t32_aec_tisp_set_fps(w[0], w[3]);
+#endif
 		} else {
 			/* ISP OSD: mask / draw / OSD attribute / OSD block (#336) */
 			ret = t32_isposd_ctrl(w[0], w[1], w[2], w[3]);

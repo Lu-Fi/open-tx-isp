@@ -45,6 +45,7 @@ int t32_core_sensor_set_fps(u32 fps);
 long t32_tunctl_ctrl(u32 *w, unsigned long arg);
 long t32_tunctl_ae_start(unsigned int cmd, unsigned long arg);
 void t32_tunctl_frame_done(u32 ch);
+void t32_tunctl_msca_frame_done(void);	/* T32: ISP mirror / flip into 0xf0050 (#717) */
 
 /* tx_isp_t32_hw.c */
 struct t32_hw_stats {
@@ -93,6 +94,7 @@ struct t32_aec_drv_stats {
 };
 extern struct t32_aec_drv_stats t32_aec_stats;
 int t32_aec_attach(const struct t32_ae_blk *b, u8 *S, const u8 *zones);
+int t32_aec_tisp_set_fps(u32 ch, u32 fps);	/* tisp_set_fps on the live AE (openimp #716) */
 void t32_aec_detach(void);
 void t32_aec_kick(void);
 bool t32_aec_tgain(u32 *g);
@@ -177,6 +179,11 @@ void t32_pf_stop(void);
 void t32_pf_start(void);
 void t32_pf_kick(void);
 void t32_pf_set_sharpness(u32 ch, u32 level);	/* tisp_set_sharpness (openimp #711) */
+void t32_pf_lce_top_change_state(u32 ch);	/* tisp_lce_top_change_state (openimp #717) */
+struct t32_front_write;
+int t32_pf_attach_gamma(const u8 *sec, const u8 *lut, u32 lutbytes, struct t32_front_write *w);	/* tisp_gamma_init, state kept (#717) */
+int t32_pf_gamma_api_set(u32 ch, const u8 *api, const u8 *const preset[3]);	/* tisp_gamma_api_set (#717) */
+int t32_pf_gamma_api_get(u32 ch, u8 *buf);	/* tisp_gamma_api_get (#717) */
 void t32_pf_exit(void);
 
 /* tx_isp_t32_blkirq.c: block interrupt paths (vendor LCE bits 8 / 30, event 14, behind T32_PP_LCE;
@@ -192,6 +199,7 @@ void t32_blk_irq(u32 sta);
 void t32_blk_lce_bufs(void *curve, void *stat, void *hist);
 void t32_blk_lce_attach(u8 *st, u32 width, u32 height);
 void t32_blk_lce_detach(void);
+void t32_blk_lce_top_change_state(u8 *st);	/* tisp_lce_top_change_state on the stream's LCE state (#717) */
 void t32_blk_exit(void);
 void t32_blk_tmo_set(u32 (*tmo)(u32 ch), u32 (*fbf)(u32 ch));
 

@@ -33,6 +33,7 @@
 #include <asm/io.h>
 
 #include "tx_isp_t32.h"
+#include "tx_isp_t32_lcetcs.h"
 
 int isp_printf(unsigned int level, const char *fmt, ...);
 extern u8 t32_data_d03a0[4];
@@ -182,6 +183,25 @@ void t32_blk_lce_attach(u8 *st, u32 width, u32 height)
 	blk_lce_on = true;
 	spin_unlock_irqrestore(&blk_lock, f);
 	t32_blk_stats.attaches++;
+}
+
+/*
+ * tisp_lce_top_change_state (tisp_s_module_control, bit 4 or 10 of the top enable word changed; openimp #717) on the
+ * stream's LCE state st (tx_isp_t32_lcetcs.h, oracle t32-lcetcs): mode byte, default curves into the state and the
+ * second half of the curve buffer, the control registers.  lce_frame_flag is 1 here: the stream-on list of
+ * t32_lce_init already pointed 0xc0a4 at the buffer, as the vendor's first tisp_lce_write_all_reg does.  No lock,
+ * as the vendor (the next tisp_lce_par overwrites the curve).  Caller: tx_isp_t32_tisp.c under its lock.
+ */
+void t32_blk_lce_top_change_state(u8 *st)
+{
+	static const struct t32_lcetcs_ops ops = { drv_wr, drv_sync };
+	u8 flag = 1;
+	struct t32_lcetcs l = { st, blk_buf[0], 0, &flag };
+
+	if (!st || !blk_buf[0] || !READ_ONCE(blk_lce_on))
+		return;
+	l.curve_pa = (u32)virt_to_phys(blk_buf[0]);
+	t32_lcetcs_top_change_state(&ops, 0, &l);
 }
 
 /* tx_isp_t32_tmo.c: the TMO handlers of bits 9 / 31 (system_irq_func_set of tisp_tmo_init), NULL = off */

@@ -4,6 +4,29 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD[-rcN]` are set on the `aperto` branch, the same tag in open-tx-isp and OpenIMP: RC1 `v2026.10.11-rc1`, RC2 `v2026.10.25-rc2`, RC3 `v2026.11.07-rc3` (2026-11-07). Gate SoCs of RC3 and Release 1: T10, T20, T21, T23, T30, T31, T40, T41 (T32/T33 planned, QEMU only); release notes: [docs/releases/ in OpenIMP](https://github.com/Lu-Fi/openimp/blob/next/docs/releases/README.md). Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-11-21: T32 SetModuleControl, ISP H/V flip, gamma, WDR output mode and SetFps run the vendor flows (openimp #717 part 2, #716; binary oracles, QEMU T32)
+
+- **Cause.** In the T32 build the glue of `driver/t32/tx_isp_t32_tunctl.c` kept copies only: SetModuleControl, Set/GetHVFLIP (ISP part), Set/GetGammaAttr, Set/GetWdrOutputMode, and `tisp_set_fps` after SetSensorFPS never ran.
+- **SetModuleControl** = vendor `tisp_s_module_control` (0xc09b4) through `t32_s_module_control` (`tx_isp_t32_api_ctl.h`): low 22 bits of top register 0x40 replaced; a bit 11 change runs `tisp_mdns_start` (0xd018 = 1, 0xd014 = 1) before and `tisp_mdns_reg_trig` (0xd014 = 1) after the write; a bit 4 / 10 change runs `tisp_lce_top_change_state` (0x69338) on the stream's LCE state. New port `tx_isp_t32_lcetcs.h`: mode byte 3 / 4, both default curves, the second curve-buffer half, the control registers 0xc068..0xc07c, 0xc060 / 0xc064, 0x25054..0x25070, 0xc010 (`tisp_lce_curve_init_default`, `_write_all_reg`, `_write_curve`, `_write_ctrl_reg`).
+- **ISP H/V flip** = `tisp_msca_set_mirr_flip` / `_get_mirr_flip` (0x96480 / 0x96574) on the mirror words of the three output sets of channel 0. At the next MSCA frame done (interrupt bit 33) the mirror part of `tisp_msca_cfg_shd` writes them to 0xf0050. That merge is now `t32_msca_mirr_word` (`tx_isp_t32_msca_cfg.h`), and `t32_mscap_oracle` covers it.
+- **Gamma.** The stream-on `tisp_gamma_init` now keeps its state (`t32_pf_attach_gamma`, copies of section 13 and its payload). SetGammaAttr runs `tisp_gamma_api_set` on it; the LUT goes out at once (the vendor writes it from interrupt 46, which the QEMU model does not raise; BCSH / CT do the same here). GetGammaAttr = `tisp_gamma_api_get`. Before the first stream-on the old copy still answers.
+  - PRJ007 bin quirk, as the vendor: section byte 0x59 = 1, so after mode 1..4 the API curve is written into the payload, and mode 0 stays on it.
+- **WDR output mode** = `tisp_set_wdr_output_mode` (0xc232c): modes > 3 become 3 with the vendor print, kept as u16. The open T32 driver runs no WDR block. In linear mode the vendor dispatcher refuses set and get ("Non-wdr mode"), and so does ours (unchanged).
+- **SetFps** (#716): after the sensor took the rate (tuning id 0x70), `t32_aec_tisp_set_fps` (`tx_isp_t32_ae.c`) runs `tisp_set_fps` (0xc0b58) on the live AE:
+  - `tisp_ae_api_set_fps`: exposure-list mode (T +0x6cc) refuses with its print. Otherwise sensor entry S +0xd4 = `sensor_set_fps` (0x2515c), which passes the rate on only when the live fps word differs.
+  - Entry S +0x90 = `sensor_fps_control` (0x25108): its result is the input word next to the fps word (video_in +72); < 0 gives "fps get wrong!".
+  - Then `tisp_ae_clac_deflicker_cfg` (0x40400) on the AE blocks (port `t32_ae_clac_deflicker_cfg`).
+- **Evidence.**
+  - New binary oracles vs the vendor tx-isp-t32.ko: `t32-modctl` (304 cases, 0 mismatches, 6/6 mutations), `t32-lcetcs` (300 / 0, 12/12) and `t32-bcshapi` for the #716 BCSH setters (`tisp_bcsh_api_set_brightness / _contrast / _saturation / _hue` vs `t32_bcsh_api_set_*`, 800 / 0, 8/8).
+  - The binary showed that `tisp_mdns_start` / `_reg_trig` write 0xd014 through `tisp_reg_write`; Ghidra had decompiled that as a direct window store.
+  - QEMU T32 (3.10 thingino image, gc4653), new ko vs next:
+    - Module control: 0x40 and the read-back follow the set (next: unchanged). The trace shows the vendor order: 0xd018 / 0xd014, LCE control set, 0x40, 0xd014.
+    - H/V flip: 0xf0050 = 0x01010000 / 0x1a1a0000 / 0 after the frames for {0,1,0,0} / {0,2,3,0} / 0, read-back equal (next: 0).
+    - Gamma: the LUT ports change for modes 1 and 4 (next: never); mode 7 is refused.
+    - Fps: 10 / 15 / 25 with one sensor write each.
+    - No oops, rmmod ok.
+  - T33 module unchanged (md5 22e9613f, = next). Not done here: autozoom get and LSC hvflip on T32 (follow-up issues), device proof (no T32 camera).
+
 ## 2026-11-21: T32 GetModuleControl and the line-space get / set reach the vendor ports (openimp #717 part 1; QEMU T32)
 
 - **Cause.** In the T32 build the glue `t32_tx_os_tisp_g_module_control` and `t32_tx_os_lib_tisp_api_set/get_line_space` (`driver/t32/tx_isp_t32_tunctl.c`) only kept a copy; the ports never ran.

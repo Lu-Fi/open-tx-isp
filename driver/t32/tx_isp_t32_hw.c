@@ -341,6 +341,10 @@ static irqreturn_t t32_isp_irq(int irq, void *dev)
 #endif
 	if (msca & 2)			/* MSCA frame done: tisp_msca_irq_frame_done (ISP OSD, #336) */
 		t32_isposd_frame_done();
+#ifndef TX_ISP_T33
+	if (msca & 2)			/* tisp_msca_cfg_shd's mirror / flip part (openimp #717) */
+		t32_tunctl_msca_frame_done();
+#endif
 	if (msca & T32_MSCADONE_LSC)	/* interrupt bit 36: tisp_lsc_irq_frame_done (tx_isp_t32_lscct.c) */
 		t32_lsc_drv_frame_done();
 	return IRQ_HANDLED;
@@ -4214,7 +4218,12 @@ static void t32_tisp_init(void)
 	}
 	off = t32_iq_section(bin, bytes, T32_SEC_GAMMA, &len);
 	if (off && T32_IQ_SEC_OK(len, T32_GAMMA_SEC_BYTES))
+#ifdef TX_ISP_T33
 		t32_tisp_flush("gamma", t32_gamma_init(bin + off, bin + off + len, bytes - off - len, tisp_w));
+#else
+		/* T32: the state is kept for tisp_s_Gamma / tisp_g_Gamma (tx_isp_t32_tisp.c, openimp #717) */
+		t32_tisp_flush("gamma", t32_pf_attach_gamma(bin + off, bin + off + len, bytes - off - len, tisp_w));
+#endif
 	off = t32_iq_section(bin, bytes, T32_SEC_CDNS, &len);
 #ifdef TX_ISP_T33
 	if (off && len == T33_CDNS_SEC_BYTES)

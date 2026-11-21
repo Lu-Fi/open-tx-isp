@@ -57,6 +57,20 @@ struct t32_msca_cfg_st {
 	const u16 *w302;	/* the channel context's word at +302 */
 };
 
+/* cfg_shd step 2: the mirror / flip bits of the three sets' words (sb + 48 / 920 / 1792) into 0xf0050 */
+static inline u32 t32_msca_mirr_word(const u8 *sb, u32 old)
+{
+	u32 t3 = t32_msa_r32(sb + 48), t4 = t32_msa_r32(sb + 920), t5 = t32_msa_r32(sb + 1792);
+
+	return (old & 0xc00001ffu) |
+	       (t5 >> 3 & 1) << 29 | (t4 >> 3 & 1) << 28 | (t3 >> 3 & 1) << 27 |
+	       (t5 >> 1 & 1) << 26 | (t4 >> 1 & 1) << 25 | (t3 >> 1 & 1) << 24 |
+	       (t5 >> 2 & 1) << 21 | (t4 >> 2 & 1) << 20 | (t3 >> 2 & 1) << 19 |
+	       (t5 & 1) << 18 | (t4 & 1) << 17 | (t3 & 1) << 16 |
+	       (t5 >> 5 & 1) << 15 | (t5 >> 4 & 1) << 14 | (t4 >> 5 & 1) << 13 |
+	       (t4 >> 4 & 1) << 12 | (t3 >> 5 & 1) << 11 | (t3 >> 4 & 1) << 10;
+}
+
 static inline void t32_msca_cfg_lines(const struct t32_msca_cfg_ops *ops, struct t32_ms_io *io,
 				      struct t32_msca_cfg_st *st, u32 ch, u16 *cnt)
 {
@@ -96,16 +110,7 @@ static inline void t32_msca_cfg_shd(const struct t32_msca_cfg_ops *ops, struct t
 		return;
 	}
 	if (st->shd) {
-		u32 t3 = t32_msa_r32(sb + 48), t4 = t32_msa_r32(sb + 920), t5 = t32_msa_r32(sb + 1792);
-		u32 v;
-
-		v = (t5 >> 3 & 1) << 29 | (t4 >> 3 & 1) << 28 | (t3 >> 3 & 1) << 27 |
-		    (t5 >> 1 & 1) << 26 | (t4 >> 1 & 1) << 25 | (t3 >> 1 & 1) << 24 |
-		    (t5 >> 2 & 1) << 21 | (t4 >> 2 & 1) << 20 | (t3 >> 2 & 1) << 19 |
-		    (t5 & 1) << 18 | (t4 & 1) << 17 | (t3 & 1) << 16 |
-		    (t5 >> 5 & 1) << 15 | (t5 >> 4 & 1) << 14 | (t4 >> 5 & 1) << 13 |
-		    (t4 >> 4 & 1) << 12 | (t3 >> 5 & 1) << 11 | (t3 >> 4 & 1) << 10;
-		t32_ms_tw(io, ch, 21, 0xf0050, (t32_ms_tr(io, ch, 21, 0xf0050) & 0xc00001ffu) | v);
+		t32_ms_tw(io, ch, 21, 0xf0050, t32_msca_mirr_word(sb, t32_ms_tr(io, ch, 21, 0xf0050)));
 		st->shd = 0;
 	}
 	if (st->az == 1) {
