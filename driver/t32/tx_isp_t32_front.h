@@ -194,6 +194,31 @@ static inline int t32_csccr_init(const u8 *sec, struct t32_front_write *w)
 	return (int)n;
 }
 
+#ifdef TX_ISP_T33
+/*
+ * Vendor T33 tisp_csccr_init (tx-isp-t33.ko 3028d4ac 0xed408): csccrInfo bytes 0..0xb are a memcpy of
+ * csccr_cp (u16 C gain 0x400, UV max 0x7f, Y gain 0x400, UV min -0x80; Y out min 0, Y in min 0, Y out
+ * range 0xff) and the list 22 slots are written from them whatever the section's mode byte 4 or ranges
+ * (tisp_csccr_bin_par_update only prints the range error); no T33 path recomputes them from the mode
+ * (#536).  The T32 module computes them from the mode (t32_csccr_init).  Mode 0 gives the same words.
+ */
+static inline int t33_csccr_cp_init(struct t32_front_write *w)
+{
+	static const u8 cp[12] = { 0x00, 0x04, 0x7f, 0x00, 0x00, 0x04, 0x80, 0xff, 0x00, 0x00, 0xff, 0x00 };
+	u32 c_gain = cp[0] | (u32)cp[1] << 8, uv_max = cp[2] | (u32)cp[3] << 8;
+	u32 y_gain = cp[4] | (u32)cp[5] << 8, uv_min = cp[6] | (u32)cp[7] << 8;
+	unsigned int n = 0;
+
+	T32_FW(w, n, 0x14040, y_gain & 0x7ff);
+	T32_FW(w, n, 0x14044, (u32)cp[10] << 8 | (u32)cp[8] << 16 | cp[9]);
+	T32_FW(w, n, 0x14050, c_gain & 0x7ff);
+	T32_FW(w, n, 0x14054, (uv_max & 0x1ff) << 16 | (uv_min & 0x1ff));
+	T32_FW(w, n, 0x14010, 0xffffffff);	/* T33_CSCCR_EN below, as for the T32 writes */
+	T32_FW(w, n, 0x14000, T32_FRONT_ID);
+	return (int)n;
+}
+#endif
+
 /*
  * tisp_top_init (+ tisp_top_reg_cfg): sec = IQ section 0 (100 bytes), bayer
  * from t32_mbus_to_bayer (colour order in bits 0..4, depth class in bits

@@ -338,6 +338,23 @@ int main(void)
 			if (w[id].reg == 0x14010)
 				w[id].val = T33_CSCCR_EN;
 		vs_ref("csccr", T33_MOD_CSCCR, w, k > 0 ? k : 0);
+		{
+			/* #536: the T33 init writes csccr_cp whatever the mode; mode 0 = the T32 words */
+			struct t32_front_write w0[8];
+			u8 sec[T32_CSCCR_BYTES];
+			int j;
+
+			CHECK(bin[off + 4] == 0);	/* shipped PRJ008 bins: mode 0 */
+			CHECK(t33_csccr_cp_init(w0) == k);
+			for (j = 0; j < k; j++)
+				CHECK(w0[j].reg == w[j].reg && (w0[j].reg == 0x14010 || w0[j].val == w[j].val));
+			/* the T32 mode table of mode 1 / 2 gives other words; the vendor T33 keeps csccr_cp */
+			memcpy(sec, bin + off, sizeof(sec));
+			sec[4] = 1;
+			CHECK(t32_csccr_init(sec, w) == k && w[0].val != w0[0].val);
+			CHECK(w0[0].val == 0x400 && w0[1].val == 0xff00 && w0[2].val == 0x400 &&
+			      w0[3].val == 0x7f0180);
+		}
 		off = t32_iq_section(bin, bytes, T32_SEC_CDNS, &len);
 		CHECK(off && len == T33_CDNS_SEC_BYTES);
 		vs_ref("cdns", T33_MOD_CDNS, w, t33_cdns_init(bin + off, w));

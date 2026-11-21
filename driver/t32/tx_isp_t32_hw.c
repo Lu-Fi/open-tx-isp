@@ -1365,9 +1365,13 @@ static void t32_front_init(void)
 	}
 	off = t32_iq_section(bin, bytes, T32_IQ_SEC_CSCCR, &len);
 	if (off && T32_IQ_SEC_OK(len, T32_CSCCR_BYTES)) {
-		r = t32_csccr_init(bin + off, w);
 #ifdef TX_ISP_T33
+		r = t33_csccr_cp_init(w);
 		t33_csccr_check(bin + off, 0);
+#else
+		r = t32_csccr_init(bin + off, w);
+#endif
+#ifdef TX_ISP_T33
 		t33_csccr_info_init(w, r);
 #endif
 		if (T32_SOC_LIST_IRQ && r > 0) {
