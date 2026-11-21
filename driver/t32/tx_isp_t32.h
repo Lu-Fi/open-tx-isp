@@ -90,12 +90,14 @@ struct t32_aec_drv_stats {
 	u32 mean, target, it, again, dgain, tgain;	/* the last frame */
 #ifndef TX_ISP_T33
 	u32 face_sets, face_en, face_zone, face_target;	/* tisp_ae_face_set on the live AE (#686) */
+	u32 syncs, sync_fps;	/* TX_ISP_EVENT_SYNC_SENSOR_ATTR on the live AE, S + 0x38 after it (#724) */
 #endif
 };
 extern struct t32_aec_drv_stats t32_aec_stats;
 int t32_aec_attach(const struct t32_ae_blk *b, u8 *S, const u8 *zones);
 int t32_aec_tisp_set_fps(u32 ch, u32 fps);	/* tisp_set_fps on the live AE (openimp #716) */
 void t32_aec_detach(void);
+void t32_aec_sensor_sync(const u8 *vin);	/* ispcore_sync_sensor_attr on the live AE (openimp #724) */
 void t32_aec_kick(void);
 bool t32_aec_tgain(u32 *g);
 struct t32_aea_ctx;

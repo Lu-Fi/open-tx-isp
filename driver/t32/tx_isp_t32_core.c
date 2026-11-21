@@ -153,6 +153,8 @@ static int t32_subdev_notify(void *module, unsigned int what, void *data)
 		isp_printf(0, "tx-isp-t32: sensor attr sync %ux%u\n", w, h);
 #ifdef TX_ISP_T33
 		t33_aec_sensor_sync();	/* lib_tisp_sync_sensor_attr's AE part (openimp #574) */
+#else
+		t32_aec_sensor_sync(data);	/* ispcore_sync_sensor_attr -> lib_tisp_sync_sensor_attr (openimp #724) */
 #endif
 		return 0;
 	}
@@ -1691,6 +1693,7 @@ static int t32_proc_show(struct seq_file *m, void *v)
 		   t32_aec_stats.face_sets, t32_aec_stats.face_en, t32_aec_stats.face_zone & 0xff,
 		   t32_aec_stats.face_zone >> 8 & 0xff, t32_aec_stats.face_zone >> 16 & 0xff,
 		   t32_aec_stats.face_zone >> 24, t32_aec_stats.face_target & 0xff, t32_aec_stats.face_target >> 8);
+	seq_printf(m, "vendor AE sensor sync: syncs %u fps word %#x\n", t32_aec_stats.syncs, t32_aec_stats.sync_fps);
 #endif
 	seq_printf(m, "vendor AWB: frames %u writes %u refused %u; ct %u gain r %u b %u; ev %u tgain %u updates\n",
 		   t32_awbc_stats.frames, t32_awbc_stats.writes, t32_awbc_stats.refused, t32_awbc_stats.ct,

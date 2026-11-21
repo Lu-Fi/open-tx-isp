@@ -36,6 +36,9 @@
 
 #include "tx_isp_t32.h"
 #include "tx_isp_t32_aechain.h"
+#include "tx_isp_t32_libwrap.h"
+#include "tx_isp_t32_aesns.h"
+#include "tx_isp_t32_abi.h"
 
 int isp_printf(unsigned int level, const char *fmt, ...);
 
@@ -51,6 +54,13 @@ static u32 aec_last_tg;		/* vendor tisp_long_tgain_update's last low gain word *
 static u8 aec_wsel[2];			/* vendor e1570[ch]: the two AE weight selectors */
 static unsigned int aec_api_busy;	/* tuning API calls on the blocks (t32_aec_api_get .. _put) */
 static DECLARE_WAIT_QUEUE_HEAD(aec_api_wq);
+/*
+ * The live sensor block for TX_ISP_EVENT_SYNC_SENSOR_ATTR (t32_aec_sensor_sync).  Its own lock, not aec_lock:
+ * the sync comes from the sensor's set_fps, which the AE work and t32_aec_tisp_set_fps call under aec_lock.
+ */
+#define T32_AEC_R_PAR_TRIG	1285U
+static DEFINE_MUTEX(aec_sync_lock);
+static u8 *aec_sync_S, *aec_sync_R;
 
 static u32 drv_rd(u32 ch, u32 reg) { (void)ch; return t32_hw_rd(reg); }
 static u32 drv_sys(u32 reg) { return t32_hw_rd(reg); }
@@ -185,6 +195,10 @@ int t32_aec_attach(const struct t32_ae_blk *b, u8 *S, const u8 *zones)
 	if (!zones || !aec.hist || !aec.comp || !aec.lum)
 		ret = -ENOMEM;
 	WRITE_ONCE(aec_ready, !ret);
+	mutex_lock(&aec_sync_lock);
+	aec_sync_S = ret ? NULL : S;
+	aec_sync_R = ret ? NULL : b->R;
+	mutex_unlock(&aec_sync_lock);
 	mutex_unlock(&aec_lock);
 	return ret;
 }
@@ -194,6 +208,9 @@ void t32_aec_detach(void)
 	u8 roi[4];
 
 	WRITE_ONCE(aec_ready, false);
+	mutex_lock(&aec_sync_lock);
+	aec_sync_S = aec_sync_R = NULL;
+	mutex_unlock(&aec_sync_lock);
 	cancel_work_sync(&aec_work);
 	wait_event(aec_api_wq, !READ_ONCE(aec_api_busy));	/* a tuning call may be in t32_aec_api_sleep */
 	mutex_lock(&aec_lock);
@@ -243,6 +260,45 @@ int t32_aec_tisp_set_fps(u32 ch, u32 fps)
 	}
 	mutex_unlock(&aec_lock);
 	return r;
+}
+
+/*
+ * TX_ISP_EVENT_SYNC_SENSOR_ATTR after stream-on (openimp #724): the vendor ispcore_sync_sensor_attr (0xb6ac4)
+ * builds the 124 B block from the sensor's struct tx_isp_video_in (the notify data) and its attribute block
+ * (t32_ae_sensor_blk, the mapping of t32_ispcore_sync_sensor_attr), then lib_tisp_sync_sensor_attr (0x27f70)
+ * copies its run-time fields into stSensorAttr[ch] (S: +0x24 / +0x28, +0x38 .. +0x48, +0x58 .. +0x64,
+ * +0x74 .. +0x7b, t32_lib_sync_sensor_attr) and tail-calls tisp_ae_par_sensor_trig (0x305e0): ae_init_flag[ch]
+ * == 1 -> ae_cache[ch] + 0x505 (R + 1285) = 1, which the next tisp_ae_calc_process turns into
+ * tisp_ae_par_update_trig (t32_ae_calc_process).  Unlocked against the AE like the vendor (the sensor's set_fps
+ * runs under aec_lock); aec_sync_lock only keeps the blocks from going away.  Before the attach nothing runs:
+ * the stream-on sync (ae_sensor_block) covers it.
+ */
+static u32 aec_sns_trig(void *ctx, u32 ch)
+{
+	u8 *R = ctx;
+
+	(void)ch;
+	if (R)			/* ae_init_flag: the AE is attached */
+		R[T32_AEC_R_PAR_TRIG] = 1;	/* ae_cache[ch] + 0x505 */
+	return 0;
+}
+
+void t32_aec_sensor_sync(const u8 *vin)
+{
+	struct t32_lib_hooks h = { .ae_sensor_trig = aec_sns_trig };
+	const u8 *si;
+	u8 blk[T32_AESNS_BLK];
+
+	mutex_lock(&aec_sync_lock);
+	si = vin ? T32_AT(vin, T32_VIDEO_ATTR, const u8 *) : NULL;
+	if (aec_sync_S && si) {
+		h.ctx = aec_sync_R;
+		t32_ae_sensor_blk(blk, vin, si);
+		t32_lib_sync_sensor_attr(&h, aec_sync_S, 0, blk);
+		t32_aec_stats.syncs++;
+		t32_aec_stats.sync_fps = t32_ld32(aec_sync_S, 0x38);
+	}
+	mutex_unlock(&aec_sync_lock);
 }
 
 /* the last long total gain of the vendor AE (event 4, log2 Q16); false before the first one */
