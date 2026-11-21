@@ -47,6 +47,7 @@
 #endif
 #endif
 #include "tx_isp_t31_fcrop.h"
+#include "tx_isp_t31_linetime.h"
 #include "include/tx_isp_t31_load_stats.h"
 
 
@@ -5384,6 +5385,23 @@ int ispcore_sync_sensor_attr(struct tx_isp_subdev *sd, struct tx_isp_sensor_attr
             sensor_attr_bytes, attr->total_width, attr->total_height,
             vic_dev->width, vic_dev->height);
 
+    /*
+     * openimp #733: stock ispcore_sync_sensor_attr (0x7757c) writes the line time it derives from
+     * the active frame rate back into the sensor's attribute (video_in->attr + 0xbc,
+     * one_line_expr_in_us) before it reads that attribute for tiziano_sync_sensor_attr; later
+     * readers of the sensor attribute see the derived value, not the driver's rounded one.
+     */
+    BUILD_BUG_ON(offsetof(struct tx_isp_sensor_attribute, one_line_expr_in_us) != 0xbc);
+    BUILD_BUG_ON(offsetof(struct tx_isp_sensor_attribute, total_height) != 0xb2);
+    {
+        u16 lt = t31_sync_line_time(tisp_raw_fps_from_sensor(isp_dev, attr), attr->total_height);
+
+        if (lt) {
+            attr->one_line_expr_in_us = lt;
+            stored_attr->one_line_expr_in_us = lt;
+        }
+    }
+
     /* Binary Ninja: Extract and process sensor timing parameters */
     again = stored_attr->again;
     dgain = stored_attr->dgain;
@@ -5437,8 +5455,7 @@ EXPORT_SYMBOL(tisp_math_exp2);
 /* tiziano_sync_sensor_attr - sync packed OEM-style sensor info blob */
 int tiziano_sync_sensor_attr(const struct tisp_sensor_info_blob *attr)
 {
-    static uint32_t data_c46c0 = 0, data_c46c4 = 0, data_c46fc = 0, data_c4700 = 0, data_c4730 = 0, data_c46c8 = 0;
-    uint32_t again_val, dgain_val, exp2_result1, exp2_result2, cached_gain;
+    uint32_t again_val, dgain_val, exp2_result1, exp2_result2;
 
     if (!attr) {
         pr_err("tiziano_sync_sensor_attr: Invalid sensor attributes\n");
@@ -5457,18 +5474,8 @@ int tiziano_sync_sensor_attr(const struct tisp_sensor_info_blob *attr)
     dgain_val = tisp_si_dgain(attr);
     exp2_result1 = tisp_math_exp2(again_val, 0x10, 0xa);
     exp2_result2 = tisp_math_exp2(dgain_val, 0x10, 0xa);
-    cached_gain = data_c46c0;
-
-    if (cached_gain == 0 || cached_gain == exp2_result1)
-        data_c46c0 = exp2_result1;
-    else
-        data_c46c0 = cached_gain;
-
-    data_c46c4 = exp2_result2;
-    data_c46fc = tisp_math_exp2(tisp_si_max_again_limit(attr), 0x10, 0xa);
-    data_c4700 = tisp_si_max_integration_time_short(attr);
-    data_c4730 = tisp_si_min_integration_time(attr);
-    data_c46c8 = tisp_si_max_integration_time(attr);
+    /* openimp #733: the stock AE control words (d4b60.., sensor_ctrl) are filled by
+     * tisp_sensor_ctrl_sync above; the former local copies (data_c46*) were never read. */
 
     pr_info("*** tiziano_sync_sensor_attr: synced blob active=%ux%u total=%ux%u fps=%u bayer=%u mode=%u ***\n",
             tisp_si_width(attr), tisp_si_height(attr),
