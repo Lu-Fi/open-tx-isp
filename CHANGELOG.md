@@ -4,6 +4,10 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD[-rcN]` are set on the `aperto` branch, the same tag in open-tx-isp and OpenIMP: RC1 `v2026.10.11-rc1`, RC2 `v2026.10.25-rc2`, RC3 `v2026.11.07-rc3` (2026-11-07). Gate SoCs of RC3 and Release 1: T10, T20, T21, T23, T30, T31, T40, T41 (T32/T33 planned, QEMU only); release notes: [docs/releases/ in OpenIMP](https://github.com/Lu-Fi/openimp/blob/next/docs/releases/README.md). Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-11-21: docs: T33 in the "kernel module smaller than the vendor module" row (openimp #732 evidence)
+
+- tx-isp-t33.ko (next 24780fd88, `strip --strip-unneeded`) 904 KB file / 275 KB xz against the vendor tx-isp-t33.ko 1532 / 294 KB; loaded on the T33L .122 1,073,030 B against 1,428,423 B. The same runtime test (30 libimp sample cycles + 5 timps starts) showed the #684 MEMORY_MALLOC fix holds: MemFree and free order >= 6 blocks flat, 0 allocation failures (openimp #732, a duplicate of #684 in the older flashed module).
+
 ## 2026-11-21: T33 sensor mirror / flip runs the vendor LSC mirror flip on the live LSC block (openimp #727; binary oracle, QEMU T33, T33L device)
 
 - **Cause.** In the T33 build `t32_tx_os_tisp_lsc_hvflip` (`tx_isp_t32_tunctl.c`) was a constant `return 0`: after a sensor mirror / flip (tuning id 0x73) the LSC mesh stayed unflipped (cross-SoC of the T32 fix #722).
