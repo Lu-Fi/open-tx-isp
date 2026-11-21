@@ -293,6 +293,7 @@ void t33_awbc_ae_event(u32 type, u32 v0, u32 v1);	/* AE events 4 / 6 (tisp_long_
 int t33_aec_attach(const u8 *sec, u32 len, u32 width, u32 height, const u8 *zbufs, const u8 *hbufs);
 void t33_aec_detach(void);
 void t33_aec_sensor_sync(void);
+int t33_aec_tisp_set_fps(u32 ch, u32 fps);	/* tisp_set_fps on the live T33 AE (openimp #725) */
 void t33_aec_irq4(u32 idx);
 void t33_aec_irq5(u32 idx);
 int t33_aec_malloc_info(u32 *list, unsigned long stat, unsigned long hist);	/* tisp_ae_malloc_info */

@@ -114,6 +114,7 @@ static u8 aew_sinfo[64];	/* t32_ae_ctx_init's sensor info: +0 width, +4 height, 
 
 static struct {
 	u32 frames, writes, dg_sets, expo_sets, expo_fail, fps_sets, events, irq5, dn_refresh, syncs;
+	u32 tisp_fps, tisp_fps_list, tisp_fps_bad;	/* tisp_set_fps runs / EXP LIST refusals / fps get wrong (#725) */
 	u32 tgain, ev_lo, ev_hi, bv, dg, mean, target;
 } st;
 
@@ -653,6 +654,51 @@ static void aew_deflicker(u32 ch)
 #undef tisp_ae_clac_deflicker_cfg
 
 /*
+ * tisp_set_fps (vendor tx-isp-t33.ko 0xf8a9c, openimp #725; the T32 flow of tx_isp_t32_ae.c t32_aec_tisp_set_fps,
+ * #716), the tisp part of tuning id 0x08000070 after the sensor took the rate:
+ *  - tisp_ae_api_set_fps (0x3365c): stAeInfo[ch] + 1744 -> the tuning words T, T + 1740 (0x6cc) == 1 (exposure list
+ *    mode) refuses with the vendor print (line 4760); else, when stSensorAttr[ch] + 56 (S + 0x38, kept by
+ *    t33_aec_sensor_sync) differs, its entry S + 212 = sensor_set_fps (0x13ecc), which hands the rate on only when
+ *    the input's live fps word (ispcore input + 388) differs;
+ *  - the entry S + 144 = sensor_fps_control (0x13e78): its result is the input word after the fps word (struct
+ *    tx_isp_video_in + 72), < 0 -> "fps get wrong!" and -1;
+ *  - tisp_ae_clac_deflicker_cfg (0x2e3e4): stAeInfo = ae_cache = R, tuning T + 1660 / + 1736, R + 1260 / + 1264
+ *    (aew_deflicker, the port on the T32-layout blocks as for the anti-flicker API).
+ * T33 and T32 vendor code differ only in the .bss / struct offsets (T33 ispcore input + 388 vs T32 + 392).
+ * fps = num << 16 | den.  Without the live AE (before stream-on) nothing runs; returns 0.
+ */
+int t33_aec_tisp_set_fps(u32 ch, u32 fps)
+{
+	const u8 *vin, *attr;
+	int r = 0;
+
+	if (ch)
+		return 0;
+	mutex_lock(&aec_lock);
+	if (!ready) {
+		mutex_unlock(&aec_lock);
+		return 0;
+	}
+	st.tisp_fps++;
+	if (t32_ld32(aec.b.T, 0x6cc) == 1) {
+		st.tisp_fps_list++;
+		isp_printf(1, "[%s, %d]:EXP LIST MODE, SET FPS FAILED \n", "tisp_ae_api_set_fps", 4760);
+	} else if (t32_ld32(sblk, 0x38) != fps && t32_core_sensor_fps() != fps) {
+		st.fps_sets++;
+		t32_core_sensor_set_fps(fps);
+	}
+	if (!t32_core_sensor_ae_src(&vin, &attr) && (int)t32_ld32(vin, 72) < 0) {
+		st.tisp_fps_bad++;
+		isp_printf(2, "fps get wrong!\n");
+		r = -1;
+	} else {
+		aew_deflicker(ch);
+	}
+	mutex_unlock(&aec_lock);
+	return r;
+}
+
+/*
  * The AE part of the bin switch (lib_tisp_refresh_para, vendor order top,
  * dpc, blc, ae): the vendor's stAeInfo + 1744 points into tparamsP, which
  * SET_TIZIANO_PAR overwrote with the new bin; here the new AE section is
@@ -771,6 +817,8 @@ void t33_aec_show(struct seq_file *m)
 		   ready ? "on" : "off", st.frames, st.irq5, aec.b.R ? t32_ld32(aec.b.R, T33_AEW_READY) : 0, st.writes,
 		   st.dg_sets, st.dg, st.expo_sets,
 		   st.expo_fail, st.fps_sets, st.events, st.dn_refresh, st.syncs);
+	seq_printf(m, "t33 ae: tisp_set_fps %u (exp list %u, fps get wrong %u) sensor fps word 0x%x\n",
+		   st.tisp_fps, st.tisp_fps_list, st.tisp_fps_bad, t32_ld32(sblk, 0x38));
 	seq_printf(m, "t33 ae: antiflick %u (on %u sel %u hz %u) face %u (en %u roi %u %u %u %u target %u)\n",
 		   g14e_af_sets, aec.b.T ? t32_st16(aec.b.T, 2920) : 0, aec.b.T ? t32_st16(aec.b.T, 2922) : 0,
 		   aec.b.T ? t32_ld32(aec.b.T, 1660) : 0, g14e_face_sets,
