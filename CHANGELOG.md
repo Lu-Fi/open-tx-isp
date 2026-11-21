@@ -4,6 +4,15 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD[-rcN]` are set on the `aperto` branch, the same tag in open-tx-isp and OpenIMP: RC1 `v2026.10.11-rc1`, RC2 `v2026.10.25-rc2`, RC3 `v2026.11.07-rc3` (2026-11-07). Gate SoCs of RC3 and Release 1: T10, T20, T21, T23, T30, T31, T40, T41 (T32/T33 planned, QEMU only); release notes: [docs/releases/ in OpenIMP](https://github.com/Lu-Fi/openimp/blob/next/docs/releases/README.md). Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-11-21: T33 MSCA channel path: attribute publish, gated stream-off, stop window, snapshot wait (openimp #658)
+
+- a) `attr_get_size` (driver/t33/tx_isp_t33_osd.c): `tisp_msca_t33_init` now fills local tables and publishes `stMscaAttr[0]` / `msca_info[0]` together under `t33_attr_lock`; a channel start racing the first tuning call / stream-on can no longer see a half-filled block (word 0 = the parameter pointer). The vendor runs the init at `lib_tisp_init`, before any channel exists.
+- b) Frame-channel release after the last /dev/tx-isp close (streamer crash: clocks already off): the stream-off neither writes the gated MSCA (channel enable, fifo clears) nor polls its BUSY bit (502 x msleep(1), ~10 s per channel at HZ=100); the software teardown (list 23 words, stream flags) still runs. Counter `gated` on the `t33 msca:` line. T32 unchanged.
+- c) Per-channel `op` mutex over STREAMON / STREAMOFF / snapshot pause: a STREAMON during the unlocked stop wait now waits for it and starts the channel, a snapshot restart can no longer re-enable a channel that stop_end then leaves with an empty address fifo.
+- d) RAW snapshot pause / restart (`t32_fs_snap_pause`) uses the vendor stream-off order (stop, work-state wait without the lock, fifo clear), as the frame-channel stream-off does since #650 / #652.
+- e) Y-before-UV done read: note only (vendor order, uv unused).
+- QEMU T33 (audit/issue658/q33): 3 snapshot pause / restart cycles: soff 6, timeout 0, frames 1195 -> 1249 -> 1340 (flowing after the restarts); streamer ended by SIGTERM: `gated 1`, 0 oops.
+
 ## 2026-11-21: T40 / T41 / T23 AE back to auto on a fresh ISP start (openimp #749, beyond vendor)
 
 - User decision 2026-11-21: a fresh ISP start always runs the AE in auto.

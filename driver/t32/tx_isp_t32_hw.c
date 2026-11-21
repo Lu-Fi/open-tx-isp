@@ -2548,9 +2548,9 @@ void t33_stats_show(struct seq_file *m)
 	seq_printf(m, "t33 tmo oneshot: disable %u enable %u tick %u\n", t33_tmo1s_runs[0], t33_tmo1s_runs[1],
 		   t33_tmo1s_runs[2]);
 #ifdef TX_ISP_T33
-	seq_printf(m, "t33 msca: chx start %u direct %u list bad %u soff %u timeout %u last %u ms\n",
+	seq_printf(m, "t33 msca: chx start %u direct %u list bad %u soff %u timeout %u last %u ms gated %u\n",
 		   t33_msca_vendor_starts, t33_msca_direct_starts, t33_bst_bad, t33_msca_soff_waits,
-		   t33_msca_soff_timeouts, t33_msca_soff_last_ms);
+		   t33_msca_soff_timeouts, t33_msca_soff_last_ms, t33_msca_soff_gated);
 #endif
 	seq_printf(m, "t33 blc: %s init %u gain %u switch %u fd %u refresh %u\n", blc_para[0] ? "on" : "off",
 		   t33_blc_runs[0], t33_blc_runs[1], t33_blc_runs[2], t33_blc_runs[3], t33_blc_refresh);
@@ -5131,6 +5131,18 @@ static void t32_hw_msca_load_curves(void)
 }
 
 /*
+ * #658 b: a frame channel released after the last /dev/tx-isp close (streamer crash: the kernel closes the fds in
+ * order, clocks off in t32_isp_release) must not touch the gated MSCA (lost writes or a bus hang, the rule of the
+ * rmmod path) nor poll its BUSY bit (502 x msleep(1) = ~10 s per channel at HZ=100).  The software teardown (list
+ * 23 words, stream flags) still runs; the next stream-on rebuilds the block.  T32 unchanged.
+ */
+static inline bool t32_msca_regs_live(void)
+{
+	return !T32_SOC_LIST_IRQ || t32_core_clk_active();
+}
+
+
+/*
  * Channel start in the vendor's order (S3 runs v1/v2, three channels):
  * the buffers are already pushed; strides, the polyphase curves (S4,
  * tx_isp_t32_msca_curve.h), then the channel's size, crop and scaler steps,
@@ -5198,7 +5210,8 @@ static bool t33_msca_list_stop_begin(int ch)
 		T33_SW(l, 3, l[3 + 1] & ~(1U << ch));
 	}
 	t33_msca_refresh = 1;	/* tispMscaRefresh (chx_stream_off): at the next frame end */
-	isp_wr(T32_MSCA_CH_EN, isp_rd(T32_MSCA_CH_EN) & ~(1U << ch));
+	if (t32_msca_regs_live())
+		isp_wr(T32_MSCA_CH_EN, isp_rd(T32_MSCA_CH_EN) & ~(1U << ch));
 	return true;
 }
 
@@ -5261,12 +5274,14 @@ void t32_hw_msca_stop_begin(int ch)
 		return;
 #endif
 	curve_geom[ch].on = false;
+	if (!t32_msca_regs_live())
+		return;
 	isp_wr(T32_MSCA_CH_EN, isp_rd(T32_MSCA_CH_EN) & ~(1U << ch));
 	isp_wr(T32_MSCA_UPDATE, 1);
 }
 
 #define T32_SOFF_WAIT_MS	502	/* x private_msleep(1) */
-u32 t33_msca_soff_waits, t33_msca_soff_timeouts, t33_msca_soff_last_ms;
+u32 t33_msca_soff_waits, t33_msca_soff_timeouts, t33_msca_soff_last_ms, t33_msca_soff_gated;
 
 /*
  * The vendor's wait without the lock: process context only; returns 0, or -ETIMEDOUT after 502 sleeps.
@@ -5280,6 +5295,10 @@ int t32_hw_msca_stop_wait(int ch)
 	u32 n;
 
 	for (n = T32_SOFF_WAIT_MS; n; n--) {
+		if (!t32_msca_regs_live()) {
+			t33_msca_soff_gated++;
+			return 0;	/* gated (#658 b): no DMA runs, no register read */
+		}
 		if (!((isp_rd(T32_MSCA_BUSY) >> (ch & 31)) & 1))
 			break;
 		msleep(1);
@@ -5297,7 +5316,8 @@ int t32_hw_msca_stop_wait(int ch)
 /* the half after the wait, under the lock again */
 void t32_hw_msca_stop_end(int ch)
 {
-	t32_msca_fifo_clear(ch);
+	if (t32_msca_regs_live())
+		t32_msca_fifo_clear(ch);
 }
 
 void t32_hw_msca_start(int ch, u32 w, u32 h, u32 stride, u32 in_w, u32 in_h)

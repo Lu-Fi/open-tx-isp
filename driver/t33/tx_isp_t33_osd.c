@@ -153,6 +153,8 @@ static u8 *attr_get_size(u32 w, u32 h)
 	const u8 *bin, *sec = NULL;
 	u32 bytes, off, len;
 	u8 par[20] = { 0 };
+	u8 *la[1] = { NULL }, *li[1] = { NULL };
+	unsigned long fl;
 
 	if (stMscaAttr[0] && attr_w == w && attr_h == h)
 		return stMscaAttr[0];
@@ -172,11 +174,23 @@ static u8 *attr_get_size(u32 w, u32 h)
 	par[17] = (u8)(w >> 8);
 	par[18] = (u8)h;
 	par[19] = (u8)(h >> 8);
-	if (t33_msca_t33_init(0, par, stMscaAttr, msca_info, &MscaOsdInfo, tparamsP, t33_st_isp_init_par_mode[226],
+	/*
+	 * #658 a: init into local tables and publish both pointers together under t33_attr_lock.  The vendor runs
+	 * tisp_msca_t33_init at lib_tisp_init before any channel exists; here the first tuning call or stream-on
+	 * can race a channel enable (t33_msca_chx_start reads msca_info[0] word 0, the parameter pointer), so the
+	 * channel side must never see a half-filled block (PREEMPT kernel, GFP_KERNEL allocation in between).
+	 */
+	if (t33_msca_t33_init(0, par, la, li, &MscaOsdInfo, tparamsP, t33_st_isp_init_par_mode[226],
 			      mscaCfgMode, (void *)msca_reg_init_none, (void *)msca_frame_irq_none)) {
+		kfree(la[0]);
+		kfree(li[0]);
 		attr_free();
 		return NULL;
 	}
+	spin_lock_irqsave(&t33_attr_lock, fl);
+	stMscaAttr[0] = la[0];
+	msca_info[0] = li[0];
+	spin_unlock_irqrestore(&t33_attr_lock, fl);
 	attr_w = (u16)w;
 	attr_h = (u16)h;
 	return stMscaAttr[0];

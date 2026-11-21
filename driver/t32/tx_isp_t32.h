@@ -70,7 +70,7 @@ void t32_hw_msca_stop(int ch);
 void t32_hw_msca_stop_begin(int ch);	/* stream-off under the frame-channel lock (#650, #652) */
 int t32_hw_msca_stop_wait(int ch);	/* vendor work-state wait, no lock held */
 void t32_hw_msca_stop_end(int ch);	/* address fifo clear, lock held */
-extern u32 t33_msca_soff_waits, t33_msca_soff_timeouts, t33_msca_soff_last_ms;
+extern u32 t33_msca_soff_waits, t33_msca_soff_timeouts, t33_msca_soff_last_ms, t33_msca_soff_gated;
 int t32_hw_msca_pop_done(int ch, u32 *y, u32 *uv);
 
 u32 t32_hw_rd(u32 off);
