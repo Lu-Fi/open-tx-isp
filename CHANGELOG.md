@@ -4,6 +4,15 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD[-rcN]` are set on the `aperto` branch, the same tag in open-tx-isp and OpenIMP: RC1 `v2026.10.11-rc1`, RC2 `v2026.10.25-rc2`, RC3 `v2026.11.07-rc3` (2026-11-07). Gate SoCs of RC3 and Release 1: T10, T20, T21, T23, T30, T31, T40, T41 (T32/T33 planned, QEMU only); release notes: [docs/releases/ in OpenIMP](https://github.com/Lu-Fi/openimp/blob/next/docs/releases/README.md). Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-11-21: T32 real-body proof audit of the oracle references (openimp #645; host, no driver change)
+
+- New `tests/t32_oracle/real_audit.py` (`make -C tests t32_real_audit`, info only), the T32 counterpart of the T33 proof_audit. A REFS function counts as proven only when an oracle that calls it also drives a driver/t32 function with a real body (header closure of the oracle, at least 4 effective lines through header callees, T32 build: the `TX_ISP_T33` branches are dropped).
+- Result of the 1574 distinct names behind the "1591": 1281 proven, 7 weak (`isp_info_*` print helpers), 158 named-only and 128 callee-only (compared through their caller).
+- `--stubs` lists the T32-build glue entry points `t32_tx_os_*` with a constant or store-only body: 20 of 79.
+  - BCSH / sharpness / fps setters (openimp #716; sharpness #711).
+  - Glue that stores although a real port exists, partly oracle-proven: LSC hvflip, module control, line space, hv_flip, gamma, WDR output mode, autozoom (openimp #717).
+  - switch_bin / bin path / wait-for-completion, deliberately unserved (#289).
+
 ## 2026-11-21: T31 fixed-point helpers bit-exact to the vendor over the full input range (openimp #710; host oracle)
 
 - `fix_point_mult2_32`, `fix_point_mult3_32`, `fix_point_div_32` (`driver/t31/include/tx_isp_fixpt.h`) and `tisp_math_exp2` (`tx_isp_core.c`) now use `driver/t31/tx_isp_t31_fixvendor.h`. That header holds bit-exact C of the vendor tx-isp-t31.ko 0x11014 / 0x11058 / 0x11084 / 0x107d0.
