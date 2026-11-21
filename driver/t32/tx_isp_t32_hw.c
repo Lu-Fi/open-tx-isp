@@ -2276,6 +2276,12 @@ static void t33_vic_hold_tick(u32 sta)
 	}
 }
 
+/* #659: the sensor flip mode the last SetHVFLIP applied (bit 0 mirror, bit 1 flip) */
+u32 t33_hw_flip_mode(void)
+{
+	return t33_flip_st.mode;
+}
+
 static void t33_flip_work(struct work_struct *w)
 {
 	unsigned long fl;
@@ -2795,6 +2801,23 @@ static int t33_clm_seg_last = -1;
 static u8 t33_clm_seg_b;
 static int t33_ct_last[2];	/* tisp_ct_update: the vendor's ct_last of channel 0 */
 static DEFINE_MUTEX(t33_gr_lock);
+
+/*
+ * #659: lib_tisp_g_blc -> tisp_blc_api_get_blc (vendor 0x4cca0): -1 without blc_para[ch], else the 12 bytes at
+ * blc_para[ch] +0x10 (the ap block: u16 flag, five u16 levels R / GR / GB / B / IR).
+ */
+int t33_hw_info_gib(u16 *lv)
+{
+	int r = -1;
+
+	mutex_lock(&t33_gr_lock);
+	if (blc_para[0] && blc_para[0]->ap) {
+		memcpy(lv, blc_para[0]->ap, 12);
+		r = 0;
+	}
+	mutex_unlock(&t33_gr_lock);
+	return r;
+}
 static u32 *t33_gr_tmp;
 u32 t33_gr_runs[T33_MODULES];
 

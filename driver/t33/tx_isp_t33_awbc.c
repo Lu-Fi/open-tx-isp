@@ -425,6 +425,19 @@ out:
 	mutex_unlock(&awbc_lock);
 }
 
+/* #659: lib_tisp_api_get_awb_static_error_cunt (awbInfo[ch] word 5, vendor +0x14) */
+u32 t33_awbc_stat_err(void)
+{
+	const u32 *info;
+	u32 v;
+
+	mutex_lock(&awbc_lock);
+	info = (const u32 *)(unsigned long)awbInfo[0];
+	v = info ? info[T33_AWBV_DROPS] : 0;
+	mutex_unlock(&awbc_lock);
+	return v;
+}
+
 void t33_awbc_show(struct seq_file *m)
 {
 	const u32 *info;

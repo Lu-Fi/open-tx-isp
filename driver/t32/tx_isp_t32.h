@@ -315,6 +315,14 @@ int t33_aec_malloc_info(u32 *list, unsigned long stat, unsigned long hist);	/* t
 void t33_aec_switch_sec(const u8 *sec, u32 len);	/* bin switch: the new AE section */
 int t33_aec_dn_par_refresh(u32 ch);			/* normal_ae_dn_par_refresh */
 void t33_aec_show(struct seq_file *m);
+void t33_aec_stat_err(u32 *zone, u32 *hist);		/* #659 */
+u32 t33_awbc_stat_err(void);				/* #659 */
+void t33_info_ae_awb(struct seq_file *m, u32 ch);	/* #659: tx_isp_t32_tunblk.c */
+const u8 *t33_info_tuning(void);			/* #659 */
+int t33_hw_info_gib(u16 *lv);				/* #659: tx_isp_t32_hw.c, 6 x u16 (vendor lib_tisp_g_blc) */
+u32 t33_hw_flip_mode(void);				/* #659 */
+u32 t32_fs_frames(int ch);				/* #659: tx_isp_t32_fs.c */
+int t33_aec_api_i9j(u32 ch, u32 which, void *buf);	/* tx_isp_t33_aec.c */
 bool t33_evq_queue(struct work_struct *w);	/* the vendor's tisp event thread: one ordered queue */
 void t33_evq_get(void);
 void t33_tgain_refresh(u32 gain);	/* tx_isp_t32_hw.c: event 4 block refreshes */

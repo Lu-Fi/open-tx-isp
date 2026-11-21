@@ -582,6 +582,12 @@ void t32_fs_snap_pause(int restart)
 	}
 }
 
+/* #659: frames done per channel (the "ISP debug CHn Done" lines of the ISP INFO block) */
+u32 t32_fs_frames(int ch)
+{
+	return ch >= 0 && ch < T32_MSCA_CHANNELS ? fchan[ch].frames : 0;
+}
+
 void t32_fs_stop_all(void)
 {
 	int c;

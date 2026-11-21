@@ -32,6 +32,7 @@
 
 #include "tx_isp_t32.h"
 #include "tx_isp_t32_abi.h"
+#include "tx_isp_t32_abi_attr.h"
 #include "tx_isp_t32_regs.h"
 #ifdef TX_ISP_T33
 #include "tx_isp_t33_clkp.h"
@@ -1652,6 +1653,124 @@ static struct miscdevice t32_ivdc_misc = {
 
 extern struct proc_dir_entry *jz_proc_mkdir(char *s);
 
+#ifdef TX_ISP_T33
+/*
+ * openimp #659: the vendor "ISP INFO" block of /proc/jz/isp/isp-m0 (vendor tx-isp-t33.ko isp_info_show 0xfc8b4
+ * with its default item word 0xfffffff7: isp_info_system 0xfbf24, isp_info_sensor 0xfb4e4, isp_info_base 0xfbb6c,
+ * isp_info_ae / _awb (tx_isp_t32_tunblk.c), isp_info_gib 0xfab68, then the debug parameters), labels, order
+ * and units as the vendor prints them, after the driver status text.  Values come from the driver state and
+ * the getters the tuning API answers from.  Not printed: "ISP Cache Line" (the vendor prints it only with a
+ * cache line set), the antiflicker step list (tisp_get_antiflicker_step: no open state) and "ISP OSD DEBUG"
+ * (printed by the vendor only when non-zero).  The vendor's debug counters (chans done / dq / buff, S0 / S1
+ * channel state) count only in its debug mode and print 0, as here; "msca done S0" and "ISP debug CHn Done"
+ * are the frame counts.  "ISP Memopt" is this driver's isp_memopt parameter (MDNS ratio in 1/1000); the
+ * vendor prints its own memopt word (0x5 on the T33L).
+ */
+static const char *t33_info_bayer(u32 code)
+{
+	static const char *const bayer[4] = { "BGGR", "GBRG", "GRBG", "RGGB" };
+
+	if (code >= 0x5200 && code <= 0x520b)
+		return bayer[(code - 0x5200) & 3];
+	return "The format of isp input is RGB or others!";
+}
+
+static void t33_info_show(struct seq_file *m)
+{
+	struct t32_vi *vi = &core.vi[0];
+	const u8 *vin = vi->registered && vi->sd ? (const u8 *)vi->sd + T32_SENSOR_VIDEO : NULL;
+	const u8 *attr = vin ? *(const u8 *const *)(vin + T32_VIDEO_ATTR) : NULL;
+	const u8 *sinfo = vin ? *(const u8 *const *)(vin + T32_VIDEO_INFO) : NULL;
+	const char *name = attr ? *(const char *const *)attr : NULL;
+	const u8 *tun;
+	u32 fps, vts, af[4] = { 0 }, i, fm;
+	u16 blc[6];
+
+	seq_printf(m, "********************* ISP INFO Start *********************\n");
+	seq_printf(m, "**************** ISP Info ****************\n");
+	seq_printf(m, "Software Version : %s\n", "open-tx-isp");
+	seq_printf(m, "ISP Memopt: 0x%08x\n", isp_memopt);
+	seq_printf(m, "Sensor Number : %d\n", vi->registered ? 1 : 0);
+	if (vi->registered)
+		seq_printf(m, "Sensor%d Name : %s\n", 0, vi->info.name);
+	seq_printf(m, "**************** ISP( %d ) ****************\n", 0);
+	if (!vi->streaming || !vin) {
+		seq_printf(m, "This ISP( %d ) Don't Wrok\n", 0);	/* vendor text */
+		goto params;
+	}
+	fps = *(const u32 *)(vin + T32_VIDEO_FPS);
+	vts = attr ? *(const u16 *)(attr + T32_ATTR_TOTAL_HEIGHT) : 0;
+	seq_printf(m, "********* Sensor Info *********\n");
+	seq_printf(m, "Sensor Name : %s\n", name ? name : vi->info.name);
+	seq_printf(m, "Sensor OUTPUT Width : %d\n", *(const u32 *)(vin + T32_VIDEO_MBUS_WIDTH));
+	seq_printf(m, "Sensor OUTPUT Height : %d\n", *(const u32 *)(vin + T32_VIDEO_MBUS_HEIGHT));
+	seq_printf(m, "Sensor OUTPUT FPS : %d / %d\n", fps >> 16, fps & 0xffff);
+	seq_printf(m, "Sensor OUTPUT Bayer : %s\n", t33_info_bayer(*(const u32 *)(vin + T32_VIDEO_MBUS_CODE)));
+	seq_printf(m, "Sensor DFBOOT : %d\n", sinfo ? *(const u32 *)(sinfo + 0x68) : 0);
+	seq_printf(m, "Sensor HTS : %d\n", attr ? *(const u16 *)(attr + T32_ATTR_TOTAL_WIDTH) : 0);
+	seq_printf(m, "Sensor VTS : %d\n", vts);
+	/* vendor: (1000000 / num * den) / VTS, no zero check; here 0 for a zero rate or VTS */
+	seq_printf(m, "Sensor one line expo time : %dus\n",
+		   (fps >> 16) && vts ? (1000000 / (fps >> 16)) * (fps & 0xffff) / vts : 0);
+	seq_printf(m, "Expo Fs : %d\n", attr ? *(const u32 *)(attr + 0x100) : 0);
+
+	seq_printf(m, "**************** Base Info ****************\n");
+	seq_printf(m, "ISP Runing Mode : %s\n", core.bin_night[0] == 0 ? "day" : core.bin_night[0] == 1 ? "night" : "custom");
+	tun = t33_info_tuning();
+	seq_printf(m, "Saturation : %d\n", tun ? tun[0] : 0);
+	seq_printf(m, "Sharpness : %d\n", tun ? tun[8] : 0);
+	seq_printf(m, "Contrast : %d\n", tun ? tun[4] : 0);
+	seq_printf(m, "Brightness : %d\n", tun ? tun[12] : 0);
+	seq_printf(m, "Hue : %d\n", tun ? tun[16] : 0);
+	seq_printf(m, "Wdr En : %d\n", core.bin_wdr[0]);
+	seq_printf(m, "Bypass : %d\n", 0);
+	fm = t33_hw_flip_mode();
+	for (i = 0; i < 3; i++)	/* vendor: the flip state of the same ISP three times */
+		seq_printf(m, "ISP FLIP MODE CH%d : %s\n", i,
+			   (fm & 3) == 3 ? "mirror and flip" : (fm & 1) ? "mirror" : (fm & 2) ? "flip" : "nomal");
+	t33_aec_api_i9j(0, 1, af);	/* tisp_g_antiflick: mode, frequency */
+	seq_printf(m, "Antiflicker : %s freq: %d\n", af[0] == 0 ? "disable" : af[0] == 2 ? "auto" : "normal",
+		   af[0] ? af[1] : 0);
+	for (i = 0; i < 3; i++)
+		seq_printf(m, "ISP debug CH%d Done: %d\n", i, t32_fs_frames(i));
+
+	t33_info_ae_awb(m, 0);
+
+	seq_printf(m, "********* GIB Info *********\n");
+	memset(blc, 0, sizeof(blc));
+	t33_hw_info_gib(blc);
+	seq_printf(m, "GIB R  : %d\n", blc[1]);
+	seq_printf(m, "GIB GR : %d\n", blc[2]);
+	seq_printf(m, "GIB GB : %d\n", blc[3]);
+	seq_printf(m, "GIB B  : %d\n", blc[4]);
+	seq_printf(m, "GIB IR : %d\n", blc[5]);
+params:
+	seq_printf(m, "********* Debug Parameters *********\n");
+	seq_printf(m, "Vinum:%d\n", 0);
+	seq_printf(m, "Debug Type:%d\n", 0);
+	seq_printf(m, "Items:0x%08x\n", 0xfffffff7);
+	seq_printf(m, "Interval:%d\n", 0);
+	{
+		static const char *const rows[5] = { "chans done cnt", "chans dq cnt", "chans buff cfg",
+						     "chans buff cnt", "chans buff null cnt" };
+		u32 r;
+
+		for (r = 0; r < 5; r++) {
+			seq_printf(m, "%s%s\n", r ? "\n" : "", rows[r]);
+			for (i = 0; i < 12; i++)
+				seq_printf(m, "%d ", 0);
+		}
+		seq_printf(m, "\nmsca done:S0, S1, S2, S3\n%d %d %d %d ", t32_hw_stats.frame_ends, 0, 0, 0);
+		for (r = 0; r < 2; r++) {
+			seq_printf(m, "\nS%d:en, c0y, c1y, c2y, c0uv, c1uv, c2uv\n", r);
+			for (i = 0; i < 7; i++)
+				seq_printf(m, "%d ", 0);
+		}
+	}
+	seq_printf(m, "\n********************* ISP INFO End *********************\n");
+}
+#endif
+
 static int t32_proc_show(struct seq_file *m, void *v)
 {
 	struct t32_vi *vi = &core.vi[0];
@@ -1731,6 +1850,9 @@ static int t32_proc_show(struct seq_file *m, void *v)
 	t32_fs_show(m);
 	t32_snapldc_show(m);
 	t32_ivdc_show(m);
+#ifdef TX_ISP_T33
+	t33_info_show(m);	/* #659 */
+#endif
 	return 0;
 }
 

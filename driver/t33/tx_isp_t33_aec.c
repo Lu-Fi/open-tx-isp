@@ -810,6 +810,15 @@ int t33_aec_api_i9j(u32 ch, u32 which, void *buf)
 	return r;
 }
 
+/* #659: lib_tisp_api_get_ae_static_error_cunt (stAeInfo +0x4de0 / +0x4de4): the statistics tag error counts */
+void t33_aec_stat_err(u32 *zone, u32 *hist)
+{
+	mutex_lock(&aec_lock);
+	*zone = front.zbad;
+	*hist = front.hbad;
+	mutex_unlock(&aec_lock);
+}
+
 void t33_aec_show(struct seq_file *m)
 {
 	mutex_lock(&aec_lock);

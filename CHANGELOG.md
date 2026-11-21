@@ -12,6 +12,12 @@ marked otherwise. Release tags `vYYYY.MM.DD[-rcN]` are set on the `aperto` branc
 - d) RAW snapshot pause / restart (`t32_fs_snap_pause`) uses the vendor stream-off order (stop, work-state wait without the lock, fifo clear), as the frame-channel stream-off does since #650 / #652.
 - e) Y-before-UV done read: note only (vendor order, uv unused).
 - QEMU T33 (audit/issue658/q33): 3 snapshot pause / restart cycles: soff 6, timeout 0, frames 1195 -> 1249 -> 1340 (flowing after the restarts); streamer ended by SIGTERM: `gated 1`, 0 oops.
+## 2026-11-21: T33 isp-m0 node prints the vendor ISP INFO block (openimp #659)
+
+- `/proc/jz/isp/isp-m0` of tx-isp-t33 now ends with the vendor "ISP INFO" block (vendor tx-isp-t33.ko `isp_info_show` with its default items 0xfffffff7: system, sensor, base, Ae, AWB, GIB, debug parameters): same labels, order and units, values from the driver state and the getters the tuning API answers from (`AeAGain` / `AeIspDGain` x1024, `AeIntegrationTime` in lines, `ExposureValue`, `ISP Runing Mode` day / night from the last SET_TIZIANO_PAR). The driver status text above it is unchanged (its `t33 ae: ... again` stays the sensor gain register code).
+- T33-specific vs the T32 printer: no `AeShort*` / `TotalGainDbShort` / `GIB Short` lines; `AeStaticErrCnt` / `AeHistErrCnt` (AE statistics tag errors) and `AWBStaticErrCnt` (awbInfo word 5).
+- Not printed: `ISP Cache Line` (vendor: only with a cache line set), the antiflicker step list (no open state), `ISP OSD DEBUG` (vendor: only when non-zero). `ISP Memopt` is this driver's parameter (vendor: its own word).
+- QEMU T33 (audit/issue659/q33): block complete while streaming, AeIntegrationTime 1176, AeAGain 1024, AeMaxAGain 32768, 0 oops.
 
 ## 2026-11-21: T40 / T41 / T23 AE back to auto on a fresh ISP start (openimp #749, beyond vendor)
 
