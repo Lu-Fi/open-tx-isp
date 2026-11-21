@@ -2148,8 +2148,11 @@ static noinline_for_stack void t33_tisp_init_mdns(const u8 *bin, u32 bytes)
 		return;
 	t33_mdns_mem(width, height, r < 1001 ? r : r / 100 * 100, pa, t33_mdns_v, buf, &d080);
 	isp_wr(0xd080, d080);
-	if (t33_mod_built & (1ULL << T33_MOD_YSP))
+	tisp_rcfg_module_cfg_trig(0, 15);	/* tisp_mdns_t33_set_mem_cfg ends with trig(0, 15) (0x8b6f0, #755) */
+	if (t33_mod_built & (1ULL << T33_MOD_YSP)) {
 		t33_mdns_decode(t33_ysp_v, buf);
+		t33_bst_refresh_mdns = 1;	/* tisp_mdns_decode_reg_write: tispMdnsRefresh = 1 (0x97dd4 / 0x97e0c, #755) */
+	}
 }
 
 /*

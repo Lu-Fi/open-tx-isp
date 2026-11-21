@@ -4,6 +4,12 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD[-rcN]` are set on the `aperto` branch, the same tag in open-tx-isp and OpenIMP: RC1 `v2026.10.11-rc1`, RC2 `v2026.10.25-rc2`, RC3 `v2026.11.07-rc3` (2026-11-07). Gate SoCs of RC3 and Release 1: T10, T20, T21, T23, T30, T31, T40, T41 (T32/T33 planned, QEMU only); release notes: [docs/releases/ in OpenIMP](https://github.com/Lu-Fi/openimp/blob/next/docs/releases/README.md). Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-11-21: T33 MDNS list 15 at stream-on as the vendor (openimp #755)
+
+- `t33_tisp_init_mdns` (driver/t32/tx_isp_t32_hw.c): after the memory set-up, list 15 is started once (vendor `tisp_mdns_t33_set_mem_cfg` ends with `tisp_rcfg_module_cfg_trig(0, 15)`, tx-isp-t33.ko 0x8b6f0), and the decode words set `tispMdnsRefresh` (vendor `tisp_mdns_decode_reg_write` 0x97dd4 / 0x97e0c).
+- QEMU T33 (/proc/tisp per frame + rcfg trace, audit/issue755): the stream-on list order now equals the vendor's (`15` before the all-lists start); MDNS runs 22 -> 23 of the vendor's 25 at 300 frames. Remaining gap: the vendor's CSCCR frame-done day path (`tisp_csccr_t33_frame_done_interrupt` 0xdd688: `tisp_csccr_set_day`, `tisp_mdns_dn_params_api`) runs lists 22 / 15 once more at frames 2-3; not ported yet. The vendor's init `trig(0, 22)` (lib_tisp_init 0x26014) was tried and dropped: on the T33L at night it left the picture in colour (Y 135 instead of the mono 42), so our CSCCR list state at init differs from the vendor's.
+- T33L (RAM-only insmod, direct_mode=1): snapshot 200, night picture equal to origin/next (Y 41.9 vs 42.1).
+
 ## 2026-11-21: T30 init/boot trace prints demoted to pr_debug (openimp #757; host)
 
 - `driver/t30/tx_isp_t30_recovered.c`: ~115 progress/trace `pr_err("tx-isp-t30 ...")` lines (fw-init, isp-init, apical-init, set-input, sync, notify, core/NCU stream, and per-frame IRQ traces) are now `pr_debug`. On a UART console each line costs several ms; the vendor ko prints none of them. Real error messages stay `pr_err`. No sleeps changed: the vendor-ko sleep sites (msleep in csi init, stream on/off, reset; usleep_range in the sequence player and sensor interface) are all equal in ours. Device timing: see the issue.
