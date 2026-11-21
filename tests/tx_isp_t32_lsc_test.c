@@ -96,12 +96,57 @@ static void synthetic(void)
 	      w[2] == 0xfe);
 }
 
+/*
+ * openimp #728 (beyond vendor): the sensor orientation sequence 1 (mirror), 2 (flip), 3 (both), 0 through
+ * t32_lsc_mf_delta leaves the tables exactly as one exchange of the current orientation from the original (the
+ * vendor's in-place toggles would leave 1 -> 2 mirrored and flipped), and the ring centre follows mirror / flip
+ * (ox' = -ox - (w - 1), oy' = -oy - (h - 1)) and returns to the bin's value.
+ */
+static void mf_check(void)
+{
+	static u8 tab[T32_LSC_TABLE_STRIDE * 3], org[sizeof(tab)], ref[sizeof(tab)], sec[120];
+	static const u32 seq[][2] = { { 0, 1 }, { 1, 0 }, { 1, 1 }, { 0, 0 }, { 1, 0 }, { 1, 0 }, { 0, 1 } };
+	u8 st[12] = { 0 }, mf = 0;
+	u32 i, df, dm, rows = 6, cols = 8, x, y;
+
+	for (i = 0; i < sizeof(tab); i++)
+		tab[i] = (u8)(i * 7 + (i >> 8));
+	memcpy(org, tab, sizeof(tab));
+	sec[16] = 0x31; sec[17] = 0xfd; sec[18] = 0xff; sec[19] = 0xff;	/* oy -719 */
+	sec[20] = 0x01; sec[21] = 0xfb; sec[22] = 0xff; sec[23] = 0xff;	/* ox -1279 */
+	for (i = 0; i < sizeof(seq) / sizeof(seq[0]); i++) {
+		t32_lsc_mf_delta(&mf, seq[i][0], seq[i][1], &df, &dm);
+		if (df)
+			t32_lsc_mesh_flip(tab, rows, cols, 3, 1, 0, st, &t32_lsc_xops_default);
+		if (dm)
+			t32_lsc_mesh_flip(tab, rows, cols, 3, 0, 1, st, &t32_lsc_xops_default);
+		t32_lsc_ring_centre(sec, 2560, 1440, df, dm);
+		memcpy(ref, org, sizeof(ref));
+		if (seq[i][0])
+			t32_lsc_mesh_flip(ref, rows, cols, 3, 1, 0, st, &t32_lsc_xops_default);
+		if (seq[i][1])
+			t32_lsc_mesh_flip(ref, rows, cols, 3, 0, 1, st, &t32_lsc_xops_default);
+		CHECK(memcmp(tab, ref, sizeof(tab)) == 0);
+		CHECK(mf == (seq[i][0] | seq[i][1] << 1));
+		y = (u32)-(int)t32_le32(sec + 16);
+		x = (u32)-(int)t32_le32(sec + 20);
+		CHECK(y == (seq[i][0] ? 1439u - 719u : 719u));
+		CHECK(x == (seq[i][1] ? 2559u - 1279u : 1279u));
+	}
+	/* the same flip twice: nothing to exchange the second time */
+	t32_lsc_mf_delta(&mf, 1, 0, &df, &dm);
+	t32_lsc_mf_delta(&mf, 1, 0, &df, &dm);
+	CHECK(df == 0 && dm == 0);
+	printf("  #728 orientation delta / ring centre: %s\n", bad ? "FAIL" : "ok");
+}
+
 int main(void)
 {
 	long blen = 0, rlen = 0;
 	unsigned char *bin = load(getenv("T32_IQ_BIN"), &blen), *ref = load(getenv("T32_RCFG_REF"), &rlen);
 
 	synthetic();
+	mf_check();
 	if (bin && ref) {
 		static u32 words[4096], scratch[T32_LSC_WORDS], want[4096];
 		const u8 *p = t32_lsc_block(bin, blen);

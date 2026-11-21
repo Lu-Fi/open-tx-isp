@@ -24,9 +24,12 @@ void bo_tisp_lsc_mirror_flip(u32 ch, u32 a1, u32 a2, u32 flip, u32 mirror)
 {
 	u8 *tab = (u8 *)(uintptr_t)t33_lscmf_ld32(stLutInfo[ch] + 0x14);
 	const u8 *cnt;
+	u32 df, dm;
+	u8 mf = 0;			/* fresh tables: the #728 delta equals the vendor's 0 / 1 arguments */
 
 	(void)a1; (void)a2;
-	t33_lsc_mirror_flip(ch, lsc_para[ch], tab, flip, mirror, &ops);
+	t33_lsc_mf_delta(&mf, flip, mirror, &df, &dm);
+	t33_lsc_mirror_flip(ch, lsc_para[ch], tab, df, dm, &ops);
 	cnt = (const u8 *)(uintptr_t)lsc_para[ch][3];
 	isp_printf(0, "\n  [func is %s, line is %d] lsc filp times is %d, mirror times is %d\n", "tisp_lsc_mirror_flip",
 		   0x5c0, cnt[8], cnt[9]);

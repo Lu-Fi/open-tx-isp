@@ -2554,8 +2554,9 @@ void t33_stats_show(struct seq_file *m)
 #endif
 	seq_printf(m, "t33 blc: %s init %u gain %u switch %u fd %u refresh %u\n", blc_para[0] ? "on" : "off",
 		   t33_blc_runs[0], t33_blc_runs[1], t33_blc_runs[2], t33_blc_runs[3], t33_blc_refresh);
-	seq_printf(m, "t33 lsc: %s init %u switch %u fd %u refresh %u count %u mirror_flip %u\n", lsc_para[0] ? "on" : "off",
-		   t33_lsc_runs[0], t33_lsc_runs[1], t33_lsc_runs[2], t33_lsc_refresh, t33_lsc_count[0], t33_lsc_flips);
+	seq_printf(m, "t33 lsc: %s init %u switch %u fd %u refresh %u count %u mirror_flip %u mf %u\n",
+		   lsc_para[0] ? "on" : "off", t33_lsc_runs[0], t33_lsc_runs[1], t33_lsc_runs[2], t33_lsc_refresh,
+		   t33_lsc_count[0], t33_lsc_flips, t33_lsc_mf);
 	seq_printf(m, "t33 ccm: %s init %u ct %u ev %u switch %u fd %u refresh %u api %u\n", ccm_para[0] ? "on" : "off",
 		   t33_ccm_runs[0], t33_ccm_runs[1], t33_ccm_runs[2], t33_ccm_runs[3], t33_ccm_runs[4], tispCcmRefresh,
 		   t33_g14d_ccm_api);
@@ -4132,16 +4133,23 @@ static int tisp_lsc_write_reg(u32 idx, u32 mode)
  */
 static const struct t33_lscmf_ops t33_lscmf_ops = { tisp_lsc_interp_by_ct, func_lsc_para_update, tisp_lsc_write_reg };
 
+/*
+ * Beyond vendor (openimp #728): only the change against the orientation the live CT tables carry (t33_lsc_mf,
+ * tx_isp_t33_bst.h; 0 whenever a bin load / switch installs a fresh copy) is exchanged (t33_lsc_mf_delta).
+ */
+
 
 int t33_lsc_hvflip(u32 ch, u32 flip, u32 mirror)
 {
 	unsigned long flags;
 	const u8 *cnt;
+	u32 df, dm;
 
 	if ((ch & 3) || !lsc_para[0] || !t33_lsc_tab)
 		return 0;
 	local_irq_save(flags);
-	t33_lsc_mirror_flip(ch, lsc_para[0], (u8 *)t33_lsc_tab, flip, mirror, &t33_lscmf_ops);
+	t33_lsc_mf_delta(&t33_lsc_mf, flip, mirror, &df, &dm);
+	t33_lsc_mirror_flip(ch, lsc_para[0], (u8 *)t33_lsc_tab, df, dm, &t33_lscmf_ops);
 	local_irq_restore(flags);
 	t33_lsc_flips++;
 	cnt = (const u8 *)(unsigned long)lsc_para[0][3];
@@ -4254,6 +4262,7 @@ static noinline_for_stack void t33_sw_tone(const u8 *bin, u32 bytes, u32 width, 
 			local_irq_save(flags);
 			memcpy(t33_lsc_sec, sec, sizeof(t33_lsc_sec));	/* the bin parse into tparamsP */
 			t33_lsc_tab = tab;
+			t33_lsc_mf = 0;		/* fresh tables (#728) */
 			t33_swg_tp8[0] = t33_lsc_sec - T33_TP_OFF_LSC;
 			t33_lsc_switch_para(0, t33_swg_tp8, lsc_para);
 			local_irq_restore(flags);
