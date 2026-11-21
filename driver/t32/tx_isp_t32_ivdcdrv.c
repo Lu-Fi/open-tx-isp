@@ -116,6 +116,11 @@ MODULE_PARM_DESC(ivdc_mem_stride, "ivdc mem stride");
 module_param(ivdc_threshold_line, uint, 0444);
 MODULE_PARM_DESC(ivdc_threshold_line, "ivdc threshold line");
 
+/* not vendor (#756): test hook, the next N IVDC soft-reset waits time out (1 s each) */
+module_param_named(ivdc_test_reset_timeouts, iv.force_timeouts, uint, 0644);
+MODULE_PARM_DESC(ivdc_test_reset_timeouts, "test: the next N IVDC reset waits time out (2: the stream on fails with -110)");
+static u32 ivdc_start_errors;		/* not vendor (#756): stream-ons failed with -110 */
+
 static int ivdc_irq = 8 + T32_IRQ_IVDC;
 module_param(ivdc_irq, int, 0444);
 MODULE_PARM_DESC(ivdc_irq, "Linux IRQ of the IVDC (INTC 57)");
@@ -256,17 +261,32 @@ long t32_ivdc_misc_ioctl(unsigned int cmd, unsigned long arg)
 }
 
 /* ISP stream on / off: the IVDC core start (mode word) / stop */
-void t32_ivdc_stream(int on)
+int t32_ivdc_stream(int on)
 {
 	u32 o = on;
+	int r;
 
 	if (!ivdc_base)
-		return;
+		return 0;
 	if (on)
 		iv.d98b4 = 1;	/* ivdc_activate_module: the clocks run (core.c) */
 	IVT("stream %d core_ops_init mode %u started %u", on, iv.mode, iv.started_mode);
-	t32_ivdc_core_ops_init(&iv, ivdc_sd, &o);
+	r = t32_ivdc_core_ops_init(&iv, ivdc_sd, &o);
+	if (r == -T32_IVDC_ETIMEDOUT && on) {
+		/*
+		 * Not vendor (#756, user decision 2026-11-21): the IVDC soft reset
+		 * did not complete (1 s, CPM reset, 1 s again).  The stream-on fails
+		 * with -110 instead of a thread spinning in the kernel; the next
+		 * start pulses the CPM reset first (started mode 0 = a mode change).
+		 */
+		iv.started_mode = 0;
+		ivdc_start_errors++;
+		isp_printf(2, "tx-isp-t32: IVDC reset timeout, stream on fails with -110 (%u)\n", ivdc_start_errors);
+	} else {
+		r = 0;		/* the vendor's other return values are not errors */
+	}
 	IVT("stream %d core_ops_init done reg0 %08x 5c %08x", on, readl(ivdc_base), readl(ivdc_base + 0x5c));
+	return r;
 }
 
 /* frame channel 0 in direct mode: pad events 2 (116-byte format), 7, 3, 4 */
@@ -307,6 +327,7 @@ void t32_ivdc_show(struct seq_file *m)
 {
 	seq_printf(m, "ivdc: direct_mode %u mem_line %u stride %u paddr %#x streams %u frames %u misses %u\n",
 		   iv.mode, ivm.line, ivm.stride, ivm.paddr, ivdc_streams, ivdc_frames, ivdc_misses);
+	seq_printf(m, "ivdc: reset timeouts %u start errors %u\n", iv.timeouts, ivdc_start_errors);
 }
 
 int t32_ivdc_init(void)
