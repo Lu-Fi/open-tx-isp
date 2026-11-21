@@ -481,6 +481,31 @@ int main(void)
 		bad += h.exposure_log2 != 638110;
 		printf("  curve flip guard: %s\n", bad == b0 ? "ok" : "BAD");
 	}
+	{
+		/*
+		 * openimp #713: noisecurve pin (SetMaxAgain ceiling G, IT = E / G) on jxh42.  The OEM
+		 * cmos_analog_gain_update (tx-isp-t10.ko 0x1e9a4: target - 0x1000) and the ceiling cap of
+		 * cmos_alloc_sensor_analog_gain (0x1d8e8..0x1d8f8: item 29 << 11) give exactly G only
+		 * when the AE target total - IT is >= 1/16 stop above G; a target of exactly G lands one
+		 * table step under (3.75x / 15x, the compact-AE read-back of #713).  The vendor AE graph
+		 * (t20_simple_ae=0, default since #609) reads 2 / 4 / 8 / 16x in the box as the vendor.
+		 */
+		int b0 = bad;
+		int32_t prev;
+		unsigned int code;
+
+		prev = -1;
+		bad += t20_ae_again_alloc(131072 + 0x1000, 324678, 64, 1, &prev, jxh42_alloc, 16, &code) != 131072;
+		prev = -1;
+		bad += t20_ae_again_alloc(131072 + 0x3000, 324678, 64, 1, &prev, jxh42_alloc, 16, &code) != 131072;
+		prev = -1;
+		bad += t20_ae_again_alloc(131072, 324678, 64, 1, &prev, jxh42_alloc, 16, &code) != 124969;
+		prev = -1;
+		bad += t20_ae_again_alloc(262144 + 0x1000, 324678, 128, 1, &prev, jxh42_alloc, 16, &code) != 262144;
+		prev = -1;
+		bad += t20_ae_again_alloc(262144, 324678, 128, 1, &prev, jxh42_alloc, 16, &code) != 256041;
+		printf("  #713 noisecurve pin at the ceiling: %s\n", bad == b0 ? "ok" : "BAD");
+	}
 	printf("t20_ae_max_host_test: %s (%d bad)\n", bad ? "FAIL" : "PASS", bad);
 	return bad != 0;
 }

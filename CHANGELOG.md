@@ -4,6 +4,12 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD[-rcN]` are set on the `aperto` branch, the same tag in open-tx-isp and OpenIMP: RC1 `v2026.10.11-rc1`, RC2 `v2026.10.25-rc2`, RC3 `v2026.11.07-rc3` (2026-11-07). Gate SoCs of RC3 and Release 1: T10, T20, T21, T23, T30, T31, T40, T41 (T32/T33 planned, QEMU only); release notes: [docs/releases/ in OpenIMP](https://github.com/Lu-Fi/openimp/blob/next/docs/releases/README.md). Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-11-21: T10 analog gain one jxh42 step under the noisecurve pin: compact AE only, gone with the default vendor AE graph (openimp #713)
+
+- Cause: the gain path is vendor-equal (tx-isp-t10.ko `cmos_analog_gain_update` 0x1e998 target = cmos+472, 0x1e9a4 `addiu s1,s2,-4096` 1/16-stop reserve, 0x1e9a8/0x1e9ac floor at 0; `cmos_alloc_sensor_analog_gain` 0x1d8e8..0x1d8f8 cap at item 29 << 11; then the sensor table floor). The noisecurve pin (IT = E / G, ceiling G) gives exactly G only when the AE target is >= 1/16 stop above G; the compact AE (`t20_simple_ae=1`, the default until #609) sat below that (3.75x / 15x read-back, also one step under at "max": 15.0x vs 15.5x).
+- With the vendor AE graph (`t20_simple_ae=0`, default since #609 5fa382aef), the 2026-11-16 box run aeB 5000 K reads 2.000 / 4.000 / 8.000 / 16.000 / 15.322x like the vendor, temporal noise open <= vendor at every gain (g16 0.961 vs 0.978). No driver change.
+- Host test: `t20_ae_max_host_test` case "#713 noisecurve pin at the ceiling" (target G + 1/16 stop -> G, target G -> one table step under, 4x and 16x on the jxh42 table).
+
 ## 2026-11-21: T33 AF per-frame algorithm ported (openimp #437, slice 2)
 
 - `driver/t32/tx_isp_t33_afalgo.h`: vendor `tisp_af_alogrithm` (tx-isp-t33.ko 0x45a74): weighted filter sums of the AF statistics bank named by 0x1811c (24-byte block records, record tag +0 / +0x1520), the FV metrics into the AF section (+0x3c..+0x4c, read by GetAFMetricesInfo at +0x40 / +0x44), the FV ring and `fv_old`. Run from system irq 6 (`tisp_af_interrupt_static` -> event 15 -> `tisp_af_calc_process`) in a work item on the T33; `/proc/jz/isp/isp-m0` line `t33 af: runs ..`, `af / gsm` irqs / events counted.
