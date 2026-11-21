@@ -446,6 +446,7 @@ against a thingino T32 kernel 4.4.94 tree. Host tests:
 | `listen_timeout_ms` | 2000 | `LISTEN_BUF` wait limit |
 | `direct_mode` | 0 | 1 = frame channel 0 over the IVDC to the encoder (2..4 refused) |
 | `ivdc_mem_line`, `ivdc_mem_stride`, `ivdc_threshold_line` | 0, 3840, 0 | IVDC DDR ring lines (0: half the picture), ring stride (modes >= 2), threshold line (0: half) |
+| `ivdc_test_reset_timeouts` | 0 | test hook (writable): the next N IVDC soft-reset waits time out (1 s each; 2 = this start falls back without the direct mode, #756) |
 | `ivdc_irq` | 65 | Linux IRQ of the IVDC (INTC 57) |
 | `ivdc_trace` | 0 | debug: 1 prints every IVDC register write and step at KERN_EMERG (console), openimp #509 |
 | `lsc_ct` | 5000 | colour temperature for the LSC mesh at stream-on |

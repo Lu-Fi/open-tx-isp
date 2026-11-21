@@ -25,7 +25,8 @@
  * argument (the vendor source line) so the oracle can match the call sites.
  *
  * Vendor quirks kept: core_ops_init polls the busy bit 0 of register 0 with
- * 200 x udelay(1000) per poll and no limit; with the mode 0 it writes 1 to
+ * 200 x udelay(1000) per poll (beyond vendor, #756: at most 1 s, then one
+ * retry after a CPM reset pulse, then -110; the vendor has no limit); with the mode 0 it writes 1 to
  * register 0x5c and returns without changing the state; the printf of an
  * invalid subdev in core_ops_init passes no line.  The return values of
  * enable_irq / disable_irq are leftover registers in the vendor code.
@@ -82,6 +83,8 @@ struct t32_ivdc {
 	u32 flag[3];		/* t32_data_cf2dc .. cf2e4 */
 	u32 ioc_flag;		/* t32_data_d989c: 1 after ioctl 0x100000f, 0 after 0x100000e */
 	const struct t32_ivdc_os *os;
+	u32 force_timeouts;	/* not vendor (#756): test hook, the next N reset waits time out */
+	u32 timeouts;		/* not vendor (#756): reset waits that timed out */
 };
 
 static inline int t32_ivdc_valid(const u8 *p)
@@ -99,6 +102,41 @@ static inline volatile u32 *t32_ivdc_reg(const u8 *priv, u32 reg)
 	return (volatile u32 *)(T32_PTR(t32_g_rd32(priv, T32_IVDC_PRIV_REGS)) + reg);
 }
 
+/*
+ * Not vendor (openimp #756, user decision 2026-11-21): the vendor polls the
+ * soft-reset busy bit forever (200 x udelay(1000) a round).  Here the wait
+ * ends after T32_IVDC_RESET_ROUNDS rounds (1 s); the normal path (the bit
+ * clears within the first rounds) is the vendor's call for call.
+ */
+#define T32_IVDC_RESET_ROUNDS	5U
+#define T32_IVDC_ETIMEDOUT	110
+
+static inline int t32_ivdc_reset_wait(struct t32_ivdc *d, const u8 *priv)
+{
+	u32 k, n;
+	int forced = d->force_timeouts != 0;
+
+	if (forced)
+		d->force_timeouts--;
+	for (k = 0; forced || (*t32_ivdc_reg(priv, T32_IVDC_REG_CTRL) & 1); k++) {
+		if (k == T32_IVDC_RESET_ROUNDS) {
+			d->timeouts++;
+			return -T32_IVDC_ETIMEDOUT;
+		}
+		for (n = 200; n; n--)
+			d->os->udelay(1000);
+	}
+	return 0;
+}
+
+/* the IVDC reset pulse in the CPM clock gate (vendor: on a mode change) */
+static inline void t32_ivdc_cpm_reset(struct t32_ivdc *d)
+{
+	*(volatile u32 *)(d->os->cpm + T32_CPM_CLKGATE) |= T32_CPM_IVDC_RST;
+	d->os->msleep(1);
+	*(volatile u32 *)(d->os->cpm + T32_CPM_CLKGATE) &= ~T32_CPM_IVDC_RST;
+}
+
 /* ---- empty callbacks ---- */
 static inline int t32_ivdc_link_setup(void) { return 0; }
 static inline int t32_ivdc_misc_open(void) { return 0; }
@@ -111,7 +149,7 @@ static inline int t32_ivdc_core_ops_init(struct t32_ivdc *d, u8 *sd, const u32 *
 {
 	static const u32 mode_word[5] = { 0, 0x00041100U, 0x03c41100U, 0x05c41100U, 0x07c41100U };
 	u8 *priv = t32_ivdc_priv(sd);
-	u32 state, n;
+	u32 state;
 
 	if (!t32_ivdc_valid(priv)) {
 		isp_printf(2, "ivdc_core_ops_init: invalid subdev\n", 0, 0);
@@ -132,15 +170,19 @@ static inline int t32_ivdc_core_ops_init(struct t32_ivdc *d, u8 *sd, const u32 *
 		*t32_ivdc_reg(priv, T32_IVDC_REG_MODE) = 1;
 		return 0;
 	}
-	if (d->mode != d->started_mode) {	/* pulse the IVDC reset in the CPM clock gate */
-		*(volatile u32 *)(d->os->cpm + T32_CPM_CLKGATE) |= T32_CPM_IVDC_RST;
-		d->os->msleep(1);
-		*(volatile u32 *)(d->os->cpm + T32_CPM_CLKGATE) &= ~T32_CPM_IVDC_RST;
-	}
+	if (d->mode != d->started_mode)		/* pulse the IVDC reset in the CPM clock gate */
+		t32_ivdc_cpm_reset(d);
 	*t32_ivdc_reg(priv, T32_IVDC_REG_CTRL) = 1;
-	while (*t32_ivdc_reg(priv, T32_IVDC_REG_CTRL) & 1)
-		for (n = 200; n; n--)
-			d->os->udelay(1000);
+	if (t32_ivdc_reset_wait(d, priv)) {
+		/* #756: one retry after the CPM reset pulse, then give up (the caller runs this start without direct mode) */
+		isp_printf(2, "ivdc: soft reset not done after 1 s, CPM reset and retry\n", 0, 0);
+		t32_ivdc_cpm_reset(d);
+		*t32_ivdc_reg(priv, T32_IVDC_REG_CTRL) = 1;
+		if (t32_ivdc_reset_wait(d, priv)) {
+			isp_printf(2, "ivdc: soft reset not done after the retry\n", 0, 0);
+			return -T32_IVDC_ETIMEDOUT;
+		}
+	}
 	if (d->mode >= 1 && d->mode <= 4)
 		*t32_ivdc_reg(priv, T32_IVDC_REG_MODE) = mode_word[d->mode];
 	isp_printf(1, "ivdc mode %d\n", d->mode, 0);

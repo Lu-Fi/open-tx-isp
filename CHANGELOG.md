@@ -4,6 +4,13 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD[-rcN]` are set on the `aperto` branch, the same tag in open-tx-isp and OpenIMP: RC1 `v2026.10.11-rc1`, RC2 `v2026.10.25-rc2`, RC3 `v2026.11.07-rc3` (2026-11-07). Gate SoCs of RC3 and Release 1: T10, T20, T21, T23, T30, T31, T40, T41 (T32/T33 planned, QEMU only); release notes: [docs/releases/ in OpenIMP](https://github.com/Lu-Fi/openimp/blob/next/docs/releases/README.md). Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-11-21: T33/T32 IVDC soft-reset wait bounded, fallback without direct mode (openimp #756, beyond vendor)
+
+- `t32_ivdc_core_ops_init`: the busy-bit poll ends after 1 s; then one CPM IVDC reset pulse and a second 1 s wait; still busy -> -110 (the vendor polls forever). `t32_ivdc_stream` then starts without the direct mode (mode 0 init, `direct_mode` reads 0 for this start; the next start tries direct again). `/proc/jz/isp/isp-m0` line `ivdc: reset timeouts N fallbacks M`; test parameter `ivdc_test_reset_timeouts=N`.
+- Host test `tests/t33_ivdc_timeout_host.c` (in `make check`): normal path 0 after 200 udelay, stuck -110 after 2 s with exactly one CPM pulse, retry recovers, hook. `t32_ivdc_oracle` still bit-exact with the vendor C (35/35 mutations, one new for the round limit).
+- T33L (RAM-only insmod, `direct_mode=1`, rmem 13M image): normal start streams (snapshot 200, 749 IVDC frames, 0 timeouts); forced timeout (`ivdc_test_reset_timeouts=2`): two timeouts logged, fallback, `timpsd` sleeping (no spin), the next start streams in direct mode again (snapshot 200). The fallback start itself has no channel 0 picture on the 13M image (OpenIMP needs 3 MB more rmem for the DMA buffers: snapshot 503).
+- Docs: `docs/BEYOND_VENDOR.md`, `driver/t32/README.md` (parameter table).
+
 ## 2026-11-21: T33/T32 IVDC direct mode streams: IVDC core init before the sensor stream-on (openimp #509, #526)
 
 - `t32_sensor_stream` (driver/t32/tx_isp_t32_core.c) now runs the IVDC core init (`ivdc_core_ops_init`: soft reset, mode word 0x5c) before the sensor core init / S_STREAM instead of after it, as the vendor does (vendor tx-isp-t33.ko `ivdc_core_ops_init` 0xd074 runs while `IMP_ISP_AddSensor`, PC-sampled in the reset poll at +0x118). On a failed sensor start the IVDC is stopped again.
