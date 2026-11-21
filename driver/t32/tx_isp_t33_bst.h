@@ -480,6 +480,15 @@ static void t33_bst_irq(u32 msca)
 		t33_lsc_frame_done_v(0, lsc_para, t33_lsc_count, (const u8 *)t33_bst_initpar, &t33_lsc_refresh,
 				     tisp_rcfg_module_cfg_trig, t33_lsc_write_reg);
 	}
+}
+
+/*
+ * system irq 57: tisp_csccr_t33_frame_done_interrupt.  Called after the MDNS frame done (irq 50), as the
+ * vendor's ascending irq dispatch: the MDNS refresh it sets (tisp_mdns_dn_params_api(2)) runs list 15 at
+ * the next frame, not in this one (#755).
+ */
+static void t33_csccr_fd(u32 msca)
+{
 	if (msca & (1U << T33_CSCCR_BIT)) {
 		t33_csccr_frame_done(0, (const u8 *)t33_bst_initpar, &t33_csccr_refresh, t33_csccr_cnt,
 				     t33_csccr_cur, t33_csccr_cur2);
@@ -507,6 +516,12 @@ static void t33_bst_reset(void)
 	t33_csccr_refresh = t33_bst_refresh_mdns = 0;
 	t33_csccr_cnt[0] = 0;
 	t33_csccr_cur[0] = t33_csccr_cur2[0] = ~0U;
+	/*
+	 * tisp_csccr_init ends with lib_tisp_set_csccr(ch, startNight[ch]) (tx-isp-t33.ko 0xdd5a8..0xdd5b4):
+	 * day -> curFrame = frame 1, curFrame2 = frame 2, so the CSCCR frame done runs tisp_csccr_set_day and
+	 * tisp_mdns_dn_params_api(2) there (lists 22 / 15 once more at frames 2 / 3, #755)
+	 */
+	t33_lib_set_csccr(&t33_dn_st, 0, t33_dn_start_night[0]);
 }
 
 #endif /* TX_ISP_T33_BST_H */

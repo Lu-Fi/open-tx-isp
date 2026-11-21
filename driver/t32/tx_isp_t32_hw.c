@@ -188,6 +188,7 @@ static u32 t33_swg_tmo_info[T33_TMOINFO_BYTES / 4];
 static u8 t33_tmo_fd_refresh, t33_tmo_fd_mulsensor;	/* tispTmoRefresh, mulsensornum (frame done) */
 
 static void t33_bst_irq(u32 msca);	/* tx_isp_t33_bst.h: the blocks' frame-done handlers */
+static void t33_csccr_fd(u32 msca);	/* tx_isp_t33_bst.h: CSCCR frame done (irq 57) */
 static void t33_csc_fra_down(const u32 *init);	/* system irq 48: tisp_csc_fra_down_interrupt */
 static void t33_ccm_fd(void);			/* system irq 45: tisp_ccm_irq_frame_done (tx_isp_t33_ccmv.h) */
 static void t33_gamma_fd(void);			/* system irq 46: tisp_gamma_irq_frame_done (tx_isp_t33_gammav.h) */
@@ -345,6 +346,7 @@ static irqreturn_t t32_isp_irq(int irq, void *dev)
 		t33_bst_irq(msca);
 	if (msca & (1U << 18))		/* system irq 50: tisp_mdns_t33_frame_done_interrupt (oracle block mdnsA) */
 		t33_mdns_fd();
+	t33_csccr_fd(msca);		/* system irq 57 after 50 (#755) */
 	if (msca & (1U << 16))		/* system irq 48: tisp_csc_fra_down_interrupt */
 		t33_csc_fra_down(t33_st_isp_init_par_mode);
 	if (msca & (1U << 13))		/* system irq 45: tisp_ccm_irq_frame_done (block ccmP) */
@@ -3759,6 +3761,7 @@ static void t33_tisp_init(const u8 *bin, u32 bytes)
 		t33_lcepf_attach(width, height);
 	}
 	t33_tisp_init_tone(bin, bytes);
+	tisp_rcfg_module_cfg_trig(0, 22);	/* lib_tisp_init: trig(0, 22) after tisp_core_tuning_init (0x26014, #755) */
 	t33_tisp_init_mdns(bin, bytes);
 	off = t32_iq_section(bin, bytes, T33_SEC_LSC, &len);
 	if (off && len == T33_LSC_SEC_BYTES && !t32_core_sensor_size(&width, &height)) {
