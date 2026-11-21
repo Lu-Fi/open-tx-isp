@@ -11,6 +11,11 @@ marked otherwise. Release tags `vYYYY.MM.DD[-rcN]` are set on the `aperto` branc
   - the zone correction is `AePweightCalculate` of the dark / net / bright share plus `fix_point_mult2_32(q, sum, sum)`; ours used a `fix_point_div_32` approximation and the unused 5th argument.
 - This changes the T31 day AE working point (the #553 day EV gap is the suspected effect); it needs a T31 day check.
 - New T31 binoracle block `wmean2` (`make t31_binoracle_wmean2`): 2000 cases, 0 mismatches, 12/12 mutations detected (before the fix: 166/200 mismatches). `tests/t31_binoracle/run.sh` gained `EXTRACT`, which tests functions that live in a .c file (tests/t31_binoracle/extract.py).
+## 2026-11-21: T20 GetExpr / SetExpr one integer line time (openimp #744; T20 light box)
+
+- **Cause:** for a sensor without `one_line_expr_in_us` (jxf23) the GetExpr fallback reported the truncated line time (29 us at 15 fps, vts 2250) while SetExpr(UNIT_US) converted with the exact line rate (29.63 us): lines x 29 us came back 2.2 % short (674 -> 660). The OEM antiflicker quantisation (vendor tx-isp-t20 3.12.0 `get_quantised_integration_time` 0x1f238 / `cmos_antiflicker_update` 0x1f2f4: floor to fps x vts / 100 = 337 lines at 50 Hz, kept vendor-equal) then cut every manual time just below a multiple to one period less: sensor IT register 0x0151 = 337 lines at a reported 670 (gain 4), 0x03f3 = 1011 at 1340 (gain 2). Light box 5000 K, same manual exposure: mean Y 85 / 109 vs vendor 125 / 127.
+- **Fix:** `t20_expr_fallback_line_us()` (tx-isp-expr-time.h): 1e6 / (vts x fps) rounded to the nearest us, used by the GetExpr fallback AND by SetExpr, which now divides by it as the SDK does with a sensor that declares its line time (`time / one_line_expr_in_us`; jxf23 -> 30, the SDK's "30, // 29.6us" and the vendor-compatible build). lines -> us -> lines is exact again (host test: every line count 2..2246).
+- **Evidence:** host `t20_expr_time_host_test`; light-box re-check see openimp #744.
 
 ## 2026-11-21: T32 bin switch refreshes MDNS too (openimp #534 step 2a; QEMU T32)
 
