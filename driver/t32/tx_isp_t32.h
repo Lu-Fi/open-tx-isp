@@ -288,7 +288,7 @@ int t32_ivdc_init(void);
 void t32_ivdc_exit(void);
 int t32_ivdc_direct(int ch);
 long t32_ivdc_misc_ioctl(unsigned int cmd, unsigned long arg);
-void t32_ivdc_stream(int on);
+int t32_ivdc_stream(int on);	/* -110: IVDC reset timeout (#756) */
 int t32_ivdc_set_fmt(u8 *fmt);
 int t32_ivdc_reqbufs(u32 count);
 int t32_ivdc_fs_stream(int on);

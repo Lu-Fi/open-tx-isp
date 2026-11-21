@@ -174,7 +174,7 @@ static inline int t32_ivdc_core_ops_init(struct t32_ivdc *d, u8 *sd, const u32 *
 		t32_ivdc_cpm_reset(d);
 	*t32_ivdc_reg(priv, T32_IVDC_REG_CTRL) = 1;
 	if (t32_ivdc_reset_wait(d, priv)) {
-		/* #756: one retry after the CPM reset pulse, then give up (the caller runs this start without direct mode) */
+		/* #756: one retry after the CPM reset pulse, then give up (the stream-on fails with -110) */
 		isp_printf(2, "ivdc: soft reset not done after 1 s, CPM reset and retry\n", 0, 0);
 		t32_ivdc_cpm_reset(d);
 		*t32_ivdc_reg(priv, T32_IVDC_REG_CTRL) = 1;

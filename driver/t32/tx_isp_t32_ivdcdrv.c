@@ -118,9 +118,8 @@ MODULE_PARM_DESC(ivdc_threshold_line, "ivdc threshold line");
 
 /* not vendor (#756): test hook, the next N IVDC soft-reset waits time out (1 s each) */
 module_param_named(ivdc_test_reset_timeouts, iv.force_timeouts, uint, 0644);
-MODULE_PARM_DESC(ivdc_test_reset_timeouts, "test: the next N IVDC reset waits time out (direct mode falls back for that start)");
-static u32 ivdc_fallback_mode;		/* not vendor (#756): direct mode given up for the current start */
-static u32 ivdc_fallbacks;
+MODULE_PARM_DESC(ivdc_test_reset_timeouts, "test: the next N IVDC reset waits time out (2: the stream on fails with -110)");
+static u32 ivdc_start_errors;		/* not vendor (#756): stream-ons failed with -110 */
 
 static int ivdc_irq = 8 + T32_IRQ_IVDC;
 module_param(ivdc_irq, int, 0444);
@@ -251,8 +250,6 @@ long t32_ivdc_misc_ioctl(unsigned int cmd, unsigned long arg)
 
 	mutex_lock(&ivdc_mutex);
 	r = t32_ivdc_misc_unlocked_ioctl(&iv, &ivm, &ivdc_uos, cmd, (u32)arg);
-	if (cmd == T32_IVDC_IOC_SET_MODE)
-		ivdc_fallback_mode = 0;		/* the library's own choice wins over a #756 fallback */
 	IVT("misc ioctl %08x ret %ld paddr %08x line %u", cmd, r, ivm.paddr, ivm.line);
 	if (cmd == T32_IVDC_IOC_SET_MODE && iv.mode > 1) {
 		isp_printf(2, "tx-isp-t32: direct_mode %u (several sensors) not supported, 0\n", iv.mode);
@@ -264,36 +261,32 @@ long t32_ivdc_misc_ioctl(unsigned int cmd, unsigned long arg)
 }
 
 /* ISP stream on / off: the IVDC core start (mode word) / stop */
-void t32_ivdc_stream(int on)
+int t32_ivdc_stream(int on)
 {
 	u32 o = on;
+	int r;
 
 	if (!ivdc_base)
-		return;
+		return 0;
 	if (on)
 		iv.d98b4 = 1;	/* ivdc_activate_module: the clocks run (core.c) */
-	if (on && ivdc_fallback_mode) {	/* #756: a new start tries the direct mode again */
-		iv.mode = ivdc_fallback_mode;
-		t32_tx_link_mode = iv.mode;
-		ivdc_fallback_mode = 0;
-	}
 	IVT("stream %d core_ops_init mode %u started %u", on, iv.mode, iv.started_mode);
-	if (t32_ivdc_core_ops_init(&iv, ivdc_sd, &o) == -T32_IVDC_ETIMEDOUT && on) {
+	r = t32_ivdc_core_ops_init(&iv, ivdc_sd, &o);
+	if (r == -T32_IVDC_ETIMEDOUT && on) {
 		/*
-		 * Not vendor (#756): the IVDC soft reset did not complete (1 s, one
-		 * retry).  This start runs without the direct mode (frame channel 0
-		 * by DMA; the library asks the mode at IMP_System_Init, after the
-		 * ISP stream on), so the camera keeps streaming instead of a thread
-		 * spinning in the kernel.  Mode 0 init as the vendor's (0x5c = 1).
+		 * Not vendor (#756, user decision 2026-11-21): the IVDC soft reset
+		 * did not complete (1 s, CPM reset, 1 s again).  The stream-on fails
+		 * with -110 instead of a thread spinning in the kernel; the next
+		 * start pulses the CPM reset first (started mode 0 = a mode change).
 		 */
-		ivdc_fallback_mode = iv.mode;
-		ivdc_fallbacks++;
-		iv.mode = 0;
-		t32_tx_link_mode = 0;
-		t32_ivdc_core_ops_init(&iv, ivdc_sd, &o);
-		isp_printf(2, "tx-isp-t32: IVDC reset timeout, direct_mode off for this start (%u)\n", ivdc_fallbacks);
+		iv.started_mode = 0;
+		ivdc_start_errors++;
+		isp_printf(2, "tx-isp-t32: IVDC reset timeout, stream on fails with -110 (%u)\n", ivdc_start_errors);
+	} else {
+		r = 0;		/* the vendor's other return values are not errors */
 	}
 	IVT("stream %d core_ops_init done reg0 %08x 5c %08x", on, readl(ivdc_base), readl(ivdc_base + 0x5c));
+	return r;
 }
 
 /* frame channel 0 in direct mode: pad events 2 (116-byte format), 7, 3, 4 */
@@ -334,8 +327,7 @@ void t32_ivdc_show(struct seq_file *m)
 {
 	seq_printf(m, "ivdc: direct_mode %u mem_line %u stride %u paddr %#x streams %u frames %u misses %u\n",
 		   iv.mode, ivm.line, ivm.stride, ivm.paddr, ivdc_streams, ivdc_frames, ivdc_misses);
-	seq_printf(m, "ivdc: reset timeouts %u fallbacks %u%s\n", iv.timeouts, ivdc_fallbacks,
-		   ivdc_fallback_mode ? " (this start without direct mode)" : "");
+	seq_printf(m, "ivdc: reset timeouts %u start errors %u\n", iv.timeouts, ivdc_start_errors);
 }
 
 int t32_ivdc_init(void)

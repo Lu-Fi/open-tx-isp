@@ -339,8 +339,8 @@ static int t32_sensor_stream(struct t32_vi *vi, int on)
 		 * right after the sensor stream on, the T33L IVDC soft reset
 		 * did not complete (busy bit 0 polled forever, openimp #509).
 		 */
-		t32_ivdc_stream(1);
-		if (init)
+		ret = t32_ivdc_stream(1);	/* -110: the IVDC reset did not finish (#756, beyond vendor) */
+		if (!ret && init)
 			ret = init(vi->sd, &arg);
 		if (!ret && stream)
 			ret = stream(vi->sd, &arg);
