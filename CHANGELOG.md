@@ -14,6 +14,11 @@ marked otherwise. Release tags `vYYYY.MM.DD[-rcN]` are set on the `aperto` branc
 ## 2026-11-21: T30 init/boot trace prints demoted to pr_debug (openimp #757; host)
 
 - `driver/t30/tx_isp_t30_recovered.c`: ~115 progress/trace `pr_err("tx-isp-t30 ...")` lines (fw-init, isp-init, apical-init, set-input, sync, notify, core/NCU stream, and per-frame IRQ traces) are now `pr_debug`. On a UART console each line costs several ms; the vendor ko prints none of them. Real error messages stay `pr_err`. No sleeps changed: the vendor-ko sleep sites (msleep in csi init, stream on/off, reset; usleep_range in the sequence player and sensor interface) are all equal in ours. Device timing: see the issue.
+## 2026-11-21: T33/T32 IVDC soft-reset wait bounded, the stream-on fails with -110 (openimp #756, beyond vendor)
+- `t32_ivdc_core_ops_init`: the busy-bit poll ends after 1 s; then one CPM IVDC reset pulse and a second 1 s wait; still busy -> -110 (the vendor polls forever). `t32_ivdc_stream` returns it and `t32_sensor_stream` fails the ISP stream-on with -110 (no fallback, user decision 2026-11-21); the next start pulses the CPM reset first. `/proc/jz/isp/isp-m0` line `ivdc: reset timeouts N start errors M`; test parameter `ivdc_test_reset_timeouts=N`.
+- Host test `tests/t33_ivdc_timeout_host.c` (in `make check`): normal path 0 after 200 udelay, stuck -110 after 2 s with exactly one CPM pulse, retry recovers, hook. `t32_ivdc_oracle` still bit-exact with the vendor C (35/35 mutations, one new for the round limit).
+- T33L (RAM-only insmod, `direct_mode=1`, rmem 13M image): normal start streams (snapshot 200, 749 IVDC frames, 0 timeouts); forced timeout (`ivdc_test_reset_timeouts=2`): both waits time out, `ioctl 0x80085407 -> -110`, `timpsd` sleeping (no spin); timps retried the start 5 s later and streamed in direct mode (snapshot 200); the next start streams direct as well.
+- Docs: `docs/BEYOND_VENDOR.md`, `driver/t32/README.md` (parameter table).
 
 ## 2026-11-21: T33/T32 IVDC direct mode streams: IVDC core init before the sensor stream-on (openimp #509, #526)
 
