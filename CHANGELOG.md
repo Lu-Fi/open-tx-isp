@@ -4,6 +4,11 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD[-rcN]` are set on the `aperto` branch, the same tag in open-tx-isp and OpenIMP: RC1 `v2026.10.11-rc1`, RC2 `v2026.10.25-rc2`, RC3 `v2026.11.07-rc3` (2026-11-07). Gate SoCs of RC3 and Release 1: T10, T20, T21, T23, T30, T31, T40, T41 (T32/T33 planned, QEMU only); release notes: [docs/releases/ in OpenIMP](https://github.com/Lu-Fi/openimp/blob/next/docs/releases/README.md). Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-11-21: T32 bin switch refreshes MDNS too (openimp #534 step 2a; QEMU T32)
+
+- **Fix (T32 build):** `t32_pf_dn_refresh` runs `tisp_mdns_dn_params_refresh` (`t32_mdns_dn_params_refresh`, section at tuning base + 0x875c, the night/day dn rows, all MDNS registers, trigger) on the live MDNS context, in the vendor `lib_tisp_refresh_para` order (after ysp, before ydns); the block keeps its own gain. 9 of 22 vendor blocks now refreshed; top, ae, awb, lsc, tmo, gamma, ccm, clm, bcsh, defog, lce, decmp and csccr still keep the stream-on bin.
+- **Evidence:** QEMU 0.7.22 -M ingenic-t32 (gc4653, day bin at stream-on, night switch while streaming): binsw calls 1, blocks 9, 0 oops, rmmod 0; 109 MDNS registers changed by the refresh, 71 of them equal to a night-bin stream-on, the rest gain-interpolated values (the switch run sits at another gain than the night stream-on run); MDNS registers equal to night stream-on 563/671 (before 498/671). tests check rc 0. T33 ko not affected (T32-only code).
+
 ## 2026-11-21: T32 SET_TIZIANO_PAR switches the IQ bin of a streaming sensor (openimp #534 step 1; QEMU T32)
 
 - **Cause:** the T32 build only recorded the bin of `IMP_ISP_Tuning_SetISPRunningMode`; the vendor tx-isp-t32.ko switches it while the ISP runs (`ispcore_core_ops_ioctl` 0x100001e, `lib_tisp_refresh_para` 0xc0714: the 22 block `dn_params_refresh` in order), only the T33 build had the switch (#504, #692).

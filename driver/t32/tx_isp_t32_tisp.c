@@ -833,8 +833,8 @@ void t32_pf_start(void)
  * contexts (openimp #534): tisp_bin_data_parse puts the new bin's sections into tparamsP, then the blocks'
  * dn_params_refresh run in the vendor order.  Here each block's new section is a private copy, handed to
  * the ported tisp_<blk>_dn_params_refresh as tparamsP + the vendor offset (the T33 pattern), the old copy
- * freed; the block keeps its own gain.  Wired in this order: dpc, gib, dmsc, ysp, ydns, sdns, cdns, rdns.
- * The other blocks of the vendor list (top, ae, awb, lsc, tmo, gamma, ccm, clm, bcsh, mdns, defog, lce,
+ * freed; the block keeps its own gain.  Wired in this order: dpc, gib, dmsc, ysp, mdns, ydns, sdns, cdns, rdns.
+ * The other blocks of the vendor list (top, ae, awb, lsc, tmo, gamma, ccm, clm, bcsh, defog, lce,
  * decmp, csccr) keep the parameters of the stream-on bin (counted in t32_pf_stats.dn_missing).
  */
 static u8 *pf_dn_sec(const u8 *bin, u32 bytes, unsigned int idx, u32 need)
@@ -883,6 +883,9 @@ int t32_pf_dn_refresh(const u8 *bin, u32 bytes, u32 mode)
 	if (pf.have[T32_PP_YSP] && pf.ysp_dn)
 		PF_DN(T32_PP_YSP, T32_SEC_YSP, T32_YSP_SEC_BYTES,
 		      (os = pf.ysp.sec, pf_flush(t32_ysp_dn_params_refresh(&pf.ysp, 0, ns - 0xd630, pf.ysp_dn, pf_w)), os));
+	/* tisp_mdns_dn_params_refresh(ch, mode): section at tuning base + 0x875c, dn rows, all regs, trigger */
+	PF_DN(T32_PP_MDNS, T32_SEC_MDNS, T32_MDNS_SEC_BYTES,
+	      (os = pf.mdns.sec, pf_flush(t32_mdns_dn_params_refresh(&pf.mdns, 0, ns - 0x875c, mode, pf_w)), os));
 	PF_DN(T32_PP_YDNS, T32_SEC_YDNS, T32_YDNS_SEC_BYTES,
 	      (os = pf.ydns.sec, pf_flush(t32_ydns_dn_params_refresh(&pf.ydns, 0, ns - T32_YDNS_SEC_OFF, pf_w)), os));
 	PF_DN(T32_PP_SDNS, T32_SEC_SDNS, T32_SDNS_SEC_BYTES,
