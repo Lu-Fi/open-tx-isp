@@ -4,6 +4,19 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD[-rcN]` are set on the `aperto` branch, the same tag in open-tx-isp and OpenIMP: RC1 `v2026.10.11-rc1`, RC2 `v2026.10.25-rc2`, RC3 `v2026.11.07-rc3` (2026-11-07). Gate SoCs of RC3 and Release 1: T10, T20, T21, T23, T30, T31, T40, T41 (T32/T33 planned, QEMU only); release notes: [docs/releases/ in OpenIMP](https://github.com/Lu-Fi/openimp/blob/next/docs/releases/README.md). Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-11-21: T33 SetSensorFPS runs tisp_set_fps on the live AE (openimp #725; QEMU T33 + T33L device)
+
+- **Cause.** In the T33 build `t32_tx_os_tisp_set_fps` was a constant `return 0` and tuning id 0x70 ran only the sensor part (`t32_sensor_fps_set`), so the T33 AE never saw a new frame rate (cross-SoC of the T32 fix #716).
+- **Fix.** `t33_aec_tisp_set_fps` (`driver/t33/tx_isp_t33_aec.c`) = vendor tx-isp-t33.ko `tisp_set_fps` (0xf8a9c) on the live T33 AE, after the sensor took the rate (core 0x70 path and the `tx_isp_core_ops_s_ctrl` glue):
+  - `tisp_ae_api_set_fps` (0x3365c): `stAeInfo[ch]` + 1744 -> tuning T, T + 1740 == 1 (exposure list mode) refuses with the vendor print (line 4760); otherwise, when `stSensorAttr[ch]` + 56 (S + 0x38, kept by `t33_aec_sensor_sync`) differs, its entry S + 212 = `sensor_set_fps` (0x13ecc), which passes the rate on only when the live fps word differs.
+  - Entry S + 144 = `sensor_fps_control` (0x13e78): result = the input word after the fps word; < 0 gives "fps get wrong!" and -1.
+  - `tisp_ae_clac_deflicker_cfg` (0x2e3e4; `stAeInfo` = `ae_cache` = R, T + 1660 / + 1736, R + 1260 / + 1264) through the existing `aew_deflicker`.
+  - T33 and T32 vendor code of these functions are the same instructions; only .bss / struct offsets differ (T33 ispcore input + 388 vs T32 + 392).
+- **Evidence.**
+  - QEMU T33 (vendor 3.10 kernel, cv2005, `audit/issue725/q33`): SetSensorFPS 10 / 15 / 25 rc 0, read-back equal; "t33 ae: tisp_set_fps" 1 / 2 / 3, sensor fps word 0xa0001 / 0xf0001 / 0x190001; no oops (rmmod EAGAIN as on next).
+  - T33L device (runtime insmod of the test ko, no flash): measured 10.17 / 15.00 / 25.01 fps from the frame timestamps (installed ko: the same), tisp_set_fps 3, AE running on every frame. Scene was dark (night), AE at its exposure limit with and without the change.
+  - make check 624 / 0. T32 module unchanged (md5 4880ffcf = next).
+
 ## 2026-11-21: T32 SetModuleControl, ISP H/V flip, gamma, WDR output mode and SetFps run the vendor flows (openimp #717 part 2, #716; binary oracles, QEMU T32)
 
 - **Cause.** In the T32 build the glue of `driver/t32/tx_isp_t32_tunctl.c` kept copies only: SetModuleControl, Set/GetHVFLIP (ISP part), Set/GetGammaAttr, Set/GetWdrOutputMode, and `tisp_set_fps` after SetSensorFPS never ran.

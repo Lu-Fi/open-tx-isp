@@ -559,7 +559,8 @@ int t32_tx_os_tisp_set_contrast(u32 ch, u32 v) { t32_ctup_bcsh_set(ch, 1, (u8)v)
 #endif
 
 #ifdef TX_ISP_T33
-int t32_tx_os_tisp_set_fps(u32 ch, u32 fps) { return 0; }
+/* T33 (openimp #725): tisp_set_fps on the live T33 AE (tx_isp_t33_aec.c) */
+int t32_tx_os_tisp_set_fps(u32 ch, u32 fps) { return t33_aec_tisp_set_fps(ch, fps); }
 #else
 /* T32 (openimp #716): tisp_set_fps on the live AE (tx_isp_t32_ae.c); 0x70 itself is answered by tx_isp_t32_core.c */
 int t32_tx_os_tisp_set_fps(u32 ch, u32 fps) { return t32_aec_tisp_set_fps(ch, fps); }
