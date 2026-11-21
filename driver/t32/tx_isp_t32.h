@@ -66,12 +66,10 @@ void t32_hw_stream_off(void);
 void t32_hw_msca_push(int ch, u32 y, u32 uv);
 void t32_hw_msca_start(int ch, u32 w, u32 h, u32 stride, u32 in_w, u32 in_h);
 void t32_hw_msca_stop(int ch);
-#ifdef TX_ISP_T33
-void t33_hw_msca_stop_begin(int ch);	/* stream-off under the frame-channel lock (#650) */
-int t33_hw_msca_stop_wait(int ch);	/* vendor work-state wait, no lock held */
-void t33_hw_msca_stop_end(int ch);	/* address fifo clear, lock held */
+void t32_hw_msca_stop_begin(int ch);	/* stream-off under the frame-channel lock (#650, #652) */
+int t32_hw_msca_stop_wait(int ch);	/* vendor work-state wait, no lock held */
+void t32_hw_msca_stop_end(int ch);	/* address fifo clear, lock held */
 extern u32 t33_msca_soff_waits, t33_msca_soff_timeouts, t33_msca_soff_last_ms;
-#endif
 int t32_hw_msca_pop_done(int ch, u32 *y, u32 *uv);
 
 u32 t32_hw_rd(u32 off);

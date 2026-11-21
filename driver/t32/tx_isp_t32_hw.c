@@ -2324,6 +2324,9 @@ void t32_flip_show(struct seq_file *m)
 	seq_printf(m, "t32 flip: requests %u applied %u mode %u ret %d pending %u vic holds %u releases %u left %d\n",
 		   t33_flip_st.requests, t33_flip_st.applied, t33_flip_st.mode, t33_flip_st.ret, t33_flip_pend,
 		   t33_flip_st.holds, t33_flip_st.releases, t33_vic_hold);
+	/* #652: frame-channel stream-offs, work-state wait timeouts, length of the last wait */
+	seq_printf(m, "t32 msca: soff %u timeout %u last %u ms\n", t33_msca_soff_waits, t33_msca_soff_timeouts,
+		   t33_msca_soff_last_ms);
 }
 #endif
 
@@ -4917,7 +4920,7 @@ static bool t33_msca_list_start(int ch, u32 w, u32 h, u32 stride, u32 in_w, u32 
  * the lock is released, then (atlas_open == 0) up to 502 x private_msleep(1) while tisp_msca_work_state (0xf0054
  * bit work id = the MSCA output) is set, "CH%d Streamoff Timeout !!!" when it stays set, "CH%d Streamoff
  * Finish !!!" always; then tisp_msca_addr_fifo_clear_byindex (the Y / UV fifo and done clears) under the lock
- * again.  t33_hw_msca_stop_begin / _wait / _end; t32_hw_msca_stop (snapshot pause, rmmod) runs begin + end.
+ * again.  t32_hw_msca_stop_begin / _wait / _end; t32_hw_msca_stop (snapshot pause, rmmod) runs begin + end.
  */
 static bool t33_msca_list_stop_begin(int ch)
 {
@@ -4937,8 +4940,10 @@ static bool t33_msca_list_stop_begin(int ch)
 	return true;
 }
 
+#endif /* TX_ISP_T33 */
+
 /* tisp_msca_addr_fifo_clear_byindex */
-static void t33_msca_fifo_clear(int ch)
+static void t32_msca_fifo_clear(int ch)
 {
 	ch_wr(ch, T32_MSCA_Y_CLR, 1);
 	ch_wr(ch, T32_MSCA_UV_CLR, 1);
@@ -4946,26 +4951,37 @@ static void t33_msca_fifo_clear(int ch)
 	ch_wr(ch, T32_MSCA_UV_DONE_CLR, 1);
 }
 
-/* the stream-off half under the frame-channel lock (list path, or the direct channel stop) */
-void t33_hw_msca_stop_begin(int ch)
+/*
+ * The stream-off half under the frame-channel lock (T33: the list path, or the direct channel stop).  T32 and
+ * T33 share the vendor order of ispcore_frame_channel_streamoff (T32 0xb5cd4, recovered C ported in
+ * tx_isp_t32_ispsoff.h: stream off, unlock, up to 502 x msleep(1) on tisp_msca_work_state, fifo clear, #652).
+ */
+void t32_hw_msca_stop_begin(int ch)
 {
+#ifdef TX_ISP_T33
 	if (t33_msca_list_stop_begin(ch))
 		return;
+#endif
 	curve_geom[ch].on = false;
 	isp_wr(T32_MSCA_CH_EN, isp_rd(T32_MSCA_CH_EN) & ~(1U << ch));
 	isp_wr(T32_MSCA_UPDATE, 1);
 }
 
-#define T33_SOFF_WAIT	502	/* x private_msleep(1) */
+#define T32_SOFF_WAIT_MS	502	/* x private_msleep(1) */
 u32 t33_msca_soff_waits, t33_msca_soff_timeouts, t33_msca_soff_last_ms;
 
-/* the vendor's wait without the lock: process context only; returns 0, or -ETIMEDOUT after 502 sleeps */
-int t33_hw_msca_stop_wait(int ch)
+/*
+ * The vendor's wait without the lock: process context only; returns 0, or -ETIMEDOUT after 502 sleeps.
+ * tisp_msca_work_state(pipe, work) = bit "work" of 0xf0054; the work id (frame channel +120) is the MSCA
+ * channel of the output: the same byte is the channel argument of tisp_msca_addr_fifo_write in
+ * ispcore_pad_event_handle (0xb8b04: a1 = fc + 120).
+ */
+int t32_hw_msca_stop_wait(int ch)
 {
 	unsigned long t0 = jiffies;
 	u32 n;
 
-	for (n = T33_SOFF_WAIT; n; n--) {
+	for (n = T32_SOFF_WAIT_MS; n; n--) {
 		if (!((isp_rd(T32_MSCA_BUSY) >> (ch & 31)) & 1))
 			break;
 		msleep(1);
@@ -4981,11 +4997,10 @@ int t33_hw_msca_stop_wait(int ch)
 }
 
 /* the half after the wait, under the lock again */
-void t33_hw_msca_stop_end(int ch)
+void t32_hw_msca_stop_end(int ch)
 {
-	t33_msca_fifo_clear(ch);
+	t32_msca_fifo_clear(ch);
 }
-#endif
 
 void t32_hw_msca_start(int ch, u32 w, u32 h, u32 stride, u32 in_w, u32 in_h)
 {
@@ -5031,18 +5046,8 @@ void t32_hw_msca_start(int ch, u32 w, u32 h, u32 stride, u32 in_w, u32 in_h)
 
 void t32_hw_msca_stop(int ch)
 {
-#ifdef TX_ISP_T33
-	t33_hw_msca_stop_begin(ch);
-	t33_hw_msca_stop_end(ch);
-#else
-	curve_geom[ch].on = false;
-	isp_wr(T32_MSCA_CH_EN, isp_rd(T32_MSCA_CH_EN) & ~(1U << ch));
-	isp_wr(T32_MSCA_UPDATE, 1);
-	ch_wr(ch, T32_MSCA_Y_CLR, 1);
-	ch_wr(ch, T32_MSCA_UV_CLR, 1);
-	ch_wr(ch, T32_MSCA_Y_DONE_CLR, 1);
-	ch_wr(ch, T32_MSCA_UV_DONE_CLR, 1);
-#endif
+	t32_hw_msca_stop_begin(ch);
+	t32_hw_msca_stop_end(ch);
 }
 
 /* pop one done entry: returns 0 and the addresses, or -1 when empty */
