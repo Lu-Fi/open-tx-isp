@@ -4,6 +4,12 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD[-rcN]` are set on the `aperto` branch, the same tag in open-tx-isp and OpenIMP: RC1 `v2026.10.11-rc1`, RC2 `v2026.10.25-rc2`, RC3 `v2026.11.07-rc3` (2026-11-07). Gate SoCs of RC3 and Release 1: T10, T20, T21, T23, T30, T31, T40, T41 (T32/T33 planned, QEMU only); release notes: [docs/releases/ in OpenIMP](https://github.com/Lu-Fi/openimp/blob/next/docs/releases/README.md). Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-11-21: T33 missing ISP stop ack: cause narrowed, srbc_debug diagnostics (openimp #625)
+
+- New module parameter `srbc_debug` (default 0, T32 family): logs the CPM block 0x10000000-0x100000fc (read only) at module load, before the clocks of the first open, before the SRBC stop request and on a missing ack, plus the poll count until bit 20.
+- Device (T33L, 18 planned sysrq boots with `isp_open=manual` plus 2 restore boots, debug ko by runtime insmod, first open of `/dev/tx-isp` = first ISP reset after the warm reset): the ack is missing after 5 of 7 boots that followed a boot in which the ISP streamed, and after 1 of 12 boots that followed a boot that only opened the ISP (Fisher p ~ 0.007); never on a reopen within a boot (#625 step A, 30/30). The CPM state (clock gates, SRBC = 0, dividers) is identical in hit and miss boots; a hit acks after one 2 ms poll.
+- Cause: ISP-internal state that the SoC warm reset does not clear. The vendor `private_reset_tx_isp_module` uses the same sequence and returns -1 there ("Failed to reset", no stream), so there is no vendor fix to copy; the #544 held-pulse retry (beyond vendor) stays and recovered every miss (6/6 acknowledged after the pulse; the boots that then streamed gave snapshot 200).
+
 ## 2026-11-21: T40 / T41 / T23 AE back to auto on a fresh ISP start (openimp #749, beyond vendor)
 
 - User decision 2026-11-21: a fresh ISP start always runs the AE in auto.
