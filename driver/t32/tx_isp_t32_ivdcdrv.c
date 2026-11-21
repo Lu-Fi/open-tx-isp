@@ -54,12 +54,20 @@
 
 static void __iomem *ivdc_base;
 
+/* debug trace of the IVDC path (openimp #509/#526): every IVDC register write and
+ * each step to the console (KERN_EMERG: synchronous on the UART before a hang) */
+int t32_ivdc_trace;
+module_param_named(ivdc_trace, t32_ivdc_trace, int, 0644);
+#define IVT(fmt, ...) do { if (t32_ivdc_trace) printk(KERN_EMERG "IVT " fmt "\n", ##__VA_ARGS__); } while (0)
+
 /* register writes of the ported pad code: hardware for the register window, memory else */
 static inline void t32_ivdc_wr32(u8 *p, u32 off, u32 v)
 {
 	if (ivdc_base && p >= (u8 *)ivdc_base && p < (u8 *)ivdc_base + T32_IVDC_MAP)
+	{
+		IVT("w %03x=%08x", (u32)(p + off - (u8 *)ivdc_base), v);
 		writel(v, p + off);
-	else
+	} else
 		memcpy(p + off, &v, 4);
 }
 #define t32_g_wr32 t32_ivdc_wr32
@@ -215,6 +223,12 @@ static const struct t32_ivdci_os ivdc_ios = {
 
 static irqreturn_t t32_ivdc_isr(int irq, void *dev)
 {
+	static int n;
+
+	if (t32_ivdc_trace && n < 12) {
+		n++;
+		IVT("isr %d", n);
+	}
 	return t32_ivdc_core_interrupt_service_routine(&ivdc_ios, ivdc_cnt, &iv.ioc_flag, ivdc_sd) ?
 	       IRQ_HANDLED : IRQ_NONE;
 }
@@ -231,6 +245,7 @@ long t32_ivdc_misc_ioctl(unsigned int cmd, unsigned long arg)
 
 	mutex_lock(&ivdc_mutex);
 	r = t32_ivdc_misc_unlocked_ioctl(&iv, &ivm, &ivdc_uos, cmd, (u32)arg);
+	IVT("misc ioctl %08x ret %ld paddr %08x line %u", cmd, r, ivm.paddr, ivm.line);
 	if (cmd == T32_IVDC_IOC_SET_MODE && iv.mode > 1) {
 		isp_printf(2, "tx-isp-t32: direct_mode %u (several sensors) not supported, 0\n", iv.mode);
 		iv.mode = 0;
@@ -249,26 +264,43 @@ void t32_ivdc_stream(int on)
 		return;
 	if (on)
 		iv.d98b4 = 1;	/* ivdc_activate_module: the clocks run (core.c) */
+	IVT("stream %d core_ops_init mode %u started %u", on, iv.mode, iv.started_mode);
 	t32_ivdc_core_ops_init(&iv, ivdc_sd, &o);
+	IVT("stream %d core_ops_init done reg0 %08x 5c %08x", on, readl(ivdc_base), readl(ivdc_base + 0x5c));
 }
 
 /* frame channel 0 in direct mode: pad events 2 (116-byte format), 7, 3, 4 */
 int t32_ivdc_set_fmt(u8 *fmt)
 {
-	return t32_ivdc_pad_event_handle(&ivdc_pos, ivdc_pad, T32_IVP_EV_BASE + 1, fmt);
+	int r;
+
+	IVT("set_fmt");
+	r = t32_ivdc_pad_event_handle(&ivdc_pos, ivdc_pad, T32_IVP_EV_BASE + 1, fmt);
+	IVT("set_fmt ret %d", r);
+	return r;
 }
 
 int t32_ivdc_reqbufs(u32 count)
 {
 	u8 rq[20] = { 0 };
 
+	int r;
+
 	t32_g_wr32(rq, 0, count);
-	return t32_ivdc_pad_event_handle(&ivdc_pos, ivdc_pad, T32_IVP_EV_BASE + 6, rq);
+	IVT("reqbufs %u paddr %08x line %u", count, ivm.paddr, ivm.line);
+	r = t32_ivdc_pad_event_handle(&ivdc_pos, ivdc_pad, T32_IVP_EV_BASE + 6, rq);
+	IVT("reqbufs ret %d", r);
+	return r;
 }
 
 int t32_ivdc_fs_stream(int on)
 {
-	return t32_ivdc_pad_event_handle(&ivdc_pos, ivdc_pad, T32_IVP_EV_BASE + (on ? 2 : 3), NULL);
+	int r;
+
+	IVT("fs_stream %d", on);
+	r = t32_ivdc_pad_event_handle(&ivdc_pos, ivdc_pad, T32_IVP_EV_BASE + (on ? 2 : 3), NULL);
+	IVT("fs_stream %d ret %d", on, r);
+	return r;
 }
 
 void t32_ivdc_show(struct seq_file *m)
