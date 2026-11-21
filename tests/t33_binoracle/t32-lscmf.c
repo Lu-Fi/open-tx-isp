@@ -22,12 +22,14 @@ void bo_tisp_lsc_mirror_flip(u32 ch, u32 a1, u32 a2, u32 flip, u32 mirror)
 {
 	u8 *b = lsc_para[ch], *sec = bo_ptr(b), *cur = bo_ptr(b + 4), *info = bo_ptr(b + 8), *st = bo_ptr(b + 12);
 	u8 *tab = bo_ptr(stLutInfo[ch] + 0x14) + 2;
-	u32 five = 5, ct;
+	u32 five = 5, ct, df, dm;
+	u8 mf = 0;			/* fresh tables: the #728 delta equals the vendor's arguments */
 
 	(void)a1; (void)a2;
-	if (flip == 1)
+	t32_lsc_mf_delta(&mf, flip, mirror, &df, &dm);
+	if (df)
 		t32_lsc_mesh_flip(tab, info[17], info[18], sec[116], 1, 0, st, &t32_lsc_xops_default);
-	if (mirror == 1)
+	if (dm)
 		t32_lsc_mesh_flip(tab, info[17], info[18], sec[116], 0, 1, st, &t32_lsc_xops_default);
 	memcpy(cur + 12, &five, 4);
 	memcpy(&ct, cur + 8, 4);

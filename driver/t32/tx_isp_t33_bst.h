@@ -363,6 +363,7 @@ static u32 t33_lsc_count[4];			/* lsc_count */
 static const u8 *t33_lsc_tab;			/* stLutInfo[0] + 0x14: the CT tables */
 u32 t33_lsc_runs[3];				/* init, switches, frame dones with a refresh */
 u32 t33_lsc_flips;				/* tisp_lsc_mirror_flip runs (t33_lsc_hvflip, openimp #727) */
+static u8 t33_lsc_mf;				/* orientation the live tables carry: bit 0 flip, 1 mirror (#728) */
 
 static void t33_lsc_wr(u32 ch, u32 blk, u32 sel, u32 val)
 {
@@ -391,6 +392,7 @@ static void t33_lsc_attach(const u8 *sec, const u8 *tab, u32 tabbytes, u32 h, u3
 	t33_lsc_refresh = 0;
 	memcpy(t33_lsc_sec, sec, sizeof(t33_lsc_sec));
 	t33_lsc_tab = tab;
+	t33_lsc_mf = 0;		/* fresh tables (#728) */
 	/* tisp_lsc_malloc_info: the mesh table = the driver's DMA pages, written through KSEG1 */
 	rc = t33_lsc_vinit(&t33_lsc_b, &t33_lsc_m, t33_lsc_sec, tab, tabbytes, h, w, gain, ct,
 			   (u8 *)CKSEG1ADDR(virt_to_phys((void *)t33_lsc_pages)), (u32)virt_to_phys((void *)t33_lsc_pages));

@@ -57,6 +57,7 @@ static struct t32_lsc_cur lcur;
 static struct t32_lscct lw;
 static bool lsc_on;
 static u8 lsc_flips[12];		/* vendor lsc_para[ch] + 0xc: [9] flips, [10] mirrors (kept over streams) */
+static u8 lsc_mf;			/* orientation the live tables / ring centre carry (#728; 0 at attach) */
 static unsigned long img_pages;		/* the LSC list (T32_LSCCT_IMG_WORDS words) */
 static u32 img_pa;
 #define LSC_IMG_ORDER	get_order(T32_LSCCT_IMG_WORDS * 4)
@@ -181,6 +182,7 @@ void t32_lsc_drv_attach(const u8 *blk, const struct t32_lsc *s, const struct t32
 	mutex_lock(&lsc_lock);
 	memset(&lc, 0, sizeof(lc));
 	lc.sec = cp;
+	lsc_mf = 0;			/* a fresh copy of the bin's tables (#728) */
 	lc.s = *s;
 	lc.wk = *wk;
 	t32_lsc_cur_init(&lcur, width, height, bayer, ct);
@@ -251,6 +253,10 @@ bool t32_lsc_drv_tgain(u32 ch, u32 gain)
  * tisp_lsc_calc_para_refresh, the table count section byte 0x74); then cur + 0xc = 5,
  * tisp_lsc_interp_by_ct(ch, ct, 1) and tisp_lsc_write_all_reg(ch, 2, 0, 1): the flipped mesh goes out
  * through the LSC list at the next LSC frame done; the vendor's printk of the two counters.  Always 0.
+ * Beyond vendor (openimp #728): only the change against the orientation the tables carry is exchanged
+ * (t32_lsc_mf_delta: the vendor's toggles add up), and with ring-format bins (section byte 65) the optical
+ * centre is mirrored / flipped too (t32_lsc_ring_centre, the geometry rebuilt) and all registers are written
+ * (mode 0; the vendor's mode 2 leaves the centre register 0x5054 / r5 untouched).
  */
 int t32_lsc_drv_hvflip(u32 ch, u32 flip, u32 mirror)
 {
@@ -262,22 +268,28 @@ int t32_lsc_drv_hvflip(u32 ch, u32 flip, u32 mirror)
 	mutex_lock(&lsc_lock);
 	if (lsc_on && lc.sec) {
 		u8 *tab = (u8 *)lc.sec + T32_LSC_TABLES + 2;
-		u32 ntab = lc.sec[116];
+		u32 ntab = lc.sec[116], df, dm, ring = lc.sec[65];
 
-		if (flip == 1) {
+		t32_lsc_mf_delta(&lsc_mf, flip, mirror, &df, &dm);
+		if (df) {
 			f = h_ch_lock(NULL, 0);
 			t32_lsc_mesh_flip(tab, lc.s.rows, lc.s.cols, ntab, 1, 0, lsc_flips, &t32_lsc_xops_default);
 			h_ch_unlock(NULL, 0, f);
 		}
-		if (mirror == 1) {
+		if (dm) {
 			f = h_ch_lock(NULL, 0);
 			t32_lsc_mesh_flip(tab, lc.s.rows, lc.s.cols, ntab, 0, 1, lsc_flips, &t32_lsc_xops_default);
 			h_ch_unlock(NULL, 0, f);
 		}
+		if (ring && (df || dm)) {
+			t32_lsc_ring_centre((u8 *)lc.sec, lc.width, lc.height, df, dm);
+			t32_lsc_geometry(lc.sec, &lc.s, lc.width, lc.height);
+		}
 		lcur.rsvd1[0] = 5;
 		t32_lscct_interp_by_ct(&lw, 0, lcur.ct, 1);
-		t32_lscct_write_all_reg(&lw, 0, 2, 0, 1);
+		t32_lscct_write_all_reg(&lw, 0, ring ? 0 : 2, 0, 1);
 		t32_lsc_drv_stats.flips = lsc_flips[9];
+		t32_lsc_drv_stats.mf = lsc_mf;
 		t32_lsc_drv_stats.mirrors = lsc_flips[10];
 		printk("\n  [func is %s, line is %d] lsc filp times is %d, mirror times is %d\n",
 		       "tisp_lsc_mirror_flip", 0x7f9, lsc_flips[9], lsc_flips[10]);

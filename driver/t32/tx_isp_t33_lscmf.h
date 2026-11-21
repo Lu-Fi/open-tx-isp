@@ -109,4 +109,20 @@ static inline void t33_lsc_mirror_flip(u32 ch, const u32 *blk, u8 *tab, u32 flip
 	ops->write_reg(ch, 2);
 }
 
+/*
+ * Beyond vendor (openimp #728): the vendor's tisp_lsc_hvflip passes the sensor's NEW orientation and the exchange
+ * runs in place on top of the previous one, so 1 -> 2 leaves the tables mirrored and flipped.  t33_lsc_mf_delta
+ * keeps the orientation a table set carries (*mf: bit 0 flip, bit 1 mirror, 0 for tables as the bin has them) and
+ * returns the exchanges that bring it to the new one; from 0 the result equals the vendor's (binoracle t33-lscmf).
+ * The T33 mesh is the grid of these tables (no ring format), so it follows them.
+ */
+static inline void t33_lsc_mf_delta(u8 *mf, u32 flip, u32 mirror, u32 *df, u32 *dm)
+{
+	u8 want = (u8)((flip == 1 ? 1U : 0U) | (mirror == 1 ? 2U : 0U));
+
+	*df = (*mf ^ want) & 1U;
+	*dm = ((*mf ^ want) >> 1) & 1U;
+	*mf = want;
+}
+
 #endif /* TX_ISP_T33_LSCMF_H */

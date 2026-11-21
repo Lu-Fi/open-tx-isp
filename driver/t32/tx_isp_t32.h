@@ -177,6 +177,7 @@ struct t32_lsc_drv_stats {
 	u32 attaches, ct_calls, mesh_writes, ct, tgains, frames, list_runs, waits, timeouts;
 #ifndef TX_ISP_T33
 	u32 flips, mirrors;	/* tisp_lsc_mirror_flip counters (#722) */
+	u32 mf;			/* orientation the tables carry: bit 0 flip, bit 1 mirror (#728) */
 #endif
 };
 extern struct t32_lsc_drv_stats t32_lsc_drv_stats;

@@ -851,6 +851,48 @@ static inline int t32_lsc_hvflip(struct t32_lsc_ctx *ctx, u8 ch, u32 a3, u32 arg
 	return 0;
 }
 
+/*
+ * Beyond vendor (openimp #728).  The vendor's tuning 0x73 dispatcher passes the sensor's NEW orientation (flip,
+ * mirror) and tisp_lsc_mirror_flip exchanges the tables in place on top of the previous state, so 1 -> 2 leaves
+ * the mesh mirrored and flipped.  t32_lsc_mf_delta keeps the orientation the tables carry (*mf: bit 0 flip,
+ * bit 1 mirror, 0 after a fresh table copy) and returns the exchanges that bring them to the new one; from the
+ * fresh state the result equals the vendor's (binoracle t32-lscmf).
+ */
+static inline void t32_lsc_mf_delta(u8 *mf, u32 flip, u32 mirror, u32 *df, u32 *dm)
+{
+	u8 want = (u8)((flip == 1 ? 1U : 0U) | (mirror == 1 ? 2U : 0U));
+
+	*df = (*mf ^ want) & 1U;
+	*dm = ((*mf ^ want) >> 1) & 1U;
+	*mf = want;
+}
+
+/*
+ * Beyond vendor (openimp #728): with section byte 65 set (ring format) the mesh is a radial profile of the first
+ * payload around the optical centre, which tisp_lsc_mirror_flip's exchange (second payload) never reaches.  The
+ * centre is section word + 20 (ox) / + 16 (oy) = minus its column / row in the sensor picture (t32_lsc_geometry:
+ * far corner max(width + ox, -ox)); mirror / flip move it to width - 1 - x / height - 1 - y: ox' = -ox - (width - 1),
+ * oy' = -oy - (height - 1).  The caller rebuilds the geometry (zone, r2) and writes the registers (r5, r6, r7).
+ */
+static inline void t32_lsc_ring_centre(u8 *sec, u32 width, u32 height, u32 df, u32 dm)
+{
+	u32 v;
+	int k;
+
+	for (k = 0; k < 2; k++) {
+		u8 *p = sec + (k ? 20 : 16);
+		u32 size = k ? width : height;
+
+		if (!(k ? dm : df) || !size)
+			continue;
+		v = (u32)(-(int)t32_le32(p) - (int)(size - 1));
+		p[0] = (u8)v;
+		p[1] = (u8)(v >> 8);
+		p[2] = (u8)(v >> 16);
+		p[3] = (u8)(v >> 24);
+	}
+}
+
 /* ---- lsc_exchange_line / lsc_exchange_data (vendor 0x45ae4 / 0x45ac0), oracle t32_lscm_oracle ---- */
 
 /* lsc_exchange_line: swap n bytes at u16 index a and b of plane (buf = scratch, n bytes) */
