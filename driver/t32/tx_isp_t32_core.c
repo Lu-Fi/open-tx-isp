@@ -1346,25 +1346,60 @@ int t32_core_clk_active(void)
  * register write (QEMU trace: clock on, soft reset, 0x22028).  Without it the
  * T33 silicon never ran a register list (openimp #393).
  */
+/*
+ * openimp #625 diagnostics: srbc_debug=1 logs the CPM state (whole
+ * 0x10000000-0x100000fc block, read only) at module load and around the ISP
+ * reset of the first open, plus the poll count until the stop ack.  Off by
+ * default; nothing is written.
+ */
+static int srbc_debug;
+module_param(srbc_debug, int, 0644);
+MODULE_PARM_DESC(srbc_debug, "log CPM/SRBC state around the ISP reset (openimp #625)");
+
+static void t32_srbc_dump(const char *tag)
+{
+	char buf[8 * 9 + 1];
+	unsigned int r, i;
+
+	if (!srbc_debug)
+		return;
+	for (r = 0; r < 0x100; r += 0x20) {
+		for (i = 0; i < 8; i++)
+			snprintf(buf + i * 9, 10, " %08x",
+				 readl((void __iomem *)CKSEG1ADDR(0x10000000 + r + i * 4)));
+		pr_info("tx-isp-t32: #625 %s cpm+%02x:%s\n", tag, r, buf);
+	}
+}
+
 static void t32_isp_soft_reset(void)
 {
 	void __iomem *srbc = (void __iomem *)CKSEG1ADDR(0x100000c4);
 	int tries;
 
+	t32_srbc_dump("pre-reset");
 	writel(readl(srbc) | (1u << 21), srbc);
 	for (tries = 500; tries; tries--) {
 		if (readl(srbc) & (1u << 20)) {
+			if (srbc_debug)
+				pr_info("tx-isp-t32: #625 stop ack after %d polls, srbc %08x\n",
+					500 - tries, readl(srbc));
 			writel((readl(srbc) & ~(1u << 21)) | (1u << 22), srbc);
 			writel(readl(srbc) & ~(1u << 22), srbc);
 			return;
 		}
 		msleep(2);
 	}
+	t32_srbc_dump("no-ack");
 #ifdef TX_ISP_T33
 	/*
 	 * openimp #544 (beyond vendor): on the T33L the ISP sometimes never sets
-	 * bit 20 after a reboot (more often the longer the stop request comes
-	 * after the clocks are switched on).  A soft reset pulse with the stop
+	 * bit 20 on the first reset after a warm reboot.  openimp #625: this
+	 * follows a boot in which the ISP streamed (5 of 7 such boots, 1 of 12
+	 * after a boot that only opened the ISP) and never happens on a reopen
+	 * within a boot; CPM 0x10000000-0xfc is identical in hit and miss boots
+	 * (SRBC 0 before the request).  So it is ISP state that the SoC reset
+	 * does not clear; the vendor's sequence is the same and would fail
+	 * there.  A soft reset pulse with the stop
 	 * request still held (bit 22 for 2 ms, then bit 21 dropped) brings it
 	 * back; the second stop request is then acknowledged at once and the
 	 * normal reset follows.  The vendor returns -1 here and never streams.
@@ -1394,6 +1429,7 @@ static int t32_isp_open(struct inode *inode, struct file *file)
 {
 	mutex_lock(&core.lock);
 	if (!t32_clk_users++) {
+		t32_srbc_dump("pre-clk");
 		t32_clks_activate();
 		t32_isp_soft_reset();
 	}
@@ -1957,6 +1993,7 @@ int tx_isp_t32_core_init(void)
 
 	mutex_init(&core.lock);
 	INIT_LIST_HEAD(&core.allocs);
+	t32_srbc_dump("load");
 
 	t32_clks_probe();
 	ret = misc_register(&t32_isp_misc);
