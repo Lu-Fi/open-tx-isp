@@ -206,6 +206,21 @@ static u32 tisp_top_reg_write(u32 ch)
 	return t33_top_refresh;
 }
 #include "tx_isp_t33_fd_misc.h"
+#include "tx_isp_t33_tisp.h"
+/* /proc/tisp level 3 (#589): the bypass bytes of stTopPar (the TOP section, +0xc..+0x23) as last loaded */
+static u8 t33_tisp_top[0x24];
+static bool t33_tisp_top_ok;
+
+const u8 *t33_tisp_top_par(void)
+{
+	return t33_tisp_top_ok ? t33_tisp_top : NULL;
+}
+
+static void t33_tisp_top_save(const u8 *sec)
+{
+	memcpy(t33_tisp_top, sec, sizeof(t33_tisp_top));
+	t33_tisp_top_ok = true;
+}
 /* lists 2..4, 6..9, 12..15, 17..22 */
 #define T33_INIT_REFRESH	0x007ef3dcU
 #define T33_TMO_START_REG	0x70f0U
@@ -247,6 +262,9 @@ static irqreturn_t t32_isp_irq(int irq, void *dev)
 	isp_wr(T32_INT4_CLR, s4);
 	isp_wr(T32_RDMA_IRQ_CLR, 0);
 	t32_hw_stats.isp_irqs++;
+#ifdef TX_ISP_T33
+	t33_tisp_count_isp(sta, done, s2, msca, s3, s5, s4);	/* /proc/tisp counters (#589) */
+#endif
 	if (sta & 1) {
 		t32_hw_stats.frame_ends++;
 #ifdef TX_ISP_T33
@@ -366,6 +384,10 @@ static irqreturn_t t32_vic_irq(int irq, void *dev)
 	writel(t0, isp_base + T32_VIC_BASE(1) + T32_VIC_INT_CLR);
 	writel(t1, isp_base + T32_VIC_BASE(1) + T32_VIC_INT_CLR2);
 	t32_hw_stats.vic_irqs++;
+#ifdef TX_ISP_T33
+	t33_tisp_count_vic(0, s0, s1);	/* /proc/tisp VIC counters (#589) */
+	t33_tisp_count_vic(1, t0, t1);
+#endif
 	t33_vic_hold_tick(s0);		/* the sensor flip's VIC hold (T33 #669, T32 #689) */
 #ifndef TX_ISP_T33
 	/* RAW snapshot through the VIC's MDMA (vendor lib_tisp_vic_intp_handle, openimp #491) */
@@ -1349,6 +1371,10 @@ static void t32_front_init(void)
 		isp_printf(1, "tx-isp-t32: sensor format 0x%x not handled by the front end\n", code);
 		return;
 	}
+#ifdef TX_ISP_T33
+	t33_tisp_set_par(width, height, bayer & 0x1f, (u32)bayer >> 16, t32_ivdc_direct(0),
+			 t33_core_sensor_dbus());	/* /proc/tisp level 0 / 4 (#589) */
+#endif
 	off = t32_iq_section(bin, bytes, T32_IQ_SEC_CSC, &len);
 #ifdef TX_ISP_T33
 	csc_para[0] = NULL;	/* set by t33_csc_init_slots (tisp_csc_init) */
@@ -1391,6 +1417,7 @@ static void t32_front_init(void)
 
 		/* 0x100 = 5 for IVDC direct mode (vendor tisp_top_init: init par byte 0x2b == 1, sensor 0), else 4 (#680) */
 		t33_top_init(bin + off, width, height, (u32)bayer, t32_ivdc_direct(0), w, dw);
+		t33_tisp_top_save(bin + off);
 		for (i = 0; i < T33_TOP_DIRECT_WRITES; i++)
 			isp_wr(dw[i].reg, dw[i].val);
 		if (t32_ldc_top_hldc())	/* tisp_top_ldc_bypass_refresh: HLDC takes the LDC out of bypass */
@@ -3851,6 +3878,7 @@ static void t33_sw_top(const u8 *bin, u32 bytes, u32 width, u32 height, int baye
 	    !(buf = t33_mod_buf(T33_MOD_TOP)))
 		return;
 	t33_top_init(bin + off, width, height, (u32)bayer, t32_ivdc_direct(0), tisp_w, dw);
+	t33_tisp_top_save(bin + off);
 	if (t32_ldc_top_hldc())
 		tisp_w[0].val &= ~0x800000U;
 	T33_SW_TMP();

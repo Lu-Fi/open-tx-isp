@@ -483,6 +483,15 @@ static inline u32 ldc_rd(u32 off)
 extern u32 t33_st_isp_init_par_mode[1008];	/* stIspInitPar (tx_isp_t32_hw.c) */
 static u32 t33_ldc_intp_info[2];		/* ldcIntpInfo: pass done / error interrupts */
 
+#include "tx_isp_t33_tisp.h"
+
+/* /proc/tisp LDC line (#589) */
+void t33_tisp_ldc_info(u32 *done, u32 *err)
+{
+	*done = t33_ldc_intp_info[0];
+	*err = t33_ldc_intp_info[1];
+}
+
 static const struct t33_ldcintp_hw t33_ldcintp_hw = { t32_hw_rd, t32_hw_wr };
 #endif
 
