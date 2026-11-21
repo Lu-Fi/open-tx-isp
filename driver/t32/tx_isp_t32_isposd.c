@@ -53,6 +53,10 @@
 #include "tx_isp_t32_msca_irq.h"
 #include "tx_isp_t32_msca_set.h"
 #include "tx_isp_t32_msca_arr.h"
+#include "tx_isp_t32_msca_init.h"
+#include "tx_isp_t32_msca_attr.h"
+#include "tx_isp_t32_msca_chx.h"
+#include "tx_isp_t32_iq.h"
 
 #define T32_OSD_ID_MASK		0x08000074U
 #define T32_OSD_ID_DRAW		0x080000a0U
@@ -69,10 +73,29 @@ static u8 osd_sb[T32_MSCA_BLK_SZ];		/* t32_data_e2768[0] */
 static u8 osd_mask_marked;			/* vendor t32_data_f3258[14] */
 static u32 osd_info;				/* t32_data_e28bc: alignment fixes */
 static u16 osd_w302;				/* the channel context's word +302 (0xf09e0 low half) */
-static u8 osd_par[256];				/* channel parameter block (unused: no autozoom here) */
+static u8 osd_par[256];				/* IQ bin section 25 copy (vendor tparamsP + 0xef50, 0xbc B; #730) */
 static struct t32_msca_ch osd_ch = { .par = osd_par };
 static struct t32_front_write osd_w[T32_OSD_WRITES];
 static unsigned int osd_refused;		/* cfg_shd messages (busy / flag not ready) */
+
+/*
+ * openimp #730: the vendor's live MSCA state of channel 0 (one sensor): tisp_msca_init at the tisp init,
+ * lib_tisp_msca_channel_attr_set + tisp_msca_channel_start (tisp_msca_chx_cfg_load) +
+ * lib_tisp_msca_chx_stream_on + lib_tisp_api_set_msca_dma_stride at a frame channel's start,
+ * lib_tisp_msca_chx_stream_off + lib_tisp_msca_chx_reg_stream_off at its stop.  osd_sb is the
+ * parameter block (st_msca_chx_cfg[0]), osd_ch the context (msca_info[0]: par = osd_par, coef = ctx + 4).
+ */
+#define T32_IQ_SEC_MSCA		25
+#define T32_MSCA_PAR_BYTES	0xbcU		/* tisp_bin_data_parse: section 25 -> tparamsP + 0xef50 */
+#define T32_MSCA_START_WRITES	1024
+static u8 msca_ctx[T32_MSCA_INIT_CTX_SZ];	/* tisp_msca_init's context allocation (coefs mirrored in osd_ch) */
+static u8 msca_saved[15 * 4];			/* fcrop_attr[0]: words set + 3 * k */
+static u8 msca_def[8];				/* stIspInitPar[0] width / height (the sensor size) */
+static u8 msca_az;				/* autozoom[0] (t32_data_e2760[0], #721) */
+static u8 msca_live;				/* tisp_msca_init ran on the bin's section 25 */
+static struct t32_msca_init_st msca_st;
+static struct t32_front_write msca_w[T32_MSCA_START_WRITES];
+static u32 msca_inits, msca_starts, msca_stops;
 
 static u32 osd_rd(u32 reg)
 {
@@ -102,12 +125,13 @@ static void osd_commit(void)
 {
 	struct t32_ms_io io = { .shadow = 0, .w = osd_w, .n = 0, .rd = osd_rd };
 	struct t32_msca_cfg_st st = {
-		.c = &osd_ch, .sb = osd_sb, .osd_info = &osd_info, .w302 = &osd_w302,
+		.c = &osd_ch, .sb = osd_sb, .az = msca_az, .osd_info = &osd_info, .w302 = &osd_w302,
 	};
 	unsigned int i;
 
-	osd_w302 = t32_hw_rd(0xf09e0) & 0xffff;
+	osd_w302 = msca_live ? osd_ch.coef[T32_MSCA_COEFS - 1] : t32_hw_rd(0xf09e0) & 0xffff;
 	t32_msca_irq_frame_done(&osd_cfg_ops, &io, &st, 0);
+	msca_az = st.az;
 	for (i = 0; i < io.n; i++)
 		t32_hw_wr(osd_w[i].reg, osd_w[i].val);
 	if (t32_isposd_trace && io.n)
@@ -138,6 +162,146 @@ void t32_isposd_msca_start(u32 in_w, u32 in_h)
 	t32_msa_w16(osd_sb + 0, in_w);
 	t32_msa_w16(osd_sb + 6, in_h);
 	spin_unlock_irqrestore(&osd_lock, fl);
+}
+
+static u8 *msca_kmalloc(u32 size)
+{
+	return size == T32_MSCA_INIT_SETS_SZ ? osd_sb : size == T32_MSCA_INIT_CTX_SZ ? msca_ctx : NULL;
+}
+
+static void msca_lock_init(void)
+{
+}
+
+static void msca_error(u32 line)
+{
+	isp_printf(2, "[%s:%d]: Kmalloc error!!!\n", "tisp_msca_init", line);
+}
+
+static void msca_irq_set(u32 ch, u32 irq)
+{
+	/* irq 33 -> tisp_msca_irq_frame_done: t32_isp_irq calls t32_isposd_frame_done */
+}
+
+static const struct t32_msca_init_ops msca_init_ops = {
+	.kmalloc = msca_kmalloc, .lock_init = msca_lock_init, .error = msca_error, .irq_func_set = msca_irq_set,
+};
+
+static void msca_flush(struct t32_ms_io *io)
+{
+	unsigned int i;
+
+	for (i = 0; i < io->n; i++)
+		t32_hw_wr(io->w[i].reg, io->w[i].val);
+	io->n = 0;
+}
+
+/*
+ * tisp_msca_init(0, stIspInitPar) at the end of the tisp init (lib_tisp_init): a fresh parameter block and
+ * context (OSD / mask / line state gone, as the vendor's kmalloc), the bin's section 25 as the parameter
+ * block, the MSCA init writes.  Returns 0, or -1 when the bin has no usable section 25 (the caller keeps
+ * the direct channel start then).
+ */
+int t32_isposd_msca_init(u32 w, u32 h)
+{
+	static u8 p[904];	/* stIspInitPar of channel 0: width, height, word 225 the pipeline count */
+	struct t32_ms_io io = { .shadow = 0, .w = msca_w, .n = 0, .rd = osd_rd };
+	const u8 *bin;
+	u32 bytes, off, len;
+	unsigned long fl;
+	unsigned int i;
+	int r;
+
+	off = t32_core_iq_bin(&bin, &bytes) ? 0 : t32_iq_section(bin, bytes, T32_IQ_SEC_MSCA, &len);
+	spin_lock_irqsave(&osd_lock, fl);
+	msca_live = 0;
+	if (!off || len < T32_MSCA_PAR_BYTES) {
+		spin_unlock_irqrestore(&osd_lock, fl);
+		isp_printf(1, "tx-isp-t32: IQ bin has no MSCA section, direct channel start\n");
+		return -1;
+	}
+	memset(osd_par, 0, sizeof(osd_par));
+	memcpy(osd_par, bin + off, T32_MSCA_PAR_BYTES);
+	memset(p, 0, sizeof(p));
+	t32_msa_w32(p, w);
+	t32_msa_w32(p + 4, h);
+	t32_msa_w32(p + 900, 1);	/* one sensor */
+	t32_msa_w32(msca_def, w);
+	t32_msa_w32(msca_def + 4, h);
+	memset(msca_saved, 0, sizeof(msca_saved));
+	msca_az = 0;
+	osd_mask_marked = 0;
+	r = t32_msca_init(&msca_init_ops, &io, &msca_st, 0, p);
+	osd_info = msca_st.osd_info;
+	for (i = 0; i < T32_MSCA_COEFS; i++)
+		osd_ch.coef[i] = t32_msa_r16(msca_ctx + 4 + 2 * i);
+	osd_ch.pending = 0;
+	msca_flush(&io);
+	msca_live = !r;
+	msca_inits++;
+	spin_unlock_irqrestore(&osd_lock, fl);
+	return r;
+}
+
+/*
+ * A frame channel (set) of channel 0 starts: lib_tisp_msca_channel_attr_set with the S_FMT attribute (a: 13
+ * words, ispcore_pad_event_handle 0x3000002), then the stream-on part of 0x3000003: tisp_msca_channel_start
+ * (tisp_msca_chx_cfg_load), lib_tisp_msca_chx_stream_on, lib_tisp_api_set_msca_dma_stride(stride, 0).
+ * Returns 0, or -1 without the live state (direct start).
+ */
+int t32_isposd_msca_chx_start(u32 set, const u32 *a, u32 stride)
+{
+	struct t32_ms_io io = { .shadow = 0, .w = msca_w, .n = 0, .rd = osd_rd };
+	struct t32_msca_cfg_st st = {
+		.c = &osd_ch, .sb = osd_sb, .az = msca_az, .osd_info = &osd_info, .w302 = &osd_w302,
+	};
+	u8 attr[52];
+	unsigned long fl;
+	unsigned int i;
+
+	if (set >= 3)	/* sets of channel 0 */
+		return -1;
+	for (i = 0; i < 13; i++)
+		t32_msa_w32(attr + 4 * i, a[i]);
+	spin_lock_irqsave(&osd_lock, fl);
+	if (!msca_live) {
+		spin_unlock_irqrestore(&osd_lock, fl);
+		return -1;
+	}
+	t32_msca_channel_attr_set(osd_sb, msca_saved, msca_def, msca_az, set, attr);
+	osd_w302 = osd_ch.coef[T32_MSCA_COEFS - 1];
+	t32_msca_chx_cfg_load(&osd_cfg_ops, &io, &st, 0, set);
+	msca_flush(&io);
+	msca_az = st.az;
+	t32_msca_chx_stream_on(&io, osd_sb, set);
+	msca_flush(&io);
+	t32_msca_set_dma_stride(&io, 0, set, stride, 0);
+	msca_flush(&io);
+	msca_starts++;
+	spin_unlock_irqrestore(&osd_lock, fl);
+	return 0;
+}
+
+/* stream off (ispcore_frame_channel_streamoff, lock half): lib_tisp_msca_chx_stream_off + _chx_reg_stream_off */
+int t32_isposd_msca_chx_stop(u32 set)
+{
+	struct t32_ms_io io = { .shadow = 0, .w = msca_w, .n = 0, .rd = osd_rd };
+	unsigned long fl;
+
+	if (set >= 3)	/* sets of channel 0 */
+		return -1;
+	spin_lock_irqsave(&osd_lock, fl);
+	if (!msca_live) {
+		spin_unlock_irqrestore(&osd_lock, fl);
+		return -1;
+	}
+	t32_msca_chx_stream_off(&io, osd_sb, set);
+	msca_flush(&io);
+	t32_msca_chx_reg_stream_off(&io, set);
+	msca_flush(&io);
+	msca_stops++;
+	spin_unlock_irqrestore(&osd_lock, fl);
+	return 0;
 }
 
 /* the vendor's index use, checked (see the header) */
@@ -234,4 +398,13 @@ void t32_isposd_status(u32 *pending, u32 *refused, u32 *fixes)
 	*pending = t32_msa_r32(osd_sb + 880) | t32_msa_r32(osd_sb + 884) | t32_msa_r32(osd_sb + 888);
 	*refused = osd_refused;
 	*fixes = osd_info;
+}
+
+/* /proc: the live MSCA state (#730) */
+void t32_isposd_msca_status(u32 *live, u32 *inits, u32 *starts, u32 *stops)
+{
+	*live = msca_live;
+	*inits = msca_inits;
+	*starts = msca_starts;
+	*stops = msca_stops;
 }
