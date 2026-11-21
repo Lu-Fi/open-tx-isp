@@ -4,6 +4,13 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD[-rcN]` are set on the `aperto` branch, the same tag in open-tx-isp and OpenIMP: RC1 `v2026.10.11-rc1`, RC2 `v2026.10.25-rc2`, RC3 `v2026.11.07-rc3` (2026-11-07). Gate SoCs of RC3 and Release 1: T10, T20, T21, T23, T30, T31, T40, T41 (T32/T33 planned, QEMU only); release notes: [docs/releases/ in OpenIMP](https://github.com/Lu-Fi/openimp/blob/next/docs/releases/README.md). Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-11-21: T33 /proc/tisp debug view like the vendor (openimp #589)
+
+- `/proc/tisp` (T33 only): the vendor tisp debug view. `echo help|0..4 > /proc/tisp` selects it as `tisp_write_proc` does (default level 1, other numbers ignored, no number -EINVAL); `cat` prints level 0 the S0 basic info (size, bayer, direct mode), 1 the VIC / ISP error and interrupt tables, module-done / list counters and the LDC line, 3 the TOP bypass bytes, 4 the VIC info, tisp version, interrupt / back0 / dma counters and sensor size (2 prints nothing, as the vendor).
+- The counters are the vendor's (`lib_tisp_intp_handler`, `lib_tisp_intp_process`, `lib_tisp_vic_intp_handle`), counted in our ISP / VIC interrupt handlers from the status words they already read.
+- QEMU: text layout identical to the vendor tx-isp-t33.ko under the same stream (numbers masked, all levels, help, bad input); values within one frame except two list counters (mdns 22 vs 25, csccr 2 vs 4 triggers). T33L device: runtime insmod, stream + snapshot 200 with the node read at every level, real counters (624 frames, 0 errors), 0 oops; the node goes away with rmmod.
+- Not ported: the vendor `/dev/tisp` tuning node (PC tuning tool only, see #589). Named differences: `s0..s3 cnt` stay 0 (our lists never start through `lib_tisp_rcfg_cfg_trig`), counters run from module load, bayer names only for the four RGB orders.
+
 ## 2026-11-21: T33 MSCA channel path: attribute publish, gated stream-off, stop window, snapshot wait (openimp #658)
 
 - a) `attr_get_size` (driver/t33/tx_isp_t33_osd.c): `tisp_msca_t33_init` now fills local tables and publishes `stMscaAttr[0]` / `msca_info[0]` together under `t33_attr_lock`; a channel start racing the first tuning call / stream-on can no longer see a half-filled block (word 0 = the parameter pointer). The vendor runs the init at `lib_tisp_init`, before any channel exists.

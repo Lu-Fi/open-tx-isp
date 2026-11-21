@@ -61,6 +61,9 @@ module_param(driver_version, charp, 0444);
 MODULE_PARM_DESC(driver_version, "ISP driver version answered to DRIVER_VERSION (must match libimp)");
 #ifdef TX_ISP_T33
 #include "tx_isp_t33_drvver.h"
+#ifdef TX_ISP_T33
+#include "tx_isp_t33_tisp.h"
+#endif
 static int t33_put_user_block(void *dst, const void *src, u32 n)	/* private_copy_to_user */
 {
 	return copy_to_user((void __user *)dst, src, n) ? 1 : 0;
@@ -1907,6 +1910,20 @@ int t32_core_sensor_mbus(u32 *code)
 	return 0;
 }
 
+#ifdef TX_ISP_T33
+/* the sensor bus (attribute dbus_type: 1 MIPI, 2 DVP), 0 when unknown: /proc/tisp VIC info (#589) */
+u32 t33_core_sensor_dbus(void)
+{
+	struct t32_vi *vi = &core.vi[0];
+	void *attr;
+
+	if (!vi->registered || !vi->sd)
+		return 0;
+	attr = T32_AT(vi->sd, T32_SENSOR_VIDEO + T32_VIDEO_ATTR, void *);
+	return attr ? T32_AT(attr, T32_ATTR_DBUS_TYPE, u32) : 0;
+}
+#endif
+
 /* the MSCA input: the sensor picture of the running input */
 int t32_core_sensor_size(u32 *w, u32 *h)
 {
@@ -1992,6 +2009,10 @@ int tx_isp_t32_core_init(void)
 		proc_create("isp-m0", 0444, core.proc, &t32_proc_fops);
 		proc_create("isp-w02", 0444, core.proc, &t32_proc_fops);
 	}
+#ifdef TX_ISP_T33
+	if (t33_tisp_proc_init())	/* the vendor tisp debug view (#589) */
+		pr_warn(T32_SOC_DRV ": /proc/tisp not created\n");
+#endif
 	pr_info(T32_SOC_DRV ": open driver loaded (S3: 3 channels, sensor fps, no tisp) (memopt %u)\n", isp_memopt);
 	return 0;
 
@@ -2020,6 +2041,9 @@ void tx_isp_t32_core_exit(void)
 	}
 	t32_free_all();
 	mutex_unlock(&core.lock);
+#ifdef TX_ISP_T33
+	t33_tisp_proc_exit();
+#endif
 	if (core.proc) {
 		remove_proc_entry("isp-m0", core.proc);
 		remove_proc_entry("isp-w02", core.proc);

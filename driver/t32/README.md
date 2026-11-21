@@ -24,6 +24,7 @@ generation-shared come from the shared code instead:
 
 - Device nodes: `/dev/tx-isp`, `/dev/isp-m0`, `/dev/misc-ivdc`,
   `/dev/framechan0-2`; `/proc/jz/isp/isp-m0` and `isp-w02` (status text).
+  T33: `/proc/tisp`, the vendor tisp debug view (`echo help|0..4 > /proc/tisp`, `tx_isp_t33_tisp.c`, #589).
 - `REGISTER_SENSOR`: creates the I2C client, the prebuilt sensor module
   probes, the driver copies the registration into the sensor object and calls
   its `g_chip_ident` (detection), then binds it in the sensor registry.
