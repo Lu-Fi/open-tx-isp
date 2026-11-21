@@ -42,6 +42,8 @@
 #include <linux/module.h>
 #include <linux/vmalloc.h>
 #include <linux/string.h>
+#include <linux/seq_file.h>
+#include <linux/mutex.h>
 
 #include "tx_isp_t32.h"
 #include "tx_isp_t32_txsctrl.h"
@@ -744,3 +746,126 @@ int t32_tx_os_tisp_g_face_ae_weiget(u32 ch, void *buf) { return t32_g_face_ae_we
 int t32_tx_os_tisp_s_face_ae_weiget(u32 ch, void *buf) { return t32_s_face_ae_weiget(&tb_set, ch, buf); }
 int t32_tx_os_tisp_g_statis_config(u32 ch, void *buf) { return t32_g_statis_config_attr(&tb_get, ch, buf, tb_tattr()); }
 int t32_tx_os_tisp_s_statis_config(u32 ch, void *buf) { return t32_s_statis_config_attr(&tb_stat, tb_tattr(), ch, buf); }
+
+#ifdef TX_ISP_T33
+/*
+ * openimp #659: the "Ae Info" / "AWB Info" parts of the vendor ISP INFO block of /proc/jz/isp/isp-m0
+ * (vendor tx-isp-t33.ko isp_info_ae 0xfad80, isp_info_awb 0xfac2c, Ghidra project t33) on the same getters
+ * the tuning API answers from, with the vendor's buffers, order, labels and units.  The T33 AE part has no
+ * "AeShort*" / "TotalGainDbShort" lines (the T32 one has) and adds AeStaticErrCnt / AeHistErrCnt
+ * (lib_tisp_api_get_ae_static_error_cunt: stAeInfo +0x4de0 / +0x4de4, here the zone / histogram tag error
+ * counts of the AE statistics front); the AWB part adds AWBStaticErrCnt (awbInfo[ch] word 5).
+ */
+static void t33_info_list(struct seq_file *m, const char *name, const u32 *list, const u32 *words)
+{
+	u32 i;
+
+	seq_printf(m, "%s", name);
+	if (!list[0])
+		seq_printf(m, "Disable");
+	else
+		for (i = 0; i < 30; i += 2)	/* vendor: stride 8 bytes over 120 bytes, the first word printed */
+			seq_printf(m, " %d", words[i]);
+	seq_printf(m, "\n");
+}
+
+void t33_info_ae_awb(struct seq_file *m, u32 ch)
+{
+	static const char *const fmt[26] = {
+		"AeIntegrationTimeUnit", "AeMode", "AeIntegrationTimeMode", "AeAGainManualMode",
+		"AeDGainManualMode", "AeIspDGainManualMode", "AeIntegrationTime", "AeAGain", "AeDGain",
+		"AeIspDGain", "AeMinIntegrationTimeMode", "AeMinAGainMode", "AeMinDgainMode",
+		"AeMinIspDGainMode", "AeMaxIntegrationTimeMode", "AeMaxAGainMode", "AeMaxDgainMode",
+		"AeMaxIspDGainMode", "AeMinIntegrationTime", "AeMinAGain", "AeMinDgain", "AeMinIspDGain",
+		"AeMaxIntegrationTime", "AeMaxAGain", "AeMaxDgain", "AeMaxIspDGain",
+	};
+	static u32 expr[55], ev[32], at[32], scene[10], stable[3], explist[81], awb[19], gst[4];
+	static DEFINE_MUTEX(info_lock);	/* the buffers (vendor: stack, 0x380 bytes; too big for a kernel stack) */
+	const u8 *sc = (const u8 *)scene;
+	u32 bv = 0, zerr = 0, herr = 0, i;
+
+	mutex_lock(&info_lock);
+	memset(expr, 0, sizeof(expr));
+	memset(ev, 0, sizeof(ev));
+	memset(at, 0, sizeof(at));
+	memset(scene, 0, sizeof(scene));
+	memset(stable, 0, sizeof(stable));
+	memset(explist, 0, sizeof(explist));
+	memset(awb, 0, sizeof(awb));
+	memset(gst, 0, sizeof(gst));
+
+	seq_printf(m, "********* Ae Info *********\n");
+	tb_g_ae_exprinfo_attr(ch, (u8 *)expr);
+	for (i = 0; i < 26; i++)
+		seq_printf(m, "%s : %d\n", fmt[i], expr[i]);
+	seq_printf(m, "TotalGainDb : %d\n", expr[51]);
+	seq_printf(m, "ExposureValue : %d\n", expr[53]);
+	seq_printf(m, "EVLog2 : %d\n", expr[54]);
+	tb_g_ae_scence_attr(ch, (u8 *)scene);
+	tb_g_bv(ch, (u8 *)&bv);
+	tb_g_at_list(ch, (u8 *)at);
+	tb_g_ev_list(ch, (u8 *)ev);
+	tb_g_ae_explist(ch, (u8 *)explist);
+	t33_aec_stat_err(&zerr, &herr);
+	tb_get_ae_stable(ch, (u8 *)stable);
+	seq_printf(m, "AeStable : %d\n", stable[0]);
+	seq_printf(m, "AeTarget : %d\n", stable[1]);
+	seq_printf(m, "AeMean : %d\n", stable[2]);
+	seq_printf(m, "AeLuma : %d\n", scene[8]);
+	seq_printf(m, "AeStaticErrCnt : %d\n", zerr);
+	seq_printf(m, "AeHistErrCnt : %d\n", herr);
+	/* HLC: strength byte 4 with mode word 0 == 3; BLC: strength byte 12 with mode word 2 == 3 (vendor branches) */
+	if (!sc[4] && !sc[12]) {
+		seq_printf(m, "AeHLCEn : disable\n");
+		seq_printf(m, "AeBLCEn : disable\n");
+	} else if (scene[0] == 3 && !sc[12]) {
+		seq_printf(m, "AeHLCEn : enable\n");
+		seq_printf(m, "AeHLCStrength : %d\n", sc[4]);
+		seq_printf(m, "AeBLCEn : disable\n");
+	} else if (scene[2] == 3 && !sc[4]) {
+		seq_printf(m, "AeHLCEn : disable\n");
+		seq_printf(m, "AeBLCEn : enable\n");
+		seq_printf(m, "AeBLCStrength : %d\n", sc[12]);
+	}
+	seq_printf(m, "AeTargetComp : %d, Strength : %d\n", scene[4], scene[5]);
+	seq_printf(m, "AeStartEV\xe3\x80\x81" "EvValue : %d\n", scene[6]);
+	seq_printf(m, "AeBV : %d\n", bv);
+	t33_info_list(m, "AeEvList : ", ev, ev + 2);
+	t33_info_list(m, "AeAtList : ", at, at + 2);
+	if (!explist[0]) {
+		seq_printf(m, "AeExpoList : Disable");	/* vendor: no newline, "AWB Info" follows on the same line */
+	} else {
+		static const char *const en[3] = { "us", "again", "dgain" };
+
+		for (i = 0; i < 3; i++) {
+			u32 k;
+
+			seq_printf(m, "AeExpoList - %s :", en[i]);
+			for (k = 0; k < 16; k++)	/* vendor: the first entry 16 times */
+				seq_printf(m, " %d", explist[2 + i]);
+			seq_printf(m, "\n");
+		}
+	}
+
+	seq_printf(m, "********* AWB Info *********\n");
+	t32_g_awb_global_statis_attr(&tb_get, ch, gst);
+	tb_g_awb_attr(ch, (u8 *)awb);
+	seq_printf(m, "AWBGlobal R/G : %d\n", gst[0]);
+	seq_printf(m, "AWBGlobal B/G : %d\n", gst[1]);
+	seq_printf(m, "AWBWeighted R/G : %d\n", gst[2]);
+	seq_printf(m, "AWBWeighted B/G : %d\n", gst[3]);
+	seq_printf(m, "AWBWeightedRgain : %d\n", awb[1]);
+	seq_printf(m, "AWBWeightedBgain : %d\n", awb[2]);
+	seq_printf(m, "AWBStartRgain : %d\n", awb[17]);
+	seq_printf(m, "AWBStartBgain : %d\n", awb[18]);
+	seq_printf(m, "AWBColorTemperature : %d\n", awb[4]);
+	seq_printf(m, "AWBStaticErrCnt : %d\n", t33_awbc_stat_err());
+	mutex_unlock(&info_lock);
+}
+
+/* tisp_get_tuning (tisp_tattr) for the Base Info BCSH bytes; NULL before the tuning block exists */
+const u8 *t33_info_tuning(void)
+{
+	return tb_tattr();
+}
+#endif

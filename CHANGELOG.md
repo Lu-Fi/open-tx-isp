@@ -4,6 +4,13 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD[-rcN]` are set on the `aperto` branch, the same tag in open-tx-isp and OpenIMP: RC1 `v2026.10.11-rc1`, RC2 `v2026.10.25-rc2`, RC3 `v2026.11.07-rc3` (2026-11-07). Gate SoCs of RC3 and Release 1: T10, T20, T21, T23, T30, T31, T40, T41 (T32/T33 planned, QEMU only); release notes: [docs/releases/ in OpenIMP](https://github.com/Lu-Fi/openimp/blob/next/docs/releases/README.md). Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-11-21: T33 isp-m0 node prints the vendor ISP INFO block (openimp #659)
+
+- `/proc/jz/isp/isp-m0` of tx-isp-t33 now ends with the vendor "ISP INFO" block (vendor tx-isp-t33.ko `isp_info_show` with its default items 0xfffffff7: system, sensor, base, Ae, AWB, GIB, debug parameters): same labels, order and units, values from the driver state and the getters the tuning API answers from (`AeAGain` / `AeIspDGain` x1024, `AeIntegrationTime` in lines, `ExposureValue`, `ISP Runing Mode` day / night from the last SET_TIZIANO_PAR). The driver status text above it is unchanged (its `t33 ae: ... again` stays the sensor gain register code).
+- T33-specific vs the T32 printer: no `AeShort*` / `TotalGainDbShort` / `GIB Short` lines; `AeStaticErrCnt` / `AeHistErrCnt` (AE statistics tag errors) and `AWBStaticErrCnt` (awbInfo word 5).
+- Not printed: `ISP Cache Line` (vendor: only with a cache line set), the antiflicker step list (no open state), `ISP OSD DEBUG` (vendor: only when non-zero). `ISP Memopt` is this driver's parameter (vendor: its own word).
+- QEMU T33 (audit/issue659/q33): block complete while streaming, AeIntegrationTime 1176, AeAGain 1024, AeMaxAGain 32768, 0 oops.
+
 ## 2026-11-21: T40 / T41 / T23 AE back to auto on a fresh ISP start (openimp #749, beyond vendor)
 
 - User decision 2026-11-21: a fresh ISP start always runs the AE in auto.
