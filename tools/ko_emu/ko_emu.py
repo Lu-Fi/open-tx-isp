@@ -42,6 +42,7 @@ DEFAULT_HLE = {
     "__umoddi3": lambda e: _ret64(_q(e) % _arg64b(e) if _arg64b(e) else 0),
     "__divdi3": lambda e: _ret64(int(_s64(_q(e)) / _s64(_arg64b(e))) if _arg64b(e) else 0),
     "memcpy": lambda e: (e.write(e.get_reg(UC_MIPS_REG_A0), e.read(e.get_reg(UC_MIPS_REG_A1), e.get_reg(UC_MIPS_REG_A2))), e.get_reg(UC_MIPS_REG_A0))[1],
+    "memmove": lambda e: (e.write(e.get_reg(UC_MIPS_REG_A0), e.read(e.get_reg(UC_MIPS_REG_A1), e.get_reg(UC_MIPS_REG_A2))), e.get_reg(UC_MIPS_REG_A0))[1],  # read before write: overlap-safe
     "memset": lambda e: (e.write(e.get_reg(UC_MIPS_REG_A0), bytes([e.get_reg(UC_MIPS_REG_A1) & 255]) * e.get_reg(UC_MIPS_REG_A2)), e.get_reg(UC_MIPS_REG_A0))[1],
 }
 

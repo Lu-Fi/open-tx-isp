@@ -799,14 +799,19 @@ static inline void t32_lsc_write_flip_reg(struct t32_lsc_ctx *ctx, u8 ch)
  * the current colour temperature) and written.  The vendor's spin lock around the
  * exchange is left to the caller.  Oracle t32_lscm_oracle.
  */
-static inline int t32_lsc_mirror_flip(struct t32_lsc_ctx *ctx, u8 ch, u32 a3, u32 arg4,
-				      const struct t32_lsc_xops *ops)
+/*
+ * The exchange part of tisp_lsc_mirror_flip on the mesh tables tab (vendor stLutInfo[ch] + 0x14,
+ * + 2: ntab tables of T32_LSC_TABLE_STRIDE bytes, three planes of T32_LSC_PLANE each) of a
+ * rows x cols grid: a3 == 1 exchanges the lines (flip counter stats[9]), arg4 == 1 the
+ * elements of every line (mirror counter stats[10]).  The vendor takes its channel lock
+ * (lsc_para[ch] + 0x10) around each of the two parts; that is left to the caller.
+ */
+static inline void t32_lsc_mesh_flip(u8 *tab, u32 rows, u32 cols, u32 ntab, u32 a3, u32 arg4, u8 *stats,
+				     const struct t32_lsc_xops *ops)
 {
 	u8 buf[256];
-	u32 rows = ctx->info[17], cols = ctx->info[18], ntab = ctx->sec[116];
 	u32 cols2 = cols * 2, last = (rows * 2 - 1) * cols2;
 	u32 y, x, t, k;
-	u8 *tab = ctx->lut->p2 + 2;
 
 	memset(buf, 0, sizeof(buf));
 	if (a3 == 1) {
@@ -815,7 +820,7 @@ static inline int t32_lsc_mirror_flip(struct t32_lsc_ctx *ctx, u8 ch, u32 a3, u3
 				for (k = 0; k < 3; k++)
 					ops->xline(tab + t * T32_LSC_TABLE_STRIDE + k * T32_LSC_PLANE, buf,
 						   y * cols2, last - y * cols2, cols * 4);
-		ctx->stats[9]++;
+		stats[9]++;
 	}
 	if (arg4 == 1) {
 		for (y = 0; y != rows * 2; y++)
@@ -824,8 +829,14 @@ static inline int t32_lsc_mirror_flip(struct t32_lsc_ctx *ctx, u8 ch, u32 a3, u3
 					for (k = 0; k < 3; k++)
 						ops->xdata(tab + t * T32_LSC_TABLE_STRIDE + k * T32_LSC_PLANE,
 							   x + y * cols2, y * cols2 + cols2 - 1 - x);
-		ctx->stats[10]++;
+		stats[10]++;
 	}
+}
+
+static inline int t32_lsc_mirror_flip(struct t32_lsc_ctx *ctx, u8 ch, u32 a3, u32 arg4,
+				      const struct t32_lsc_xops *ops)
+{
+	t32_lsc_mesh_flip(ctx->lut->p2 + 2, ctx->info[17], ctx->info[18], ctx->sec[116], a3, arg4, ctx->stats, ops);
 	ctx->cur->rsvd1[0] = 5;
 	t32_lsc_update(ctx->sec, &ctx->s, &ctx->wk, ctx->cur->ct, 1);
 	t32_lsc_write_flip_reg(ctx, ch);

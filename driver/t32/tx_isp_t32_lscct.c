@@ -56,6 +56,7 @@ static struct t32_lsc_ctx lc;
 static struct t32_lsc_cur lcur;
 static struct t32_lscct lw;
 static bool lsc_on;
+static u8 lsc_flips[12];		/* vendor lsc_para[ch] + 0xc: [9] flips, [10] mirrors (kept over streams) */
 static unsigned long img_pages;		/* the LSC list (T32_LSCCT_IMG_WORDS words) */
 static u32 img_pa;
 #define LSC_IMG_ORDER	get_order(T32_LSCCT_IMG_WORDS * 4)
@@ -239,6 +240,50 @@ bool t32_lsc_drv_tgain(u32 ch, u32 gain)
 	}
 	mutex_unlock(&lsc_lock);
 	return done;
+}
+
+/*
+ * tisp_lsc_hvflip (vendor 0xc258c, tuning id 0x73 after the sensor mirror / flip, openimp #722) ->
+ * tisp_lsc_mirror_flip (0x55b88) on the live LSC state: under the channel lock (lsc_para[ch] + 0x10)
+ * flip == 1 exchanges the mesh lines, mirror == 1 the elements of every line, of every table and plane
+ * (t32_lsc_mesh_flip, the exchange of t32_lsc_mirror_flip, oracle t32_lscm_oracle; the tables are the
+ * section copy's at + T32_LSC_TABLES = vendor stLutInfo[ch] + 0x14 + 2, the grid the rows / columns of
+ * tisp_lsc_calc_para_refresh, the table count section byte 0x74); then cur + 0xc = 5,
+ * tisp_lsc_interp_by_ct(ch, ct, 1) and tisp_lsc_write_all_reg(ch, 2, 0, 1): the flipped mesh goes out
+ * through the LSC list at the next LSC frame done; the vendor's printk of the two counters.  Always 0.
+ */
+int t32_lsc_drv_hvflip(u32 ch, u32 flip, u32 mirror)
+{
+	unsigned long f;
+
+	(void)ch;
+	if (!t32_lsc_drv_on())
+		return 0;
+	mutex_lock(&lsc_lock);
+	if (lsc_on && lc.sec) {
+		u8 *tab = (u8 *)lc.sec + T32_LSC_TABLES + 2;
+		u32 ntab = lc.sec[116];
+
+		if (flip == 1) {
+			f = h_ch_lock(NULL, 0);
+			t32_lsc_mesh_flip(tab, lc.s.rows, lc.s.cols, ntab, 1, 0, lsc_flips, &t32_lsc_xops_default);
+			h_ch_unlock(NULL, 0, f);
+		}
+		if (mirror == 1) {
+			f = h_ch_lock(NULL, 0);
+			t32_lsc_mesh_flip(tab, lc.s.rows, lc.s.cols, ntab, 0, 1, lsc_flips, &t32_lsc_xops_default);
+			h_ch_unlock(NULL, 0, f);
+		}
+		lcur.rsvd1[0] = 5;
+		t32_lscct_interp_by_ct(&lw, 0, lcur.ct, 1);
+		t32_lscct_write_all_reg(&lw, 0, 2, 0, 1);
+		t32_lsc_drv_stats.flips = lsc_flips[9];
+		t32_lsc_drv_stats.mirrors = lsc_flips[10];
+		printk("\n  [func is %s, line is %d] lsc filp times is %d, mirror times is %d\n",
+		       "tisp_lsc_mirror_flip", 0x7f9, lsc_flips[9], lsc_flips[10]);
+	}
+	mutex_unlock(&lsc_lock);
+	return 0;
 }
 
 /* tisp_lsc_irq_frame_done, from the ISP interrupt (status 0x300a8 bit 4 = interrupt bit 36) */

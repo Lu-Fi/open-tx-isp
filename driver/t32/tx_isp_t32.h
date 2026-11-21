@@ -166,6 +166,9 @@ void t32_pf_attach_lce(const u8 *sec, u32 width, u32 height);
  * behind T32_PP_LSCCT (with T32_PP_LSC, T32_PP_CT) */
 struct t32_lsc_drv_stats {
 	u32 attaches, ct_calls, mesh_writes, ct, tgains, frames, list_runs, waits, timeouts;
+#ifndef TX_ISP_T33
+	u32 flips, mirrors;	/* tisp_lsc_mirror_flip counters (#722) */
+#endif
 };
 extern struct t32_lsc_drv_stats t32_lsc_drv_stats;
 struct t32_lsc_work;
@@ -174,6 +177,7 @@ void t32_lsc_drv_attach(const u8 *blk, const struct t32_lsc *s, const struct t32
 void t32_lsc_drv_detach(void);
 void t32_lsc_drv_exit(void);
 bool t32_lsc_drv_on(void);
+int t32_lsc_drv_hvflip(u32 ch, u32 flip, u32 mirror);	/* tisp_lsc_hvflip on the live LSC (openimp #722) */
 void t32_lsc_drv_ct(u32 ch, u32 ct);
 bool t32_lsc_drv_tgain(u32 ch, u32 gain);
 void t32_lsc_drv_frame_done(void);
