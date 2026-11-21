@@ -28,6 +28,7 @@
  */
 #include <linux/module.h>
 #include <linux/kernel.h>
+#include <linux/mutex.h>
 #include <linux/fs.h>
 #include <linux/miscdevice.h>
 #include <linux/uaccess.h>
@@ -86,6 +87,7 @@ struct t32_fbuf {
 struct t32_fchan {
 	int ch;
 	spinlock_t lock;
+	struct mutex op;		/* #658: stream on / off / snapshot pause, across the unlocked stop wait */
 	wait_queue_head_t wq;
 	int nbufs;
 	int streaming;
@@ -297,7 +299,7 @@ static int t32_fs_dqbuf(struct t32_fchan *f, u32 *w)
 	return 0;
 }
 
-static int t32_fs_streamon(struct t32_fchan *f)
+static int t32_fs_streamon_locked(struct t32_fchan *f)
 {
 	unsigned long flags;
 	int i, first = -1;
@@ -354,7 +356,7 @@ static int t32_fs_streamon(struct t32_fchan *f)
 	return 0;
 }
 
-static void t32_fs_streamoff(struct t32_fchan *f)
+static void t32_fs_streamoff_locked(struct t32_fchan *f)
 {
 	unsigned long flags;
 	int i, was;
@@ -383,6 +385,29 @@ static void t32_fs_streamoff(struct t32_fchan *f)
 	if (was && f->direct)
 		t32_ivdc_fs_stream(0);	/* pad event 4: irq off, last: 0x0 = 3 */
 	wake_up_interruptible(&f->wq);
+}
+
+/*
+ * #658 c: the stop wait runs without the spinlock and the channel counts as streaming until it ends (vendor
+ * state 4), so a second thread's STREAMON (returned 0, channel then off) or a snapshot restart (channel enabled
+ * on an empty address fifo after stop_end) could slip into the window.  f->op serialises stream on / off and the
+ * snapshot pause per channel: a STREAMON during a stop now waits for it and starts the channel normally.
+ */
+static int t32_fs_streamon(struct t32_fchan *f)
+{
+	int r;
+
+	mutex_lock(&f->op);
+	r = t32_fs_streamon_locked(f);
+	mutex_unlock(&f->op);
+	return r;
+}
+
+static void t32_fs_streamoff(struct t32_fchan *f)
+{
+	mutex_lock(&f->op);
+	t32_fs_streamoff_locked(f);
+	mutex_unlock(&f->op);
 }
 
 /* ---- vendor format ioctls (tx_isp_t32_fch.h) ---- */
@@ -533,9 +558,18 @@ void t32_fs_snap_pause(int restart)
 	for (c = 0; c < T32_MSCA_CHANNELS; c++) {
 		struct t32_fchan *f = &fchan[c];
 
+		mutex_lock(&f->op);
 		spin_lock_irqsave(&f->lock, flags);
 		if (f->streaming && !f->direct) {
-			t32_hw_msca_stop(f->ch);
+			/*
+			 * #658 d: the stream-off order of ispcore_frame_channel_streamoff (#650 / #651): stop, the
+			 * work-state wait without the lock (the frame in flight lands in its buffer), fifo clear.
+			 */
+			t32_hw_msca_stop_begin(f->ch);
+			spin_unlock_irqrestore(&f->lock, flags);
+			t32_hw_msca_stop_wait(f->ch);
+			spin_lock_irqsave(&f->lock, flags);
+			t32_hw_msca_stop_end(f->ch);
 			if (restart) {
 				for (i = 0; i < f->nbufs; i++)
 					if (f->buf[i].state == BUF_HW || f->buf[i].state == BUF_QUEUED)
@@ -544,6 +578,7 @@ void t32_fs_snap_pause(int restart)
 			}
 		}
 		spin_unlock_irqrestore(&f->lock, flags);
+		mutex_unlock(&f->op);
 	}
 }
 
@@ -577,6 +612,7 @@ int t32_fs_init(void)
 		t32_g_wr32(f->vch, T32_FCH_REMOTE, c);
 		t32_g_wr32(f->vch, T32_FCH_INDEX, c);
 		spin_lock_init(&f->lock);
+		mutex_init(&f->op);
 		init_waitqueue_head(&f->wq);
 		snprintf(f->name, sizeof(f->name), "framechan%d", c);
 		f->misc.minor = MISC_DYNAMIC_MINOR;
