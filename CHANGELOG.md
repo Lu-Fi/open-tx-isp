@@ -11,18 +11,16 @@ marked otherwise. Release tags `vYYYY.MM.DD[-rcN]` are set on the `aperto` branc
 - New binary oracle block `t32-ldcdma` (`make -C tests t32_binoracle_ldcdma`, needs `T32_OEM_KO` / `T33_CC`): vendor `tisp_func_ldc_dma_cfg` / `tisp_func_ldc_dma_stride` vs `tx_isp_t32_dma.h`, 4005 cases 0 mismatches, 9 of 9 mutations detected.
 - QEMU (0.7.22 + an LDC engine trace event, PRJ007 thingino 3.10 image, gc4653 2560x1440, OpenIMP T32 lib of openimp #751): parameter-file run and IQ-bin run each give 541 LDC + DMA writes equal to the vendor flow computed from the 2.2.0 decompile, 10 of 10 frames, 0 oopses, rmmod clean. A run of the vendor module itself was not possible (the only 3.10 vendor ko, PRJ007 20241022a, oopses at sensor load in QEMU). No T32 camera: picture effect not proven.
 
+## 2026-11-21: T30 init/boot trace prints demoted to pr_debug (openimp #757; host)
+
+- `driver/t30/tx_isp_t30_recovered.c`: ~115 progress/trace `pr_err("tx-isp-t30 ...")` lines (fw-init, isp-init, apical-init, set-input, sync, notify, core/NCU stream, and per-frame IRQ traces) are now `pr_debug`. On a UART console each line costs several ms; the vendor ko prints none of them. Real error messages stay `pr_err`. No sleeps changed: the vendor-ko sleep sites (msleep in csi init, stream on/off, reset; usleep_range in the sequence player and sensor interface) are all equal in ours. Device timing: see the issue.
+
 ## 2026-11-21: T33/T32 IVDC direct mode streams: IVDC core init before the sensor stream-on (openimp #509, #526)
 
 - `t32_sensor_stream` (driver/t32/tx_isp_t32_core.c) now runs the IVDC core init (`ivdc_core_ops_init`: soft reset, mode word 0x5c) before the sensor core init / S_STREAM instead of after it, as the vendor does (vendor tx-isp-t33.ko `ivdc_core_ops_init` 0xd074 runs while `IMP_ISP_AddSensor`, PC-sampled in the reset poll at +0x118). On a failed sensor start the IVDC is stopped again.
 - Cause of #509: with the reset issued right after the sensor stream-on, the T33L IVDC busy bit 0 never cleared; `timpsd` spun in the (vendor, unbounded) poll in kernel context (PC sampler: `__delay` called from `t32_ivdc_stream`), the stream never started. Not a bus hang: the system stayed reachable. A ~4 ms console print before the reset already let it complete.
 - New debug parameter `ivdc_trace=1`: every IVDC register write and each IVDC step at KERN_EMERG.
 - T33L device (RAM-only insmod, `direct_mode=1 ivdc_mem_line=1080 ivdc_threshold_line=800`, timps): before 1 of 1 spin (and #509's 4 earlier hangs); after: see openimp #509 for the trial count; per run fe3s 76, IVDC frames with 0 misses, RTSP ch0 1920x1080 decodes clean, real picture.
-
-## 2026-11-21: T32 / T33 IVDC core init before the sensor stream-on, as the vendor (openimp #509)
-
-- **Cause:** `t32_sensor_stream` ran `ivdc_core_ops_init` (IVDC soft reset + mode word) after the sensor S_STREAM. On the T33L the soft reset then never completed and the streamer spun in the unbounded busy-bit poll in kernel context, so `direct_mode=1` never streamed.
-- **Fix:** the vendor `tx-isp-t33.ko` runs `ivdc_core_ops_init` (0xd074) while `IMP_ISP_AddSensor`, long before the sensor streams; ours now runs it before the sensor core init / S_STREAM and stops the IVDC again when the sensor start fails. Also `ivdc_trace=1` (IVDC debug trace, one KERN_EMERG per IVDC write).
-- **Evidence:** T33L, runtime insmod, `direct_mode=1`: 4/4 runs stream and 3/3 restarts, 1080p decode clean, real picture; the old order spun. Follow-ups: #516, #756 (reset wait timeout).
 
 ## 2026-11-21: T33 /proc/tisp debug view like the vendor (openimp #589)
 

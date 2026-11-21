@@ -8711,18 +8711,18 @@ int subdev_sensor_ops_set_input(void *vin, int *input)
 	}
 
 	*(void **)((char *)vin + 0xe4) = sensor;
-	pr_err("tx-isp-t30 set-input: sync sensor=%p video=%p begin\n",
+	pr_debug("tx-isp-t30 set-input: sync sensor=%p video=%p begin\n",
 	       sensor, (char *)sensor + 0x1cc);
 	ret = tx_isp_t30_notify_module(sensor, 0x01000001,
 				       (char *)sensor + 0x1cc);
-	pr_err("tx-isp-t30 set-input: sync sensor=%p ret=%d\n", sensor, ret);
+	pr_debug("tx-isp-t30 set-input: sync sensor=%p ret=%d\n", sensor, ret);
 	if (ret)
 		return ret;
 
 	enable = 1;
-	pr_err("tx-isp-t30 set-input: init sensor=%p begin\n", sensor);
+	pr_debug("tx-isp-t30 set-input: init sensor=%p begin\n", sensor);
 	ret = tx_isp_t30_notify_module(sensor, 0x01000000, &enable);
-	pr_err("tx-isp-t30 set-input: init sensor=%p ret=%d\n", sensor, ret);
+	pr_debug("tx-isp-t30 set-input: init sensor=%p ret=%d\n", sensor, ret);
 	if (ret) {
 		isp_printf(1, "Failed to init the sensor(%s)\n",
 			   *(char **)((char *)sensor + 0x13c));
@@ -9795,7 +9795,7 @@ int32_t isp_core_tunning_open(uint32_t a0, uintptr_t a1)
 	tuning->temper_max = values[entries - 1];
 	tuning->temper_min = values[1];
 	tuning->state = 3;
-	pr_err("tx-isp-t30: tuning opened temper=%u..%u\n",
+	pr_debug("tx-isp-t30: tuning opened temper=%u..%u\n",
 	       tuning->temper_min, tuning->temper_max);
 	return 0;
 }
@@ -12112,7 +12112,7 @@ static int tx_isp_t30_tuning_set_isp_process(
 	}
 	APICAL_WRITE_32(0x0044, top44);
 	APICAL_WRITE_32(0x0040, top40);
-	pr_err("tx-isp-t30: ISP process=%d mbus=%#x bypass=%d\n",
+	pr_debug("tx-isp-t30: ISP process=%d mbus=%#x bypass=%d\n",
 	       enable, mbus_code, video_core->bypass);
 	return 0;
 }
@@ -12221,7 +12221,7 @@ long isp_core_tunning_unlocked_ioctl(struct file *file, unsigned int cmd, unsign
 					system_gain->sensor_digital_gain +
 					system_gain->isp_digital_gain, 5, 8);
 			if (tx_isp_t30_total_gain_trace_count++ < 4)
-				pr_err("tx-isp-t30: total gain a=%u d=%u isp=%u total=%d\n",
+				pr_debug("tx-isp-t30: total gain a=%u d=%u isp=%u total=%d\n",
 				       system_gain->sensor_analog_gain,
 				       system_gain->sensor_digital_gain,
 				       system_gain->isp_digital_gain,
@@ -12302,7 +12302,7 @@ long isp_core_tunning_unlocked_ioctl(struct file *file, unsigned int cmd, unsign
 					else
 						temper_ctrl &= ~1U;
 					APICAL_WRITE_32(0x02c0, temper_ctrl);
-					pr_err("tx-isp-t30: temper mode=%d strength=%u %ux%u\n",
+					pr_debug("tx-isp-t30: temper mode=%d strength=%u %ux%u\n",
 					       temper_attr.mode,
 					       temper_attr.manual_strength,
 					       video_core->control.input_width,
@@ -12354,7 +12354,7 @@ long isp_core_tunning_unlocked_ioctl(struct file *file, unsigned int cmd, unsign
 					system_gain->sensor_digital_gain +
 					system_gain->isp_digital_gain, 5, 8);
 				if (tx_isp_t30_total_gain_trace_count++ < 4)
-					pr_err("tx-isp-t30: total gain a=%u d=%u isp=%u total=%d\n",
+					pr_debug("tx-isp-t30: total gain a=%u d=%u isp=%u total=%d\n",
 					       system_gain->sensor_analog_gain,
 					       system_gain->sensor_digital_gain,
 					       system_gain->isp_digital_gain,
@@ -12576,7 +12576,7 @@ static int tx_isp_t30_ispcore_call_core_event(void *subdev, uint32_t event,
 
 	if (!sd || !sd->ops)
 		return -ENOIOCTLCMD;
-	pr_err("tx-isp-t30 sync: dispatch sd=%p name=%s ops=%p core=%p init=%p sensor=%p expected-vin-ops=%p expected-vin-core=%p\n",
+	pr_debug("tx-isp-t30 sync: dispatch sd=%p name=%s ops=%p core=%p init=%p sensor=%p expected-vin-ops=%p expected-vin-core=%p\n",
 	       sd, sd->module.name ? sd->module.name : "<null>", sd->ops,
 	       sd->ops->core,
 	       sd->ops->core ? sd->ops->core->init : NULL,
@@ -12590,9 +12590,9 @@ static int tx_isp_t30_ispcore_call_core_event(void *subdev, uint32_t event,
 		init = *(int (**)(void *, int))((char *)sd->ops->core + 4);
 		if (!init)
 			return -ENOIOCTLCMD;
-		pr_err("tx-isp-t30 sync: init sd=%p fn=%p begin\n", sd, init);
+		pr_debug("tx-isp-t30 sync: init sd=%p fn=%p begin\n", sd, init);
 		ret = init(sd, *(int *)data);
-		pr_err("tx-isp-t30 sync: init sd=%p ret=%d\n", sd, ret);
+		pr_debug("tx-isp-t30 sync: init sd=%p ret=%d\n", sd, ret);
 		return ret;
 	}
 
@@ -12606,10 +12606,10 @@ static int tx_isp_t30_ispcore_call_core_event(void *subdev, uint32_t event,
 				   ((char *)sensor_ops + 4);
 		if (!sync_sensor_attr)
 			return -ENOIOCTLCMD;
-		pr_err("tx-isp-t30 sync: attr sd=%p fn=%p begin\n", sd,
+		pr_debug("tx-isp-t30 sync: attr sd=%p fn=%p begin\n", sd,
 		       sync_sensor_attr);
 		ret = sync_sensor_attr(sd, data);
-		pr_err("tx-isp-t30 sync: attr sd=%p ret=%d\n", sd, ret);
+		pr_debug("tx-isp-t30 sync: attr sd=%p ret=%d\n", sd, ret);
 		return ret;
 	}
 
@@ -12639,17 +12639,17 @@ int32_t ispcore_core_ops_ioctl(void *file, uint32_t cmd, void *arg)
 	for (index = 0; index < ARRAY_SIZE(module->submods); index++) {
 		if (!module->submods[index])
 			continue;
-		pr_err("tx-isp-t30 sync: child[%u]=%p event=%08x\n", index,
+		pr_debug("tx-isp-t30 sync: child[%u]=%p event=%08x\n", index,
 		       module->submods[index], cmd);
 		ret = tx_isp_t30_ispcore_call_core_event(
 			module->submods[index], cmd, arg);
-		pr_err("tx-isp-t30 sync: child[%u]=%p ret=%d\n", index,
+		pr_debug("tx-isp-t30 sync: child[%u]=%p ret=%d\n", index,
 		       module->submods[index], ret);
 		if (ret && ret != -ENOIOCTLCMD)
 			return ret;
 	}
 
-	pr_err("tx-isp-t30 sync: ispcore event=%08x complete\n", cmd);
+	pr_debug("tx-isp-t30 sync: ispcore event=%08x complete\n", cmd);
 	return 0;
 }
 
@@ -13177,7 +13177,7 @@ static void tx_isp_t30_core_direct_report(const char *when, int index)
 {
 	u32 base = 0xb00 + index * 0x100;
 
-	pr_err("tx-isp-t30: direct ch=%d %s irq fs=%u fe=%u fr=%u ds=%u filled=%u done=%u nobank=%u ch1ev=%u wr=%08x ctl=%08x banks=%08x b0=%08x b1=%08x\n",
+	pr_debug("tx-isp-t30: direct ch=%d %s irq fs=%u fe=%u fr=%u ds=%u filled=%u done=%u nobank=%u ch1ev=%u wr=%08x ctl=%08x banks=%08x b0=%08x b1=%08x\n",
 	       index, when, tx_isp_t30_direct_stat[0], tx_isp_t30_direct_stat[1],
 	       tx_isp_t30_direct_stat[2], tx_isp_t30_direct_stat[3],
 	       tx_isp_t30_direct_stat[4], tx_isp_t30_direct_stat[5],
@@ -13202,7 +13202,7 @@ static int tx_isp_t30_ispcore_stream_off(struct tx_isp_t30_subdev_pad *pad)
 	if (!pad || IS_ERR(pad) || pad->state != TX_ISP_ABI_PADSTATE_STREAM)
 		return 0;
 	if (tx_isp_t30_streamoff_trace_count < 12)
-		pr_err("tx-isp-t30: core streamoff entry irqs=%d\n",
+		pr_debug("tx-isp-t30: core streamoff entry irqs=%d\n",
 		       irqs_disabled());
 	chan = pad->priv;
 	if (!chan || IS_ERR(chan) || chan->pad != pad ||
@@ -13220,7 +13220,7 @@ static int tx_isp_t30_ispcore_stream_off(struct tx_isp_t30_subdev_pad *pad)
 		tx_isp_t30_core_direct_report("streamoff", chan->index);
 	if (pad->link.flag & BIT(5)) {
 		if (tx_isp_t30_streamoff_trace_count++ < 12)
-			pr_err("tx-isp-t30: core LFB wait irqs=%d\n",
+			pr_debug("tx-isp-t30: core LFB wait irqs=%d\n",
 			       irqs_disabled());
 		g_switch_lfb_off = 1;
 		for (retry = 100; retry && g_switch_lfb_off; retry--)
@@ -13279,7 +13279,7 @@ static int tx_isp_t30_ispcore_stream_off(struct tx_isp_t30_subdev_pad *pad)
 	chan->fmt.crop_enable = 0;
 	chan->fmt.scaler_enable = 0;
 	chan->usingbanks = 0;
-	pr_err("tx-isp-t30: core stream ch=%d stopped\n", chan->index);
+	pr_debug("tx-isp-t30: core stream ch=%d stopped\n", chan->index);
 	return 0;
 }
 
@@ -13422,7 +13422,7 @@ static void tx_isp_t30_restore_linear_irq_pipeline(
 	core->control.input_width = width;
 	core->control.input_height = height;
 	core->control.pattern = pattern;
-	pr_err("tx-isp-t30: ISP input restored %ux%u code=%08x pattern=%u\n",
+	pr_debug("tx-isp-t30: ISP input restored %ux%u code=%08x pattern=%u\n",
 	       width, height, core->vin.mbus.code, pattern);
 
 	/* OEM T30 linear-mode module enables the processing blocks below. */
@@ -13638,7 +13638,7 @@ int64_t ispcore_video_s_stream(uintptr_t a0, uint32_t a1)
 		video_ops = subdev->ops ? subdev->ops->video : NULL;
 		if (!video_ops || !video_ops->s_stream)
 			continue;
-		pr_err("tx-isp-t30: core stream child[%u]=%s enable=1\n",
+		pr_debug("tx-isp-t30: core stream child[%u]=%s enable=1\n",
 		       index, subdev->module.name ? subdev->module.name : "<null>");
 		ret = video_ops->s_stream(subdev, 1);
 		if (ret && ret != -ENOIOCTLCMD)
@@ -13805,7 +13805,7 @@ static int tx_isp_t30_ispcore_config_dma(void *chan,
 	}
 
 	/* UV writer followed by the Y writer, matching OEM fall-through. */
-	pr_err("tx-isp-t30: core fmt ch=%u dma UV begin\n", index);
+	pr_debug("tx-isp-t30: core fmt ch=%u dma UV begin\n", index);
 	APICAL_WRITE_32(base + 0x80, cfmt->priv);
 	APICAL_WRITE_32(base + 0x84,
 			(fmt->pix.height << 16) | fmt->pix.width);
@@ -13822,7 +13822,7 @@ static int tx_isp_t30_ispcore_config_dma(void *chan,
 		return -EINVAL;
 	if (*(u32 *)((char *)core + 0x150) == 9)
 		isp_core_config_top_ctl_register(16, 0);
-	pr_err("tx-isp-t30: core fmt ch=%u dma top configured\n", index);
+	pr_debug("tx-isp-t30: core fmt ch=%u dma top configured\n", index);
 
 	APICAL_WRITE_32(base, cfmt->priv & 0x0f);
 	APICAL_WRITE_32(base + 0x04,
@@ -13830,9 +13830,9 @@ static int tx_isp_t30_ispcore_config_dma(void *chan,
 	APICAL_WRITE_32(base + 0x20, *(u32 *)((char *)chan + 0x98));
 
 	/* TSCENE_MODES, FR/DS output-mode ID, YUV420, COMMAND_SET. */
-	pr_err("tx-isp-t30: core fmt ch=%u output command begin\n", index);
+	pr_debug("tx-isp-t30: core fmt ch=%u output command begin\n", index);
 	apical_command(4, 0x73 + index, 0x57, 0, &command_ret);
-	pr_err("tx-isp-t30: core fmt ch=%u output command complete ret=%d\n",
+	pr_debug("tx-isp-t30: core fmt ch=%u output command complete ret=%d\n",
 	       index, command_ret);
 	/*
 	 * CSC mode of the channel (SDK tx-isp-core.c:800-834, :929-937, OEM
@@ -13947,7 +13947,7 @@ static int tx_isp_t30_ispcore_stream_on(struct tx_isp_t30_subdev_pad *pad)
 	spin_unlock_irqrestore(&chan->slock, flags);
 	/* apical_isp_input_port_field_mode_write(0). */
 	APICAL_WRITE_32(0x104, APICAL_READ_32(0x104) & 0xf800ffff);
-	pr_err("tx-isp-t30: core stream ch=%d running banks=%u link=%08x\n",
+	pr_debug("tx-isp-t30: core stream ch=%d running banks=%u link=%08x\n",
 	       chan->index, chan->usingbanks, pad->link.flag);
 	if (!(pad->link.flag & BIT(5))) {
 		memset(tx_isp_t30_direct_stat, 0, sizeof(tx_isp_t30_direct_stat));
@@ -14079,7 +14079,7 @@ static int tx_isp_t30_ispcore_set_format(void *pad, void *data)
 		return -EINVAL;
 
 	index = *(u32 *)((char *)chan + 0x4c);
-	pr_err("tx-isp-t30: core set fmt ch=%u %ux%u fourcc=%08x crop=%u scaler=%u\n",
+	pr_debug("tx-isp-t30: core set fmt ch=%u %ux%u fourcc=%08x crop=%u scaler=%u\n",
 	       index, fmt->pix.width, fmt->pix.height, fmt->pix.pixelformat,
 	       fmt->crop_enable, fmt->scaler_enable);
 
@@ -14132,7 +14132,7 @@ static int tx_isp_t30_ispcore_set_format(void *pad, void *data)
 		       index, fmt->pix.pixelformat, start, end);
 		return -EINVAL;
 	}
-	pr_err("tx-isp-t30: core set fmt ch=%u validated table=%s\n",
+	pr_debug("tx-isp-t30: core set fmt ch=%u validated table=%s\n",
 	       index, cfmt->name);
 
 	if (fmt->crop_enable) {
@@ -14165,11 +14165,11 @@ static int tx_isp_t30_ispcore_set_format(void *pad, void *data)
 	*(u32 *)((char *)chan + 0x98) =
 		fmt->pix.width * (cfmt->depth / 8);
 	fmt->pix.priv = (u32)(uintptr_t)cfmt;
-	pr_err("tx-isp-t30: core set fmt ch=%u dma configure begin\n", index);
+	pr_debug("tx-isp-t30: core set fmt ch=%u dma configure begin\n", index);
 	ret = tx_isp_t30_ispcore_config_dma(chan, fmt, cfmt);
 	if (ret)
 		goto disable_scaler;
-	pr_err("tx-isp-t30: core set fmt ch=%u dma configure complete\n", index);
+	pr_debug("tx-isp-t30: core set fmt ch=%u dma configure complete\n", index);
 	memcpy(chan, fmt, sizeof(*fmt));
 	return 0;
 
@@ -15814,7 +15814,7 @@ static void tx_isp_t30_core_direct_done(struct tx_isp_t30_core_video_view *core,
 		chan->bank_flag[bank] = 0;
 		tx_isp_t30_direct_stat[5]++;
 		if (tx_isp_t30_direct_stat[5] <= 3)
-			pr_err("tx-isp-t30: direct ch=%d done bank=%u hw=%08x addr=%08x seq=%u\n",
+			pr_debug("tx-isp-t30: direct ch=%d done bank=%u hw=%08x addr=%08x seq=%u\n",
 			       chan->index, bank, hw, buf.addr, buf.priv);
 		tx_isp_send_event_to_remote(chan->pad,
 					    TX_ISP_FRAME_EVENT_BUFFER_DONE, &buf);
@@ -15974,7 +15974,7 @@ static void tx_isp_t30_dispatch_firmware_irqs(u32 status)
 	 * source 0 is required for event 0xb and per-frame tuning/NR updates.
 	 */
 	if (tx_isp_t30_fw_dispatch_trace_count++ < 8)
-		pr_err("tx-isp-t30: APICAL dispatch status=%04x fe=%p ae=%p awb=%p ctx=%p\n",
+		pr_debug("tx-isp-t30: APICAL dispatch status=%04x fe=%p ae=%p awb=%p ctx=%p\n",
 		       status, isr_func[0], isr_func[3], isr_func[4],
 		       isr_param[0]);
 	if (status & BIT(7))
@@ -16006,7 +16006,7 @@ static int tx_isp_t30_ispcore_interrupt(struct tx_isp_t30_subdev *sd)
 	irq_status = APICAL_READ_32(0xa0) & 0xffff;
 	tx_ls_isr(&irq_status, 1);
 	if (tx_isp_t30_irq_entry_trace_count++ < 8)
-		pr_err("tx-isp-t30: ISP IRQ entry sd=%p status=%04x ack=%08x\n",
+		pr_debug("tx-isp-t30: ISP IRQ entry sd=%p status=%04x ack=%08x\n",
 		       sd, irq_status, APICAL_READ_32(0xa4));
 	if (!irq_status) {
 		/*
@@ -16026,7 +16026,7 @@ static int tx_isp_t30_ispcore_interrupt(struct tx_isp_t30_subdev *sd)
 	APICAL_WRITE_32(0xa4, clear);
 	APICAL_WRITE_32(0xa4, clear | irq_status);
 	if (tx_isp_t30_irq_trace_count++ < 8)
-		pr_err("tx-isp-t30: ISP irq=%04x frame=%u sequence=%u\n",
+		pr_debug("tx-isp-t30: ISP irq=%04x frame=%u sequence=%u\n",
 		       irq_status, core->frame_state, core->frame_sequence);
 
 	if (irq_status & BIT(7)) {
@@ -16434,7 +16434,7 @@ tx_isp_t30_load_parameters(void *sensor_attr)
 	filp_close(file, NULL);
 	file = NULL;
 	if (read_bytes != file_size) {
-		pr_err("tx-isp-t30: calibration %s read %d of %u bytes\n",
+		pr_debug("tx-isp-t30: calibration %s read %d of %u bytes\n",
 		       file_name, (int)read_bytes, (u32)file_size);
 		goto failed_param;
 	}
@@ -16540,7 +16540,7 @@ tx_isp_t30_load_parameters(void *sensor_attr)
 	}
 	tx_isp_t30_param_manager = param;
 	init_tx_isp_customer_parameter((u32)(uintptr_t)param->customer);
-	pr_err("tx-isp-t30: loaded %s (%u bytes, %u table bytes)\n",
+	pr_debug("tx-isp-t30: loaded %s (%u bytes, %u table bytes)\n",
 	       file_name, (u32)file_size, (u32)fw_used);
 	return param;
 
@@ -19567,7 +19567,7 @@ int32_t ncu_frame_channel_streamoff(void *arg1)
 	irqdev = &ncu->sd.irqdev;
 
 	if (tx_isp_t30_streamoff_trace_count < 12)
-		pr_err("tx-isp-t30: NCU streamoff entry irqs=%d\n",
+		pr_debug("tx-isp-t30: NCU streamoff entry irqs=%d\n",
 		       irqs_disabled());
 	private_mutex_lock(&ncu->mlock);
 	if (inpad->state != TX_ISP_ABI_PADSTATE_STREAM ||
@@ -19591,7 +19591,7 @@ int32_t ncu_frame_channel_streamoff(void *arg1)
 	}
 
 	if (tx_isp_t30_streamoff_trace_count < 12)
-		pr_err("tx-isp-t30: NCU remote streamoff irqs=%d\n",
+		pr_debug("tx-isp-t30: NCU remote streamoff irqs=%d\n",
 		       irqs_disabled());
 	ret = tx_isp_send_event_to_remote(inpad,
 					  TX_ISP_FRAME_EVENT_STREAM_OFF, NULL);
@@ -19871,7 +19871,7 @@ static int tx_isp_t30_ncu_set_format(struct tx_isp_t30_subdev_pad *pad,
 	}
 	memcpy(&ncu->fmt, fmt, sizeof(ncu->fmt));
 	ncu->uv_offset = ncu->fmt.pix.width * ncu->fmt.pix.height;
-	pr_err("tx-isp-t30: NCU format %ux%u fourcc=%08x\n",
+	pr_debug("tx-isp-t30: NCU format %ux%u fourcc=%08x\n",
 	       ncu->fmt.pix.width, ncu->fmt.pix.height,
 	       ncu->fmt.pix.pixelformat);
 	return 0;
@@ -19937,7 +19937,7 @@ static int tx_isp_t30_ncu_stream_on(struct tx_isp_t30_subdev_pad *pad)
 
 	if (inpad->link.flag & BIT(4)) {
 		if (!ncu->num_inbufs || !ncu->inbufs) {
-			pr_err("tx-isp-t30: NCU DDR input has no isp_m2 buffers\n");
+			pr_debug("tx-isp-t30: NCU DDR input has no isp_m2 buffers\n");
 			ret = -EINVAL;
 			goto out_unlock;
 		}
@@ -19996,7 +19996,7 @@ static int tx_isp_t30_ncu_stream_on(struct tx_isp_t30_subdev_pad *pad)
 	ncu->done_cnt = 0;
 	ncu->reset_cnt = 0;
 	spin_unlock_irqrestore(&ncu->slock, flags);
-	pr_err("tx-isp-t30: NCU stream running %ux%u input=%08x output=%08x\n",
+	pr_debug("tx-isp-t30: NCU stream running %ux%u input=%08x output=%08x\n",
 	       ncu->fmt.pix.width, ncu->fmt.pix.height,
 	       inpad->link.flag, pad->link.flag);
 	private_mutex_unlock(&ncu->mlock);
@@ -22153,7 +22153,7 @@ int mscaler_video_s_stream(void *arg1, int enable)
 
 	if (!enable) {
 		if (tx_isp_t30_streamoff_trace_count < 12)
-			pr_err("tx-isp-t30: mscaler streamoff entry irqs=%d\n",
+			pr_debug("tx-isp-t30: mscaler streamoff entry irqs=%d\n",
 			       irqs_disabled());
 		private_mutex_lock((struct mutex *)((char *)mscaler + 0xdc));
 		if (*(int *)((char *)input + 0x50) != 4) {
@@ -26134,10 +26134,10 @@ int32_t tx_isp_notify(void *module, uint32_t event, void *data)
 
 		if (!handler)
 			continue;
-		pr_err("tx-isp-t30 notify: event=%08x child[%u]=%p fn=%p begin\n",
+		pr_debug("tx-isp-t30 notify: event=%08x child[%u]=%p fn=%p begin\n",
 		       event, index, sd, handler);
 		ret = handler(sd, event, data);
-		pr_err("tx-isp-t30 notify: event=%08x child[%u]=%p ret=%d\n",
+		pr_debug("tx-isp-t30 notify: event=%08x child[%u]=%p ret=%d\n",
 		       event, index, sd, ret);
 		if (ret && ret != -ENOIOCTLCMD)
 			return ret;
@@ -29487,21 +29487,21 @@ int32_t apical_process(void)
 /* WHOLE_DRIVER_CANDIDATE fn_000000000001c2f4 origin=model_output original=apical_init */
 int32_t apical_init(void)
 {
-	pr_err("tx-isp-t30 apical-init: calibrations begin\n");
+	pr_debug("tx-isp-t30 apical-init: calibrations begin\n");
 	apical_init_calibrations(0);
-	pr_err("tx-isp-t30 apical-init: calibrations complete\n");
+	pr_debug("tx-isp-t30 apical-init: calibrations complete\n");
 	load_isp_sequence(2);
-	pr_err("tx-isp-t30 apical-init: sequence complete\n");
+	pr_debug("tx-isp-t30 apical-init: sequence complete\n");
 	disable_all_frame_buffers();
-	pr_err("tx-isp-t30 apical-init: frame buffers disabled\n");
+	pr_debug("tx-isp-t30 apical-init: frame buffers disabled\n");
 	apical_fw_init((int32_t *)TX_ISP_T30_FW_PTR(0));
-	pr_err("tx-isp-t30 apical-init: firmware initialized\n");
+	pr_debug("tx-isp-t30 apical-init: firmware initialized\n");
 	apical_process();
-	pr_err("tx-isp-t30 apical-init: first process complete\n");
+	pr_debug("tx-isp-t30 apical-init: first process complete\n");
 	apical_api_init_idx_array();
-	pr_err("tx-isp-t30 apical-init: API index initialized\n");
+	pr_debug("tx-isp-t30 apical-init: API index initialized\n");
 	init_stab();
-	pr_err("tx-isp-t30 apical-init: stabilization initialized\n");
+	pr_debug("tx-isp-t30 apical-init: stabilization initialized\n");
 	return apical_custom_initialization();
 }
 
@@ -29906,7 +29906,7 @@ char *load_isp_sequence(uint32_t arg1)
 		       arg1 & 0xff, ret);
 		return NULL;
 	}
-	pr_err("tx-isp-t30: ISP sequence %u applied (%u bytes written)\n",
+	pr_debug("tx-isp-t30: ISP sequence %u applied (%u bytes written)\n",
 	       arg1 & 0xff, writes);
 	if ((arg1 & 0xff) == 2)
 		tx_isp_t30_trace_seq_regs("after_seq2");
@@ -29933,7 +29933,7 @@ int32_t apical_fw_interrupts_init(void *arg1)
     apical_program_interrupt_event_part_0(0xc, 1);
     system_set_interrupt_handler(0xc, (int32_t)apical_interrupt_frame_buffer_ds2, (int32_t)arg1);
     system_set_interrupt_handler(0xa, (int32_t)apical_interrupt_fpga_frame_wdr, (int32_t)arg1);
-	pr_err("tx-isp-t30: APICAL handlers fe=%p ae=%p awb=%p ctx=%p\n",
+	pr_debug("tx-isp-t30: APICAL handlers fe=%p ae=%p awb=%p ctx=%p\n",
 	       isr_func[0], isr_func[3], isr_func[4], isr_param[0]);
 	return 0;
 }
@@ -29958,29 +29958,29 @@ int32_t apical_fw_init(int32_t *arg1)
      */
     memset(&tx_isp_t30_simple_3a, 0, sizeof(tx_isp_t30_simple_3a));
     tx_isp_t30_iridix_trace = 0;
-    pr_err("tx-isp-t30 fw-init: state cleared\n");
+    pr_debug("tx-isp-t30 fw-init: state cleared\n");
     init_semaphore((int32_t *)(arg1 + 3));
-    pr_err("tx-isp-t30 fw-init: semaphore initialized\n");
+    pr_debug("tx-isp-t30 fw-init: semaphore initialized\n");
     apical_fw_interrupts_init(arg1);
-    pr_err("tx-isp-t30 fw-init: interrupt table initialized\n");
+    pr_debug("tx-isp-t30 fw-init: interrupt table initialized\n");
     ((void **)arg1)[1] = 1;
     ((void **)arg1)[0] = 0;
     ((void **)arg1)[6] = 0;
     ((void **)arg1)[7] = (int32_t)arg1;
-    pr_err("tx-isp-t30 fw-init: ISP state begin\n");
+    pr_debug("tx-isp-t30 fw-init: ISP state begin\n");
 #ifdef TX_ISP_T30_TEST_FW_INIT_DELAY_MS
     /* test builds only (tests/t30/qemu): hold the init window open so that a
      * frame IRQ lands before the event queue exists */
     mdelay(TX_ISP_T30_TEST_FW_INIT_DELAY_MS);
 #endif
     apical_isp_init((int32_t *)(arg1 + 6));
-    pr_err("tx-isp-t30 fw-init: ISP state initialized\n");
+    pr_debug("tx-isp-t30 fw-init: ISP state initialized\n");
     *(uint8_t *)((char *)arg1 + 0x115) = 0x1e;
     ((void **)arg1)[1] = 0;
     smp_wmb();
     ACCESS_ONCE(tx_isp_t30_fw_ready) = 1;
     system_hw_interrupts_enable();
-    pr_err("tx-isp-t30 fw-init: hardware interrupts enabled\n");
+    pr_debug("tx-isp-t30 fw-init: hardware interrupts enabled\n");
     *(uint8_t *)((char *)arg1 + 0x10) = 1;
     APICAL_WRITE_32(0x78, APICAL_READ_32(0x78) | 1);
     return APICAL_WRITE_32(0x78, APICAL_READ_32(0x78) & 0xfffffffe);
@@ -30031,7 +30031,7 @@ int32_t apical_interrupt_frame_end(int32_t *arg1)
     ctx[1] += 1;
 
 	if (tx_isp_t30_frame_end_trace_count++ < 6)
-		pr_err("tx-isp-t30: APICAL frame-end ctx=%p depth=%d\n",
+		pr_debug("tx-isp-t30: APICAL frame-end ctx=%p depth=%d\n",
 		       ctx, ctx[1]);
 
     if (stab[0] == 0) {
@@ -37642,10 +37642,10 @@ int32_t general_set_wdr_mode(int32_t *arg1)
 
 	if (!isp)
 		return -EINVAL;
-	pr_err("tx-isp-t30 general-wdr: fsm=%p isp=%p iridix-owner=%08x mode=%u begin\n",
+	pr_debug("tx-isp-t30 general-wdr: fsm=%p isp=%p iridix-owner=%08x mode=%u begin\n",
 	       arg1, isp, *(uint32_t *)(isp + 0xfd4), mode);
 	apical_switch_wdr_mode(mode);
-	pr_err("tx-isp-t30 general-wdr: switch complete iridix-owner=%08x\n",
+	pr_debug("tx-isp-t30 general-wdr: switch complete iridix-owner=%08x\n",
 	       *(uint32_t *)(isp + 0xfd4));
 
 	switch (mode) {
@@ -37682,10 +37682,10 @@ int32_t general_set_wdr_mode(int32_t *arg1)
 	else if (mode == 1)
 		load_isp_sequence(0);
 
-	pr_err("tx-isp-t30 general-wdr: sequence complete iridix-owner=%08x\n",
+	pr_debug("tx-isp-t30 general-wdr: sequence complete iridix-owner=%08x\n",
 	       *(uint32_t *)(isp + 0xfd4));
 	iridix_initialize((int32_t *)(isp + 0xfd4));
-	pr_err("tx-isp-t30 general-wdr: iridix complete\n");
+	pr_debug("tx-isp-t30 general-wdr: iridix complete\n");
 	return sharpening_initialize((int32_t *)(isp + 0x1014));
 }
 
@@ -38916,7 +38916,7 @@ int32_t apical_isp_init(uintptr_t a0)
 
 	apical_loop_buffer_init((int32_t *)(isp + 0x2ea4),
 				(int32_t)(uintptr_t)(isp + 0x2eb4), 0x100);
-	pr_err("tx-isp-t30 isp-init: event queue initialized\n");
+	pr_debug("tx-isp-t30 isp-init: event queue initialized\n");
 
 #define TX_ISP_T30_INIT_FSM(_fsm, _id) do { \
 	(_fsm)[0] = (int32_t)(uintptr_t)isp; \
@@ -38924,106 +38924,106 @@ int32_t apical_isp_init(uintptr_t a0)
 } while (0)
 	TX_ISP_T30_INIT_FSM(sensor, 7);
 	sensor_fsm_clear(sensor);
-	pr_err("tx-isp-t30 isp-init: sensor clear\n");
+	pr_debug("tx-isp-t30 isp-init: sensor clear\n");
 	TX_ISP_T30_INIT_FSM(cmos, 9);
 	cmos_fsm_clear((uintptr_t)cmos);
-	pr_err("tx-isp-t30 isp-init: cmos clear\n");
+	pr_debug("tx-isp-t30 isp-init: cmos clear\n");
 	TX_ISP_T30_INIT_FSM(defect, 4);
 	defect_pixel_fsm_clear(defect);
-	pr_err("tx-isp-t30 isp-init: defect clear\n");
+	pr_debug("tx-isp-t30 isp-init: defect clear\n");
 	TX_ISP_T30_INIT_FSM(ae, 6);
 	AE_fsm_clear(ae);
-	pr_err("tx-isp-t30 isp-init: AE clear\n");
+	pr_debug("tx-isp-t30 isp-init: AE clear\n");
 	TX_ISP_T30_INIT_FSM(awb, 12);
 	AWB_fsm_clear((uintptr_t)awb);
-	pr_err("tx-isp-t30 isp-init: AWB clear\n");
+	pr_debug("tx-isp-t30 isp-init: AWB clear\n");
 	TX_ISP_T30_INIT_FSM(color, 4);
 	color_matrix_fsm_clear(color);
-	pr_err("tx-isp-t30 isp-init: color clear\n");
+	pr_debug("tx-isp-t30 isp-init: color clear\n");
 	TX_ISP_T30_INIT_FSM(iridix, 4);
 	iridix_fsm_clear(iridix);
-	pr_err("tx-isp-t30 isp-init: iridix clear\n");
+	pr_debug("tx-isp-t30 isp-init: iridix clear\n");
 	TX_ISP_T30_INIT_FSM(noise, 3);
 	noise_reduction_fsm_clear(noise);
-	pr_err("tx-isp-t30 isp-init: noise clear\n");
+	pr_debug("tx-isp-t30 isp-init: noise clear\n");
 	TX_ISP_T30_INIT_FSM(sharpen, 5);
 	sharpening_fsm_clear((uintptr_t)sharpen);
-	pr_err("tx-isp-t30 isp-init: sharpening clear\n");
+	pr_debug("tx-isp-t30 isp-init: sharpening clear\n");
 	TX_ISP_T30_INIT_FSM(flash, 4);
 	flash_fsm_clear(flash);
-	pr_err("tx-isp-t30 isp-init: flash clear\n");
+	pr_debug("tx-isp-t30 isp-init: flash clear\n");
 	TX_ISP_T30_INIT_FSM(crop, 5);
 	crop_fsm_clear(crop);
-	pr_err("tx-isp-t30 isp-init: crop clear\n");
+	pr_debug("tx-isp-t30 isp-init: crop clear\n");
 	TX_ISP_T30_INIT_FSM(general, 2);
 	general_fsm_clear((uintptr_t)general);
-	pr_err("tx-isp-t30 isp-init: general clear\n");
+	pr_debug("tx-isp-t30 isp-init: general clear\n");
 	TX_ISP_T30_INIT_FSM(dis, 5);
 	dis_fsm_clear((uintptr_t)dis);
-	pr_err("tx-isp-t30 isp-init: dis clear\n");
+	pr_debug("tx-isp-t30 isp-init: dis clear\n");
 	TX_ISP_T30_INIT_FSM(matrix, 4);
 	matrix_yuv_fsm_clear(matrix);
-	pr_err("tx-isp-t30 isp-init: matrix clear\n");
+	pr_debug("tx-isp-t30 isp-init: matrix clear\n");
 #undef TX_ISP_T30_INIT_FSM
 
 	sensor_fsm_switch_state(sensor, 4);
-	pr_err("tx-isp-t30 isp-init: sensor switched\n");
+	pr_debug("tx-isp-t30 isp-init: sensor switched\n");
 	cmos_fsm_switch_state(cmos, 2);
-	pr_err("tx-isp-t30 isp-init: cmos switched\n");
+	pr_debug("tx-isp-t30 isp-init: cmos switched\n");
 	defect_pixel_fsm_switch_state(defect, 0);
-	pr_err("tx-isp-t30 isp-init: defect switched\n");
+	pr_debug("tx-isp-t30 isp-init: defect switched\n");
 	AE_fsm_switch_state(ae, 0);
-	pr_err("tx-isp-t30 isp-init: AE switched\n");
+	pr_debug("tx-isp-t30 isp-init: AE switched\n");
 	AWB_fsm_switch_state(awb, 0);
-	pr_err("tx-isp-t30 isp-init: AWB switched\n");
+	pr_debug("tx-isp-t30 isp-init: AWB switched\n");
 	color_matrix_fsm_switch_state(color, 0);
-	pr_err("tx-isp-t30 isp-init: color switched\n");
+	pr_debug("tx-isp-t30 isp-init: color switched\n");
 	iridix_fsm_switch_state(iridix, 0);
-	pr_err("tx-isp-t30 isp-init: iridix switched\n");
+	pr_debug("tx-isp-t30 isp-init: iridix switched\n");
 	noise_reduction_fsm_switch_state(noise, 2);
-	pr_err("tx-isp-t30 isp-init: noise switched\n");
+	pr_debug("tx-isp-t30 isp-init: noise switched\n");
 	sharpening_fsm_switch_state(sharpen, 0);
-	pr_err("tx-isp-t30 isp-init: sharpening switched\n");
+	pr_debug("tx-isp-t30 isp-init: sharpening switched\n");
 	flash_fsm_switch_state(flash, 0);
-	pr_err("tx-isp-t30 isp-init: flash switched\n");
+	pr_debug("tx-isp-t30 isp-init: flash switched\n");
 	crop_fsm_switch_state(crop, 4);
-	pr_err("tx-isp-t30 isp-init: crop switched\n");
+	pr_debug("tx-isp-t30 isp-init: crop switched\n");
 	general_fsm_switch_state(general, 0);
-	pr_err("tx-isp-t30 isp-init: general switched\n");
+	pr_debug("tx-isp-t30 isp-init: general switched\n");
 	dis_fsm_switch_state(dis, 0);
-	pr_err("tx-isp-t30 isp-init: dis switched\n");
+	pr_debug("tx-isp-t30 isp-init: dis switched\n");
 	matrix_yuv_fsm_switch_state(matrix, 0);
-	pr_err("tx-isp-t30 isp-init: matrix switched\n");
+	pr_debug("tx-isp-t30 isp-init: matrix switched\n");
 
 	sensor_fsm_process_state(sensor);
-	pr_err("tx-isp-t30 isp-init: sensor processed\n");
+	pr_debug("tx-isp-t30 isp-init: sensor processed\n");
 	cmos_fsm_process_state(cmos);
-	pr_err("tx-isp-t30 isp-init: cmos processed\n");
+	pr_debug("tx-isp-t30 isp-init: cmos processed\n");
 	defect_pixel_fsm_process_state(defect);
-	pr_err("tx-isp-t30 isp-init: defect processed\n");
+	pr_debug("tx-isp-t30 isp-init: defect processed\n");
 	AE_fsm_process_state(ae);
-	pr_err("tx-isp-t30 isp-init: AE processed\n");
+	pr_debug("tx-isp-t30 isp-init: AE processed\n");
 	AWB_fsm_process_state(awb);
-	pr_err("tx-isp-t30 isp-init: AWB processed\n");
+	pr_debug("tx-isp-t30 isp-init: AWB processed\n");
 	color_matrix_fsm_process_state(color);
-	pr_err("tx-isp-t30 isp-init: color processed\n");
+	pr_debug("tx-isp-t30 isp-init: color processed\n");
 	iridix_fsm_process_state(iridix);
-	pr_err("tx-isp-t30 isp-init: iridix processed\n");
+	pr_debug("tx-isp-t30 isp-init: iridix processed\n");
 	noise_reduction_fsm_process_state(
 		(struct noise_reduction_fsm_state *)noise);
-	pr_err("tx-isp-t30 isp-init: noise processed\n");
+	pr_debug("tx-isp-t30 isp-init: noise processed\n");
 	sharpening_fsm_process_state(sharpen);
-	pr_err("tx-isp-t30 isp-init: sharpening processed\n");
+	pr_debug("tx-isp-t30 isp-init: sharpening processed\n");
 	flash_fsm_process_state(flash);
-	pr_err("tx-isp-t30 isp-init: flash processed\n");
+	pr_debug("tx-isp-t30 isp-init: flash processed\n");
 	crop_fsm_process_state(crop);
-	pr_err("tx-isp-t30 isp-init: crop processed\n");
+	pr_debug("tx-isp-t30 isp-init: crop processed\n");
 	general_fsm_process_state(general);
-	pr_err("tx-isp-t30 isp-init: general processed\n");
+	pr_debug("tx-isp-t30 isp-init: general processed\n");
 	dis_fsm_process_state(dis);
-	pr_err("tx-isp-t30 isp-init: dis processed\n");
+	pr_debug("tx-isp-t30 isp-init: dis processed\n");
 	matrix_yuv_fsm_process_state(matrix);
-	pr_err("tx-isp-t30 isp-init: matrix processed\n");
+	pr_debug("tx-isp-t30 isp-init: matrix processed\n");
 	return 0;
 }
 
@@ -40186,7 +40186,7 @@ int32_t noise_reduction_fsm_process_event(struct noise_reduction_fsm_state *stat
 {
 	if ((event == 11 || event == 15 || event == 16) &&
 	    tx_isp_t30_nr_event_trace_count++ < 12)
-		pr_err("tx-isp-t30: nr event=%u state=%d fsm=%p owner=%p\n",
+		pr_debug("tx-isp-t30: nr event=%u state=%d fsm=%p owner=%p\n",
 		       event, state->state, state, state->isp);
 
 	switch (event) {
@@ -40696,11 +40696,11 @@ int32_t matrix_yuv_fsm_switch_state(int32_t *arg1, int32_t arg2)
 		((void **)arg1)[1] = arg2;
 
 		if (arg2 == 0) {
-			pr_err("tx-isp-t30 matrix: initialize begin\n");
+			pr_debug("tx-isp-t30 matrix: initialize begin\n");
 			matrix_yuv_initialize(arg1);
-			pr_err("tx-isp-t30 matrix: initialize complete\n");
+			pr_debug("tx-isp-t30 matrix: initialize complete\n");
 			result = matrix_yuv_update(arg1);
-			pr_err("tx-isp-t30 matrix: update complete ret=%d\n",
+			pr_debug("tx-isp-t30 matrix: update complete ret=%d\n",
 			       result);
 			return result;
 		}
@@ -43988,7 +43988,7 @@ int32_t noise_reduction_update(struct noise_reduction_fsm_state *state)
 	}
 
 	if (tx_isp_t30_nr_trace_count++ < 6)
-		pr_err("tx-isp-t30: nr gain=%u sinter=%u/%u temper=%u/%u enable=%u/%u\n",
+		pr_debug("tx-isp-t30: nr gain=%u sinter=%u/%u temper=%u/%u enable=%u/%u\n",
 		       total_gain >> 8,
 		       APICAL_READ_32(0x2a4) & 0xff,
 		       APICAL_READ_32(0x2a8) & 0xff,
