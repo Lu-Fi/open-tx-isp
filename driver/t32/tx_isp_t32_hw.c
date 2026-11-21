@@ -55,6 +55,7 @@ extern u32 t33_lcepf_irq8s, t33_lcepf_irq30s, t33_lcepf_curves, t33_lcepf_lce_ru
 static void t33_lcepf_ev(u32 lo, u32 hi, u32 bv);
 #endif
 #include "tx_isp_t33_af.h"
+#include "tx_isp_t33_afalgo.h"	/* AF per-frame algorithm (#437) */
 #include "tx_isp_t33_bcsh.h"
 #include "tx_isp_t33_tmo.h"
 #include "tx_isp_t33_tmoA.h"
@@ -106,6 +107,9 @@ static void t33_lcepf_ev(u32 lo, u32 hi, u32 bv);
 static void t32_bringup_ae_kick(void);
 #ifdef TX_ISP_T33
 static struct work_struct t33_stats_w;
+static struct work_struct t33_af_w;
+static void t33_af_show(struct seq_file *m);
+#define T33_INT_AF	(1U << 6)
 #endif
 static struct work_struct t33_flip_w;	/* sensor flip, T33 #669, T32 #689 */
 static void t33_flip_kick(void);
@@ -327,6 +331,10 @@ static irqreturn_t t32_isp_irq(int irq, void *dev)
 #ifdef TX_ISP_T33
 	if (sta & (T32_INT_AWB | T32_INT_AE | T32_INT_AE_HIST))
 		schedule_work(&t33_stats_w);
+	if (sta & T33_INT_AF) {		/* system irq 6: tisp_af_interrupt_static -> event 15 (#437) */
+		t32_afg_stats.af_irqs++;
+		schedule_work(&t33_af_w);
+	}
 	if (sta & T33_INT_LCE)		/* system irq 8: tisp_lce_interrupt_static */
 		t33_lcepf_isr8();
 	if (sta & T33_INT_LSF)		/* system irq 30: tisp_lsf_interrupt_static */
@@ -2579,6 +2587,7 @@ void t33_stats_show(struct seq_file *m)
 		   t33_st.ae.hi, t33_st.ae.tag, t33_st.hist_frames, t33_st.hist_bad, t33_st.mean16);
 	t33_awbc_show(m);
 	t33_aec_show(m);
+	t33_af_show(m);
 	seq_printf(m, "t33 lce/lsf: irq8 %u irq30 %u curves %u list16 %u list37 %u ev %u\n", t33_lcepf_irq8s,
 		   t33_lcepf_irq30s, t33_lcepf_curves, t33_lcepf_lce_runs, t33_lcepf_lsf_runs, t33_lcepf_evs);
 	seq_printf(m, "t33 tmo: init %u irq %u drc %u bad %u regnum %u/%u\n", t33_g16_runs[0], t33_g16_runs[1],
@@ -2703,6 +2712,8 @@ void t33_msca_list_refresh(void)
  */
 static u8 t33_af_par_attr[24];
 
+static DEFINE_SPINLOCK(t33_af_lock);	/* t33_af_sec: attribute copy-back vs the AF algorithm (#437) */
+
 static bool t33_af_ready(void)
 {
 	return t33_af_pages && (t33_mod_built & (1ULL << T33_MOD_AF));
@@ -2730,7 +2741,13 @@ bool t33_af_attr_set(const u8 *a)
 		isp_printf(1, "tx-isp-t33: AF attribute refused (window counts / sizes)\n");
 		return false;
 	}
-	memcpy(t33_af_sec, tmp, sizeof(tmp));
+	{
+		unsigned long flags;
+
+		spin_lock_irqsave(&t33_af_lock, flags);
+		memcpy(t33_af_sec, tmp, sizeof(tmp));
+		spin_unlock_irqrestore(&t33_af_lock, flags);
+	}
 	t33_mod_mark(1U << T33_MOD_AF);
 	return true;
 }
@@ -2757,6 +2774,39 @@ bool t33_af_weight_get(u8 *b)
 		return false;
 	memcpy(b, t33_af_sec + 0x21f, 0xe1);
 	return true;
+}
+
+/*
+ * AF per frame (#437 slice 2): system irq 6 -> event 15 -> tisp_af_calc_process -> tisp_af_alogrithm
+ * (tx_isp_t33_afalgo.h) on the statistics bank the engine names in 0x1811c, in process context as the
+ * vendor's event thread.  af_info's ring / mode words stay zero as in the vendor (nothing sets them).
+ */
+static u8 t33_af_info[T33_AFA_INFO_BYTES];
+static u32 t33_af_fv_old, t33_af_runs;
+
+static void t33_af_work(struct work_struct *w)
+{
+	unsigned long flags;
+	const u8 *bank;
+
+	if (!t33_af_ready())
+		return;
+	bank = (const u8 *)t33_af_pages + (isp_rd(0x1811c) & 3) * T33_AFA_BANK_BYTES;
+#ifdef CONFIG_MIPS
+	dma_cache_sync(NULL, (void *)bank, T33_AFA_BANK_BYTES, DMA_FROM_DEVICE);	/* engine-written bank */
+#endif
+	spin_lock_irqsave(&t33_af_lock, flags);
+	t33_af_alogrithm(t33_af_info, t33_af_sec, bank, &t33_af_fv_old);
+	spin_unlock_irqrestore(&t33_af_lock, flags);
+	t33_af_runs++;
+	t32_afg_stats.af_events++;	/* isp-m0 "af / gsm" line: algorithm runs */
+}
+static DECLARE_WORK(t33_af_w, t33_af_work);
+
+static void t33_af_show(struct seq_file *m)
+{
+	seq_printf(m, "t33 af: runs %u fv %u metrics %u %u (section +0x44 / +0x40) ready %d\n", t33_af_runs,
+		   t33_af_fv_old, t33_afa_rd32(t33_af_sec + 0x44), t33_afa_rd32(t33_af_sec + 0x40), t33_af_ready());
 }
 
 /* tisp_af_api_get_metric: two words of the section (written by the AF algorithm), shifted by the attribute */
@@ -5565,6 +5615,7 @@ void t32_hw_exit(void)
 #endif
 #ifdef TX_ISP_T33
 	cancel_work_sync(&t33_stats_w);	/* it reads registers and the statistics buffers */
+	cancel_work_sync(&t33_af_w);	/* it reads the AF statistics buffer */
 	cancel_work_sync(&t33_flip_w);	/* it writes VIC registers and the sensor */
 	t33_flip_pend = 0;
 	t33_vic_hold = 0;

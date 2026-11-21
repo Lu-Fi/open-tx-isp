@@ -4,6 +4,12 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD[-rcN]` are set on the `aperto` branch, the same tag in open-tx-isp and OpenIMP: RC1 `v2026.10.11-rc1`, RC2 `v2026.10.25-rc2`, RC3 `v2026.11.07-rc3` (2026-11-07). Gate SoCs of RC3 and Release 1: T10, T20, T21, T23, T30, T31, T40, T41 (T32/T33 planned, QEMU only); release notes: [docs/releases/ in OpenIMP](https://github.com/Lu-Fi/openimp/blob/next/docs/releases/README.md). Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-11-21: T33 AF per-frame algorithm ported (openimp #437, slice 2)
+
+- `driver/t32/tx_isp_t33_afalgo.h`: vendor `tisp_af_alogrithm` (tx-isp-t33.ko 0x45a74): weighted filter sums of the AF statistics bank named by 0x1811c (24-byte block records, record tag +0 / +0x1520), the FV metrics into the AF section (+0x3c..+0x4c, read by GetAFMetricesInfo at +0x40 / +0x44), the FV ring and `fv_old`. Run from system irq 6 (`tisp_af_interrupt_static` -> event 15 -> `tisp_af_calc_process`) in a work item on the T33; `/proc/jz/isp/isp-m0` line `t33 af: runs ..`, `af / gsm` irqs / events counted.
+- Binary oracle `t33_binoracle afalgo` (Unicorn, vendor module vs our C): 2000 cases, 0 mismatches, 16 / 16 mutations detected.
+- T33L .122 (cv2005 PRJ008 module): the AF interrupt does not come (irqs 0); the vendor stack (libimp 2.0.2.1 + tx-isp-t33.ko, dm0 boot) shows the same: GetAFMetricesInfo returns the section's init words 399341925 / 5686726 twenty times on both stacks (apitest case `afmetric`, OpenIMP `claude/t33-afmetric-437`). Vendor-equal; the algorithm runs once the engine raises irq 6 (other T33 boards / AF lens).
+
 ## 2026-11-21: T33 CSCCR stream-on refresh path as the vendor: lists 22 / 15 run as often as the vendor (openimp #755)
 
 - `lib_tisp_init` start of list 22 (vendor `trig(0, 22)` after `tisp_core_tuning_init`, tx-isp-t33.ko 0x26014) in the T33 tisp init, before the MDNS init.
