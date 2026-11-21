@@ -64,6 +64,7 @@
 #include "tx_isp_t32_lcetg.h"
 #include "tx_isp_t32_lcem.h"
 #include "tx_isp_t32_gamma.h"
+#include "tx_isp_t32_iq.h"
 
 /*
  * Vendor t32_data_d03a0: 1 = registers go into the shadow image / register
@@ -827,6 +828,83 @@ void t32_pf_start(void)
 }
 
 /* stream-off: no more per-frame runs, the contexts (LCE state included) are freed */
+/*
+ * lib_tisp_refresh_para (vendor tx-isp-t32.ko 0xc0714, tx_isp_t32_librefresh.h) on the live per-frame
+ * contexts (openimp #534): tisp_bin_data_parse puts the new bin's sections into tparamsP, then the blocks'
+ * dn_params_refresh run in the vendor order.  Here each block's new section is a private copy, handed to
+ * the ported tisp_<blk>_dn_params_refresh as tparamsP + the vendor offset (the T33 pattern), the old copy
+ * freed; the block keeps its own gain.  Wired in this order: dpc, gib, dmsc, ysp, ydns, sdns, cdns, rdns.
+ * The other blocks of the vendor list (top, ae, awb, lsc, tmo, gamma, ccm, clm, bcsh, mdns, defog, lce,
+ * decmp, csccr) keep the parameters of the stream-on bin (counted in t32_pf_stats.dn_missing).
+ */
+static u8 *pf_dn_sec(const u8 *bin, u32 bytes, unsigned int idx, u32 need)
+{
+	u32 len, off = t32_iq_section(bin, bytes, idx, &len);
+
+	if (!off || !T32_IQ_SEC_OK(len, need))
+		return NULL;
+	return kmemdup(bin + off, len, GFP_KERNEL);
+}
+
+#define PF_DN(blk, idx, need, call)						\
+	do {									\
+		u8 *ns, *os;							\
+										\
+		if (!pf.have[blk] || !(ns = pf_dn_sec(bin, bytes, idx, need)))	\
+			break;							\
+		os = call;							\
+		kfree(os);							\
+		done++;								\
+	} while (0)
+
+int t32_pf_dn_refresh(const u8 *bin, u32 bytes, u32 mode)
+{
+	int done = 0, n;
+	u8 *os;
+
+	mutex_lock(&pf_lock);
+	if (!pf_w || !pf.ready) {
+		mutex_unlock(&pf_lock);
+		return 0;
+	}
+	/* tisp_dpc_dn_params_refresh(ch, mode): wide 0 with this front end (t32_dpc_init) */
+	PF_DN(T32_PP_DPC, T32_SEC_DPC, T32_DPC_SEC_BYTES,
+	      (os = pf.dpc.sec, pf_flush(t32_dpc_dn_params_refresh(&pf.dpc, 0, ns - 0x59c0, 0, mode, pf_w)), os));
+	/* tisp_gib_dn_params_refresh: the vendor's section is the tparamsP one bin_data_parse rewrote */
+	if (pf.have[T32_PP_GIB] && (os = pf_dn_sec(bin, bytes, T32_SEC_GIB, T32_GIB_SEC_BYTES))) {
+		memcpy(pf.gib.sec, os, T32_GIB_SEC_BYTES);
+		kfree(os);
+		n = t32_gib_dn_params_refresh(&pf.gib, 0, mode, t32_front_le32(pf.gib.gw + 8), pf_w);
+		pf_flush(n);
+		done++;
+	}
+	PF_DN(T32_PP_DMSC, T32_SEC_DMSC, T32_DMSC_SEC_BYTES,
+	      (os = pf.dmsc.sec, pf_flush(t32_dmsc_dn_params_refresh(&pf.dmsc, ns - 27612, pf_w)), os));
+	if (pf.have[T32_PP_YSP] && pf.ysp_dn)
+		PF_DN(T32_PP_YSP, T32_SEC_YSP, T32_YSP_SEC_BYTES,
+		      (os = pf.ysp.sec, pf_flush(t32_ysp_dn_params_refresh(&pf.ysp, 0, ns - 0xd630, pf.ysp_dn, pf_w)), os));
+	PF_DN(T32_PP_YDNS, T32_SEC_YDNS, T32_YDNS_SEC_BYTES,
+	      (os = pf.ydns.sec, pf_flush(t32_ydns_dn_params_refresh(&pf.ydns, 0, ns - T32_YDNS_SEC_OFF, pf_w)), os));
+	PF_DN(T32_PP_SDNS, T32_SEC_SDNS, T32_SDNS_SEC_BYTES,
+	      (os = pf.sdns.sec, pf_flush(t32_sdns_dn_params_refresh(&pf.sdns, 0, ns - 0xe588, pf_w)), os));
+	PF_DN(T32_PP_CDNS, T32_SEC_CDNS, T32_CDNS_SEC_BYTES,
+	      (os = pf.cdns.sec, pf_flush(t32_cdns_dn_params_refresh(&pf.cdns, 0, ns - 0xcfa0, pf_w)), os));
+	if (pf.have[T32_PP_RDNS] && (os = pf_dn_sec(bin, bytes, T32_SEC_RDNS, T32_RDNS_SEC_BYTES))) {
+		if (t32_rdns_rows_ok(os)) {
+			u8 *ns = os;
+
+			os = pf.rdns.sec;
+			pf_flush(t32_rdns_dn_params_refresh(&pf.rdns, ns - T32_RDNS_SEC_OFF, pf_w));
+			done++;
+		}
+		kfree(os);
+	}
+	t32_pf_stats.dn_runs++;
+	t32_pf_stats.dn_blocks = done;
+	mutex_unlock(&pf_lock);
+	return done;
+}
+
 void t32_pf_stop(void)
 {
 	cancel_work_sync(&pf_work);

@@ -81,4 +81,54 @@ static inline int t33_core_binsw(const struct t33_binsw_ops *o, u32 sd, u32 satt
 	return 0;
 }
 
+/*
+ * T32 (PRJ007, openimp #534): the same command of the vendor tx-isp-t32.ko (ispcore_core_ops_ioctl case
+ * 0x100001e, WDR mode unchanged), with the T32 order: night (+12) 0: lib_tisp_refresh_para, then
+ * lib_tisp_set_csccr(vinum, 0) when update_csccr; night 1: lib_tisp_set_csccr(vinum, 1) first when
+ * update_csccr, then refresh_para; any other night value: neither.  IPC timeout message line 0xa71
+ * ("tx_isp_tisp_refresh_para").  VIC hold, IPC wait and the frame-count event as on the T33.
+ */
+#define T32_BINSW_LINE		0xa71
+
+static inline void t32_binsw_par(const struct t33_binsw_ops *o, const u8 *req)
+{
+	if (req[12] == 0) {
+		o->refresh_para(req);
+		if (req[16])
+			o->set_csccr(req[17], 0);
+	} else if (req[12] == 1) {
+		if (req[16])
+			o->set_csccr(req[17], 1);
+		o->refresh_para(req);
+	}
+}
+
+static inline int t32_core_binsw(const struct t33_binsw_ops *o, u32 sd, u32 sattr, u32 streaming, const u8 *arg)
+{
+	u8 req[20];
+	u32 ev[2] = { 1, T33_BINSW_EV_NOTIFY };
+	unsigned int i, k;
+
+	for (i = 0; i < sizeof(req); i++)
+		req[i] = arg[i];
+	if (sattr != 1) {
+		t32_binsw_par(o, req);
+		return 0;
+	}
+	o->vic_ctrl(0, T33_BINSW_VIC_HOLD);
+	o->vic_ctrl(1, T33_BINSW_VIC_HOLD);
+	if (streaming)
+		for (k = T33_BINSW_IPC_TRIES; o->ipc_pos(); ) {
+			o->msleep(2);
+			if (!--k) {
+				o->print(1, T32_BINSW_LINE);
+				break;
+			}
+		}
+	t32_binsw_par(o, req);
+	if (streaming && sd && o->event)
+		o->event(sd, T33_BINSW_EV_CMD, ev);
+	return 0;
+}
+
 #endif /* TX_ISP_T33_BINSW_H */

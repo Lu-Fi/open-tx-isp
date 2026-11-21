@@ -154,6 +154,7 @@ enum t32_pp { T32_PP_DMSC, T32_PP_YSP, T32_PP_CDNS, T32_PP_YDNS, T32_PP_SDNS, T3
 	     T32_PP_AF, T32_PP_GSM, T32_PP_LSCCT, T32_PP_COUNT };
 struct t32_pf_stats {
 	u32 runs, writes;
+	u32 dn_runs, dn_blocks;	/* t32_pf_dn_refresh (#534): runs, blocks refreshed by the last one */
 };
 extern struct t32_pf_stats t32_pf_stats;
 bool t32_pp_on(enum t32_pp blk);
@@ -167,6 +168,8 @@ int t32_pf_attach_ae(const u8 *sec, u32 width, u32 height);
 struct t32_lsc;
 void t32_pf_attach_lsc(const u8 *sec, const struct t32_lsc *s, u32 width, u32 height, u32 bayer, u32 ct);
 void t32_pf_attach_lce(const u8 *sec, u32 width, u32 height);
+int t32_pf_dn_refresh(const u8 *bin, u32 bytes, u32 mode);	/* lib_tisp_refresh_para's block refreshes (#534) */
+void t32_core_bin_switch(const void *req);	/* tx_isp_t32_hw.c: SET_TIZIANO_PAR while streaming, T32 (#534) */
 
 /* tx_isp_t32_lscct.c: the LSC colour temperature path (tisp_lsc_ct_update, list run at the LSC frame done),
  * behind T32_PP_LSCCT (with T32_PP_LSC, T32_PP_CT) */

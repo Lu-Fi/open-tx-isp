@@ -2407,6 +2407,98 @@ void t33_core_bin_switch(const void *req)
 #endif
 
 #ifndef TX_ISP_T33
+/*
+ * SET_TIZIANO_PAR of a streaming sensor on the T32 (openimp #534): vendor tx-isp-t32.ko
+ * ispcore_core_ops_ioctl 0x100001e (tx_isp_t33_binsw.h t32_core_binsw): VICs 0x4444, IPC output position
+ * wait, lib_tisp_refresh_para (here t32_pf_dn_refresh, tx_isp_t32_tisp.c: the block refreshes on the live
+ * per-frame contexts), the core event 0x1000007 { 1 } (one VIC frame start, then 0x4440 back,
+ * t33_vic_hold_tick).  lib_tisp_set_csccr is not wired on the T32 yet: its night write (0x14054 = 0) has
+ * no day restore without the vendor's frame-done CSCCR path, so the UV clip stays as it is (counted).
+ */
+static struct {
+	u32 calls, holds, ipc_waits, ipc_timeouts, refreshes, blocks, csccr_skipped;
+} t32_binsw_st;
+
+static void t32_binsw_vic_ctrl(u32 vic, u32 val)
+{
+	t32_vic_wr((int)vic, 0x1a8, val);
+}
+
+static u32 t32_binsw_ipc_pos(void)
+{
+	u32 v = isp_rd(0x30200);	/* lib_tisp_get_ipc_output_pos: system_reg_read(0x30200) */
+
+	if (v)
+		t32_binsw_st.ipc_waits++;
+	return v;
+}
+
+static void t32_binsw_msleep(u32 ms)
+{
+	msleep(ms);
+}
+
+static void t32_binsw_print(u32 level, u32 line)
+{
+	t32_binsw_st.ipc_timeouts++;
+	isp_printf(level, "[%s %u] IPC Read timeout !!!\n", "tx_isp_tisp_refresh_para", line);
+}
+
+static void t32_binsw_refresh(const u8 *req)
+{
+	const u8 *bin;
+	u32 bytes;
+
+	(void)req;	/* tisp_bin_data_parse: the bin t32_set_tiziano_par recorded */
+	if (t32_core_iq_bin(&bin, &bytes))
+		return;
+	t32_binsw_st.refreshes++;
+	t32_binsw_st.blocks = (u32)t32_pf_dn_refresh(bin, bytes, req[12]);
+}
+
+static void t32_binsw_set_csccr(u32 ch, u32 mode)
+{
+	(void)ch;
+	(void)mode;
+	t32_binsw_st.csccr_skipped++;
+}
+
+static int t32_binsw_event(u32 sd, u32 cmd, const u32 *ev)
+{
+	unsigned long fl;
+
+	(void)sd;
+	(void)cmd;
+	spin_lock_irqsave(&t33_flip_lock, fl);
+	t33_vic_hold = (int)ev[0] > 0 ? (int)ev[0] : 1;	/* vic_core_ops_ioctl 0x1000007: max(ev[0], 1) frames */
+	t32_flip_vic_rel = t32_core_sensor_data_type() == 2 ? 0x4410 : 0x4440;
+	t33_flip_st.holds++;
+	t32_binsw_st.holds++;
+	spin_unlock_irqrestore(&t33_flip_lock, fl);
+	return 0;
+}
+
+static const struct t33_binsw_ops t32_binsw_ops = {
+	.vic_ctrl = t32_binsw_vic_ctrl,
+	.ipc_pos = t32_binsw_ipc_pos,
+	.msleep = t32_binsw_msleep,
+	.print = t32_binsw_print,
+	.refresh_para = t32_binsw_refresh,
+	.set_csccr = t32_binsw_set_csccr,
+	.event = t32_binsw_event,
+};
+
+/* tx_isp_t32_core.c t32_set_tiziano_par: req = the 20-byte request, vinum 0 while streaming */
+void t32_core_bin_switch(const void *req)
+{
+	if (!isp_base || !t32_core_clk_active())
+		return;
+	t32_binsw_st.calls++;
+	t32_core_binsw(&t32_binsw_ops, 1, 1, 1, req);
+}
+#endif
+
+#ifndef TX_ISP_T33
 extern u32 t32_msca_vendor_starts, t32_msca_direct_starts;	/* #730 (below) */
 
 void t32_flip_show(struct seq_file *m)
@@ -2417,6 +2509,10 @@ void t32_flip_show(struct seq_file *m)
 	/* #652: frame-channel stream-offs, work-state wait timeouts, length of the last wait */
 	seq_printf(m, "t32 msca: soff %u timeout %u last %u ms\n", t33_msca_soff_waits, t33_msca_soff_timeouts,
 		   t33_msca_soff_last_ms);
+	/* #534: SET_TIZIANO_PAR while streaming */
+	seq_printf(m, "t32 binsw: calls %u holds %u ipc waits %u timeouts %u refresh %u blocks %u csccr skipped %u\n",
+		   t32_binsw_st.calls, t32_binsw_st.holds, t32_binsw_st.ipc_waits, t32_binsw_st.ipc_timeouts,
+		   t32_binsw_st.refreshes, t32_binsw_st.blocks, t32_binsw_st.csccr_skipped);
 	{
 		u32 live, inits, starts, stops;
 

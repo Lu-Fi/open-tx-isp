@@ -463,6 +463,9 @@ static int t32_set_tiziano_par(const struct t32_tiziano_par *par)
 	u32 pa = par->pa;
 	struct t32_alloc *a = t32_alloc_find_pa(pa);
 	const u32 *w;
+#ifndef TX_ISP_T33
+	bool wdr_change;
+#endif
 
 	if (!a)
 		return -EINVAL;
@@ -488,6 +491,10 @@ static int t32_set_tiziano_par(const struct t32_tiziano_par *par)
 	}
 #endif
 	core.tiziano_pa = pa;
+#ifndef TX_ISP_T33
+	/* vendor: the switch runs when the stored WDR mode of the input equals (wdr == 1) */
+	wdr_change = par->vinum < T32_BIN_VIS && (core.bin_wdr[par->vinum] == 1) != (par->wdr == 1);
+#endif
 	if (par->vinum < T32_BIN_VIS) {
 		core.bin_wdr[par->vinum] = par->wdr;
 		core.bin_night[par->vinum] = par->night;
@@ -502,6 +509,10 @@ static int t32_set_tiziano_par(const struct t32_tiziano_par *par)
 	 * lib_tisp_set_csccr(vinum, night) when the request asks for it (CSCCR UV clip, #507) */
 	if (par->vinum == 0 && core.vi[0].streaming)
 		t33_core_bin_switch(par);
+#else
+	/* T32 (#534): the vendor's switch of a streaming sensor; a WDR mode change is the WDR path (not here) */
+	if (par->vinum == 0 && core.vi[0].streaming && !wdr_change)
+		t32_core_bin_switch(par);
 #endif
 	return 0;
 }
