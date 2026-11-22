@@ -869,3 +869,143 @@ const u8 *t33_info_tuning(void)
 	return tb_tattr();
 }
 #endif
+
+#ifdef TX_ISP_T33
+/*
+ * T33 custom AE / AWB libraries (openimp #805, beyond the vendor: the vendor
+ * tx-isp-t33.ko has no algorithm behind core commands 0x1000014..0x100001b).
+ * The live AE / AWB blocks give the statistics and the current state, and the
+ * library result goes through the blocks' own manual paths: the AE exposure
+ * info manual mode (all four values, as tisp_s_ae_exprinfo_attr with AeMode 1)
+ * and the AWB manual mode (tisp_awb_set_mode mode 1), so the per-frame AE / AWB
+ * keep running on the statistics but no longer choose the values.  The state
+ * before the first result is saved and restored at the close
+ * (tx_isp_t32_calgo.c).
+ */
+#define TB_CA_IT	576U	/* AE state R: integration time (lines), again, dgain, ISP dgain (x 1024) */
+
+/* IMPISPAeInfo (1996 B): statistics 0..1933, current exposure +1936.., sensor attribute +1976.. */
+int t33_tb_calgo_ae_info(u32 ch, u8 *info)
+{
+	const u8 *vin, *attr;
+	u32 w = 0, h = 0, k;
+
+	TB_AE(c, return -EAGAIN)
+	memset(info, 0, T33_CALGO_AE_INFO);
+	t32_aea_get_ae_statis(&c, info);
+	for (k = 0; k < 4; k++)
+		t32_wr32(info, 1940 + 4 * k, t32_ld32(c.st, TB_CA_IT + 4 * k));
+	t32_aec_api_put();
+	if (!t32_core_sensor_ae_src(&vin, &attr)) {
+		t32_wr32(info, 1976, t32_st16(attr, 276));	/* hts */
+		t32_wr32(info, 1980, t32_st16(attr, 278));	/* vts */
+	}
+	t32_wr32(info, 1984, t32_core_sensor_fps());
+	t32_core_sensor_size(&w, &h);
+	t32_wr32(info, 1988, w);
+	t32_wr32(info, 1992, h);
+	return 0;
+}
+
+/* IMPISPAeInitAttr (128 B): current values, limits, fps, statistics attribute */
+void t33_tb_calgo_ae_init(u32 ch, u8 *init)
+{
+	struct t32_aea_ctx c;
+	u32 k;
+
+	const u8 *vin, *attr;
+
+	memset(init, 0, T33_CALGO_AE_INIT);
+	if (t32_aec_api_get(&c)) {
+		for (k = 0; k < 4; k++)
+			t32_wr32(init, 4 + 4 * k, t32_ld32(c.st, TB_CA_IT + 4 * k));
+		for (k = 0; k < 8; k++)	/* min / max integration time, again, dgain, ISP dgain */
+			t32_wr32(init, 20 + 4 * k, t32_ld32(c.tune, 448 + 4 * k));
+		t32_aec_api_put();
+	} else if (!t32_core_sensor_ae_src(&vin, &attr)) {
+		/* before the first stream (libimp opens in EnableSensor): the limits of the sensor attribute
+		 * (tx_isp_t32_aesns.h: integration time min / max +220 / +224, max again / dgain log2 Q16 +160 / +192) */
+		t32_wr32(init, 20, t32_ld32(attr, 220));
+		t32_wr32(init, 24, 1024);
+		t32_wr32(init, 28, 1024);
+		t32_wr32(init, 32, 1024);
+		t32_wr32(init, 36, t32_ld32(attr, 224));
+		t32_wr32(init, 40, t32_aem_exp2(t32_ld32(attr, 160), 16, 10));
+		t32_wr32(init, 44, t32_aem_exp2(t32_ld32(attr, 192), 16, 10));
+		t32_wr32(init, 48, 1024);
+	}
+	t32_wr32(init, 100, t32_core_sensor_fps());
+	t32_wr32(init, 104, 1);		/* AeStatis.ae_sta_en */
+	init[116] = 15;			/* node_h */
+	init[117] = 15;			/* node_v */
+	t33_tunblk_hist_bins(ch, init + 124);
+}
+
+/* the AE manual words of B (12833..12841 = the trigger bytes, 8608..8639 = the values) */
+int t33_tb_calgo_ae_apply(u32 ch, const u32 *v, u8 *save, bool first)
+{
+	u32 k;
+
+	TB_AE(c, return -EAGAIN)
+	if (first) {
+		memcpy(save, c.buf + 12833, 9);
+		memcpy(save + 9, c.buf + 8608, 32);
+	}
+	c.buf[12841] = 1;
+	for (k = 0; k < 4; k++) {
+		u32 val = v[k] ? v[k] : t32_ld32(c.st, TB_CA_IT + 4 * k);	/* 0 = keep the current value */
+
+		t32_wr32(c.buf, 8608 + 4 * k, val);
+		t32_wr32(c.buf, 8624 + 4 * k, val);
+	}
+	c.st[1285] = 1;		/* tisp_ae_par_update_trig at the next AE frame */
+	t32_aec_api_put();
+	return 0;
+}
+
+void t33_tb_calgo_ae_restore(u32 ch, const u8 *save)
+{
+	TB_AE(c, return)
+	memcpy(c.buf + 12833, save, 9);
+	memcpy(c.buf + 8608, save + 9, 32);
+	c.st[1285] = 1;
+	t32_aec_api_put();
+}
+
+/* IMPISPAwbInfo (12316 B): current gains, global statistics gains, zone statistics */
+int t33_tb_calgo_awb_info(u32 ch, u8 *info)
+{
+	u32 a[3], g[4];
+
+	TB_AWB(c, return -EAGAIN)
+	memset(info, 0, T33_CALGO_AWB_INFO);
+	t33_awbc_cur_gain(&a[1], &a[2]);	/* the applied gains (GetAwbAttr's auto words are the weighted statistics gains) */
+	t32_awb_get_global_statis(&c, g);
+	t32_awb_get_zone(&c, info + 28);
+	t32_awbc_api_put();
+	t32_wr32(info, 0, a[1]);
+	t32_wr32(info, 4, a[2]);
+	t32_wr32(info, 8, g[0]);
+	t32_wr32(info, 12, g[1]);
+	return 0;
+}
+
+int t33_tb_calgo_awb_apply(u32 ch, u32 r, u32 b, u32 *save, bool first)
+{
+	u32 m[3] = { 1, r, b };
+
+	TB_AWB(c, return -EAGAIN)
+	if (first)
+		memcpy(save, c.mode, 3 * sizeof(u32));
+	t32_awb_set_mode(&c, m);
+	t32_awbc_api_put();
+	return 0;
+}
+
+void t33_tb_calgo_awb_restore(u32 ch, const u32 *save)
+{
+	TB_AWB(c, return)
+	t32_awb_set_mode(&c, save);
+	t32_awbc_api_put();
+}
+#endif

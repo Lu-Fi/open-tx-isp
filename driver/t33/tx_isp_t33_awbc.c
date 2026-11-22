@@ -215,6 +215,7 @@ static void awbc_work_fn(struct work_struct *w)
 		ACCESS_ONCE(ct_new) = o->ct;
 		t33_evq_queue(&awbc_ct_work);
 	}
+	t33_calgo_awb_tick();	/* a custom AWB library (#805): the statistics of this frame are ready */
 out:
 	mutex_unlock(&awbc_lock);
 	kfree(o);
@@ -468,6 +469,27 @@ bool t32_awbc_api_get(struct t32_awb_ctx *c)
 	c->mode = (u32 *)ai.mode;
 	c->base = (u8 *)ai.a.par - T32_AWBI_PAR_OFF;
 	return true;
+}
+
+/*
+ * #805: the red / blue gain the AWB applies now, in the unit of the manual mode (tisp_awb_set_gain: the
+ * mode 1..8 gain or the measured gain; the fixed hardware gains win).  Caller holds the API lock
+ * (t32_awbc_api_get .. _put).
+ */
+void t33_awbc_cur_gain(u32 *r, u32 *b)
+{
+	const struct t32_awb *a = &ai.a;
+
+	if (a->hw->fixed == 1) {
+		*r = a->hw->fixed_r;
+		*b = a->hw->fixed_b;
+	} else if (a->st->mode >= 1 && a->st->mode <= 8) {
+		*r = a->st->man_r;
+		*b = a->st->man_b;
+	} else {
+		*r = a->hw->gain_r;
+		*b = a->hw->gain_b;
+	}
 }
 
 void t32_awbc_api_put(void)

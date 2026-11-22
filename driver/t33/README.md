@@ -131,3 +131,15 @@ A T33 camera kernel uses `CONFIG_CPU_MIPS32_R2` (vermagic `MIPS32_R2`); build
 against a 3.10.14 tree configured like the camera kernel (MIPS32_R2,
 preempt, `__isvp_goat_1.0__`), which gives the camera's vermagic. The T32 module built from these sources is
 unchanged (identical `.text` and strings).
+
+## Custom AE / AWB libraries (openimp #805, beyond the vendor)
+
+`IMP_ISP_SetAeAlgoFunc` / `IMP_ISP_SetAwbAlgoFunc` work on the T33 with this module
+(`tx_isp_t33_calgo.c` = `../t32/tx_isp_t32_calgo.c`). The vendor module has no
+algorithm behind the library commands (core commands 0x1000014..0x100001b fall
+to the default forward and answer 0, so a vendor library spins on zeros). Here
+a library get waits for the next AE / AWB statistics frame (`t33_calgo_wait_ms`,
+default 500 ms, then EAGAIN), the info carries the live statistics and exposure
+/ gains, and a result (change != 0) sets the AE exposure info manual mode or the
+AWB manual mode; the close restores the previous state. Counters: the
+`t33 custom algo:` line of /proc/jz/isp/isp-m0.

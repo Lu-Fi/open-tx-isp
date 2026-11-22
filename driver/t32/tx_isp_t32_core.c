@@ -816,6 +816,16 @@ static long t32_isp_ioctl(struct file *file, unsigned int cmd, unsigned long arg
 			isp_printf(ret ? 1 : 0, "tx-isp-t32: ioctl %#x -> %ld\n", cmd, ret);
 		return ret;
 	}
+#ifdef TX_ISP_T33
+	/* custom AE / AWB library (openimp #805): the get waits for a statistics frame, outside the core lock */
+	ret = t33_calgo_ioctl(file, cmd, arg);
+	if (ret != -ENOIOCTLCMD) {
+		if (t32_trace || (ret && ret != -EAGAIN))
+			isp_printf(ret ? 1 : 0, "tx-isp-t32: ioctl %#x -> %ld\n", cmd, ret);
+		return ret;
+	}
+	ret = 0;
+#endif
 	mutex_lock(&core.lock);
 	core.ioctls++;
 	switch (cmd) {
@@ -1478,6 +1488,9 @@ static int t32_isp_open(struct inode *inode, struct file *file)
 
 static int t32_isp_release(struct inode *inode, struct file *file)
 {
+#ifdef TX_ISP_T33
+	t33_calgo_release(file);	/* #805: a library its dead client left open */
+#endif
 	mutex_lock(&core.lock);
 	if (t32_clk_users && !--t32_clk_users) {
 		t33_hw_flip_stop();	/* #779: no VIC hold left over, before the clocks stop */
