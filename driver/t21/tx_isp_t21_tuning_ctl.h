@@ -798,6 +798,13 @@ static int t21_fcrop_get(void __user *uptr)
 #define T21_CID_AE_FREEZE	0x08000034
 static int t21_ae_hold;
 
+/* SetAeComp (0x8000023, beyond vendor, see tx_isp_t21_ae_comp.h): the
+ * value is kept here and combined with the brightness factor where the AE
+ * target is scaled; t21_ae_comp_refresh makes a converged AE take it. */
+#define T21_CID_AE_COMP		0x08000023
+static uint32_t t21_ae_comp_user = 128;
+static void t21_ae_comp_refresh(void);
+
 static int t21_tuning_ctl_s(int32_t *ctl, int32_t *ret)
 {
 	uint8_t blk[T21_SINTER_BLOCK];
@@ -806,6 +813,15 @@ static int t21_tuning_ctl_s(int32_t *ctl, int32_t *ret)
 	switch ((uint32_t)ctl[0]) {
 	case T21_CID_AE_FREEZE:
 		ACCESS_ONCE(t21_ae_hold) = v ? 1 : 0;
+		*ret = 0;
+		return 1;
+	case T21_CID_AE_COMP:
+		if (v > 255) {
+			*ret = -1;
+			return 1;
+		}
+		ACCESS_ONCE(t21_ae_comp_user) = v;
+		t21_ae_comp_refresh();
 		*ret = 0;
 		return 1;
 	case TX_ISP_CID_CSC_ATTR:
@@ -925,6 +941,9 @@ static int t21_tuning_ctl_g(int32_t *ctl, int32_t *ret)
 		break;
 	case T21_CID_DPC_RATIO:
 		ctl[1] = (int32_t)t21_dpc_ratio;
+		break;
+	case T21_CID_AE_COMP:
+		ctl[1] = (int32_t)ACCESS_ONCE(t21_ae_comp_user);
 		break;
 	case T21_CID_TEMPER_TYPE:
 		ctl[1] = (int32_t)t21_temper_type;

@@ -1,4 +1,4 @@
-/* Host test: T21 brightness as AE target compensation (tx_isp_t21_ae_comp.h).
+/* Host test: T21 brightness and SetAeComp as AE target compensation (tx_isp_t21_ae_comp.h).
  * 128 must be the identity for every target; monotonic; bounded. */
 #include <stdio.h>
 #include <stdint.h>
@@ -29,6 +29,14 @@ int main(void)
 	bad += t21_ae_comp_scale(75, 255) != 149;
 	bad += t21_ae_comp_scale(75, 64) != 38;
 	bad += t21_ae_comp_scale(75, 0) != 9;
+	/* SetAeComp x brightness (0x8000023): either alone is unchanged, 128 x 128 neutral, product / 128, capped */
+	for (c = 0; c < 256; c++) {
+		bad += t21_ae_comp_combine(c, 128) != c;
+		bad += t21_ae_comp_combine(128, c) != c;
+	}
+	bad += t21_ae_comp_combine(200, 200) != 255;
+	bad += t21_ae_comp_combine(64, 64) != 32;
+	bad += t21_ae_comp_combine(256 + 128, 40) != 40;	/* only the low byte counts, as in scale */
 	printf("%s (%d)\n", bad ? "FAIL" : "ok", bad);
 	return bad != 0;
 }

@@ -17212,7 +17212,8 @@ static uint64_t L_ae_tune2(uint32_t r_a0, uint32_t r_a1, uint32_t r_a2, uint32_t
 
 		ACCESS_ONCE(t21_ae_comp_pending) = 0;
 		if (raw) {
-			r_s3 = t21_ae_comp_scale(raw, (uint32_t)ACCESS_ONCE(ae_compensation));
+			r_s3 = t21_ae_comp_scale(raw, t21_ae_comp_combine((uint32_t)ACCESS_ONCE(ae_compensation),
+									  ACCESS_ONCE(t21_ae_comp_user)));
 			*(uint32_t *)(uintptr_t)(r_t0 + (uint32_t)0) = r_s3;
 		}
 	}
@@ -19492,7 +19493,8 @@ L_2a878:
 static uint64_t L_tisp_ae_target(uint32_t r_a0, uint32_t r_a1, uint32_t r_a2, uint32_t r_a3, uint32_t csp)
 {
 	uint64_t q = L_tisp_ae_target_stock(r_a0, r_a1, r_a2, r_a3, csp);
-	uint32_t comp = (uint32_t)ACCESS_ONCE(ae_compensation);
+	uint32_t comp = t21_ae_comp_combine((uint32_t)ACCESS_ONCE(ae_compensation),
+					    ACCESS_ONCE(t21_ae_comp_user));
 
 	ACCESS_ONCE(t21_ae_raw_target) = (uint32_t)q;
 	if (comp == T21_AE_COMP_NEUTRAL)

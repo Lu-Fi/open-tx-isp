@@ -37,4 +37,24 @@ static inline uint32_t t21_ae_comp_scale(uint32_t target, uint32_t comp)
 	return (uint32_t)t;
 }
 
+/*
+ * IMP_ISP_Tuning_SetAeComp (tuning CID 0x8000023, beyond vendor: the T21
+ * 1.0.33 libimp has no such call).  Its 0..255 value (128 = neutral) is a
+ * second factor on the same AE target: the effective compensation is
+ * brightness x aecomp / 128, so either control alone behaves as before.
+ */
+static inline uint32_t t21_ae_comp_combine(uint32_t bright, uint32_t aecomp)
+{
+	uint32_t c;
+
+	bright &= 0xff;
+	aecomp &= 0xff;
+	if (aecomp == T21_AE_COMP_NEUTRAL)
+		return bright;
+	if (bright == T21_AE_COMP_NEUTRAL)
+		return aecomp;
+	c = (bright * aecomp + T21_AE_COMP_NEUTRAL / 2) / T21_AE_COMP_NEUTRAL;
+	return c > 255 ? 255 : c;
+}
+
 #endif
