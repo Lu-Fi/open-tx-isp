@@ -10872,7 +10872,7 @@ int32_t iridix_initialize(int32_t *fsm)
 			APICAL_WRITE_32(0x1c04, val);
 			i++;
 		}
-		byte_val = *(uint8_t *)((char *)iridix_fsm + 0x10);
+		byte_val = ((struct t20_fsm_iridix *)iridix_fsm)->strength_target;
 	} else {
 		uint32_t *lut_ptr;
 		reg = APICAL_READ_32(0x3e0);
@@ -10885,13 +10885,13 @@ int32_t iridix_initialize(int32_t *fsm)
 			APICAL_WRITE_32(0x1c04, val);
 			i++;
 		}
-		byte_val = *(uint8_t *)((char *)iridix_fsm + 0x10);
+		byte_val = ((struct t20_fsm_iridix *)iridix_fsm)->strength_target;
 	}
 
 	stab.global_iridix_strength_target = byte_val;
 
 	base_ptr = *(uint32_t **)iridix_fsm;
-	mode = *(uint8_t *)((char *)base_ptr + 0x1524);
+	mode = ((struct t20_isp_ctx *)base_ptr)->general.wdr_mode;
 
 	if (mode != 0) {
 		if (mode == 3) {
@@ -13431,16 +13431,17 @@ int32_t apical_isp_process_events(void *ctx, int32_t max_events)
 	int32_t result;
 	int32_t acc;
 	bool trace;
+	struct t20_isp_ctx *isp = ctx;
 
 	for (;;) {
-		void *fw = *(void **)((char *)ctx + 4);
+		struct t20_fw_outer *fw = isp->fw;
 
-		if (*(int32_t *)((char *)fw + 4) == 0)
+		if (fw->irq_locked == 0)
 			system_hw_interrupts_disable();
 
-		event = apical_event_queue_pop((int32_t *)((char *)ctx + 0x2ea4));
+		event = apical_event_queue_pop((int32_t *)t20_member_ptr(isp, event_queue));
 
-		if (*(int32_t *)((char *)fw + 4) == 0)
+		if (fw->irq_locked == 0)
 			result = system_hw_interrupts_enable();
 		else
 			result = 0;
@@ -13452,59 +13453,59 @@ int32_t apical_isp_process_events(void *ctx, int32_t max_events)
 		acc = 0;
 		if (t20_fsm_event_allow_mask & (1u << 0)) {
 			if (trace) printk(KERN_INFO "T20EV event=%d fsm=sensor\n", event);
-			acc |= sensor_fsm_process_event((int32_t *)((char *)ctx + 0xc), event);
+			acc |= sensor_fsm_process_event((int32_t *)t20_member_ptr(isp, sensor), event);
 		}
 		if (t20_fsm_event_allow_mask & (1u << 1)) {
 			if (trace) printk(KERN_INFO "T20EV event=%d fsm=cmos\n", event);
-			acc |= cmos_fsm_process_event((int32_t *)((char *)ctx + 0x100), event);
+			acc |= cmos_fsm_process_event((int32_t *)t20_member_ptr(isp, cmos), event);
 		}
 		if (t20_fsm_event_allow_mask & (1u << 2)) {
 			if (trace) printk(KERN_INFO "T20EV event=%d fsm=defect_pixel\n", event);
-			acc |= defect_pixel_fsm_process_event((int32_t *)((char *)ctx + 0x2e8), event);
+			acc |= defect_pixel_fsm_process_event((int32_t *)t20_member_ptr(isp, defect_pixel), event);
 		}
 		if (t20_fsm_event_allow_mask & (1u << 3)) {
 			if (trace) printk(KERN_INFO "T20EV event=%d fsm=ae\n", event);
-			acc |= AE_fsm_process_event((int32_t *)((char *)ctx + 0x308), event);
+			acc |= AE_fsm_process_event((int32_t *)t20_member_ptr(isp, ae), event);
 		}
 		if (t20_fsm_event_allow_mask & (1u << 4)) {
 			if (trace) printk(KERN_INFO "T20EV event=%d fsm=awb\n", event);
-			acc |= AWB_fsm_process_event((int32_t *)((char *)ctx + 0x748), event);
+			acc |= AWB_fsm_process_event((int32_t *)t20_member_ptr(isp, awb), event);
 		}
 		if (t20_fsm_event_allow_mask & (1u << 5)) {
 			if (trace) printk(KERN_INFO "T20EV event=%d fsm=color_matrix\n", event);
-			acc |= color_matrix_fsm_process_event((int32_t *)((char *)ctx + 0xee8), event);
+			acc |= color_matrix_fsm_process_event((int32_t *)t20_member_ptr(isp, color_matrix), event);
 		}
 		if (t20_fsm_event_allow_mask & (1u << 6)) {
 			if (trace) printk(KERN_INFO "T20EV event=%d fsm=iridix\n", event);
-			acc |= iridix_fsm_process_event((int32_t *)((char *)ctx + 0xfd4), event);
+			acc |= iridix_fsm_process_event((int32_t *)t20_member_ptr(isp, iridix), event);
 		}
 		if (t20_fsm_event_allow_mask & (1u << 7)) {
 			if (trace) printk(KERN_INFO "T20EV event=%d fsm=noise_reduction\n", event);
-			acc |= noise_reduction_fsm_process_event((int32_t *)((char *)ctx + 0xff0), event);
+			acc |= noise_reduction_fsm_process_event((int32_t *)t20_member_ptr(isp, noise_reduction), event);
 		}
 		if (t20_fsm_event_allow_mask & (1u << 8)) {
 			if (trace) printk(KERN_INFO "T20EV event=%d fsm=sharpening\n", event);
-			acc |= sharpening_fsm_process_event((int32_t *)((char *)ctx + 0x1014), event);
+			acc |= sharpening_fsm_process_event((int32_t *)t20_member_ptr(isp, sharpening), event);
 		}
 		if (t20_fsm_event_allow_mask & (1u << 9)) {
 			if (trace) printk(KERN_INFO "T20EV event=%d fsm=flash\n", event);
-			acc |= flash_fsm_process_event((int32_t *)((char *)ctx + 0x147c), event);
+			acc |= flash_fsm_process_event((int32_t *)t20_member_ptr(isp, flash), event);
 		}
 		if (t20_fsm_event_allow_mask & (1u << 10)) {
 			if (trace) printk(KERN_INFO "T20EV event=%d fsm=crop\n", event);
-			acc |= crop_fsm_process_event((int32_t *)((char *)ctx + 0x14a0), event);
+			acc |= crop_fsm_process_event((int32_t *)t20_member_ptr(isp, crop), event);
 		}
 		if (t20_fsm_event_allow_mask & (1u << 11)) {
 			if (trace) printk(KERN_INFO "T20EV event=%d fsm=general\n", event);
-			acc |= general_fsm_process_event((int32_t *)((char *)ctx + 0x14e8), event);
+			acc |= general_fsm_process_event((int32_t *)t20_member_ptr(isp, general), event);
 		}
 		if (t20_fsm_event_allow_mask & (1u << 12)) {
 			if (trace) printk(KERN_INFO "T20EV event=%d fsm=dis\n", event);
-			acc |= dis_fsm_process_event((int32_t *)((char *)ctx + 0x152c), event);
+			acc |= dis_fsm_process_event((int32_t *)t20_member_ptr(isp, dis), event);
 		}
 		if (t20_fsm_event_allow_mask & (1u << 13)) {
 			if (trace) printk(KERN_INFO "T20EV event=%d fsm=matrix_yuv\n", event);
-			acc |= matrix_yuv_fsm_process_event((int32_t *)((char *)ctx + 0x2d74), event);
+			acc |= matrix_yuv_fsm_process_event((int32_t *)t20_member_ptr(isp, matrix_yuv), event);
 		}
 		if (trace) printk(KERN_INFO "T20EV event=%d done acc=%d\n", event, acc);
 
@@ -16699,12 +16700,12 @@ int32_t ae_calculate_exposure(int32_t *ae_fsm)
 	int32_t exposure_log2;
 
 	if (manual_exposure == 0) {
-		int32_t hdr_byte = *(uint8_t *)((char *)isp + 0x1524);
+		int32_t hdr_byte = ((struct t20_isp_ctx *)isp)->general.wdr_mode;
 		int32_t hdr_idx = _GET_HDR_TABLE_INDEX(0x92, hdr_byte);
 		int32_t lut_ptr = _GET_UINT_PTR(hdr_idx);
 		int32_t lut_gain = *(int32_t *)lut_ptr;
-		int32_t again_log2 = *(int32_t *)((char *)isp + 0x64);
-		int32_t dgain_log2 = *(int32_t *)((char *)isp + 0x68);
+		int32_t again_log2 = ((struct t20_isp_ctx *)isp)->sensor.ctrl.param.again_log2_max;
+		int32_t dgain_log2 = ((struct t20_isp_ctx *)isp)->sensor.ctrl.param.dgain_log2_max;
 		int32_t isp_dgain_log2 = *(int32_t *)((char *)isp + 0x2e4);
 		int32_t max_inttime_word = APICAL_READ_32(0x40114); /* OEM: ext max_integration_time word (vendor 0x2b348) */
 		int32_t max_inttime_log2 = log2_fixed_to_fixed((uint32_t)max_inttime_word >> 0x10, 0, 0x10);
@@ -19327,7 +19328,7 @@ int32_t setup_parameters_to_default(uintptr_t fsm_addr)
 uint32_t sharpening_initialize(int32_t *sharp)
 {
 	int32_t *base = *(int32_t **)sharp;
-	uint8_t mode = *(uint8_t *)((char *)base + 0x1524);
+	uint8_t mode = ((struct t20_isp_ctx *)base)->general.wdr_mode;
 	int32_t lut_idx;
 	int32_t *lut_ptr;
 	uint32_t result;
@@ -19363,7 +19364,7 @@ uint32_t sharpening_initialize(int32_t *sharp)
 
 	*(uint8_t *)((char *)sharp + 0x1c) = 1;
 
-	result = *(uint8_t *)((char *)base + 0x1524);
+	result = ((struct t20_isp_ctx *)base)->general.wdr_mode;
 
 	/* OEM 0x2ecec..0x2eefc: per mode the first/last value of the
 	 * modulation table 0x42+mode go to stab.global_maximum_directional_sharpening/[0x24] and the
