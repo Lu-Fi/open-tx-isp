@@ -17644,6 +17644,14 @@ MODULE_PARM_DESC(ivdc_reinits, "IVDC direct-mode re-inits after a core start (re
 static unsigned int regtrace_t23_ivdc_bits_lost;
 module_param_named(ivdc_bits_lost, regtrace_t23_ivdc_bits_lost, uint, 0444);
 MODULE_PARM_DESC(ivdc_bits_lost, "channel 0 IVDC addresses about to reach a non-direct MSCA, re-inited first (read only, #800)");
+/* #807/#800: channel 0 MSCA FIFO accounting in direct mode (read only).
+ * fd = core IRQs with frame done (bit 0), fd0 = of these with no channel 0
+ * entry drained, drain = entries drained and pushed again, qpush = QBUF
+ * pushes, fs = frame starts (bit 0x1000), bad = drained entries that were
+ * not the IVDC pair (pushed back as the IVDC pair, never as read). */
+static unsigned int t23_ivdc_cnt[7];
+module_param_array_named(ivdc_fifo_cnt, t23_ivdc_cnt, uint, NULL, 0444);
+MODULE_PARM_DESC(ivdc_fifo_cnt, "fd,fd0,drain,qpush,fs,bad,last bad y (read only, #807/#800)");
 
 static struct t23_ivdc_reg regtrace_t23_ivdc_ring_regs[8];
 static int regtrace_t23_ivdc_ring_n;
@@ -17822,6 +17830,7 @@ static int regtrace_t23_ivdc_qbuf(const uint32_t *words)
     regtrace_framechan_qbuf_count[0]++;
     /* #800: never hand the IVDC addresses to a non-direct MSCA */
     regtrace_t23_ivdc_reassert("channel 0 QBUF", true);
+    t23_ivdc_cnt[3]++;
     tisp_msca_addr_fifo_write(0, (int32_t)T23_IVDC_Y_ADDR,
                               (int32_t)T23_IVDC_UV_ADDR);
     spin_unlock_irqrestore(&regtrace_framechan_done_lock, flags);
@@ -17979,6 +17988,8 @@ static void regtrace_t23_ivdc_frame_start(void)
     struct regtrace_framechan_done *done;
     unsigned long flags;
     unsigned int i, slot, head;
+
+    t23_ivdc_cnt[4]++;
 
     spin_lock_irqsave(&regtrace_framechan_done_lock, flags);
     for (i = 0; regtrace_framechan_streaming[0] &&
@@ -36216,15 +36227,29 @@ static int32_t isp_irq_handle_body(int32_t irq, void *dev_id)
                     uint32_t uv_phys =
                         readl(base + fifo_base + 0x158U) & ~7U;
 
-                    if (regtrace_t23_ivdc_ch(channel))
-                        /* direct mode: the IVDC pair goes back into the FIFO */
-                        tisp_msca_addr_fifo_write(0, (int32_t)y_phys,
-                                                  (int32_t)uv_phys);
-                    else
+                    if (regtrace_t23_ivdc_ch(channel)) {
+                        /* direct mode: the IVDC pair goes back into the FIFO
+                         * (vendor ISR pushes the drained pair as read; we
+                         * push the constants so a bad read can never send
+                         * the MSCA to low DDR, #800) */
+                        t23_ivdc_cnt[2]++;
+                        if (y_phys != T23_IVDC_Y_ADDR ||
+                            uv_phys != T23_IVDC_UV_ADDR) {
+                            t23_ivdc_cnt[5]++;
+                            t23_ivdc_cnt[6] = y_phys;
+                        }
+                        tisp_msca_addr_fifo_write(0, (int32_t)T23_IVDC_Y_ADDR,
+                                                  (int32_t)T23_IVDC_UV_ADDR);
+                    } else
                         regtrace_framechan_complete_fifo(channel, y_phys,
                                                          uv_phys);
                     drained++;
                     fifo_status = readl(base + fifo_base + 0x13cU);
+                }
+                if (channel == 0 && regtrace_t23_ivdc_ch(0) && (status0 & 1U)) {
+                    t23_ivdc_cnt[0]++;
+                    if (!drained)
+                        t23_ivdc_cnt[1]++;
                 }
                 drained_total += drained;
                 if (regtrace_t23_log_irq_count(regtrace_t23_core_irq_count))
