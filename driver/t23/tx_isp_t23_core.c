@@ -18,6 +18,7 @@
 #include "tx_isp_t23_scratch.h"
 #include "tx_isp_t23_ivdc_misc.h"
 #include "tx_isp_t23_ivdc_direct.h"
+#include "tx_isp_t23_clk.h"
 #include "tx_isp_t23_bypass.h"
 #include "tx_isp_t23_core_ioctl.h"
 #include "tx_isp_t23_msca_geom.h"
@@ -11333,6 +11334,62 @@ static ssize_t regtrace_t23_vic_proc_write(struct file *file,
     return ret ? ret : (ssize_t)input_count;
 }
 
+/* openimp #813: vendor ispcore_activate_module clock step (tx_isp_t23_clk.h). */
+static void *t23_clk_op_get(const char *name)
+{
+    struct clk *c = clk_get(NULL, name);
+
+    return IS_ERR_OR_NULL(c) ? NULL : c;
+}
+static void t23_clk_op_put(void *clk) { clk_put((struct clk *)clk); }
+static int t23_clk_op_set_parent(void *clk, void *parent)
+{
+    return clk_set_parent((struct clk *)clk, (struct clk *)parent);
+}
+static int t23_clk_op_set_rate(void *clk, unsigned long rate)
+{
+    return private_clk_set_rate((struct clk *)clk, rate);
+}
+static void t23_clk_op_log(const char *msg, const char *arg)
+{
+    char b[96];
+
+    snprintf(b, sizeof(b), msg, arg);
+    printk(KERN_ERR "t23: %s", b);
+}
+static const struct t23_clk_ops t23_clk_kernel_ops = {
+    .get = t23_clk_op_get,
+    .put = t23_clk_op_put,
+    .set_parent = t23_clk_op_set_parent,
+    .set_rate = t23_clk_op_set_rate,
+    .log = t23_clk_op_log,
+};
+
+static void t23_core_clk_params(unsigned char *sd)
+{
+    uintptr_t clk_ptr = *(uint32_t *)(sd + REGTRACE_TX_ISP_MODULE_CLK_PTR_OFFSET);
+    uint32_t clk_num = *(uint32_t *)(sd + REGTRACE_TX_ISP_MODULE_CLK_NUM_OFFSET);
+    void *clks[2] = { NULL, NULL };
+    uint32_t i;
+
+    if (!clk_ptr || clk_num > 8)
+        return;
+    for (i = 0; i < clk_num && i < 2; i++) {
+        struct clk *c = *(struct clk **)(clk_ptr + i * sizeof(uint32_t));
+
+        clks[i] = IS_ERR_OR_NULL(c) ? NULL : c;
+    }
+    t23_core_apply_clk_params(&t23_clk_kernel_ops, clks, clk_num,
+                              clk_name, clka_name,
+                              (unsigned long)(unsigned int)isp_clk,
+                              (unsigned long)(unsigned int)isp_clka);
+    printk(KERN_WARNING "t23: core clocks cgu_isp=%lu cgu_vpu=%lu (isp_clk=%u isp_clka=%u clk_name=%s clka_name=%s)\n",
+           clks[0] ? private_clk_get_rate(clks[0]) : 0UL,
+           clks[1] ? private_clk_get_rate(clks[1]) : 0UL,
+           (unsigned int)isp_clk, (unsigned int)isp_clka,
+           clk_name ? clk_name : "-", clka_name ? clka_name : "-");
+}
+
 static void regtrace_t23_enable_subdev_clks(const char *name,
                                             unsigned char *sd,
                                             bool *enabled)
@@ -11348,6 +11405,10 @@ static void regtrace_t23_enable_subdev_clks(const char *name,
     clk_num = *(uint32_t *)(sd + REGTRACE_TX_ISP_MODULE_CLK_NUM_OFFSET);
     if (!clk_ptr || clk_num > 8)
         return;
+
+    /* vendor ispcore_activate_module: parents + rates before the enable */
+    if (sd == regtrace_t23_core_sd)
+        t23_core_clk_params(sd);
 
     for (i = 0; i < clk_num; i++) {
         struct clk *clk = *(struct clk **)(clk_ptr + i * sizeof(uint32_t));
@@ -101737,11 +101798,16 @@ int ispcore_activate_module(void *arg1) {
 
                 if (*((int *)((char *)s0 + 0xe8)) == 1) {
                     int *s1 = *(int **)((char *)arg1 + 0xbc);
-                    void (*clk_parent_fn)(const char *, const char *);
-                    clk_parent_fn = (void (*)(const char *, const char *))get_clk_name(0);
-                    clk_parent_fn("cgu_isp", "cgu_isp");
-                    clk_parent_fn = (void (*)(const char *, const char *))get_clka_name(0);
-                    clk_parent_fn("cgu_vpu", "cgu_vpu");
+                    /*
+                     * openimp #813: the lift called the char return of
+                     * get_clk_name / get_clka_name as a function pointer.
+                     * Vendor: ispcore_set_clk_parent(clk_name, "cgu_isp"),
+                     * (clka_name, "cgu_vpu").  This function is not wired
+                     * to /dev/tx-isp; the live path applies the same step
+                     * in t23_core_clk_params() before the stream clocks.
+                     */
+                    t23_clk_set_parent(&t23_clk_kernel_ops, clk_name, "cgu_isp");
+                    t23_clk_set_parent(&t23_clk_kernel_ops, clka_name, "cgu_vpu");
 
                     int *i = 0;
                     int *var_2c;
@@ -101774,7 +101840,7 @@ int ispcore_activate_module(void *arg1) {
                             private_clk_enable(*s1);
 
                         i = (void *)(uintptr_t)((uintptr_t)i + (1));
-                        s1 = (void *)(uintptr_t)((uintptr_t)s1 + (1));
+                        s1 = s1 + 1;    /* next struct clk * (was 1 byte) */
                     }
 
                     int *a2 = 0;
