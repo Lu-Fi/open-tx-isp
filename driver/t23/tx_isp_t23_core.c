@@ -17627,6 +17627,77 @@ static void regtrace_t23_ivdc_core_init(void)
     regtrace_t23_ivdc_state = 3;
 }
 
+/*
+ * openimp #800: the vendor runs ivdc_core_ops_init(sd, 1) at every ISP
+ * enable (after tisp_init wrote 0x1c = 0) and (sd, 0) = state 2 at every
+ * disable.  Here the init ran only from the channel 0 format event, and only
+ * while the state was not 3: a core restart (new timps session whose last
+ * one ended without a channel 0 STREAMOFF, or an input stop / start inside
+ * a session) left 0x1c without the direct bits while the MSCA channel 0
+ * FIFO held the IVDC addresses, so the MSCA wrote the frame to 0x80000000 /
+ * 0x81000000 = DDR 0 / 16 MB: kernel text and the exception vector
+ * (0x80808080 grey UV in the code dump, reset PC 0x80000188 / 0x80000198).
+ */
+static unsigned int regtrace_t23_ivdc_reinits;
+module_param_named(ivdc_reinits, regtrace_t23_ivdc_reinits, uint, 0444);
+MODULE_PARM_DESC(ivdc_reinits, "IVDC direct-mode re-inits after a core start (read only, #800)");
+static unsigned int regtrace_t23_ivdc_bits_lost;
+module_param_named(ivdc_bits_lost, regtrace_t23_ivdc_bits_lost, uint, 0444);
+MODULE_PARM_DESC(ivdc_bits_lost, "channel 0 IVDC addresses about to reach a non-direct MSCA, re-inited first (read only, #800)");
+
+static struct t23_ivdc_reg regtrace_t23_ivdc_ring_regs[8];
+static int regtrace_t23_ivdc_ring_n;
+static unsigned int regtrace_t23_ivdc_ring_paddr;
+
+/* #800: the IVDC ring base must be the programmed ring, never 0 (an IVDC
+ * with base 0 writes its 300-line ring over DDR 0..0x8ca00).  Rewrites the
+ * saved ring registers when the base reads back different; returns 0 when
+ * the ring is in place. */
+static int regtrace_t23_ivdc_ring_check(const char *why)
+{
+    void __iomem *base = regtrace_t23_ivdc_base();
+    uint32_t b;
+
+    if (!base || t23_ivdc_direct_mode <= 0)
+        return 0;
+    b = readl(base + 0x34);
+    if (regtrace_t23_ivdc_ring_n > 0 && b == regtrace_t23_ivdc_ring_paddr && b)
+        return 0;
+    if (regtrace_t23_ivdc_ring_n > 0 && regtrace_t23_ivdc_ring_paddr) {
+        regtrace_t23_ivdc_write_regs(regtrace_t23_ivdc_ring_regs,
+                                     regtrace_t23_ivdc_ring_n);
+        regtrace_t23_ivdc_bits_lost++;
+        printk(KERN_ERR "t23: IVDC ring base 0x%x != 0x%x before %s: rewritten (0x%x)\n",
+               b, regtrace_t23_ivdc_ring_paddr, why, readl(base + 0x34));
+        return readl(base + 0x34) ? 0 : -EIO;
+    }
+    printk(KERN_ERR "t23: IVDC ring not programmed (0x34 = 0x%x) before %s\n", b, why);
+    return -EIO;
+}
+
+static void regtrace_t23_ivdc_reassert(const char *why, bool guard)
+{
+    uint32_t top;
+
+    if (!regtrace_t23_ivdc_base())
+        return;
+    top = (uint32_t)system_reg_read(0x1cU);
+    if (guard ? !t23_ivdc_tag_unsafe(t23_ivdc_direct_mode, top)
+              : !t23_ivdc_needs_init(t23_ivdc_direct_mode,
+                                     regtrace_t23_ivdc_state, top))
+        return;
+    if (guard)
+        regtrace_t23_ivdc_bits_lost++;
+    regtrace_t23_ivdc_reinits++;
+    regtrace_t23_ivdc_state = 2;
+    regtrace_t23_ivdc_core_init();
+    if (guard)
+        (void)regtrace_t23_ivdc_ring_check(why);
+    printk(guard ? KERN_ERR "t23: IVDC direct bits lost (0x1c = 0x%x) before %s: re-init, 0x1c = 0x%x\n"
+                 : KERN_NOTICE "t23: IVDC re-init (0x1c = 0x%x) at %s, 0x1c = 0x%x\n",
+           top, why, (uint32_t)system_reg_read(0x1cU));
+}
+
 /* vendor pad event 0x3000002: channel 0 format */
 static void regtrace_t23_ivdc_set_fmt(unsigned int w, unsigned int h)
 {
@@ -17688,6 +17759,9 @@ static int regtrace_t23_ivdc_reqbufs(unsigned int w, unsigned int h)
         return -EINVAL;
     }
     regtrace_t23_ivdc_write_regs(r, n);
+    memcpy(regtrace_t23_ivdc_ring_regs, r, sizeof(r));
+    regtrace_t23_ivdc_ring_n = n;
+    regtrace_t23_ivdc_ring_paddr = paddr;
     printk(KERN_NOTICE "t23: ivdc_paddr = 0x%08x (%u lines, %u bytes%s)\n", paddr,
            line, size, regtrace_t23_ivdc_ring_virt ? ", driver" : "");
     return 0;
@@ -17717,6 +17791,7 @@ static int32_t regtrace_t23_msca_fifo_push(int channel, uint32_t y, uint32_t uv)
     if (regtrace_t23_ivdc_ch(channel)) {
         y = T23_IVDC_Y_ADDR;
         uv = T23_IVDC_UV_ADDR;
+        regtrace_t23_ivdc_reassert("channel 0 FIFO push", true);
     }
     return tisp_msca_addr_fifo_write((char)channel, (int32_t)y, (int32_t)uv);
 }
@@ -17745,6 +17820,8 @@ static int regtrace_t23_ivdc_qbuf(const uint32_t *words)
     regtrace_framechan_qbuf_deferred[0][slot] = false;
     regtrace_framechan_qbuf_last[0] = slot;
     regtrace_framechan_qbuf_count[0]++;
+    /* #800: never hand the IVDC addresses to a non-direct MSCA */
+    regtrace_t23_ivdc_reassert("channel 0 QBUF", true);
     tisp_msca_addr_fifo_write(0, (int32_t)T23_IVDC_Y_ADDR,
                               (int32_t)T23_IVDC_UV_ADDR);
     spin_unlock_irqrestore(&regtrace_framechan_done_lock, flags);
@@ -18832,14 +18909,18 @@ static void regtrace_framechan_stream_off(int channel, const char *reason)
  * it. The owner is checked under the stream lock, so a racing STREAMON of
  * another file of the same channel is not stopped by this close.
  */
-static void regtrace_framechan_stream_off_owned(struct file *file,
+static bool regtrace_framechan_stream_off_owned(struct file *file,
                                                 int channel,
                                                 const char *reason)
 {
+    bool owned;
+
     mutex_lock(&regtrace_framechan_stream_lock);
-    if (regtrace_framechan_stream_owner[channel] == file)
+    owned = regtrace_framechan_stream_owner[channel] == file;
+    if (owned)
         regtrace_framechan_stream_off_locked(channel, reason);
     mutex_unlock(&regtrace_framechan_stream_lock);
+    return owned;
 }
 
 /*
@@ -18946,6 +19027,8 @@ static int regtrace_t23_txisp_stream_locked(int enable, const char *reason)
         ret = regtrace_t23_tisp_prestart(reason);
         if (ret)
             return ret;
+        /* vendor ivdc_core_ops_init(sd, 1) at the enable (#800) */
+        regtrace_t23_ivdc_reassert(reason, false);
         regtrace_t23_msca_release_stale(reason);
         regtrace_t23_source_input_stream(1, reason);
         regtrace_t23_direct_vic_input_stream(1, reason);
@@ -18953,6 +19036,9 @@ static int regtrace_t23_txisp_stream_locked(int enable, const char *reason)
         regtrace_t23_stream_irq_gate(1, reason, -1);
     } else {
         regtrace_t23_scratch_settle(reason);
+        /* vendor ivdc_core_ops_init(sd, 0): state 2 at the disable (#800) */
+        if (regtrace_t23_ivdc_state == 3)
+            regtrace_t23_ivdc_state = 2;
         regtrace_t23_source_input_stream(0, reason);
         regtrace_t23_direct_vic_input_stream(0, reason);
         regtrace_t23_tisp_stream_regs(0, -1, reason);
@@ -19211,9 +19297,13 @@ static int regtrace_framechan_release(struct inode *inode, struct file *file)
      * this file started it. Another open file of the same channel (or of
      * another channel) does not touch the stream.
      */
-    if (file && channel >= 0 && channel < REGTRACE_FRAMECHAN_COUNT)
+    /* vendor frame_channel_release -> streamoff -> IVDC pad event
+     * 0x3000004 (state 2) for channel 0 in direct mode (#800) */
+    if (file && channel >= 0 && channel < REGTRACE_FRAMECHAN_COUNT &&
         regtrace_framechan_stream_off_owned(file, channel,
-                                            "framechan-release");
+                                            "framechan-release") &&
+        regtrace_t23_ivdc_ch(channel))
+        regtrace_t23_ivdc_stream(false);
     if (file)
         file->private_data = NULL;
     printk(KERN_INFO "t23: release /dev/framechan%d pid=%d comm=%s\n",
@@ -19352,6 +19442,12 @@ static long regtrace_framechan_ioctl_body(struct file *file, unsigned int cmd,
             channel, arg, file && (file->f_flags & O_NONBLOCK));
         break;
     case REGTRACE_T23_VIDIOC_STREAMON:
+        /* #800: no channel 0 IVDC stream onto an unprogrammed ring */
+        if (regtrace_t23_ivdc_ch(channel) &&
+            regtrace_t23_ivdc_ring_check("channel 0 STREAMON")) {
+            ret = -EIO;
+            break;
+        }
         ret = regtrace_framechan_stream_on(file, channel);
         if (!ret && regtrace_t23_ivdc_ch(channel))
             regtrace_t23_ivdc_stream(true);
