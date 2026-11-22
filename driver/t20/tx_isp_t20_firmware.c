@@ -13317,6 +13317,9 @@ int32_t apical_isp_process_interrupt(void *ctx, char event)
 {
 	static unsigned int trace_count;
 	char *base = (char *)ctx;
+	struct t20_isp_ctx *isp = ctx;
+#define IRQ_STATUS(f) (*(int32_t *)t20_member_ptr(isp, f.hdr.pending_irq))
+#define IRQ_MASK(f) (((int32_t *)t20_member_ptr(isp, f.hdr.pending_irq))[1])
 	uint32_t bit = (uint32_t)event;
 	int32_t mask = 1 << (bit & 0x1f);
 	int32_t v;
@@ -13338,16 +13341,16 @@ int32_t apical_isp_process_interrupt(void *ctx, char event)
 	}
 
 	/* cmos: status 0x108, pending 0x10c, handler arg 0x100 */
-	v = *(int32_t *)((uintptr_t)base + 0x108) & mask;
+	v = IRQ_STATUS(cmos) & mask;
 	if (!(t20_fsm_irq_allow_mask & (1u << 0)))
 		v = 0;
 	if (v) {
-		*(int32_t *)((uintptr_t)base + 0x108) = (~v | *(int32_t *)((uintptr_t)base + 0x10c)) & *(int32_t *)((uintptr_t)base + 0x108);
+		IRQ_STATUS(cmos) = (~v | IRQ_MASK(cmos)) & IRQ_STATUS(cmos);
 		cmos_fsm_process_interrupt(base + 0x100, (char)bit);
 	}
 
 	/* AE: status 0x310, pending 0x314, handler arg 0x308 */
-	v = *(int32_t *)((uintptr_t)base + 0x310) & mask;
+	v = IRQ_STATUS(ae) & mask;
 	if (!(t20_fsm_irq_allow_mask & (1u << 1)))
 		v = 0;
 	if (v) {
@@ -13358,7 +13361,7 @@ int32_t apical_isp_process_interrupt(void *ctx, char event)
 			       bit, *(uint32_t *)(base + 0x310),
 			       *(uint32_t *)(base + 0x314), base + 0x308,
 			       *(void **)(base + 0x308), *(void **)(base + 4));
-		*(int32_t *)((uintptr_t)base + 0x310) = (~v | *(int32_t *)((uintptr_t)base + 0x314)) & *(int32_t *)((uintptr_t)base + 0x310);
+		IRQ_STATUS(ae) = (~v | IRQ_MASK(ae)) & IRQ_STATUS(ae);
 		AE_fsm_process_interrupt(base + 0x308, (char)bit);
 		if (trace_ae)
 			printk(KERN_INFO "T20AE dispatch after status=%08x\n",
@@ -13366,60 +13369,62 @@ int32_t apical_isp_process_interrupt(void *ctx, char event)
 	}
 
 	/* AWB: status 0x750, pending 0x754, handler arg 0x748 */
-	v = *(int32_t *)((uintptr_t)base + 0x750) & mask;
+	v = IRQ_STATUS(awb) & mask;
 	if (!(t20_fsm_irq_allow_mask & (1u << 2)))
 		v = 0;
 	if (v) {
-		*(int32_t *)((uintptr_t)base + 0x750) = (~v | *(int32_t *)((uintptr_t)base + 0x754)) & *(int32_t *)((uintptr_t)base + 0x750);
+		IRQ_STATUS(awb) = (~v | IRQ_MASK(awb)) & IRQ_STATUS(awb);
 		AWB_fsm_process_interrupt(base + 0x748, (char)bit);
 	}
 
 	/* color_matrix: status 0xef0, pending 0xef4, handler arg 0xee8 */
-	v = *(int32_t *)((uintptr_t)base + 0xef0) & mask;
+	v = IRQ_STATUS(color_matrix) & mask;
 	if (!(t20_fsm_irq_allow_mask & (1u << 3)))
 		v = 0;
 	if (v) {
-		*(int32_t *)((uintptr_t)base + 0xef0) = (~v | *(int32_t *)((uintptr_t)base + 0xef4)) & *(int32_t *)((uintptr_t)base + 0xef0);
+		IRQ_STATUS(color_matrix) = (~v | IRQ_MASK(color_matrix)) & IRQ_STATUS(color_matrix);
 		color_matrix_fsm_process_interrupt();
 	}
 
 	/* iridix: status 0xfdc, pending 0xfe0, handler arg 0xfd4 */
-	v = *(int32_t *)((uintptr_t)base + 0xfdc) & mask;
+	v = IRQ_STATUS(iridix) & mask;
 	if (!(t20_fsm_irq_allow_mask & (1u << 4)))
 		v = 0;
 	if (v) {
-		*(int32_t *)((uintptr_t)base + 0xfdc) = (~v | *(int32_t *)((uintptr_t)base + 0xfe0)) & *(int32_t *)((uintptr_t)base + 0xfdc);
+		IRQ_STATUS(iridix) = (~v | IRQ_MASK(iridix)) & IRQ_STATUS(iridix);
 		iridix_fsm_process_interrupt(base + 0xfd4, (char)bit);
 	}
 
 	/* crop: status 0x14a8, pending 0x14ac, handler arg 0x14a0 */
-	v = *(int32_t *)((uintptr_t)base + 0x14a8) & mask;
+	v = IRQ_STATUS(crop) & mask;
 	if (!(t20_fsm_irq_allow_mask & (1u << 5)))
 		v = 0;
 	if (v) {
-		*(int32_t *)((uintptr_t)base + 0x14a8) = (~v | *(int32_t *)((uintptr_t)base + 0x14ac)) & *(int32_t *)((uintptr_t)base + 0x14a8);
+		IRQ_STATUS(crop) = (~v | IRQ_MASK(crop)) & IRQ_STATUS(crop);
 		crop_fsm_process_interrupt(base + 0x14a0, (char)bit);
 	}
 
 	/* general: status 0x14f0, pending 0x14f4, handler arg 0x14e8 */
-	v = *(int32_t *)((uintptr_t)base + 0x14f0) & mask;
+	v = IRQ_STATUS(general) & mask;
 	if (!(t20_fsm_irq_allow_mask & (1u << 6)))
 		v = 0;
 	if (v) {
-		*(int32_t *)((uintptr_t)base + 0x14f0) = (~v | *(int32_t *)((uintptr_t)base + 0x14f4)) & *(int32_t *)((uintptr_t)base + 0x14f0);
+		IRQ_STATUS(general) = (~v | IRQ_MASK(general)) & IRQ_STATUS(general);
 		general_fsm_process_interrupt(base + 0x14e8, (char)bit);
 	}
 
 	/* dis: status 0x1534, pending 0x1538, handler arg 0x152c */
-	v = *(int32_t *)((uintptr_t)base + 0x1534) & mask;
+	v = IRQ_STATUS(dis) & mask;
 	if (!(t20_fsm_irq_allow_mask & (1u << 7)))
 		v = 0;
 	if (v) {
-		*(int32_t *)((uintptr_t)base + 0x1534) = (~v | *(int32_t *)((uintptr_t)base + 0x1538)) & *(int32_t *)((uintptr_t)base + 0x1534);
+		IRQ_STATUS(dis) = (~v | IRQ_MASK(dis)) & IRQ_STATUS(dis);
 		return dis_fsm_process_interrupt(base + 0x152c, (char)bit);
 	}
 
 	return *(int32_t *)(base + 0x1534);
+#undef IRQ_STATUS
+#undef IRQ_MASK
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000027038 origin=model_output original=apical_isp_process_events */
