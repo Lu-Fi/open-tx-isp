@@ -4,6 +4,7 @@
  *  1. t32_ivdc_set_mode_checked (driver/t32/tx_isp_t32_ivdc_misc.h): 0 / 1 are stored, 2..4 and 0xffffffff
  *     become 0 and are reported, a failed copy (bytes left) keeps the old mode, and the live mode never holds
  *     the raw user word (the fake copy_from_user checks that it does not write into d->mode).
+ *     #783: while a stream runs (live) a different mode returns -EBUSY and is not stored, the same one is OK.
  *  2. t32_ivdc_core_ops_init (tx_isp_t32_ivdc.h) reads d->mode once: a store of 4 during the reset wait
  *     (a racing SET_MODE before #780) does not change the mode word (0x00041100) nor started_mode (1).
  */
@@ -57,11 +58,12 @@ static void expect(const char *what, long got, long want)
 	}
 }
 
-static long set(u32 old, u32 word, u32 left, u32 *bad)
+static long set_live(u32 old, u32 word, u32 left, u32 *bad, int live)
 {
 	d.mode = old; user_word = word; user_left = left;
-	return t32_ivdc_set_mode_checked(&d, &uo, 0x1000, bad);
+	return t32_ivdc_set_mode_checked(&d, &uo, 0x1000, bad, live);
 }
+#define set(o, w, l, b) set_live(o, w, l, b, 0)
 
 int main(void)
 {
@@ -79,6 +81,13 @@ int main(void)
 	r = set(1, 0, 2, &bad);				/* copy fault after 2 bytes */
 	expect("fault ret", r, 2); expect("fault keeps mode", d.mode, 1); expect("fault bad", bad, 0);
 
+	/* #783: a stream runs: a different mode is refused with -EBUSY and not stored, the same mode is fine */
+	r = set_live(1, 0, 0, &bad, 1); expect("live 1->0 ret", r, -16); expect("live 1->0 mode", d.mode, 1);
+	r = set_live(1, 3, 0, &bad, 1); expect("live 1->3 ret", r, -16); expect("live 1->3 mode", d.mode, 1);
+	r = set_live(1, 1, 0, &bad, 1); expect("live 1->1 ret", r, 0); expect("live 1->1 mode", d.mode, 1);
+	r = set_live(0, 4, 0, &bad, 1); expect("live 0->4(0) ret", r, 0); expect("live 0->4 mode", d.mode, 0);
+	r = set_live(0, 1, 0, &bad, 1); expect("live 0->1 ret", r, -16); expect("live 0->1 mode", d.mode, 0);
+
 	memset(&d, 0, sizeof(d));
 	d.mode = 1; d.started_mode = 1; d.os = &os;
 	memset(img, 0, 0x800);
@@ -95,6 +104,6 @@ int main(void)
 
 	if (fails)
 		return 1;
-	printf("t33_ivdc_mode_host: PASS (SET_MODE validated before publish, copy fault keeps the mode, start reads the mode once)\n");
+	printf("t33_ivdc_mode_host: PASS (SET_MODE validated before publish, -EBUSY for a mode change while streaming, copy fault keeps the mode, start reads the mode once)\n");
 	return 0;
 }

@@ -48,9 +48,14 @@ struct t32_ivdc_uos {
  * word.  Here the word goes into a local, a value above 1 (several sensors, not supported) becomes 0, and
  * only then one aligned store updates d->mode.  A failed copy leaves d->mode unchanged.  *bad gets the
  * rejected value (0 if none).
+ * #783 (beyond vendor, user decision 2026-11-22): while a stream runs (live: from the IVDC start in the
+ * ISP stream-on until the stream-off) the mode is fixed: a different (validated) mode returns -EBUSY
+ * (-16) and is not stored; the same mode is accepted.  A mode flip during a direct-mode start reset the
+ * T33L by the watchdog (the IVDC, the frame channel and the ISP top read the mode at different times).
  */
+#define T32_IVDC_EBUSY	16
 static inline long t32_ivdc_set_mode_checked(struct t32_ivdc *iv, const struct t32_ivdc_uos *uo, u32 arg,
-					     u32 *bad)
+					     u32 *bad, int live)
 {
 	u32 v = 0, r;
 
@@ -64,6 +69,8 @@ static inline long t32_ivdc_set_mode_checked(struct t32_ivdc *iv, const struct t
 		*bad = v;
 		v = 0;
 	}
+	if (live && v != iv->mode)
+		return -T32_IVDC_EBUSY;
 	*(volatile u32 *)&iv->mode = v;
 	return 0;
 }

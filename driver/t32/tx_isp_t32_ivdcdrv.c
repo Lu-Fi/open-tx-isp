@@ -120,6 +120,8 @@ MODULE_PARM_DESC(ivdc_threshold_line, "ivdc threshold line");
 module_param_named(ivdc_test_reset_timeouts, iv.force_timeouts, uint, 0644);
 MODULE_PARM_DESC(ivdc_test_reset_timeouts, "test: the next N IVDC reset waits time out (2: the stream on fails with -110)");
 static u32 ivdc_start_errors;		/* not vendor (#756): stream-ons failed with -110 */
+static int ivdc_live;			/* not vendor (#783): a stream runs, the mode is fixed */
+static u32 ivdc_setmode_busy;		/* not vendor (#783): SET_MODE refused with -EBUSY */
 
 static int ivdc_irq = 8 + T32_IRQ_IVDC;
 module_param(ivdc_irq, int, 0444);
@@ -253,9 +255,15 @@ long t32_ivdc_misc_ioctl(unsigned int cmd, unsigned long arg)
 		u32 bad;
 
 		/* #780: validate, then publish (the stream-on reads the mode under ivdc_mutex) */
-		r = t32_ivdc_set_mode_checked(&iv, &ivdc_uos, (u32)arg, &bad);
-		if (bad && printk_ratelimit())	/* a SET_MODE loop must not flood the log */
+		r = t32_ivdc_set_mode_checked(&iv, &ivdc_uos, (u32)arg, &bad, ivdc_live);
+		if (r == -T32_IVDC_EBUSY) {	/* #783: a different mode while a stream runs */
+			ivdc_setmode_busy++;
+			if (printk_ratelimit())
+				isp_printf(2, "tx-isp-t32: direct_mode change while streaming refused (-EBUSY, %u)\n",
+					   ivdc_setmode_busy);
+		} else if (bad && printk_ratelimit()) {	/* a SET_MODE loop must not flood the log */
 			isp_printf(2, "tx-isp-t32: direct_mode %u (several sensors) not supported, 0\n", bad);
+		}
 	} else {
 		r = t32_ivdc_misc_unlocked_ioctl(&iv, &ivm, &ivdc_uos, cmd, (u32)arg);
 	}
@@ -282,6 +290,9 @@ int t32_ivdc_stream(int on)
 	mutex_lock(&ivdc_mutex);
 	IVT("stream %d core_ops_init mode %u started %u", on, iv.mode, iv.started_mode);
 	r = t32_ivdc_core_ops_init(&iv, ivdc_sd, &o);
+	ivdc_live = on;	/* #783: the mode stays fixed until the stream-off (also cleared when the start fails) */
+	if (r == -T32_IVDC_ETIMEDOUT && on)
+		ivdc_live = 0;
 	mutex_unlock(&ivdc_mutex);
 	if (r == -T32_IVDC_ETIMEDOUT && on) {
 		/*
@@ -338,7 +349,8 @@ void t32_ivdc_show(struct seq_file *m)
 {
 	seq_printf(m, "ivdc: direct_mode %u mem_line %u stride %u paddr %#x streams %u frames %u misses %u\n",
 		   iv.mode, ivm.line, ivm.stride, ivm.paddr, ivdc_streams, ivdc_frames, ivdc_misses);
-	seq_printf(m, "ivdc: reset timeouts %u start errors %u\n", iv.timeouts, ivdc_start_errors);
+	seq_printf(m, "ivdc: reset timeouts %u start errors %u setmode busy %u live %d\n", iv.timeouts,
+		   ivdc_start_errors, ivdc_setmode_busy, ivdc_live);
 }
 
 int t32_ivdc_init(void)
