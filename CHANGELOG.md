@@ -4,6 +4,10 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD[-rcN]` are set on the `aperto` branch, the same tag in open-tx-isp and OpenIMP: RC1 `v2026.10.11-rc1`, RC2 `v2026.10.25-rc2`, RC3 `v2026.11.07-rc3` (2026-11-07). Gate SoCs of RC3 and Release 1: T10, T20, T21, T23, T30, T31, T40, T41 (T32/T33 planned, QEMU only); release notes: [docs/releases/ in OpenIMP](https://github.com/Lu-Fi/openimp/blob/next/docs/releases/README.md). Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-11-22: T23 /dev/misc-ivdc answers as the vendor module (openimp #767, step 1 of the IVDC direct mode; QEMU/host only)
+- `regtrace_misc_ivdc_ioctl` (driver/t23) was a stub that returned 0 for every command. It now runs `t23_ivdc_misc_ioctl()` (driver/t23/tx_isp_t23_ivdc_misc.h), written from the vendor flow of tx-isp-t23.ko (ISVP T23 1.3.0) `ivdc_misc_unlocked_ioctl` @0x1b660: GET_DIRECT 0xc004543f, SET_DIRECT 0xc0045440, SET_PADDR 0xc0045441 (ring in rmem), GET_MEM_LINE 0xc0045442, 0x2000543d / 0x2000543e = IVDC register 0x24 = 0x388 / 0x3288, other commands -1.
+- Host test `tests/t23_ivmisc_host.c` (in `make -C tests check`). Not yet: the direct-mode frame path (IVDC geometry/ring/enable on frame channel 0, MSCA ch0 to the IVDC addresses).
+
 ## 2026-11-21: T10 analog gain one jxh42 step under the noisecurve pin: compact AE only, gone with the default vendor AE graph (openimp #713)
 
 - Cause: the gain path is vendor-equal (tx-isp-t10.ko `cmos_analog_gain_update` 0x1e998 target = cmos+472, 0x1e9a4 `addiu s1,s2,-4096` 1/16-stop reserve, 0x1e9a8/0x1e9ac floor at 0; `cmos_alloc_sensor_analog_gain` 0x1d8e8..0x1d8f8 cap at item 29 << 11; then the sensor table floor). The noisecurve pin (IT = E / G, ceiling G) gives exactly G only when the AE target is >= 1/16 stop above G; the compact AE (`t20_simple_ae=1`, the default until #609) sat below that (3.75x / 15x read-back, also one step under at "max": 15.0x vs 15.5x).

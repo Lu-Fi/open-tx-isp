@@ -16,6 +16,7 @@
 #include "tx_isp_t23_subdev.h"
 #include "tx_isp_t23_crumbs.h"
 #include "tx_isp_t23_scratch.h"
+#include "tx_isp_t23_ivdc_misc.h"
 #include "tx_isp_t23_bypass.h"
 #include "tx_isp_t23_core_ioctl.h"
 #include "tx_isp_t23_msca_geom.h"
@@ -16861,13 +16862,57 @@ static int regtrace_misc_ivdc_release(struct inode *inode, struct file *file)
     return 0;
 }
 
+static unsigned long regtrace_ivdc_from_user(void *dst, unsigned long user,
+                                             unsigned long n)
+{
+    return copy_from_user(dst, (const void __user *)user, n);
+}
+
+static unsigned long regtrace_ivdc_to_user(unsigned long user, const void *src,
+                                           unsigned long n)
+{
+    return copy_to_user((void __user *)user, src, n);
+}
+
+/* IVDC register write of the misc ioctl (0x24 reader mode word) */
+static void regtrace_ivdc_misc_reg_write(unsigned int off, unsigned int val)
+{
+    void __iomem *base = NULL;
+
+    if (regtrace_t23_ivdc_sd)
+        base = (void __iomem *)(uintptr_t)*(uint32_t *)(regtrace_t23_ivdc_sd + 184);
+    if (base)
+        writel(val, base + off);
+}
+
+static void regtrace_ivdc_misc_print(const char *msg)
+{
+    printk(KERN_ERR "t23: misc-ivdc: %s", msg);
+}
+
+/* /dev/misc-ivdc as the vendor's ivdc_misc_unlocked_ioctl (tx_isp_t23_ivdc_misc.h,
+ * openimp #767): direct_mode / ivdc_mem_line / ivdc_mem_paddr and the reader mode word */
 static long regtrace_misc_ivdc_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 {
+    static const struct t23_ivdc_misc_ops ops = {
+        .from_user = regtrace_ivdc_from_user,
+        .to_user = regtrace_ivdc_to_user,
+        .reg_write = regtrace_ivdc_misc_reg_write,
+        .print = regtrace_ivdc_misc_print,
+    };
+    const struct t23_ivdc_misc_state st = {
+        .direct_mode = &direct_mode,
+        .mem_line = &ivdc_mem_line,
+        .mem_paddr = (unsigned int *)&ivdc_mem_paddr,
+    };
+    long ret;
+
     if (file && !file->private_data)
         file->private_data = regtrace_misc_ivdc_private;
-    printk(KERN_INFO "t23: misc-ivdc ioctl cmd=0x%x arg=0x%lx ret=0 pid=%d comm=%s\n",
-           cmd, arg, current->pid, current->comm);
-    return 0;
+    ret = t23_ivdc_misc_ioctl(&st, &ops, cmd, arg);
+    printk(KERN_INFO "t23: misc-ivdc ioctl cmd=0x%x arg=0x%lx ret=%ld pid=%d comm=%s\n",
+           cmd, arg, ret, current->pid, current->comm);
+    return ret;
 }
 
 static const struct file_operations regtrace_misc_ivdc_fops = {
