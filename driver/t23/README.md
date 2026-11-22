@@ -238,6 +238,29 @@ Inferred (consistent with the evidence, not isolated on the device):
   only marks the change pending and `ispcore_irq_thread_handle()` applies
   it from the frame interrupt, i.e. stock itself moves that flip to a frame
   boundary.
+- Flip and the direct mode (openimp #787, 2026-11-22, Tapo C500 T23N
+  sc2336p): the MSCA vflip writes the channel 0 lines bottom-up, which the
+  IVDC line ring (`direct_mode=1`) cannot follow: the picture is the scene
+  in horizontal bands.  The vendor 1.3.0 has no flip handling in its IVDC
+  code (libimp, `ivdc_*` in tx-isp-t23.ko); its HV_FLIP control
+  (0x80000e4, `apical_isp_core_ops_s_ctrl` @0x16724 (Ghidra, base 0x10000)) sends the vertical
+  flip to the sensor when `video.shvflip == 1` (TX_ISP_EVENT_SENSOR_VFLIP
+  with mode & 0xfe) and keeps only the mirror on the MSCA.  The driver does
+  the same split for HV_FLIP and, in the direct mode only, also for the
+  HFLIP/VFLIP controls that timps uses on T23 (beyond vendor: vendor keeps
+  those on the MSCA).  `sensor_mount_flip` (0444, default 0) is XORed in
+  for sensor drivers that flip by themselves at init: the thingino
+  sc2336/sc2336p drivers apply H+V with `shvflip=1` and write the flip
+  event absolutely, so boards with them need `sensor_mount_flip=3` to keep
+  the orientation of the MSCA path (device check: all four hflip/vflip
+  combinations give the same picture with direct_mode 0 and 1).
+- Lost flip update (#787): a 0xd010 update request written while the
+  previous one is still pending is dropped, although 0xd050 reads back the
+  new word.  timps sends SetISPHflip and SetISPVflip right after the
+  channel 0 enable, so hflip=1 vflip=1 gave a mirrored-only picture with
+  0xd050 = 0x3f3f0007; one more 0xd010 = 1 applied the flip.  The flip
+  write now waits (process context, at most 200 ms) until 0xd010 bit 0 is
+  clear.
 
 Stock is safe only as long as an output's buffers live as long as the
 output; with openimp's free-on-DisableChn and the per-wake input restart

@@ -824,26 +824,45 @@ extern struct module __this_module;
 #endif
 #endif
 
-static int ivdc_threshold_line;
-module_param(ivdc_threshold_line, int, 0);
+/*
+ * openimp #770: the module parameters have their own storage (t23_param_*,
+ * exported under the vendor names), read once in init_module.  The names
+ * ivdc_threshold_line / ivdc_mem_line / direct_mode / isp_memopt below are
+ * the lifted code's own words: the lifter resolved .bss-relative vendor
+ * references (lui %hi(.bss+X) / addiu %lo) in tiziano_ccm_init,
+ * tiziano_csccr_init, tisp_msca_init, ivdc_pad_event_handle, tisp_ae0_*,
+ * tisp_lsc_mirror_flip, tiziano_gib_deir_* and others to these symbols and
+ * writes through them (e.g. tiziano_ccm_init: direct_mode = 40,
+ * *(&direct_mode + 4) = 0xffff; tisp_ae0_get_hist: 1 KiB memcpy over
+ * &ivdc_threshold_line).  Before #770 those writes landed in the module
+ * parameters; now no lifted code can reach them.  The parameters are 0444
+ * so a device check can read the load values back (vendor: 0).
+ */
+static int t23_param_ivdc_threshold_line;
+module_param_named(ivdc_threshold_line, t23_param_ivdc_threshold_line, int, 0444);
 MODULE_PARM_DESC(ivdc_threshold_line, "ivdc threshold line");
 
-static int ivdc_mem_line;
-module_param(ivdc_mem_line, int, 0);
+static int t23_param_ivdc_mem_line;
+module_param_named(ivdc_mem_line, t23_param_ivdc_mem_line, int, 0444);
 MODULE_PARM_DESC(ivdc_mem_line, "ivdc mem line");
 
-static int direct_mode;
-module_param(direct_mode, int, 0);
+static int t23_param_direct_mode;
+module_param_named(direct_mode, t23_param_direct_mode, int, 0444);
 MODULE_PARM_DESC(direct_mode, "isp direct mode");
 
+static int t23_param_isp_memopt;
+module_param_named(isp_memopt, t23_param_isp_memopt, int, 0444);
+MODULE_PARM_DESC(isp_memopt, "isp memory optimize");
+
+/* lifted-code words (see above); not module parameters */
+static int ivdc_threshold_line;
+static int ivdc_mem_line;
+static int direct_mode;
 static int isp_memopt;
+
 /*
- * The direct-mode parameters as loaded (openimp #767).  Several lifted
- * functions (tisp_lsc_*, tisp_ae0_process_impl, tiziano_ccm_init, ...)
- * write through pointers the lifter resolved to &direct_mode and its
- * neighbours, so the module words above do not keep their load values;
- * the driver works on these copies, taken first thing in init_module
- * (single owner; the module words are only read there, openimp #770).
+ * The direct-mode parameters as loaded (openimp #767/#770), copied from
+ * t23_param_* first thing in init_module; the driver works on these.
  */
 static int t23_ivdc_direct_mode;
 static int t23_ivdc_mem_line;
@@ -851,8 +870,6 @@ static int t23_ivdc_threshold_line;
 static unsigned int t23_ivdc_mem_paddr;
 static int t23_isp_memopt;
 static struct device *t23_ivdc_dev;     /* the probed IVDC device (ring allocation) */
-module_param(isp_memopt, int, 0);
-MODULE_PARM_DESC(isp_memopt, "isp memory optimize");
 
 static int isp_day_night_switch_drop_frame_num;
 module_param(isp_day_night_switch_drop_frame_num, int, 0);
@@ -103954,12 +103971,12 @@ int32_t __init init_module(void)
 {
     int ret;
 
-    /* module parameters as loaded: lifted code overwrites the words (#770) */
-    t23_ivdc_direct_mode = direct_mode;
-    t23_ivdc_mem_line = ivdc_mem_line;
-    t23_ivdc_threshold_line = ivdc_threshold_line;
+    /* module parameters as loaded (own storage, #770) */
+    t23_ivdc_direct_mode = t23_param_direct_mode;
+    t23_ivdc_mem_line = t23_param_ivdc_mem_line;
+    t23_ivdc_threshold_line = t23_param_ivdc_threshold_line;
     t23_ivdc_mem_paddr = 0;
-    t23_isp_memopt = isp_memopt;
+    t23_isp_memopt = t23_param_isp_memopt;
     /* no MSCA scratch area in the direct mode (vendor has none, #767) */
     regtrace_t23_msca_scratch = t23_scratch_enabled(regtrace_t23_msca_scratch,
                                                     t23_ivdc_direct_mode);
@@ -104397,6 +104414,33 @@ static void regtrace_t23_defog_strength_apply(void)
     }
 }
 
+/*
+ * MSCA update request 0xd010 (bit 0 stays set until the request is taken at
+ * a frame start).  The MSCA takes the register words as they are when the
+ * request is written: a second request while one is still pending is lost
+ * although 0xd050 reads back the new word (#787, Tapo C500 dm0: timps
+ * SetISPHflip(1) + SetISPVflip(1) right after the channel 0 enable left the
+ * picture mirrored only, d050 = 0x3f3f0007; one more 0xd010 = 1 applied the
+ * flip).  Wait for the pending request to be taken, at most ~3 frames; in
+ * process context only (tuning ioctl).  The OEM writes immediately; its
+ * HV_FLIP path defers the write to the IRQ thread instead.
+ */
+static void regtrace_t23_msca_update_wait(void)
+{
+    unsigned long end = jiffies + msecs_to_jiffies(200);
+
+    if (!regtrace_t23_core_started || in_atomic() || irqs_disabled())
+        return;
+    while (system_reg_read(0xd010U) & 1U) {
+        if (time_after(jiffies, end)) {
+            printk(KERN_WARNING
+                   "t23: MSCA update request still pending after 200 ms\n");
+            return;
+        }
+        msleep(5);
+    }
+}
+
 /* ISP mirror/flip on the MSCA outputs (OEM tisp_hv_flip_enable ->
  * tisp_msca_api_set_mirr_flip, all three channels alike). */
 static uint32_t regtrace_t23_isp_flip_mode;     /* bit 0 mirror, bit 1 flip */
@@ -104422,6 +104466,7 @@ static void regtrace_t23_isp_flip_apply(uint32_t mode)
         t23_crumb(T23C_FLIP_SKIP, mode & 3U);
         return;
     }
+    regtrace_t23_msca_update_wait();
     t23_crumb_set(T23_CRUMB_W_D050, value);
     t23_crumb(T23C_FLIP_WRITE, mode & 3U);
     system_reg_write(0xd050U, value);
@@ -104456,13 +104501,89 @@ static uint32_t regtrace_t23_sensor_flip_get(void)
 }
 
 /*
+ * struct tx_isp_video_in.shvflip of the bound sensor (vendor T23 1.3.0
+ * tx-isp-common.h:722, after attr/vi_max_width/vi_max_height/fps/grp_id;
+ * thingino sensor_sc2336p_t23.ko stores it with "sw v0,644(s0)").
+ */
+#define REGTRACE_T23_SENSOR_VIDEO_SHVFLIP_OFFSET \
+    (REGTRACE_T23_SENSOR_VIDEO_ATTR_OFFSET + 0x14U)
+
+static bool regtrace_t23_sensor_shvflip(void)
+{
+    uintptr_t sd = (uintptr_t)regtrace_t23_sensor_sd;
+
+    if (!regtrace_t23_valid_ptr(sd))
+        return false;
+    return *(uint32_t *)(sd + REGTRACE_T23_SENSOR_VIDEO_SHVFLIP_OFFSET) == 1U;
+}
+
+static uint32_t regtrace_t23_hvflip_request;    /* last HV_FLIP mode, 0..3 */
+
+/*
+ * Flip a sensor driver applies by itself at stream on (bit 0 mirror, bit 1
+ * flip).  0 = vendor sensor semantics (shvflip only routes the ISP flip to
+ * the sensor).  The thingino sc2336/sc2336p drivers apply H+V at init when
+ * loaded with shvflip=1 (board mount compensation) and write the event value
+ * absolutely; sensor_mount_flip=3 keeps that compensation under the vendor
+ * routing (the sensor gets the mount flip with V toggled by HV_FLIP), so the
+ * picture orientation stays what the MSCA-only path gave (openimp #787).
+ */
+static uint sensor_mount_flip;
+module_param(sensor_mount_flip, uint, 0444);
+MODULE_PARM_DESC(sensor_mount_flip,
+                 "flip the sensor driver applies itself with shvflip=1 (bit 0 H, bit 1 V); 3 for thingino sc2336/sc2336p");
+
+/*
+ * IMAGE_TUNING_CID_HV_FLIP (0x80000e4), OEM apical_isp_core_ops_s_ctrl
+ * (vendor 1.3.0 tx-isp-t23.ko, Ghidra @0x16724 base 0x10000, case 0x80000e4,
+ * decompile audit/t23dl-alfonso/v/ko_all.c
+ * lines 4433-4476):
+ * - video.shvflip != 1: MSCA mirror and flip (tisp_s_mscaler_hvflip_mask +
+ *   tisp_hv_flip_enable with the whole mode).
+ * - video.shvflip == 1: the vertical flip goes to the sensor as
+ *   TX_ISP_EVENT_SENSOR_VFLIP with mode & 0xfe (core+0x1b0, sent by
+ *   ispcore_irq_thread_handle, ko_all.c:52168-52182) and the MSCA keeps only
+ *   the mirror (mode & 1, core+0x174).
+ * The MSCA vflip writes the output lines bottom-up, which the IVDC line ring
+ * of direct_mode=1 cannot follow (#787: ch0 garbled); with the vendor split
+ * the IVDC path only ever sees the line-internal mirror.
+ * Deviations: the event is sent here in process context instead of from the
+ * IRQ thread (no one-frame drop on the three channels); the LSC mesh follows
+ * the sensor orientation (V) through regtrace_t23_sensor_flip_set, the OEM
+ * also mirrors it for the MSCA mirror (tisp_lsc_hvflip(w, h, flip, mirror)).
+ * A sensor that refuses the event leaves both axes to the MSCA.
+ * sensor_mount_flip (default 0 = vendor) is XORed in for sensor drivers that
+ * flip by themselves at init (beyond vendor, see the parameter).
+ */
+static void regtrace_t23_hvflip_update(uint32_t mode)
+{
+    uint32_t msca = mode & 3U;
+
+    regtrace_t23_hvflip_request = mode & 3U;
+    if (regtrace_t23_sensor_shvflip()) {
+        uint32_t mount = sensor_mount_flip & 3U;
+        uint32_t sensor = ((mount ^ mode) & 2U) | (mount & 1U);
+        int ret = regtrace_t23_sensor_flip_set(sensor);
+
+        if (ret)
+            printk(KERN_WARNING
+                   "t23: hvflip: sensor flip 0x%x failed: %d, flipping in the ISP\n",
+                   sensor, ret);
+        else
+            msca = mode & 1U;
+    }
+    regtrace_t23_isp_flip_apply(msca);
+}
+
+/*
  * Read-only module parameter msca_flip_state: who flips each axis.  Bits:
  * 0 sensor_h, 1 sensor_v (the sensor accepted the flip event, e.g. sc2336p
- * reg 0x3221), 2 isp_h, 3 isp_v (MSCA mirror/flip word 0xd050 asked for by
- * HVFLIP).  With image hflip/vflip both stages flip on T23; a streamer that
- * mirrors a crop window must account for both.  shvflip=1 (LSC mesh only)
- * sets no bit.  Values are the last accepted requests (cached, no register
- * read, so reading the parameter never touches the hardware).
+ * reg 0x3221), 2 isp_h, 3 isp_v (MSCA mirror/flip word 0xd050).  HV_FLIP
+ * with video.shvflip == 1 sets sensor_v and isp_h (vendor split, see
+ * regtrace_t23_hvflip_update); without it isp_h/isp_v.  A streamer that
+ * mirrors a crop window must account for both stages.  Values are the last
+ * accepted requests (cached, no register read, so reading the parameter
+ * never touches the hardware).
  */
 static int regtrace_t23_msca_flip_state_get(char *buffer,
                                             const struct kernel_param *kp)
@@ -104797,22 +104918,36 @@ static long regtrace_t23_tuning_cid(bool get, uint32_t id, uint32_t *value)
     case REGTRACE_TISP_CTRL_VFLIP: {
         uint32_t bit = id == REGTRACE_TISP_CTRL_HFLIP ? 1U : 2U;
 
+        uint32_t mode;
+
         if (get) {
-            *value = (regtrace_t23_isp_flip_mode & bit) ? 1U : 0U;
+            *value = (regtrace_t23_hvflip_request & bit) ? 1U : 0U;
             return 0;
         }
-        regtrace_t23_isp_flip_apply(v ? (regtrace_t23_isp_flip_mode | bit) :
-                                        (regtrace_t23_isp_flip_mode & ~bit));
+        mode = v ? (regtrace_t23_hvflip_request | bit) :
+                   (regtrace_t23_hvflip_request & ~bit);
+        /*
+         * OEM (ko_all.c:4056-4070): ISP H/V flip always on the MSCA.  In
+         * direct mode the MSCA vflip cannot feed the IVDC line ring (#787),
+         * so there the HV_FLIP split (V to a shvflip sensor) is used:
+         * beyond vendor, the vendor stack has no IVDC flip handling at all.
+         */
+        if (t23_ivdc_direct_mode) {
+            regtrace_t23_hvflip_update(mode);
+        } else {
+            regtrace_t23_hvflip_request = mode & 3U;
+            regtrace_t23_isp_flip_apply(mode);
+        }
         return 0;
     }
     case REGTRACE_TISP_CTRL_HV_FLIP:
         if (get) {
-            *value = regtrace_t23_isp_flip_mode;
+            *value = regtrace_t23_hvflip_request;
             return 0;
         }
         if (v > 3U)
             return -EINVAL;
-        regtrace_t23_isp_flip_apply(v);
+        regtrace_t23_hvflip_update(v);
         return 0;
     case REGTRACE_TISP_CTRL_SENSOR_HFLIP:
     case REGTRACE_TISP_CTRL_SENSOR_VFLIP: {
