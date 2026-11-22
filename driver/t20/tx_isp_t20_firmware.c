@@ -8694,7 +8694,7 @@ uint32_t cmos_convert_integration_time_ms2lines(uint32_t *cmos_words, uint32_t m
 int32_t cmos_update_exposure_partitioning_lut(int32_t *cmos_words)
 {
 	int32_t *sensor = (int32_t *)cmos_words[0];
-	int32_t priority = cmos_words[0x12];
+	int32_t priority = ((struct t20_fsm_cmos *)cmos_words)->partition_mode;
 	int32_t *partition;
 	int32_t total_log2;
 	int32_t *lut_slot;
@@ -8710,7 +8710,7 @@ int32_t cmos_update_exposure_partitioning_lut(int32_t *cmos_words)
 	else
 		partition = (int32_t *)&exposure_partitions_balanced;
 
-	total_log2 = sensor[0x64/4] + sensor[0x68/4] + cmos_words[0x1e4/4];
+	total_log2 = sensor[0x64/4] + sensor[0x68/4] + ((struct t20_fsm_cmos *)cmos_words)->field_1e4;
 
 	/* OEM 0x1e1fc: one accumulator per partition type (0 integration
 	 * time, 1 gain) in two stack words sp+16/sp+20, zeroed per call; the
@@ -9854,39 +9854,39 @@ uint32_t cmos_long_exposure_update(uint32_t *cmos_words)
 	 * dev+0x56; the recovery passed arg1 + 0x71 *bytes*, so the sensor
 	 * clamped a random halfword instead of the exposure.  The long
 	 * integration time at 0x1c8 is a u16. */
-	uint8_t *ctx = (uint8_t *)cmos_words;
-	uint8_t *dev = *(uint8_t **)cmos_words;
-	uint8_t mode = dev[0x1524];
-	void (*alloc_it)(void *, void *) = *(void (**)(void *, void *))(dev + 0xa4);
+	struct t20_fsm_cmos *ctx = (struct t20_fsm_cmos *)cmos_words;
+	struct t20_isp_ctx *dev = ctx->hdr.isp;
+	uint8_t mode = dev->general.wdr_mode;
+	void (*alloc_it)(uint16_t *, struct t20_sensor_context *) = dev->sensor.ctrl.alloc_integration_time;
 	uint32_t val, max_int, quantised;
 	uint16_t it;
 
 	if (mode != 1 && mode != 3) {
-		*(uint16_t *)(ctx + 0x1ca) = 0x40;
-		alloc_it(ctx + 0x1c4, dev + 0x56);
+		ctx->exposure_ratio = 0x40;
+		alloc_it(&ctx->integration_time, &dev->sensor.ctrl.param.sensor_ctx);
 		return 0;
 	}
 
-	val = cmos_words[0x6f];
+	val = ctx->ratio_request;
 	if (val < 0x40)
 		val = 0x40;
-	max_int = *(uint32_t *)(dev + 0x74);
-	quantised = (val * *(uint16_t *)(ctx + 0x1c4)) >> 6;
+	max_int = dev->sensor.ctrl.param.integration_time_long_max;
+	quantised = (val * ctx->integration_time) >> 6;
 	if (quantised >= 0x10000)
 		quantised = 0xffff;
 
 	quantised = get_quantised_long_integration_time(cmos_words, quantised, max_int);
 	if (!(max_int < quantised))
 		max_int = quantised;
-	dev = *(uint8_t **)cmos_words;
-	*(uint16_t *)(ctx + 0x1c8) = (uint16_t)max_int;
-	(*(void (**)(void *, void *))(dev + 0xa4))(ctx + 0x1c4, dev + 0x56);
+	dev = ctx->hdr.isp;
+	ctx->field_1c8 = (uint16_t)max_int;
+	dev->sensor.ctrl.alloc_integration_time(&ctx->integration_time, &dev->sensor.ctrl.param.sensor_ctx);
 
-	it = *(uint16_t *)(ctx + 0x1c4);
+	it = ctx->integration_time;
 	if (it == 0)
 		BUG();
 
-	*(uint16_t *)(ctx + 0x1ca) = ((uint32_t)*(uint16_t *)(ctx + 0x1c8) << 6) / it;
+	ctx->exposure_ratio = ((uint32_t)ctx->field_1c8 << 6) / it;
 	return it;
 }
 
@@ -11452,8 +11452,8 @@ int32_t apical_switch_wdr_mode(uint32_t wdr_mode)
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000023794 origin=model_output original=general_set_wdr_mode */
 int32_t general_set_wdr_mode(int32_t *fsm)
 {
-	int32_t *base = (int32_t *)(*(int32_t *)fsm);
-	uint8_t mode = *(uint8_t *)((char *)fsm + 0x3c);
+	struct t20_isp_ctx *base = *(struct t20_isp_ctx **)fsm;
+	uint8_t mode = ((struct t20_fsm_general *)fsm)->wdr_mode;
 	int32_t *entry;
 	int32_t entry2;
 	uint32_t rows;
@@ -11461,12 +11461,12 @@ int32_t general_set_wdr_mode(int32_t *fsm)
 	int32_t isp_ctx_val;
 
 	printk(KERN_INFO "T20FW general_wdr enter fsm=%p isp=%p mode=%u\n",
-	       fsm, base, mode);
+	       fsm, (void *)base, mode);
 	apical_switch_wdr_mode(mode);
 	printk(KERN_INFO "T20FW general_wdr switch done\n");
 
 	if (mode == 1) {
-		stab.global_max_integration_time = *(uint16_t *)((char *)base + 0x70);
+		stab.global_max_integration_time = *(uint16_t *)t20_member_ptr(base, sensor.ctrl.param.integration_time_max);
 		entry = _GET_MOD_ENTRY16_PTR(0x2f);
 		val = *(uint8_t *)((char *)entry + 2);
 		stab.global_minimum_sinter_strength = val;
@@ -11478,7 +11478,7 @@ int32_t general_set_wdr_mode(int32_t *fsm)
 		printk(KERN_INFO "T20FW general_wdr sequence 0 done\n");
 		isp_ctx_val = *fsm;
 	} else if (mode == 0) {
-		stab.global_max_integration_time = *(uint16_t *)((char *)base + 0x78);
+		stab.global_max_integration_time = *(uint16_t *)t20_member_ptr(base, sensor.ctrl.param.integration_time_limit);
 		entry = _GET_MOD_ENTRY16_PTR(0x2e);
 		val = *(uint8_t *)((char *)entry + 2);
 		stab.global_minimum_sinter_strength = val;
@@ -11490,7 +11490,7 @@ int32_t general_set_wdr_mode(int32_t *fsm)
 		printk(KERN_INFO "T20FW general_wdr sequence 1 done\n");
 		isp_ctx_val = *fsm;
 	} else if (mode == 2) {
-		stab.global_max_integration_time = *(uint16_t *)((char *)base + 0x70);
+		stab.global_max_integration_time = *(uint16_t *)t20_member_ptr(base, sensor.ctrl.param.integration_time_max);
 		rows = _GET_ROWS(0x30);
 		entry = _GET_MOD_ENTRY16_PTR(0x30);
 		val = *(uint8_t *)((char *)entry + 2);
@@ -18872,8 +18872,8 @@ int32_t sinter_strength_calculate(struct tx_isp_t20_nr_state *state)
 /* WHOLE_DRIVER_CANDIDATE fn_000000000002ed34 origin=model_output original=temper_strength_calculate */
 static uint32_t temper_strength_calculate_recovered(int32_t *fsm)
 {
-    void *owner = *(void **)fsm;
-    uint32_t log_val = log16(*(uint16_t *)((char *)owner + 0x2ca));
+    struct t20_isp_ctx *owner = *(void **)fsm;
+    uint32_t log_val = log16(owner->cmos.exposure_ratio);
     uint32_t *log_offset = log_val - 0x60;
     uint32_t log_offset16 = (int16_t)log_offset;
     uint32_t threshold;
@@ -18881,10 +18881,10 @@ static uint32_t temper_strength_calculate_recovered(int32_t *fsm)
     if (stab.global_manual_temper) {
         threshold = stab.global_temper_threshold_target;
     } else {
-        void *owner2 = *(void **)fsm;
-        uint32_t sum = (*(int32_t *)((char *)owner2 + 0x2cc) +
-                        *(int32_t *)((char *)owner2 + 0x2d0) +
-                        *(int32_t *)((char *)owner2 + 0x2d4));
+        struct t20_isp_ctx *owner2 = *(void **)fsm;
+        uint32_t sum = (owner2->cmos.sensor_again_log2 +
+                        owner2->cmos.sensor_dgain_log2 +
+                        owner2->cmos.isp_dgain_log2);
         uint32_t shifted = (uint16_t)(sum >> 8);
         uint32_t mod_entry = _GET_MOD_ENTRY16_PTR(0xcd);
         uint32_t rows = _GET_ROWS(0xcd);
@@ -18906,13 +18906,13 @@ static uint32_t temper_strength_calculate_recovered(int32_t *fsm)
     if ((uint32_t)log_offset16 < threshold)
         delta = (int16_t)threshold - (int16_t)log_offset;
 
-    uint32_t gain = *(uint16_t *)((char *)owner + 0x2ca);
+    uint32_t gain = owner->cmos.exposure_ratio;
     *(uint16_t *)((char *)fsm + 0x12) = (uint16_t)threshold;
     uint32_t scale = *(uint8_t *)((char *)fsm + 0x1a);
     *(uint16_t *)((char *)fsm + 0x10) = (uint16_t)delta;
     *(uint8_t *)((char *)fsm + 0x19) = (uint8_t)(((int32_t)scale * (int32_t)gain) >> 6);
 
-    uint32_t result = *(uint16_t *)((char *)owner + 0x2ca);
+    uint32_t result = owner->cmos.exposure_ratio;
     if (result != 0) {
         *(uint8_t *)((char *)fsm + 0x18) = (uint8_t)((uintptr_t)&calibration_luxhigh_lut / (int32_t)result);
     }
@@ -18975,12 +18975,14 @@ static int32_t noise_reduction_initialize_recovered(void *fsm)
     uint32_t *lut_ptr;
     uint32_t last_entry;
 
-	base[0x22] = 1;
-	base[0x23] = 1;
+	struct t20_fsm_noise_reduction *nr = fsm;
+
+	nr->sinter_enable = 1;
+	nr->temper_enable = 1;
 	base[0x1b] = 0xf;
-	base[0x1c] = 0xf;
+	nr->sinter_threshold = 0xf;
     *(uint16_t *)(base + 0x1e) = 0xf;
-    *(uint16_t *)(base + 0x20) = 0xf;
+    nr->sinter_offset = 0xf;
 
     lut_ptr = (uint32_t *)_GET_MOD_ENTRY16_PTR(0xcd);
     byte_val = *(uint8_t *)(lut_ptr + 2);
