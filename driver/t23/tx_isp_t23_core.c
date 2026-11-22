@@ -1144,7 +1144,7 @@ static unsigned char __attribute__((aligned(4))) frame_done_wq[20] = {
     0x00, 0x00, 0x00, 0x00, 
 };
 typedef int32_t (*drv_func_t)();
-static unsigned char pfaces[16];
+static unsigned char pfaces[16] __attribute__((aligned(4)));
 static unsigned char data_a91ec[16384];
 static inline unsigned int zx_d(unsigned int ptr) {
     return *(unsigned int *)ptr;
@@ -32868,7 +32868,8 @@ apical_isp_core_ops_g_ctrl0x5ac:
 apical_isp_core_ops_g_ctrl0x5b4:
     /* fragment 203: CallSetup */
     s1 = 0;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_copy_to_user)(a0); /* jalr target resolved by relocation */
+    /* openimp #770: pass the a1/a2 the lift set above (vendor tail block 0x5ac/0x5b4) */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_copy_to_user)((uintptr_t)a0, (uintptr_t)a1, (uintptr_t)a2); /* jalr target resolved by relocation */
 
     /* fragment 204: Branch */
     goto apical_isp_core_ops_g_ctrl0xf28;
@@ -33406,7 +33407,28 @@ apical_isp_core_ops_g_ctrl0xadc:
     v0 = v0;
 
     /* fragment 323: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_copy_to_user)(a0); /* jalr target resolved by relocation */
+    /*
+     * openimp #770: vendor apical_isp_core_ops_g_ctrl 0x93b4-0x9420 (pike
+     * tx-isp-t23.ko) packs 16 bytes at sp+16: u8 +1044..+1047, u16 +1024,
+     * +1028, +1032, +1036, +1040, u8 +1048, +1049, then
+     * private_copy_to_user(*(s0 + 4), sp + 16, 16).  The lift kept the
+     * fields in separate locals and passed only a0.
+     */
+    {
+        uint8_t hist_out[16];
+        uint16_t h16;
+        int k;
+
+        for (k = 0; k < 4; k++)
+            hist_out[k] = *(uint8_t *)((char *)s1 + 1044 + k);
+        for (k = 0; k < 5; k++) {
+            h16 = (uint16_t)*(uint32_t *)((char *)s1 + 1024 + 4 * k);
+            memcpy(&hist_out[4 + 2 * k], &h16, 2);
+        }
+        hist_out[14] = *(uint8_t *)((char *)s1 + 1048);
+        hist_out[15] = *(uint8_t *)((char *)s1 + 1049);
+        v0 = (uintptr_t *)private_copy_to_user((void __user *)(uintptr_t)a0, hist_out, 16);
+    }
 
     /* fragment 324: CallSetup */
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_kfree)(s1); /* jalr target resolved by relocation */
@@ -33612,7 +33634,8 @@ apical_isp_core_ops_g_ctrl0xd6c:
 
 apical_isp_core_ops_g_ctrl0xd70:
     /* fragment 373: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_copy_to_user)(*(uint32_t *)((char *)(s0) + 4)); /* jalr target resolved by relocation */
+    /* openimp #770: pass the a1/a2 the lift set above (vendor tail block 0xd6c/0xd70) */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_copy_to_user)(*(uint32_t *)((char *)(s0) + 4), (uintptr_t)a1, (uintptr_t)a2); /* jalr target resolved by relocation */
 
     /* fragment 374: Branch */
     goto apical_isp_core_ops_g_ctrl0xf28;
@@ -34092,35 +34115,18 @@ bool private_capable(int cap)
 
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000009fc8 origin=fragment_seed original=private_driver_get_interface */
+/*
+ * openimp #770: vendor tx-isp-t23.ko private_driver_get_interface @0x9d88
+ * passes &pfaces (.bss+0x170) to private_get_driver_interface and returns
+ * pfaces ? 0 : -1 (sltiu/negu).  The lift passed &ivdc_threshold_line (a
+ * mis-resolved .bss base) and always returned 0, so pfaces stayed NULL.
+ */
 int32_t private_driver_get_interface(void)
 {
-    uint32_t *local_10 = 0;
-    uint32_t *local_14 = 0;
-    uint32_t *a0 = 0;
-    uint32_t ra = 0;
-    uintptr_t *s0 = 0;
-    uintptr_t *v0 = 0;
+    uint32_t *pf = (uint32_t *)(void *)pfaces;
 
-    /* fragment 0: Prologue */
-    /* function prologue: stack frame and callee-saved register setup */
-
-    /* fragment 1: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_get_driver_interface)(&ivdc_threshold_line); /* jalr target resolved by relocation */
-
-    /* fragment 2: MemoryAccess */
-    v0 = *(uint32_t *)((char *)((char *)&pfaces));
-    ra = local_14;
-    v0 = v0 < 1;
-    s0 = local_10;
-
-    /* fragment 3: Unknown */
-    /* unmatched fragment 3 (Unknown): no deterministic matcher for Unknown */
-    /* asm: 9ff8:	00021023 	negu	v0,v0 */
-
-    /* fragment 4: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    return 0;
+    private_get_driver_interface((uintptr_t)pf);
+    return *pf == 0 ? -1 : 0;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000000a004 origin=model_output original=private_leading_one_position */
@@ -34327,13 +34333,17 @@ static int32_t private_log2_fixed_to_fixed_64(uint32_t arg1, uint32_t arg2, int3
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000000a93c origin=fragment_seed original=private_copy_to_user */
+/*
+ * openimp #770: vendor tx-isp-t23.ko private_copy_to_user @0xa6fc is a tail
+ * call through pfaces (.bss+0x170) slot +412 = priv_copy_to_user (kernel
+ * soc-t23 txx-funcs.h; platform.c my_copy_to_user = copy_to_user(to, from,
+ * size)).  The lift loaded the table from &ivdc_threshold_line + 384 (a
+ * mis-resolved .bss base), called slot +412 of whatever lay there without
+ * arguments and returned 0.  Same result as the vendor: bytes not copied.
+ */
 long private_copy_to_user(void __user *to, const void *from, long size)
 {
-    unsigned int v0 = (unsigned int)&ivdc_threshold_line;
-    v0 = *(unsigned int *)((char *)v0 + 384);
-    unsigned int t9 = *(unsigned int *)((char *)v0 + 412);
-    ((void (*)(void))t9)();
-    return 0;
+    return copy_to_user(to, from, size);
 }
 
 static struct sk_buff *private_nlmsg_new(size_t payload, gfp_t flags)
