@@ -1480,6 +1480,7 @@ static int t32_isp_release(struct inode *inode, struct file *file)
 {
 	mutex_lock(&core.lock);
 	if (t32_clk_users && !--t32_clk_users) {
+		t33_hw_flip_stop();	/* #779: no VIC hold left over, before the clocks stop */
 #ifdef TX_ISP_T33
 		t33_hw_lib_deinit();	/* lib_tisp_deinit: tisp_all_reset, LDC mask */
 #endif
@@ -1584,6 +1585,31 @@ int t32_core_sensor_flip(u32 ch, u32 mode, u32 *frames)
 	r = ioctl(vi->sd, T32_EVENT_SENSOR_FLIP, &sv);
 	*frames = msg[1];
 	return r == -ENOIOCTLCMD ? 0 : r;
+}
+
+/*
+ * #779 (beyond vendor: the vendor ispcore_irq_fd_work0, tx-isp-t33.ko 0x102f40, runs on system_wq without a
+ * lock and is never flushed or cancelled): the flip work runs its VIC + sensor part under core.lock, which
+ * stream-off, RELEASE_SENSOR, the sensor module removal and the last close (clock gate) hold, and rechecks
+ * here that the sensor still streams with the clocks on.  No path cancels the work synchronously under
+ * core.lock (the work may wait for it); rmmod cancels it after core.lock is dropped.
+ */
+void t32_core_lock(void)
+{
+	mutex_lock(&core.lock);
+}
+
+void t32_core_unlock(void)
+{
+	mutex_unlock(&core.lock);
+}
+
+/* under core.lock: sensor 0 registered and streaming, ISP clocks on */
+int t32_core_flip_ready(void)
+{
+	struct t32_vi *vi = &core.vi[0];
+
+	return vi->registered && vi->sd && vi->streaming && t32_clk_users;
 }
 
 #ifndef TX_ISP_T33

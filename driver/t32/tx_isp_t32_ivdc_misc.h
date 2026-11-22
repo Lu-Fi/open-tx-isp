@@ -41,6 +41,33 @@ struct t32_ivdc_uos {
 	u32 (*copy_to_user)(u32 user, const u8 *src, u32 n);
 };
 
+/*
+ * SET_MODE, validated before it is published (openimp #780, beyond vendor): the vendor copies the user
+ * word straight into the live direct_mode (tx-isp-t32.ko / tx-isp-t33.ko ivdc_misc_unlocked_ioctl), and the
+ * driver clamped it afterwards, so a stream-on running at the same time could see 2..4 or a partly copied
+ * word.  Here the word goes into a local, a value above 1 (several sensors, not supported) becomes 0, and
+ * only then one aligned store updates d->mode.  A failed copy leaves d->mode unchanged.  *bad gets the
+ * rejected value (0 if none).
+ */
+static inline long t32_ivdc_set_mode_checked(struct t32_ivdc *iv, const struct t32_ivdc_uos *uo, u32 arg,
+					     u32 *bad)
+{
+	u32 v = 0, r;
+
+	*bad = 0;
+	r = uo->copy_from_user((u8 *)&v, arg, 4);
+	if (r) {
+		isp_printf(2, "Set direct_mode err! Failed to copy form user\n");
+		return (long)(int)r;
+	}
+	if (v > 1) {
+		*bad = v;
+		v = 0;
+	}
+	*(volatile u32 *)&iv->mode = v;
+	return 0;
+}
+
 static inline long t32_ivdc_misc_unlocked_ioctl(struct t32_ivdc *iv, struct t32_ivdc_mem *m,
 						const struct t32_ivdc_uos *uo, u32 cmd, u32 arg)
 {

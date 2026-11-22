@@ -149,7 +149,7 @@ static inline int t32_ivdc_core_ops_init(struct t32_ivdc *d, u8 *sd, const u32 *
 {
 	static const u32 mode_word[5] = { 0, 0x00041100U, 0x03c41100U, 0x05c41100U, 0x07c41100U };
 	u8 *priv = t32_ivdc_priv(sd);
-	u32 state;
+	u32 state, mode = *(volatile u32 *)&d->mode;	/* read once (#780): SET_MODE may store a new mode */
 
 	if (!t32_ivdc_valid(priv)) {
 		isp_printf(2, "ivdc_core_ops_init: invalid subdev\n", 0, 0);
@@ -160,17 +160,17 @@ static inline int t32_ivdc_core_ops_init(struct t32_ivdc *d, u8 *sd, const u32 *
 		if (state == 2)
 			return 0;
 		t32_g_wr32(priv, T32_IVDC_PRIV_STATE, 2);
-		d->started_mode = d->mode;
+		d->started_mode = mode;
 		return 0;
 	}
 	if (state == 3)
 		return 0;
-	if (!d->mode) {
+	if (!mode) {
 		d->started_mode = 0;
 		*t32_ivdc_reg(priv, T32_IVDC_REG_MODE) = 1;
 		return 0;
 	}
-	if (d->mode != d->started_mode)		/* pulse the IVDC reset in the CPM clock gate */
+	if (mode != d->started_mode)		/* pulse the IVDC reset in the CPM clock gate */
 		t32_ivdc_cpm_reset(d);
 	*t32_ivdc_reg(priv, T32_IVDC_REG_CTRL) = 1;
 	if (t32_ivdc_reset_wait(d, priv)) {
@@ -183,11 +183,11 @@ static inline int t32_ivdc_core_ops_init(struct t32_ivdc *d, u8 *sd, const u32 *
 			return -T32_IVDC_ETIMEDOUT;
 		}
 	}
-	if (d->mode >= 1 && d->mode <= 4)
-		*t32_ivdc_reg(priv, T32_IVDC_REG_MODE) = mode_word[d->mode];
-	isp_printf(1, "ivdc mode %d\n", d->mode, 0);
+	if (mode >= 1 && mode <= 4)
+		*t32_ivdc_reg(priv, T32_IVDC_REG_MODE) = mode_word[mode];
+	isp_printf(1, "ivdc mode %d\n", mode, 0);
 	t32_g_wr32(priv, T32_IVDC_PRIV_STATE, 3);
-	d->started_mode = d->mode;
+	d->started_mode = mode;
 	return 0;
 }
 

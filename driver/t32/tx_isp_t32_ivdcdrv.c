@@ -241,7 +241,7 @@ static irqreturn_t t32_ivdc_isr(int irq, void *dev)
 /* ---- driver interface ---- */
 int t32_ivdc_direct(int ch)
 {
-	return ivdc_base && ch == 0 && iv.mode == 1;
+	return ivdc_base && ch == 0 && ACCESS_ONCE(iv.mode) == 1;	/* only 0 / 1 are published (#780) */
 }
 
 long t32_ivdc_misc_ioctl(unsigned int cmd, unsigned long arg)
@@ -249,12 +249,17 @@ long t32_ivdc_misc_ioctl(unsigned int cmd, unsigned long arg)
 	long r;
 
 	mutex_lock(&ivdc_mutex);
-	r = t32_ivdc_misc_unlocked_ioctl(&iv, &ivm, &ivdc_uos, cmd, (u32)arg);
-	IVT("misc ioctl %08x ret %ld paddr %08x line %u", cmd, r, ivm.paddr, ivm.line);
-	if (cmd == T32_IVDC_IOC_SET_MODE && iv.mode > 1) {
-		isp_printf(2, "tx-isp-t32: direct_mode %u (several sensors) not supported, 0\n", iv.mode);
-		iv.mode = 0;
+	if (cmd == T32_IVDC_IOC_SET_MODE) {
+		u32 bad;
+
+		/* #780: validate, then publish (the stream-on reads the mode under ivdc_mutex) */
+		r = t32_ivdc_set_mode_checked(&iv, &ivdc_uos, (u32)arg, &bad);
+		if (bad && printk_ratelimit())	/* a SET_MODE loop must not flood the log */
+			isp_printf(2, "tx-isp-t32: direct_mode %u (several sensors) not supported, 0\n", bad);
+	} else {
+		r = t32_ivdc_misc_unlocked_ioctl(&iv, &ivm, &ivdc_uos, cmd, (u32)arg);
 	}
+	IVT("misc ioctl %08x ret %ld paddr %08x line %u", cmd, r, ivm.paddr, ivm.line);
 	t32_tx_link_mode = iv.mode;
 	mutex_unlock(&ivdc_mutex);
 	return r;
@@ -270,8 +275,14 @@ int t32_ivdc_stream(int on)
 		return 0;
 	if (on)
 		iv.d98b4 = 1;	/* ivdc_activate_module: the clocks run (core.c) */
+	/*
+	 * #780: under ivdc_mutex, which SET_MODE holds, so the start sees one published mode (lock order
+	 * core.lock -> ivdc_mutex; the misc ioctl never takes core.lock).  core_ops_init reads it once.
+	 */
+	mutex_lock(&ivdc_mutex);
 	IVT("stream %d core_ops_init mode %u started %u", on, iv.mode, iv.started_mode);
 	r = t32_ivdc_core_ops_init(&iv, ivdc_sd, &o);
+	mutex_unlock(&ivdc_mutex);
 	if (r == -T32_IVDC_ETIMEDOUT && on) {
 		/*
 		 * Not vendor (#756, user decision 2026-11-21): the IVDC soft reset
