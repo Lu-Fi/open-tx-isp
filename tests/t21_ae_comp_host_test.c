@@ -38,6 +38,7 @@ int main(void)
 	bad += t21_ae_comp_combine(64, 64) != 32;
 	bad += t21_ae_comp_combine(256 + 128, 40) != 40;	/* only the low byte counts, as in scale */
 	bad += !t21_cap_lowered(16384, 1024) || t21_cap_lowered(1024, 1024) || t21_cap_lowered(1024, 16384);
+	bad += !t21_cap_clamp_needed(3444, 1024) || t21_cap_clamp_needed(1024, 1024) || t21_cap_clamp_needed(900, 1024) || t21_cap_clamp_needed(3444, 0);
 	printf("%s (%d)\n", bad ? "FAIL" : "ok", bad);
 	return bad != 0;
 }

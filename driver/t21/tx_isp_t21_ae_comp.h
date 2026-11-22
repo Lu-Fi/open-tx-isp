@@ -64,4 +64,10 @@ static inline int t21_cap_lowered(uint32_t old_cap, uint32_t new_cap)
 	return new_cap < old_cap;
 }
 
+/* the applied analog gain (Q10) is above a lowered cap: write it down now */
+static inline int t21_cap_clamp_needed(uint32_t applied, uint32_t cap)
+{
+	return cap && applied > cap;
+}
+
 #endif

@@ -1925,6 +1925,19 @@ L_2c650:
 
 	*cap_ = r_v0;
 	if (t21_cap_lowered(old_, r_v0)) {
+		/* Box run 2026-11-22: trig / force_trig alone keep the gain of a
+		 * converged AE (3444 > cap 1024): its decision reuses the split.
+		 * A gain above the new cap is therefore written down to the cap
+		 * through the stock setter now; the darker frame takes the AE
+		 * out of its band and its next decision runs under the cap. */
+		struct t21_ae_ctrls_view *aec_ = (struct t21_ae_ctrls_view *)tisp_ae_ctrls;
+
+		if (t21_cap_clamp_needed(ACCESS_ONCE(aec_->sensor_again), r_v0)) {
+			uint32_t stk_[8] = { 0 };
+			uint64_t g_ = L_tisp_set_sensor_analog_gain(r_v0, 0, 0, 0, (uint32_t)(uintptr_t)stk_);
+
+			ACCESS_ONCE(aec_->sensor_again) = (uint32_t)g_ ? (uint32_t)g_ : r_v0;
+		}
 		*(volatile uint32_t *)(uintptr_t)&trig = 1;
 		*(volatile uint32_t *)(uintptr_t)&force_trig = 1;
 	}
