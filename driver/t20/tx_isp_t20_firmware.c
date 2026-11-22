@@ -6563,13 +6563,14 @@ int32_t awb_blue_gain(void *ctx, int32_t value, char direction, int32_t *result)
 /* WHOLE_DRIVER_CANDIDATE fn_000000000001bb84 origin=model_output original=awb_temperature */
 int32_t awb_temperature(void *ctx, int32_t unused_value, char direction, int32_t *result)
 {
+    struct t20_isp_ctx *isp = ctx;
     int32_t status;
 
     *result = 0;
 
     if ((uint8_t)direction == 1) {
         status = 0;
-        *result = *(int32_t *)((char *)ctx + 0xec0) / 100;
+        *result = t20_member(isp, awb.color_temp) / 100;
     } else {
         status = 2;
     }
@@ -6949,12 +6950,13 @@ int32_t flash_mode(void *ctx, char value, char direction, int32_t *result)
 /* WHOLE_DRIVER_CANDIDATE fn_000000000001c654 origin=model_output original=flash_time */
 int32_t flash_time(void *ctx, int32_t unused_value, char direction, int32_t *result)
 {
+	struct t20_isp_ctx *isp = ctx;
 	uint32_t dir = (uint32_t)direction & 0xff;
 
 	*result = 0;
 
 	if (dir == 0) {
-		apical_isp_raise_event(*(int32_t *)((uintptr_t)ctx + 0x147c), 9);
+		apical_isp_raise_event(*(int32_t *)t20_member_ptr(isp, flash), 9);
 		return 0;
 	}
 
@@ -7738,7 +7740,8 @@ int32_t fr_output_mode(void *ctx, int32_t value, char direction, int32_t *result
 int32_t ds1_output_mode(void *ctx, int32_t value, char direction, int32_t *result)
 {
 	unsigned char mode = (unsigned char)direction;
-	uint8_t *field = (void *)((uintptr_t)ctx + 0x2e36);
+	struct t20_isp_ctx *isp = ctx;
+	uint8_t *field = &isp->matrix_yuv.field_c2;
 
 	*result = 0;
 
@@ -7760,7 +7763,7 @@ int32_t ds1_output_mode(void *ctx, int32_t value, char direction, int32_t *resul
 				return 2;
 			*field = 4;
 		}
-		matrix_yuv_update((uintptr_t)ctx + 0x2d74);
+		matrix_yuv_update((void *)&isp->matrix_yuv);
 		return 0;
 	}
 
@@ -7794,7 +7797,8 @@ int32_t ds1_output_mode(void *ctx, int32_t value, char direction, int32_t *resul
 /* WHOLE_DRIVER_CANDIDATE fn_000000000001d90c origin=model_output original=ds2_output_mode */
 int32_t ds2_output_mode(void *ctx, int32_t value, char direction, int32_t *result)
 {
-	uint8_t *mode = (uint8_t *)((uintptr_t)ctx + 0x2e50);
+	struct t20_isp_ctx *isp = ctx;
+	uint8_t *mode = &isp->matrix_yuv.field_dc;
 
 	*result = 0;
 
@@ -7816,7 +7820,7 @@ int32_t ds2_output_mode(void *ctx, int32_t value, char direction, int32_t *resul
 			*mode = 4;
 		}
 
-		matrix_yuv_update((uintptr_t)ctx + 0x2d74);
+		matrix_yuv_update((void *)&isp->matrix_yuv);
 		return 0;
 	}
 
@@ -8590,27 +8594,24 @@ uint32_t cmos_alloc_integration_time(int32_t *cmos_words, int32_t target_log2)
 /* WHOLE_DRIVER_CANDIDATE fn_000000000001e9c0 origin=model_output original=cmos_alloc_sensor_analog_gain */
 int32_t cmos_alloc_sensor_analog_gain(int32_t *cmos_words, uint32_t gain)
 {
-	uint8_t *isp;
-	int32_t (*alloc)(int32_t gain, void *sensor_ctx);
+	struct t20_isp_ctx *isp;
 	int32_t max_gain;
 
 	if ((int32_t)gain < 0)
 		return 0;
 
-	isp = (uint8_t *)(uintptr_t)cmos_words[0];
+	isp = (struct t20_isp_ctx *)(uintptr_t)cmos_words[0];
 	max_gain = (int32_t)stab.global_max_sensor_analog_gain << 11;
 	if (max_gain >= (int32_t)gain)
 		max_gain = (int32_t)gain;
 
-	alloc = *(void **)(isp + 0x9c);
-	return alloc(max_gain, isp + 0x56);
+	return isp->sensor.ctrl.alloc_analog_gain(max_gain, &isp->sensor.ctrl.param.sensor_ctx);
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000001e9f4 origin=model_output original=cmos_alloc_sensor_digital_gain */
 int32_t cmos_alloc_sensor_digital_gain(int32_t *cmos_words, uint32_t gain_in)
 {
-	uint8_t *isp;
-	int32_t (*alloc)(int32_t gain, void *sensor_ctx);
+	struct t20_isp_ctx *isp;
 	int32_t max_gain;
 	int32_t gain;
 	int32_t result;
@@ -8618,14 +8619,13 @@ int32_t cmos_alloc_sensor_digital_gain(int32_t *cmos_words, uint32_t gain_in)
 	if ((int32_t)gain_in < 0)
 		return 0;
 
-	isp = (uint8_t *)(uintptr_t)cmos_words[0];
+	isp = (struct t20_isp_ctx *)(uintptr_t)cmos_words[0];
 	max_gain = (int32_t)stab.global_max_sensor_digital_gain << 11;
 	gain = max_gain;
 	if (max_gain >= (int32_t)gain_in)
 		gain = (int32_t)gain_in;
 
-	alloc = *(void **)(isp + 0xa0);
-	result = alloc(gain, isp + 0x56);
+	result = isp->sensor.ctrl.alloc_digital_gain(gain, &isp->sensor.ctrl.param.sensor_ctx);
 	if (result < 0)
 		return 0;
 
@@ -8635,6 +8635,7 @@ int32_t cmos_alloc_sensor_digital_gain(int32_t *cmos_words, uint32_t gain_in)
 /* WHOLE_DRIVER_CANDIDATE fn_000000000001ea4c origin=model_output original=cmos_alloc_isp_digital_gain */
 uint32_t cmos_alloc_isp_digital_gain(void *cmos, int gain)
 {
+    struct t20_fsm_cmos *fsm = cmos;
     uint32_t cur_limit;
     uint32_t limit;
 
@@ -8642,7 +8643,7 @@ uint32_t cmos_alloc_isp_digital_gain(void *cmos, int gain)
         return 0;
 
 	limit = (uint32_t)stab.global_max_isp_digital_gain << 11;
-    cur_limit = *(uint32_t *)((uintptr_t)cmos + 0x1e4);
+    cur_limit = fsm->field_1e4;
 
     if ((int)cur_limit < (int)limit)
         limit = cur_limit;
@@ -8778,14 +8779,15 @@ int32_t cmos_get_lines_per_second(int32_t *cmos_words)
 /* WHOLE_DRIVER_CANDIDATE fn_000000000001ed48 origin=model_output original=cmos_get_frame_exposure_set */
 void *cmos_get_frame_exposure_set(void *cmos, int32_t frame)
 {
+	struct t20_fsm_cmos *fsm = cmos;
 	int32_t index;
 
-	index = frame + *(int32_t *)((uintptr_t)cmos + 0x1a4);
+	index = frame + fsm->history_index;
 	if (index < 0)
 		index += 8;
 	else if (index >= 8)
 		index -= 8;
-	return (void *)((uintptr_t)cmos + index * 40 + 100);
+	return t20_member_ptr(fsm, history[index]);
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000001ed7c origin=model_output original=cmos_update_exposure_history */
@@ -11663,8 +11665,8 @@ uint32_t calc_fe_lut_output(int32_t *fsm, int16_t value)
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000023d04 origin=model_output original=calc_fe_lut_input */
 static uint32_t calc_fe_lut_input(uint32_t *fsm, uint16_t value)
 {
-	uint32_t *base = *fsm;
-	uint8_t mode = *(uint8_t *)((char *)base + 0x1524);
+	struct t20_isp_ctx *isp = *(struct t20_isp_ctx **)fsm;
+	uint8_t mode = isp->general.wdr_mode;
 	uint16_t val = value;
 	uint16_t *ptr;
 	uint16_t len;
@@ -18280,8 +18282,9 @@ void awb_process_temp_and_shift(void)
 /* WHOLE_DRIVER_CANDIDATE fn_000000000002e470 origin=model_output original=awb_detect_light_source */
 int32_t awb_detect_light_source(void *fsm)
 {
-    uint8_t *flag = (uint8_t *)((uintptr_t)fsm + 0x77d);
-    int32_t *color_temp = (int32_t *)((uintptr_t)fsm + 0x778);
+    struct t20_fsm_awb *awb = fsm;
+    uint8_t *flag = t20_member_ptr(awb, light_source_cand);
+    int32_t *color_temp = t20_member_ptr(awb, color_temp);
     int32_t temp;
     int32_t result;
 
@@ -19639,7 +19642,7 @@ int32_t write_to_flash_output_port(int32_t value)
 /* WHOLE_DRIVER_CANDIDATE fn_000000000002ff18 origin=model_output original=flash_initialize */
 int32_t flash_initialize(void *fsm)
 {
-    *(uint8_t *)((uintptr_t)fsm + 0x10) = 0x58;
+    ((struct t20_fsm_flash *)fsm)->state = 0x58;
 
     flash_clear_bits(0x2020, 0xffff0000);
     flash_clear_bits(0x2020, 0xfffeffff);
