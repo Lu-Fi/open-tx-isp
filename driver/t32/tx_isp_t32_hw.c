@@ -2635,6 +2635,7 @@ void t33_stats_show(struct seq_file *m)
 		   t33_st.ae.hi, t33_st.ae.tag, t33_st.hist_frames, t33_st.hist_bad, t33_st.mean16);
 	t33_awbc_show(m);
 	t33_aec_show(m);
+	t33_calgo_show(m);
 	t33_af_show(m);
 	seq_printf(m, "t33 lce/lsf: irq8 %u irq30 %u curves %u list16 %u list37 %u ev %u\n", t33_lcepf_irq8s,
 		   t33_lcepf_irq30s, t33_lcepf_curves, t33_lcepf_lce_runs, t33_lcepf_lsf_runs, t33_lcepf_evs);

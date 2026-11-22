@@ -816,6 +816,16 @@ static long t32_isp_ioctl(struct file *file, unsigned int cmd, unsigned long arg
 			isp_printf(ret ? 1 : 0, "tx-isp-t32: ioctl %#x -> %ld\n", cmd, ret);
 		return ret;
 	}
+#ifdef TX_ISP_T33
+	/* custom AE / AWB library (openimp #805): the get waits for a statistics frame, outside the core lock */
+	ret = t33_calgo_ioctl(cmd, arg);
+	if (ret != -ENOIOCTLCMD) {
+		if (t32_trace || (ret && ret != -EAGAIN))
+			isp_printf(ret ? 1 : 0, "tx-isp-t32: ioctl %#x -> %ld\n", cmd, ret);
+		return ret;
+	}
+	ret = 0;
+#endif
 	mutex_lock(&core.lock);
 	core.ioctls++;
 	switch (cmd) {

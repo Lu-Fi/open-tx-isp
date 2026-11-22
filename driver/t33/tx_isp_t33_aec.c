@@ -454,6 +454,9 @@ static void aec_work_fn(struct work_struct *w)
 			st.expo_fail++;
 		}
 	}
+	mutex_unlock(&aec_lock);
+	t33_calgo_ae_tick();	/* a custom AE library (#805): the statistics of this frame are ready */
+	return;
 out:
 	mutex_unlock(&aec_lock);
 }

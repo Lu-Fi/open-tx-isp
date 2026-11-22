@@ -17,7 +17,8 @@ tx-isp-t33-objs := tx_isp_t33_sinfo.o \
 		   tx_isp_t33_tunblk.o \
 		   tx_isp_t33_t32off.o \
 		   tx_isp_t33_snapldc.o \
-		   tx_isp_t33_tisp.o
+		   tx_isp_t33_tisp.o \
+		   tx_isp_t33_calgo.o
 obj-m += tx-isp-t33.o
 
 ccflags-y += -I$(src)/../include -I$(src)/../t32 -std=gnu99 -DTX_ISP_T33

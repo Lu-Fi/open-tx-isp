@@ -342,6 +342,21 @@ void t33_evq_free(void);
 int t32_core_sensor_ae_src(const u8 **video_in, const u8 **attr);
 u32 t32_core_sensor_alloc_again(u32 log2_q16, u32 *reg);
 int t32_core_sensor_set_fps(u32 fps);
+/* tx_isp_t32_calgo.c: custom AE / AWB libraries (openimp #805, beyond the vendor) */
+#include "tx_isp_t33_calgo.h"
+long t33_calgo_ioctl(unsigned int cmd, unsigned long arg);
+void t33_calgo_ae_tick(void);
+void t33_calgo_awb_tick(void);
+void t33_calgo_show(struct seq_file *m);
+int t33_tb_calgo_ae_info(u32 ch, u8 *info);		/* tx_isp_t32_tunblk.c */
+void t33_tb_calgo_ae_init(u32 ch, u8 *init);
+int t33_tb_calgo_ae_apply(u32 ch, const u32 *v, u8 *save, bool first);
+void t33_tb_calgo_ae_restore(u32 ch, const u8 *save);
+int t33_tb_calgo_awb_info(u32 ch, u8 *info);
+int t33_tb_calgo_awb_apply(u32 ch, u32 r, u32 b, u32 *save, bool first);
+void t33_tb_calgo_awb_restore(u32 ch, const u32 *save);
+void t33_tunblk_hist_bins(u32 ch, u8 *bins);
+void t33_awbc_cur_gain(u32 *r, u32 *b);		/* tx_isp_t33_awbc.c */
 #endif
 /* sensor mirror / flip of 0x73 (tx_isp_core_shvflip; T33 #669, T32 #689) */
 void t33_core_flip_request(u32 ch, u32 mode);	/* tx_isp_t32_hw.c */
