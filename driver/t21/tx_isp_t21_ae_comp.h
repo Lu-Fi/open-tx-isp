@@ -57,4 +57,11 @@ static inline uint32_t t21_ae_comp_combine(uint32_t bright, uint32_t aecomp)
 	return c > 255 ? 255 : c;
 }
 
+/* SetMaxAgain: a lower cap than before is applied at once (trig / force_trig,
+ * tx_isp_t21_adr_oem.inc L_tisp_s_max_again); equal or higher keeps stock. */
+static inline int t21_cap_lowered(uint32_t old_cap, uint32_t new_cap)
+{
+	return new_cap < old_cap;
+}
+
 #endif

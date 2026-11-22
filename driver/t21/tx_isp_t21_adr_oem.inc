@@ -6742,7 +6742,22 @@ static uint64_t L_tisp_s_max_again(uint32_t r_a0, uint32_t r_a1, uint32_t r_a2, 
 	(void)csp; (void)r_at; (void)r_k0; (void)r_k1; (void)r_gp; (void)r_ra;
 	r_t9 = (uint32_t)(0x2030000u);
 	r_t9 = (uint32_t)(((uint32_t)((uintptr_t)((uintptr_t)(((uint32_t)(uintptr_t)&L_tiziano_ae_s_max_again + 0))) + 0u)));
-	{ uint64_t q_ = L_tiziano_ae_s_max_again(r_a0, r_a1, r_a2, r_a3, csp); r_v0 = (uint32_t)q_; r_v1 = (uint32_t)(q_ >> 32); }
+	{
+	/* Beyond vendor (user OK 2026-11-22): a LOWERED cap is applied at once.
+	 * Stock only stores it (tisp_ae_ctrls max_sensor_again, copied into
+	 * _exp_parameter by tisp_ae_ctrls_update), so a converged AE (luma in
+	 * its band) keeps the higher gain until the scene moves.  As stock
+	 * tisp_ae_param_array_set does, trig / force_trig make ae_tune2 take
+	 * its decision with the next frame, which clamps the gain to the cap.
+	 * A raised or equal cap is unchanged from stock. */
+	const struct t21_ae_ctrls_view *ae_ = (const struct t21_ae_ctrls_view *)tisp_ae_ctrls;
+	uint32_t old_ = ACCESS_ONCE(ae_->max_sensor_again);
+	uint64_t q_ = L_tiziano_ae_s_max_again(r_a0, r_a1, r_a2, r_a3, csp); r_v0 = (uint32_t)q_; r_v1 = (uint32_t)(q_ >> 32);
+	if (r_v0 == 0 && t21_cap_lowered(old_, ACCESS_ONCE(ae_->max_sensor_again))) {
+		*(volatile uint32_t *)(uintptr_t)&trig = 1;
+		*(volatile uint32_t *)(uintptr_t)&force_trig = 1;
+	}
+	}
 	return ((uint64_t)r_v1 << 32) | r_v0;
 	return ((uint64_t)r_v1 << 32) | r_v0;
 }
