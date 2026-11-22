@@ -20,6 +20,7 @@ static int locks;
 void host_mutex_lock(struct mutex *m) { CHECK(!m->held, "mutex taken twice"); m->held = 1; locks++; }
 void host_mutex_unlock(struct mutex *m) { CHECK(m->held, "unlock without lock"); m->held = 0; locks--; }
 
+static int fileA, fileB;
 static int hook_mode;	/* 0 nothing (timeout), 1 AE tick, 2 AWB tick, 3 close AE, 4 signal */
 static int hook_calls;
 long host_wait_hook(void)
@@ -33,7 +34,7 @@ long host_wait_hook(void)
 	case 3: {
 		/* the close runs while the get sleeps: the get dropped the lock before waiting */
 		CHECK(!calgo_lock.held, "get waits with calgo_lock held");
-		CHECK(t33_calgo_ioctl(T33_IOC_AE_ALGO_CLOSE, (unsigned long)req) == 0, "close during wait");
+		CHECK(t33_calgo_ioctl(&fileA, T33_IOC_AE_ALGO_CLOSE, (unsigned long)req) == 0, "close during wait");
 		break;
 	}
 	case 4: return -512;	/* -ERESTARTSYS */
@@ -79,7 +80,7 @@ int t33_tb_calgo_awb_apply(u32 ch, u32 r, u32 b, u32 *save, bool first)
 }
 void t33_tb_calgo_awb_restore(u32 ch, const u32 *save) { (void)ch; awb_restore++; CHECK(save[1] == 300 && save[2] == 400, "AWB restore"); }
 
-static long io(unsigned int cmd, void *p) { long r = t33_calgo_ioctl(cmd, (unsigned long)p); CHECK(locks == 0, "lock left after %#x", cmd); return r; }
+static long io(unsigned int cmd, void *p) { long r = t33_calgo_ioctl(&fileA, cmd, (unsigned long)p); CHECK(locks == 0, "lock left after %#x", cmd); return r; }
 
 int main(void)
 {
@@ -167,6 +168,20 @@ int main(void)
 	set[3] = 500;
 	CHECK(io(T33_IOC_AWB_ALGO_SET, set) == 0 && awb_apply == 1 && awb_apply_first == 1 && last_r == 500 && last_b == 400, "AWB result");
 	CHECK(io(T33_IOC_AWB_ALGO_CLOSE, hdr) == 0 && awb_restore == 1, "AWB close restores");
+	/* a dead client: the release of another file leaves the library alone, the opener's release unregisters it */
+	memset(buf, 0, sizeof(buf));
+	buf[0] = T33_CALGO_COOKIE;
+	CHECK(io(T33_IOC_AE_ALGO_OPEN, buf) == 0, "open for the release test");
+	set[0] = T33_CALGO_COOKIE;
+	set[1] = 0;
+	set[2] = 1;
+	CHECK(io(T33_IOC_AE_ALGO_SET, set) == 0, "result before the crash");
+	t33_calgo_release(&fileB);
+	CHECK(ca[0].open && ae_restore == 1, "other file's release");
+	t33_calgo_release(&fileA);
+	CHECK(!ca[0].open && ae_restore == 2 && ca[0].info == NULL && locks == 0, "opener's release unregisters and restores");
+	CHECK(io(T33_IOC_AE_ALGO_OPEN, buf) == 0, "reopen after the release");
+	t33_calgo_release(&fileA);
 	if (fails)
 		printf("t33_calgo_host: %d FAIL\n", fails);
 	else

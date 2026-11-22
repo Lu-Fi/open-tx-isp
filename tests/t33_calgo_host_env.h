@@ -47,7 +47,8 @@ struct seq_file;
 int seq_printf(struct seq_file *m, const char *fmt, ...);
 
 #include "tx_isp_t33_calgo.h"
-long t33_calgo_ioctl(unsigned int cmd, unsigned long arg);
+long t33_calgo_ioctl(const void *file, unsigned int cmd, unsigned long arg);
+void t33_calgo_release(const void *file);
 void t33_calgo_ae_tick(void);
 void t33_calgo_awb_tick(void);
 void t33_calgo_show(struct seq_file *m);

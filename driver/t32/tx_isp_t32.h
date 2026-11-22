@@ -344,7 +344,8 @@ u32 t32_core_sensor_alloc_again(u32 log2_q16, u32 *reg);
 int t32_core_sensor_set_fps(u32 fps);
 /* tx_isp_t32_calgo.c: custom AE / AWB libraries (openimp #805, beyond the vendor) */
 #include "tx_isp_t33_calgo.h"
-long t33_calgo_ioctl(unsigned int cmd, unsigned long arg);
+long t33_calgo_ioctl(const void *file, unsigned int cmd, unsigned long arg);
+void t33_calgo_release(const void *file);
 void t33_calgo_ae_tick(void);
 void t33_calgo_awb_tick(void);
 void t33_calgo_show(struct seq_file *m);

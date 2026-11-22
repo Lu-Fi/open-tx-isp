@@ -25,8 +25,8 @@
  * goes through the blocks' manual paths (AE exposure info manual mode, AWB
  * manual mode): the per-frame AE / AWB keep collecting statistics, the
  * library chooses the values.  The close restores the state saved before
- * the first result and wakes a waiting get (-EINVAL).  No ioctl here takes
- * the core lock.
+ * the first result and wakes a waiting get (-EINVAL); the release of the
+ * opening file does the same (killed client).  No ioctl here takes the core lock.
  */
 #ifdef T33_CALGO_HOST
 #include "t33_calgo_host_env.h"	/* tests/t33_calgo_host.c */
@@ -56,6 +56,7 @@ struct t33_calgo {
 	atomic_t seq;			/* statistics frames since the module load */
 	int seen;			/* the frame the last get handed out */
 	u8 *info;
+	const void *owner;		/* the /dev/tx-isp file that opened the library */
 	wait_queue_head_t wq;
 	u8 ae_save[41];
 	u32 awb_save[3];
@@ -100,7 +101,7 @@ static int calgo_hdr(unsigned long arg, u32 *hdr)
 	return 0;
 }
 
-static int calgo_open(int k, unsigned long arg)
+static int calgo_open(int k, const void *file, unsigned long arg)
 {
 	u8 init[T33_CALGO_AE_INIT];
 	u32 hdr[2], n = k ? T33_CALGO_AWB_INIT : T33_CALGO_AE_INIT;
@@ -134,12 +135,35 @@ static int calgo_open(int k, unsigned long arg)
 		return -EFAULT;		/* not registered: the library never sees an open */
 	}
 	ca[k].applied = false;
+	ca[k].owner = file;
 	ca[k].seen = atomic_read(&ca[k].seq);
 	ca[k].opens++;
 	WRITE_ONCE(ca[k].open, true);
 	mutex_unlock(&calgo_lock);
 	isp_printf(1, "tx-isp-t33: custom %s library open\n", k ? "AWB" : "AE");
 	return 0;
+}
+
+/* calgo_lock held, library open: restore the state before the first result, unregister, wake a waiting get */
+static void calgo_drop_locked(int k)
+{
+	if (ca[k].applied) {
+		if (k)
+			t33_tb_calgo_awb_restore(0, ca[k].awb_save);
+		else
+			t33_tb_calgo_ae_restore(0, ca[k].ae_save);
+	}
+	WRITE_ONCE(ca[k].open, false);
+	ca[k].owner = NULL;
+	kfree(ca[k].info);
+	ca[k].info = NULL;
+}
+
+static void calgo_closed(int k, const char *why)
+{
+	wake_up_interruptible_all(&ca[k].wq);
+	isp_printf(1, "tx-isp-t33: custom %s library %s (%u gets, %u sets, %u timeouts)\n",
+		   k ? "AWB" : "AE", why, ca[k].gets, ca[k].sets, ca[k].timeouts);
 }
 
 static int calgo_close(int k, unsigned long arg)
@@ -156,20 +180,31 @@ static int calgo_close(int k, unsigned long arg)
 		mutex_unlock(&calgo_lock);
 		return -EINVAL;
 	}
-	if (ca[k].applied) {
-		if (k)
-			t33_tb_calgo_awb_restore(0, ca[k].awb_save);
-		else
-			t33_tb_calgo_ae_restore(0, ca[k].ae_save);
-	}
-	WRITE_ONCE(ca[k].open, false);
-	kfree(ca[k].info);
-	ca[k].info = NULL;
+	calgo_drop_locked(k);
 	mutex_unlock(&calgo_lock);
-	wake_up_interruptible_all(&ca[k].wq);
-	isp_printf(1, "tx-isp-t33: custom %s library closed (%u gets, %u sets, %u timeouts)\n",
-		   k ? "AWB" : "AE", ca[k].gets, ca[k].sets, ca[k].timeouts);
+	calgo_closed(k, "closed");
 	return 0;
+}
+
+/*
+ * /dev/tx-isp release: a client that dies with a library open (crash, kill -9) unregisters it here, so the
+ * AE / AWB return to automatic and the restarted client can open again (as the T41 module, #197)
+ */
+void t33_calgo_release(const void *file)
+{
+	int k;
+
+	for (k = 0; k < 2; k++) {
+		bool drop;
+
+		mutex_lock(&calgo_lock);
+		drop = calgo_ready && ca[k].open && ca[k].owner == file;
+		if (drop)
+			calgo_drop_locked(k);
+		mutex_unlock(&calgo_lock);
+		if (drop)
+			calgo_closed(k, "released by its client's close");
+	}
 }
 
 static int calgo_get(int k, unsigned long arg)
@@ -247,14 +282,14 @@ static int calgo_set(int k, unsigned long arg)
 }
 
 /* /dev/tx-isp: -ENOIOCTLCMD for every other command */
-long t33_calgo_ioctl(unsigned int cmd, unsigned long arg)
+long t33_calgo_ioctl(const void *file, unsigned int cmd, unsigned long arg)
 {
 	switch (cmd) {
-	case T33_IOC_AE_ALGO_OPEN:	return calgo_open(0, arg);
+	case T33_IOC_AE_ALGO_OPEN:	return calgo_open(0, file, arg);
 	case T33_IOC_AE_ALGO_CLOSE:	return calgo_close(0, arg);
 	case T33_IOC_AE_ALGO_GET:	return calgo_get(0, arg);
 	case T33_IOC_AE_ALGO_SET:	return calgo_set(0, arg);
-	case T33_IOC_AWB_ALGO_OPEN:	return calgo_open(1, arg);
+	case T33_IOC_AWB_ALGO_OPEN:	return calgo_open(1, file, arg);
 	case T33_IOC_AWB_ALGO_CLOSE:	return calgo_close(1, arg);
 	case T33_IOC_AWB_ALGO_GET:	return calgo_get(1, arg);
 	case T33_IOC_AWB_ALGO_SET:	return calgo_set(1, arg);
