@@ -70,6 +70,13 @@ int main(void)
 	CHECK(!t23_scratch_is(0, 0));
 	CHECK(!t23_scratch_is(0, 0x2e01000U));
 
+	/* #767: no scratch area in the IVDC direct mode, parameter otherwise */
+	if (!t23_scratch_enabled(1, 0) || t23_scratch_enabled(1, 1) ||
+	    t23_scratch_enabled(0, 0) || !t23_scratch_enabled(1, 2)) {
+		fprintf(stderr, "t23_scratch_enabled: wrong decision\n");
+		failures++;
+	}
+
 	if (failures) {
 		fprintf(stderr, "tx_isp_t23_scratch_test: %d failure(s)\n", failures);
 		return 1;

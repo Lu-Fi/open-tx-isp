@@ -90,6 +90,18 @@ static inline int t23_scratch_park_wanted(int keep_enabled, int input_stops,
 }
 
 /* A completion address that is the scratch area (low 3 bits ignored). */
+/*
+ * Whether the scratch area is used at all (openimp #767): not in the IVDC
+ * direct mode (direct_mode 1), where channel 0 writes to the IVDC and the
+ * vendor module has no such area either; the 32 MB T23DL budget (rmem 8M)
+ * has no room for one sensor-size Y plane.  Otherwise the msca_scratch
+ * parameter decides, as before.
+ */
+static inline int t23_scratch_enabled(int param, int direct_mode)
+{
+	return param && direct_mode != 1;
+}
+
 static inline int t23_scratch_is(u32 scratch_phys, u32 y_phys)
 {
 	return scratch_phys && (y_phys & ~7U) == (scratch_phys & ~7U);

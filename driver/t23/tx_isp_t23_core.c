@@ -17,6 +17,7 @@
 #include "tx_isp_t23_crumbs.h"
 #include "tx_isp_t23_scratch.h"
 #include "tx_isp_t23_ivdc_misc.h"
+#include "tx_isp_t23_ivdc_direct.h"
 #include "tx_isp_t23_bypass.h"
 #include "tx_isp_t23_core_ioctl.h"
 #include "tx_isp_t23_msca_geom.h"
@@ -836,6 +837,20 @@ module_param(direct_mode, int, 0);
 MODULE_PARM_DESC(direct_mode, "isp direct mode");
 
 static int isp_memopt;
+/*
+ * The direct-mode parameters as loaded (openimp #767).  Several lifted
+ * functions (tisp_lsc_*, tisp_ae0_process_impl, tiziano_ccm_init, ...)
+ * write through pointers the lifter resolved to &direct_mode and its
+ * neighbours, so the module words above do not keep their load values;
+ * the driver works on these copies, taken first thing in init_module
+ * (single owner; the module words are only read there, openimp #770).
+ */
+static int t23_ivdc_direct_mode;
+static int t23_ivdc_mem_line;
+static int t23_ivdc_threshold_line;
+static unsigned int t23_ivdc_mem_paddr;
+static int t23_isp_memopt;
+static struct device *t23_ivdc_dev;     /* the probed IVDC device (ring allocation) */
 module_param(isp_memopt, int, 0);
 MODULE_PARM_DESC(isp_memopt, "isp memory optimize");
 
@@ -11460,7 +11475,7 @@ static void regtrace_t23_stream_irq_gate(int enable,
      * direct_mode=0; a disable still goes through so a line enabled under
      * direct mode is turned off again.
      */
-    if (!enable || direct_mode)
+    if (!enable || t23_ivdc_direct_mode)
         regtrace_t23_set_irq_enabled("ivdc", regtrace_t23_ivdc_sd,
                                      &regtrace_t23_ivdc_irq_enabled,
                                      enable, reason, channel);
@@ -13417,7 +13432,7 @@ static int regtrace_t23_source_mdns_load_tuning(void)
            (uint32_t)mdns_uv_filter_en_array,
            (uint32_t)mdns_uv_sf_cur_en_array,
            (uint32_t)mdns_uv_sf_ref_en_array,
-           (uint32_t)isp_memopt);
+           (uint32_t)t23_isp_memopt);
     return 0;
 }
 
@@ -15492,7 +15507,7 @@ static u32 regtrace_mdns_malloc_size(u32 mode, u32 width, u32 height)
     u32 pad;
 
     (void)mode;
-    if (tx_isp_mdns_layout_build(width, height, isp_memopt != 0,
+    if (tx_isp_mdns_layout_build(width, height, t23_isp_memopt != 0,
                                  &layout))
         return 0;
 
@@ -16901,16 +16916,16 @@ static long regtrace_misc_ivdc_ioctl(struct file *file, unsigned int cmd, unsign
         .print = regtrace_ivdc_misc_print,
     };
     const struct t23_ivdc_misc_state st = {
-        .direct_mode = &direct_mode,
-        .mem_line = &ivdc_mem_line,
-        .mem_paddr = (unsigned int *)&ivdc_mem_paddr,
+        .direct_mode = &t23_ivdc_direct_mode,
+        .mem_line = &t23_ivdc_mem_line,
+        .mem_paddr = &t23_ivdc_mem_paddr,
     };
     long ret;
 
     if (file && !file->private_data)
         file->private_data = regtrace_misc_ivdc_private;
     ret = t23_ivdc_misc_ioctl(&st, &ops, cmd, arg);
-    printk(KERN_INFO "t23: misc-ivdc ioctl cmd=0x%x arg=0x%lx ret=%ld pid=%d comm=%s\n",
+    printk(KERN_NOTICE "t23: misc-ivdc ioctl cmd=0x%x arg=0x%lx ret=%ld pid=%d comm=%s\n",
            cmd, arg, ret, current->pid, current->comm);
     return ret;
 }
@@ -17459,6 +17474,205 @@ static bool regtrace_t23_qbuf_guard = true;
 module_param_named(qbuf_guard, regtrace_t23_qbuf_guard, bool, 0644);
 MODULE_PARM_DESC(qbuf_guard, "Reject framechan QBUF buffers outside rmem (default 1)");
 
+/*
+ * IVDC direct mode, frame channel 0 (direct_mode=1, openimp #767): the
+ * ISP hands channel 0 line by line to the encoder through the IVDC block
+ * instead of writing frames to DDR.  Register values: tx_isp_t23_ivdc_direct.h
+ * (vendor flow, checked against tests/t23/vendor-1.3.0-ivdc-regs.txt).
+ *  - the MSCA channel 0 address FIFO gets the IVDC addresses (Y 0x80000000,
+ *    UV 0x81000000, stride 0x1000) instead of buffer addresses;
+ *  - a channel 0 buffer completes at each ISP frame start (core status bit
+ *    0x1000), as the vendor ISR does; the frames carry no picture and DQBUF
+ *    marks them with frame type 3 in the reserved word;
+ *  - DQBUF keeps the buffer queued (vendor: the vb goes straight back to the
+ *    queue), a QBUF of a buffer that is still queued is accepted and ignored;
+ *  - the DDR ring (ivdc_mem_line lines) is the one user space hands over with
+ *    SET_PADDR, else allocated here.
+ * Direct modes 2..4 (several sensors) are not supported.
+ */
+static int regtrace_t23_ivdc_state;          /* 3: core initialized (vendor +0x170) */
+static void *regtrace_t23_ivdc_ring_virt;    /* ring allocated here (no SET_PADDR) */
+static dma_addr_t regtrace_t23_ivdc_ring_dma;
+static unsigned int regtrace_t23_ivdc_ring_size;
+static unsigned int regtrace_t23_ivdc_next_slot;
+static unsigned int regtrace_t23_ivdc_frames;
+module_param_named(ivdc_frames, regtrace_t23_ivdc_frames, uint, 0444);
+MODULE_PARM_DESC(ivdc_frames, "channel 0 frames completed at the ISP frame start in direct mode (read only)");
+
+static bool regtrace_t23_ivdc_ch(int channel)
+{
+    return channel == 0 && t23_ivdc_direct_mode == 1;
+}
+
+static void __iomem *regtrace_t23_ivdc_base(void)
+{
+    if (!regtrace_t23_ivdc_sd)
+        return NULL;
+    return (void __iomem *)(uintptr_t)*(uint32_t *)(regtrace_t23_ivdc_sd + 184);
+}
+
+static void regtrace_t23_ivdc_write_regs(const struct t23_ivdc_reg *r, int n)
+{
+    void __iomem *base = regtrace_t23_ivdc_base();
+    int i;
+
+    if (!base)
+        return;
+    for (i = 0; i < n; i++)
+        writel(r[i].val, base + r[i].off);
+    wmb();
+}
+
+/* vendor ivdc_core_ops_init(sd, 1) @0x1c2c0 with direct_mode */
+static void regtrace_t23_ivdc_core_init(void)
+{
+    void __iomem *base = regtrace_t23_ivdc_base();
+    int tries = 1000;
+
+    system_reg_write(0xd060U, 1U);
+    /* the frame start (core bit 12) completes channel 0: unmask it */
+    ACCESS_ONCE(t23_isr_enable) |= BIT(12);
+    if (!base || regtrace_t23_ivdc_state == 3)
+        return;
+    system_reg_write(0x1cU, ((uint32_t)system_reg_read(0x1cU) & 0x1fffffffU) |
+                            0xa0000000U);
+    writel(1U, base + 0x0);
+    while ((readl(base + 0x0) & 1U) && tries--) {
+        writel(0x30U, base + 0x70);
+        writel(0x30U, base + 0x88);
+        udelay(1);
+    }
+    if (readl(base + 0x0) & 1U)
+        printk(KERN_WARNING "t23: IVDC init did not finish (0x0 = 0x%x)\n",
+               readl(base + 0x0));
+    printk(KERN_NOTICE "t23: Ivdc init! direct_mode is %d\n", t23_ivdc_direct_mode);
+    regtrace_t23_ivdc_state = 3;
+}
+
+/* vendor pad event 0x3000002: channel 0 format */
+static void regtrace_t23_ivdc_set_fmt(unsigned int w, unsigned int h)
+{
+    struct t23_ivdc_reg r[T23_IVDC_MAX_REGS];
+    void __iomem *base = regtrace_t23_ivdc_base();
+    unsigned int thr = (unsigned int)t23_ivdc_threshold_line;
+    int n;
+
+    if (!base)
+        return;
+    regtrace_t23_ivdc_core_init();
+    n = t23_ivdc_geometry(w, h, readl(base + 0x24), &thr, r);
+    t23_ivdc_threshold_line = (int)thr;
+    regtrace_t23_ivdc_write_regs(r, n);
+    system_reg_write(0xd140U, T23_IVDC_STRIDE);
+    system_reg_write(0xd160U, T23_IVDC_STRIDE);
+    printk(KERN_NOTICE "t23: IVDC channel 0 %ux%u threshold %u\n", w, h, thr);
+}
+
+static void regtrace_t23_ivdc_free_ring(void)
+{
+    if (regtrace_t23_ivdc_ring_virt)
+        dma_free_coherent(t23_ivdc_dev,
+                          regtrace_t23_ivdc_ring_size,
+                          regtrace_t23_ivdc_ring_virt,
+                          regtrace_t23_ivdc_ring_dma);
+    regtrace_t23_ivdc_ring_virt = NULL;
+    regtrace_t23_ivdc_ring_size = 0;
+}
+
+/* vendor pad event 0x3000007: the DDR ring of channel 0 */
+static int regtrace_t23_ivdc_reqbufs(unsigned int w, unsigned int h)
+{
+    struct t23_ivdc_reg r[8];
+    unsigned int line = (unsigned int)t23_ivdc_mem_line;
+    unsigned int size = t23_ivdc_ring_bytes(w, h, &line);
+    unsigned int paddr = t23_ivdc_mem_paddr;
+    int n;
+
+    if (!regtrace_t23_ivdc_base())
+        return -ENODEV;
+    t23_ivdc_mem_line = (int)line;
+    regtrace_t23_ivdc_free_ring();
+    if (!paddr) {
+        regtrace_t23_ivdc_ring_virt =
+            dma_alloc_coherent(t23_ivdc_dev, size,
+                               &regtrace_t23_ivdc_ring_dma, GFP_KERNEL);
+        if (!regtrace_t23_ivdc_ring_virt) {
+            printk(KERN_ERR "t23: IVDC ring of %u bytes: no memory\n", size);
+            return -ENOMEM;
+        }
+        regtrace_t23_ivdc_ring_size = size;
+        paddr = (unsigned int)regtrace_t23_ivdc_ring_dma;
+    }
+    n = t23_ivdc_ring(w, line, paddr, &t23_ivdc_direct_mode, r);
+    if (n < 0) {
+        printk(KERN_ERR "t23: IVDC: direct_mode = %d is invalid\n", t23_ivdc_direct_mode);
+        regtrace_t23_ivdc_free_ring();
+        return -EINVAL;
+    }
+    regtrace_t23_ivdc_write_regs(r, n);
+    printk(KERN_NOTICE "t23: ivdc_paddr = 0x%08x (%u lines, %u bytes%s)\n", paddr,
+           line, size, regtrace_t23_ivdc_ring_virt ? ", driver" : "");
+    return 0;
+}
+
+/* vendor pad events 0x3000003 / 0x3000004: channel 0 stream on / off */
+static void regtrace_t23_ivdc_stream(bool on)
+{
+    void __iomem *base = regtrace_t23_ivdc_base();
+
+    if (!base)
+        return;
+    if (on) {
+        writel(T23_IVDC_IRQ_MASK, base + 0x40);
+        writel(2U, base + 0x04);
+        writel(0xcU, base + 0x08);
+        wmb();
+        regtrace_t23_ivdc_next_slot = 0;
+    } else {
+        regtrace_t23_ivdc_state = 2;
+    }
+}
+
+/* MSCA address FIFO push; channel 0 in direct mode takes the IVDC addresses */
+static int32_t regtrace_t23_msca_fifo_push(int channel, uint32_t y, uint32_t uv)
+{
+    if (regtrace_t23_ivdc_ch(channel)) {
+        y = T23_IVDC_Y_ADDR;
+        uv = T23_IVDC_UV_ADDR;
+    }
+    return tisp_msca_addr_fifo_write((char)channel, (int32_t)y, (int32_t)uv);
+}
+
+/* direct mode, channel 0 QBUF: the buffers carry no picture (vendor
+ * libimp queues them with the IVDC address); a slot per index, its MSCA
+ * FIFO entry is the IVDC pair (vendor ispcore_pad_event_handle QBUF) */
+static int regtrace_t23_ivdc_qbuf(const uint32_t *words)
+{
+    unsigned long flags;
+    unsigned int slot = words[TX_ISP_FRAME_WORD_INDEX] %
+                        REGTRACE_FRAMECHAN_QBUF_SLOTS;
+
+    spin_lock_irqsave(&regtrace_framechan_done_lock, flags);
+    if (regtrace_framechan_qbuf_queued[0][slot] &&
+        regtrace_framechan_qbuf_index[0][slot] == words[TX_ISP_FRAME_WORD_INDEX]) {
+        /* DQBUF kept it queued (vendor g_banks) */
+        spin_unlock_irqrestore(&regtrace_framechan_done_lock, flags);
+        return 0;
+    }
+    regtrace_framechan_qbuf_index[0][slot] = words[TX_ISP_FRAME_WORD_INDEX];
+    regtrace_framechan_qbuf_userptr[0][slot] = words[TX_ISP_FRAME_WORD_DMA] ?
+        words[TX_ISP_FRAME_WORD_DMA] : T23_IVDC_Y_ADDR;
+    regtrace_framechan_qbuf_len[0][slot] = words[TX_ISP_FRAME_WORD_LENGTH];
+    regtrace_framechan_qbuf_queued[0][slot] = true;
+    regtrace_framechan_qbuf_deferred[0][slot] = false;
+    regtrace_framechan_qbuf_last[0] = slot;
+    regtrace_framechan_qbuf_count[0]++;
+    tisp_msca_addr_fifo_write(0, (int32_t)T23_IVDC_Y_ADDR,
+                              (int32_t)T23_IVDC_UV_ADDR);
+    spin_unlock_irqrestore(&regtrace_framechan_done_lock, flags);
+    return 0;
+}
+
 static int regtrace_framechan_record_qbuf(int channel, const uint32_t *words)
 {
     struct tx_isp_nv12_buffer buffer;
@@ -17472,6 +17686,8 @@ static int regtrace_framechan_record_qbuf(int channel, const uint32_t *words)
 
     if (channel < 0 || channel >= REGTRACE_FRAMECHAN_COUNT || !words)
         return -EINVAL;
+    if (regtrace_t23_ivdc_ch(channel) && !ACCESS_ONCE(t23_bp_graph))
+        return regtrace_t23_ivdc_qbuf(words);
 
     userptr = words[TX_ISP_FRAME_WORD_DMA];
     /* Only user space queues here: the buffer must lie in rmem. */
@@ -17530,6 +17746,12 @@ static int regtrace_framechan_record_qbuf(int channel, const uint32_t *words)
             break;
         }
     }
+    /* direct mode: DQBUF kept the buffer queued (vendor g_banks) */
+    if (regtrace_t23_ivdc_ch(channel) && slot >= 0 &&
+        regtrace_framechan_qbuf_queued[channel][slot]) {
+        spin_unlock_irqrestore(&regtrace_framechan_done_lock, flags);
+        return 0;
+    }
     for (i = 0; slot < 0 && i < REGTRACE_FRAMECHAN_QBUF_SLOTS; i++) {
         if (!regtrace_framechan_qbuf_queued[channel][i])
             slot = i;
@@ -17565,8 +17787,8 @@ static int regtrace_framechan_record_qbuf(int channel, const uint32_t *words)
         regtrace_framechan_qbuf_deferred[channel][slot] = true;
         regtrace_t23_scratch_deferred++;
     } else if (program) {
-        ret = tisp_msca_addr_fifo_write((char)channel, buffer.y_dma,
-                                        buffer.uv_dma);
+        ret = regtrace_t23_msca_fifo_push(channel, buffer.y_dma,
+                                          buffer.uv_dma);
         if (ret)
             regtrace_framechan_qbuf_queued[channel][slot] = false;
     }
@@ -17590,6 +17812,46 @@ static int regtrace_framechan_record_qbuf(int channel, const uint32_t *words)
                channel, buffer.y_dma, buffer.uv_dma,
                words[TX_ISP_FRAME_WORD_LENGTH], ret);
     return ret;
+}
+
+/* direct mode: an ISP frame start completes the next queued channel 0
+ * buffer (vendor ispcore_interrupt_service_routine @0x7b6b4, bit 0x1000) */
+static void regtrace_framechan_complete_fifo(int channel, uint32_t y_phys,
+                                             uint32_t uv_phys);
+
+static void regtrace_t23_ivdc_frame_start(void)
+{
+    struct regtrace_framechan_done *done;
+    unsigned long flags;
+    unsigned int i, slot, head;
+
+    spin_lock_irqsave(&regtrace_framechan_done_lock, flags);
+    for (i = 0; regtrace_framechan_streaming[0] &&
+                i < REGTRACE_FRAMECHAN_QBUF_SLOTS; i++) {
+        slot = (regtrace_t23_ivdc_next_slot + i) % REGTRACE_FRAMECHAN_QBUF_SLOTS;
+        if (!regtrace_framechan_qbuf_queued[0][slot])
+            continue;
+        regtrace_t23_ivdc_next_slot = slot + 1;
+        if (regtrace_framechan_done_count[0] == REGTRACE_FRAMECHAN_DONE_SLOTS) {
+            regtrace_framechan_done_tail[0] =
+                (regtrace_framechan_done_tail[0] + 1U) % REGTRACE_FRAMECHAN_DONE_SLOTS;
+            regtrace_framechan_done_count[0]--;
+        }
+        regtrace_framechan_qbuf_queued[0][slot] = false;
+        head = regtrace_framechan_done_head[0];
+        done = &regtrace_framechan_done_ring[0][head];
+        done->index = regtrace_framechan_qbuf_index[0][slot];
+        done->userptr = regtrace_framechan_qbuf_userptr[0][slot];
+        done->length = regtrace_framechan_qbuf_len[0][slot];
+        done->uv_phys = T23_IVDC_UV_ADDR;
+        regtrace_framechan_done_head[0] = (head + 1U) % REGTRACE_FRAMECHAN_DONE_SLOTS;
+        regtrace_framechan_done_count[0]++;
+        regtrace_framechan_done_total[0]++;
+        regtrace_t23_ivdc_frames++;
+        break;
+    }
+    spin_unlock_irqrestore(&regtrace_framechan_done_lock, flags);
+    wake_up_interruptible(&regtrace_framechan_done_wait[0]);
 }
 
 static void regtrace_framechan_done_init(void)
@@ -18128,6 +18390,19 @@ static long regtrace_framechan_repair_dqbuf(int channel, unsigned long arg,
                 regtrace_framechan_qbuf_len[channel][slot];
         }
     }
+    if (regtrace_t23_ivdc_ch(channel) && slot >= 0) {
+        int i;
+
+        /* direct mode: frame type 3 (no picture), the buffer stays queued */
+        words[TX_ISP_FRAME_WORD_RESERVED] = 3;
+        spin_lock_irqsave(&regtrace_framechan_done_lock, flags);
+        for (i = 0; i < REGTRACE_FRAMECHAN_QBUF_SLOTS; i++)
+            if (regtrace_framechan_qbuf_index[channel][i] ==
+                words[TX_ISP_FRAME_WORD_INDEX] &&
+                regtrace_framechan_qbuf_userptr[channel][i])
+                regtrace_framechan_qbuf_queued[channel][i] = true;
+        spin_unlock_irqrestore(&regtrace_framechan_done_lock, flags);
+    }
     words[TX_ISP_FRAME_WORD_TYPE] = REGTRACE_TISP_BUF_TYPE_VIDEO_CAPTURE;
     words[TX_ISP_FRAME_WORD_FLAGS] = TX_ISP_FRAME_FLAG_DONE;
     words[TX_ISP_FRAME_WORD_SEQUENCE] =
@@ -18340,11 +18615,18 @@ static unsigned int regtrace_framechan_rearm_fifo(int channel)
         regtrace_framechan_qbuf_deferred[channel][i] = false;
         if (!regtrace_framechan_qbuf_queued[channel][i])
             continue;
-        if (regtrace_t23_build_msca_qbuf(channel,
+        if (regtrace_t23_ivdc_ch(channel)) {
+            /* direct mode: no frame memory behind the buffer */
+            buffer.y_dma = T23_IVDC_Y_ADDR;
+            buffer.uv_dma = T23_IVDC_UV_ADDR;
+        } else if (regtrace_t23_build_msca_qbuf(channel,
                 regtrace_framechan_qbuf_userptr[channel][i],
-                regtrace_framechan_qbuf_len[channel][i], &buffer) ||
-            tisp_msca_addr_fifo_write((char)channel, buffer.y_dma,
-                                      buffer.uv_dma)) {
+                regtrace_framechan_qbuf_len[channel][i], &buffer)) {
+            regtrace_framechan_qbuf_queued[channel][i] = false;
+            continue;
+        }
+        if (regtrace_t23_msca_fifo_push(channel, buffer.y_dma,
+                                        buffer.uv_dma)) {
             regtrace_framechan_qbuf_queued[channel][i] = false;
             continue;
         }
@@ -18378,11 +18660,18 @@ static unsigned int regtrace_framechan_unpark(int channel)
         regtrace_framechan_qbuf_deferred[channel][i] = false;
         if (!regtrace_framechan_qbuf_queued[channel][i])
             continue;
-        if (regtrace_t23_build_msca_qbuf(channel,
+        if (regtrace_t23_ivdc_ch(channel)) {
+            /* direct mode: no frame memory behind the buffer */
+            buffer.y_dma = T23_IVDC_Y_ADDR;
+            buffer.uv_dma = T23_IVDC_UV_ADDR;
+        } else if (regtrace_t23_build_msca_qbuf(channel,
                 regtrace_framechan_qbuf_userptr[channel][i],
-                regtrace_framechan_qbuf_len[channel][i], &buffer) ||
-            tisp_msca_addr_fifo_write((char)channel, buffer.y_dma,
-                                      buffer.uv_dma)) {
+                regtrace_framechan_qbuf_len[channel][i], &buffer)) {
+            regtrace_framechan_qbuf_queued[channel][i] = false;
+            continue;
+        }
+        if (regtrace_t23_msca_fifo_push(channel, buffer.y_dma,
+                                        buffer.uv_dma)) {
             regtrace_framechan_qbuf_queued[channel][i] = false;
             continue;
         }
@@ -18902,6 +19191,8 @@ static long regtrace_framechan_ioctl_body(struct file *file, unsigned int cmd,
             ret = regtrace_t23_program_msca_format(channel, &format);
         if (ret)
             break;
+        if (regtrace_t23_ivdc_ch(channel) && !ACCESS_ONCE(t23_bp_graph))
+            regtrace_t23_ivdc_set_fmt(format.pix.width, format.pix.height);
         if (copy_to_user((void __user *)(uintptr_t)arg, &format,
                          sizeof(format))) {
             ret = -EFAULT;
@@ -18934,6 +19225,14 @@ static long regtrace_framechan_ioctl_body(struct file *file, unsigned int cmd,
                 regtrace_framechan_forget_qbufs_locked(channel);
             }
             spin_unlock_irqrestore(&regtrace_framechan_done_lock, flags);
+        }
+        if (regtrace_t23_ivdc_ch(channel) && words[TX_ISP_FRAME_REQUEST_WORD_COUNT]) {
+            ret = regtrace_t23_ivdc_reqbufs(regtrace_t23_frame_width(0),
+                                            regtrace_t23_frame_height(0));
+            if (ret)
+                break;
+        } else if (regtrace_t23_ivdc_ch(channel)) {
+            regtrace_t23_ivdc_free_ring();
         }
         if (regtrace_t23_log_framechan_payloads)
             printk(KERN_INFO "t23: framechan%d reqbufs count=%u type=%u memory=%u ret=0\n",
@@ -18976,6 +19275,8 @@ static long regtrace_framechan_ioctl_body(struct file *file, unsigned int cmd,
         break;
     case REGTRACE_T23_VIDIOC_STREAMON:
         ret = regtrace_framechan_stream_on(file, channel);
+        if (!ret && regtrace_t23_ivdc_ch(channel))
+            regtrace_t23_ivdc_stream(true);
         if (regtrace_t23_log_framechan_payloads)
             printk(KERN_WARNING "t23: framechan%d streamon arg=0x%lx ret=%ld core=%p vic=%p csi=%p fs=%p\n",
                    channel, arg, (long)ret, regtrace_t23_core_sd, regtrace_t23_vic_sd,
@@ -18983,6 +19284,8 @@ static long regtrace_framechan_ioctl_body(struct file *file, unsigned int cmd,
         break;
     case REGTRACE_T23_VIDIOC_STREAMOFF:
         regtrace_framechan_stream_off(channel, "framechan-streamoff");
+        if (regtrace_t23_ivdc_ch(channel))
+            regtrace_t23_ivdc_stream(false);
         if (regtrace_t23_log_framechan_payloads)
             printk(KERN_WARNING "t23: framechan%d streamoff arg=0x%lx ret=0\n",
                    channel, arg);
@@ -20364,6 +20667,7 @@ static int regtrace_t23_probe_ivdc_safe(struct platform_device *pdev)
     *(uint32_t *)(ivdc + 376) = (uint32_t)(uintptr_t)pdev->dev.platform_data;
     g_ivdc = (uintptr_t)ivdc;
     regtrace_t23_ivdc_sd = sd;
+    t23_ivdc_dev = &pdev->dev;
     printk(KERN_INFO "t23: safe probe ivdc dev=%p sd=%p base=%p\n",
            ivdc, sd, (void *)(uintptr_t)*(uint32_t *)(sd + 184));
     return 0;
@@ -35704,6 +36008,10 @@ static int32_t isp_irq_handle_body(int32_t irq, void *dev_id)
             ACCESS_ONCE(regtrace_t23_bayer_pending) = UINT_MAX;
         }
 
+        /* direct mode: channel 0 completes at the ISP frame start */
+        if ((status0 & 0x1000U) && t23_ivdc_direct_mode == 1 &&
+            regtrace_framechan_streaming[0])
+            regtrace_t23_ivdc_frame_start();
         /* OEM T23 drains MSCA completion FIFOs from the core ISR. */
         if (regtrace_t23_source_frame_done) {
             spin_lock(&regtrace_t23_msca_lock);
@@ -35724,8 +36032,13 @@ static int32_t isp_irq_handle_body(int32_t irq, void *dev_id)
                     uint32_t uv_phys =
                         readl(base + fifo_base + 0x158U) & ~7U;
 
-                    regtrace_framechan_complete_fifo(channel, y_phys,
-                                                     uv_phys);
+                    if (regtrace_t23_ivdc_ch(channel))
+                        /* direct mode: the IVDC pair goes back into the FIFO */
+                        tisp_msca_addr_fifo_write(0, (int32_t)y_phys,
+                                                  (int32_t)uv_phys);
+                    else
+                        regtrace_framechan_complete_fifo(channel, y_phys,
+                                                         uv_phys);
                     drained++;
                     fifo_status = readl(base + fifo_base + 0x13cU);
                 }
@@ -46903,6 +47216,9 @@ int32_t tisp_msca_chx_cfg_load(uint32_t unused, uint32_t channel,
 
     base = (channel + 0xd0U) << 8;
     cfg_word = regtrace_t23_get_le32(cfg + 0x30);
+    /* vendor @0x29d18: channel 0 of the direct mode writes to the IVDC */
+    if (regtrace_t23_ivdc_ch((int)channel))
+        cfg_word = T23_IVDC_STRIDE;
     system_reg_write(base + 0x140U, cfg_word);
     system_reg_write(base + 0x160U, cfg_word);
     work = system_reg_read(0xd040U) | ((uint32_t)cfg[0] << channel);
@@ -87816,7 +88132,7 @@ int32_t tisp_mdns_top_func_cfg(int32_t arg1)
 	regtrace_t23_source_mdns_top_control = a1;
 	system_reg_write(0x7810, a1);
 
-	isp_memopt_1 = isp_memopt;
+	isp_memopt_1 = t23_isp_memopt;
 
 	if (isp_memopt_1 == 1) {
 		mdns_ass_enable_array = 0;
@@ -88150,7 +88466,7 @@ static int32_t tisp_mdns_y_2d_param_cfg(void)
 
 	system_reg_write(0x79fc, mdns_y_fiir_fus_wei6_intp << 8 | mdns_y_fiir_fus_wei7_intp << 0x10 | mdns_y_fiir_fus_wei5_intp | mdns_y_fiir_fus_wei8_intp << 0x18);
 
-	if (isp_memopt == 1)
+	if (t23_isp_memopt == 1)
 		mdns_y_con_thres_intp = 0;
 
 	system_reg_write(0x7a00, mdns_y_con_stren_intp << 8 | mdns_y_con_thres_intp);
@@ -88663,7 +88979,7 @@ static int32_t tisp_mdns_get_malloc_cfg(uint32_t a0, uint32_t a1, uint32_t a2)
     v0 = (uintptr_t *)&isp_memopt;
 
     /* fragment 1: MemoryAccess */
-    a3 = *(uint32_t *)((char *)((char *)&isp_memopt));
+    a3 = (uint32_t)t23_isp_memopt;
 
     /* fragment 2: Branch */
     v0 = v1 + a2;
@@ -88708,7 +89024,7 @@ int32_t tisp_mdns_set_malloc_cfg(uint32_t a0, uint32_t a1, uint32_t a2, uint32_t
     struct tx_isp_mdns_layout layout;
 
     (void)a0;
-    if (tx_isp_mdns_layout_build(a1, a2, isp_memopt != 0, &layout))
+    if (tx_isp_mdns_layout_build(a1, a2, t23_isp_memopt != 0, &layout))
         return 0;
 
     system_reg_write(0x7820U, a3);
@@ -88719,7 +89035,7 @@ int32_t tisp_mdns_set_malloc_cfg(uint32_t a0, uint32_t a1, uint32_t a2, uint32_t
     system_reg_write(0x7830U, a3 + layout.reference_offset[0]);
     system_reg_write(0x7834U, layout.reference_stride);
 
-    if (isp_memopt) {
+    if (t23_isp_memopt) {
         system_reg_write(0x7840U, a3 + layout.reference_offset[1]);
         system_reg_write(0x7844U, 0);
         system_reg_write(0x7848U, a3 + layout.reference_offset[2]);
@@ -88738,7 +89054,7 @@ int32_t tisp_mdns_set_malloc_cfg(uint32_t a0, uint32_t a1, uint32_t a2, uint32_t
     system_reg_write(0x7838U, 0);
     system_reg_write(0x783cU, 1);
 
-    if (isp_memopt) {
+    if (t23_isp_memopt) {
         system_reg_write(0x7858U, a3);
         system_reg_write(0x785cU, 0);
         system_reg_write(0x7860U, a3);
@@ -103638,6 +103954,15 @@ int32_t __init init_module(void)
 {
     int ret;
 
+    /* module parameters as loaded: lifted code overwrites the words (#770) */
+    t23_ivdc_direct_mode = direct_mode;
+    t23_ivdc_mem_line = ivdc_mem_line;
+    t23_ivdc_threshold_line = ivdc_threshold_line;
+    t23_ivdc_mem_paddr = 0;
+    t23_isp_memopt = isp_memopt;
+    /* no MSCA scratch area in the direct mode (vendor has none, #767) */
+    regtrace_t23_msca_scratch = t23_scratch_enabled(regtrace_t23_msca_scratch,
+                                                    t23_ivdc_direct_mode);
     regtrace_patch_relocated_data();
 #ifdef REGTRACE_KERNEL_TREE_BUILD
     regtrace_framechan_done_init();
