@@ -2288,6 +2288,7 @@ static u32 t32_flip_vic_rel = 0x4440;	/* T32 release value: 0x4410 for sensor da
 static struct {
 	u32 requests, applied, mode, holds, releases;
 	int ret;
+	u32 deferred, stop_releases;	/* #779: work runs without a streaming sensor, holds dropped at stop */
 } t33_flip_st;
 
 /* isp_vic_interrupt_service_routine, frame start (0x1e0 bit 4) with the hold armed: count down, release */
@@ -2329,12 +2330,25 @@ static void t33_flip_work(struct work_struct *w)
 	int ret;
 
 	(void)w;
+	if (!ACCESS_ONCE(t33_flip_pend) || !isp_base)
+		return;
+	/*
+	 * #779: under core.lock, rechecked there: stream-off, RELEASE_SENSOR (frees the sensor subdev) and
+	 * the last close (clock gate) hold it, so the sensor and the VICs stay valid until the hold is armed.
+	 * Not streaming: the request stays pending for the next stream's first frame end (the vendor entry
+	 * +1340 is cleared only by ispcore_irq_fd_work0).
+	 */
+	t32_core_lock();
 	spin_lock_irqsave(&t33_flip_lock, fl);
 	mode = t33_flip_mode;
 	ret = t33_flip_pend;
 	spin_unlock_irqrestore(&t33_flip_lock, fl);
-	if (!ret || !isp_base || !t32_core_clk_active())
+	if (!ret || !t32_core_flip_ready()) {
+		if (ret)
+			t33_flip_st.deferred++;
+		t32_core_unlock();
 		return;
+	}
 #ifndef TX_ISP_T33
 	t32_flip_vic_rel = t32_core_sensor_data_type() == 2 ? 0x4410 : 0x4440;
 #endif
@@ -2349,6 +2363,36 @@ static void t33_flip_work(struct work_struct *w)
 	t33_flip_st.mode = mode;
 	t33_flip_st.ret = ret;
 	spin_unlock_irqrestore(&t33_flip_lock, fl);
+	t32_core_unlock();
+}
+
+/*
+ * #779 (beyond vendor, the vendor keeps vic +2384 armed): under core.lock at stream-off and at the last
+ * close.  A VIC hold that is still armed (the flip / bin switch held the VICs on 0x4444 and no frame start
+ * counted it down) is dropped, and while the clocks run the VICs get their release value back now instead
+ * of at the next stream's first frame start (whose stream-on sequence rewrites 0x1a8 anyway).  A pending
+ * flip request stays (vendor: applied at the next frame end).
+ */
+void t33_hw_flip_stop(void)
+{
+	unsigned long fl;
+	bool rel;
+
+	spin_lock_irqsave(&t33_flip_lock, fl);
+	rel = t33_vic_hold != 0;
+	t33_vic_hold = 0;
+	if (rel)
+		t33_flip_st.stop_releases++;
+	spin_unlock_irqrestore(&t33_flip_lock, fl);
+	if (!rel || !isp_base || !t32_core_clk_active())
+		return;
+#ifdef TX_ISP_T33
+	t32_vic_wr(0, 0x1a8, 0x4440);
+	t32_vic_wr(1, 0x1a8, 0x4440);
+#else
+	t32_vic_wr(0, 0x1a8, t32_flip_vic_rel);
+	t32_vic_wr(1, 0x1a8, t32_flip_vic_rel);
+#endif
 }
 static DECLARE_WORK(t33_flip_w, t33_flip_work);
 
@@ -2549,9 +2593,11 @@ extern u32 t32_msca_vendor_starts, t32_msca_direct_starts;	/* #730 (below) */
 
 void t32_flip_show(struct seq_file *m)
 {
-	seq_printf(m, "t32 flip: requests %u applied %u mode %u ret %d pending %u vic holds %u releases %u left %d\n",
+	seq_printf(m, "t32 flip: requests %u applied %u mode %u ret %d pending %u vic holds %u releases %u left %d"
+		   " deferred %u stop releases %u\n",
 		   t33_flip_st.requests, t33_flip_st.applied, t33_flip_st.mode, t33_flip_st.ret, t33_flip_pend,
-		   t33_flip_st.holds, t33_flip_st.releases, t33_vic_hold);
+		   t33_flip_st.holds, t33_flip_st.releases, t33_vic_hold, t33_flip_st.deferred,
+		   t33_flip_st.stop_releases);
 	/* #652: frame-channel stream-offs, work-state wait timeouts, length of the last wait */
 	seq_printf(m, "t32 msca: soff %u timeout %u last %u ms\n", t33_msca_soff_waits, t33_msca_soff_timeouts,
 		   t33_msca_soff_last_ms);
@@ -2574,9 +2620,11 @@ void t32_flip_show(struct seq_file *m)
 
 void t33_stats_show(struct seq_file *m)
 {
-	seq_printf(m, "t33 flip: requests %u applied %u mode %u ret %d pending %u vic holds %u releases %u left %d\n",
+	seq_printf(m, "t33 flip: requests %u applied %u mode %u ret %d pending %u vic holds %u releases %u left %d"
+		   " deferred %u stop releases %u\n",
 		   t33_flip_st.requests, t33_flip_st.applied, t33_flip_st.mode, t33_flip_st.ret, t33_flip_pend,
-		   t33_flip_st.holds, t33_flip_st.releases, t33_vic_hold);
+		   t33_flip_st.holds, t33_flip_st.releases, t33_vic_hold, t33_flip_st.deferred,
+		   t33_flip_st.stop_releases);
 	seq_printf(m, "t33 binsw: calls %u holds %u ipc waits %u timeouts %u\n", t33_binsw_st.calls,
 		   t33_binsw_st.holds, t33_binsw_st.ipc_waits, t33_binsw_st.ipc_timeouts);
 	seq_printf(m, "t33 statistics: awb %u (bad %u) grid %ux%u white %u/%u rg %u bg %u tag %u\n",
@@ -5106,6 +5154,7 @@ void t32_hw_stream_on(void)
 
 void t32_hw_stream_off(void)
 {
+	t33_hw_flip_stop();	/* #779: the flip / bin-switch VIC hold ends with the stream */
 #ifdef TX_ISP_T33
 	t33_awbc_detach();
 	t33_aec_detach();

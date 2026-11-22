@@ -347,6 +347,10 @@ int t32_core_sensor_set_fps(u32 fps);
 void t33_core_flip_request(u32 ch, u32 mode);	/* tx_isp_t32_hw.c */
 int t32_core_sensor_flip(u32 ch, u32 mode, u32 *frames);	/* tx_isp_t32_core.c: sensor ioctl 0x2000010 */
 u32 t32_core_sensor_data_type(void);	/* tx_isp_t32_core.c: attribute +0x94 (T32 VIC release) */
+void t32_core_lock(void);		/* tx_isp_t32_core.c: core.lock for the flip work (#779) */
+void t32_core_unlock(void);
+int t32_core_flip_ready(void);		/* under core.lock: sensor 0 streams, clocks on (#779) */
+void t33_hw_flip_stop(void);		/* tx_isp_t32_hw.c: under core.lock: drop the flip's VIC hold (#779) */
 void t32_flip_show(struct seq_file *m);	/* tx_isp_t32_hw.c */
 
 /* tx_isp_t32_sinfo.c (shared registry, driver/common/tx_isp_sinfo.c) */
