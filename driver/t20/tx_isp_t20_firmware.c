@@ -6563,13 +6563,14 @@ int32_t awb_blue_gain(void *ctx, int32_t value, char direction, int32_t *result)
 /* WHOLE_DRIVER_CANDIDATE fn_000000000001bb84 origin=model_output original=awb_temperature */
 int32_t awb_temperature(void *ctx, int32_t unused_value, char direction, int32_t *result)
 {
+    struct t20_isp_ctx *isp = ctx;
     int32_t status;
 
     *result = 0;
 
     if ((uint8_t)direction == 1) {
         status = 0;
-        *result = *(int32_t *)((char *)ctx + 0xec0) / 100;
+        *result = t20_member(isp, awb.color_temp) / 100;
     } else {
         status = 2;
     }
@@ -6949,12 +6950,13 @@ int32_t flash_mode(void *ctx, char value, char direction, int32_t *result)
 /* WHOLE_DRIVER_CANDIDATE fn_000000000001c654 origin=model_output original=flash_time */
 int32_t flash_time(void *ctx, int32_t unused_value, char direction, int32_t *result)
 {
+	struct t20_isp_ctx *isp = ctx;
 	uint32_t dir = (uint32_t)direction & 0xff;
 
 	*result = 0;
 
 	if (dir == 0) {
-		apical_isp_raise_event(*(int32_t *)((uintptr_t)ctx + 0x147c), 9);
+		apical_isp_raise_event(*(int32_t *)t20_member_ptr(isp, flash), 9);
 		return 0;
 	}
 
@@ -7738,7 +7740,8 @@ int32_t fr_output_mode(void *ctx, int32_t value, char direction, int32_t *result
 int32_t ds1_output_mode(void *ctx, int32_t value, char direction, int32_t *result)
 {
 	unsigned char mode = (unsigned char)direction;
-	uint8_t *field = (void *)((uintptr_t)ctx + 0x2e36);
+	struct t20_isp_ctx *isp = ctx;
+	uint8_t *field = &isp->matrix_yuv.field_c2;
 
 	*result = 0;
 
@@ -7760,7 +7763,7 @@ int32_t ds1_output_mode(void *ctx, int32_t value, char direction, int32_t *resul
 				return 2;
 			*field = 4;
 		}
-		matrix_yuv_update((uintptr_t)ctx + 0x2d74);
+		matrix_yuv_update((void *)&isp->matrix_yuv);
 		return 0;
 	}
 
@@ -7794,7 +7797,8 @@ int32_t ds1_output_mode(void *ctx, int32_t value, char direction, int32_t *resul
 /* WHOLE_DRIVER_CANDIDATE fn_000000000001d90c origin=model_output original=ds2_output_mode */
 int32_t ds2_output_mode(void *ctx, int32_t value, char direction, int32_t *result)
 {
-	uint8_t *mode = (uint8_t *)((uintptr_t)ctx + 0x2e50);
+	struct t20_isp_ctx *isp = ctx;
+	uint8_t *mode = &isp->matrix_yuv.field_dc;
 
 	*result = 0;
 
@@ -7816,7 +7820,7 @@ int32_t ds2_output_mode(void *ctx, int32_t value, char direction, int32_t *resul
 			*mode = 4;
 		}
 
-		matrix_yuv_update((uintptr_t)ctx + 0x2d74);
+		matrix_yuv_update((void *)&isp->matrix_yuv);
 		return 0;
 	}
 
@@ -8590,27 +8594,24 @@ uint32_t cmos_alloc_integration_time(int32_t *cmos_words, int32_t target_log2)
 /* WHOLE_DRIVER_CANDIDATE fn_000000000001e9c0 origin=model_output original=cmos_alloc_sensor_analog_gain */
 int32_t cmos_alloc_sensor_analog_gain(int32_t *cmos_words, uint32_t gain)
 {
-	uint8_t *isp;
-	int32_t (*alloc)(int32_t gain, void *sensor_ctx);
+	struct t20_isp_ctx *isp;
 	int32_t max_gain;
 
 	if ((int32_t)gain < 0)
 		return 0;
 
-	isp = (uint8_t *)(uintptr_t)cmos_words[0];
+	isp = (struct t20_isp_ctx *)(uintptr_t)cmos_words[0];
 	max_gain = (int32_t)stab.global_max_sensor_analog_gain << 11;
 	if (max_gain >= (int32_t)gain)
 		max_gain = (int32_t)gain;
 
-	alloc = *(void **)(isp + 0x9c);
-	return alloc(max_gain, isp + 0x56);
+	return isp->sensor.ctrl.alloc_analog_gain(max_gain, &isp->sensor.ctrl.param.sensor_ctx);
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000001e9f4 origin=model_output original=cmos_alloc_sensor_digital_gain */
 int32_t cmos_alloc_sensor_digital_gain(int32_t *cmos_words, uint32_t gain_in)
 {
-	uint8_t *isp;
-	int32_t (*alloc)(int32_t gain, void *sensor_ctx);
+	struct t20_isp_ctx *isp;
 	int32_t max_gain;
 	int32_t gain;
 	int32_t result;
@@ -8618,14 +8619,13 @@ int32_t cmos_alloc_sensor_digital_gain(int32_t *cmos_words, uint32_t gain_in)
 	if ((int32_t)gain_in < 0)
 		return 0;
 
-	isp = (uint8_t *)(uintptr_t)cmos_words[0];
+	isp = (struct t20_isp_ctx *)(uintptr_t)cmos_words[0];
 	max_gain = (int32_t)stab.global_max_sensor_digital_gain << 11;
 	gain = max_gain;
 	if (max_gain >= (int32_t)gain_in)
 		gain = (int32_t)gain_in;
 
-	alloc = *(void **)(isp + 0xa0);
-	result = alloc(gain, isp + 0x56);
+	result = isp->sensor.ctrl.alloc_digital_gain(gain, &isp->sensor.ctrl.param.sensor_ctx);
 	if (result < 0)
 		return 0;
 
@@ -8635,6 +8635,7 @@ int32_t cmos_alloc_sensor_digital_gain(int32_t *cmos_words, uint32_t gain_in)
 /* WHOLE_DRIVER_CANDIDATE fn_000000000001ea4c origin=model_output original=cmos_alloc_isp_digital_gain */
 uint32_t cmos_alloc_isp_digital_gain(void *cmos, int gain)
 {
+    struct t20_fsm_cmos *fsm = cmos;
     uint32_t cur_limit;
     uint32_t limit;
 
@@ -8642,7 +8643,7 @@ uint32_t cmos_alloc_isp_digital_gain(void *cmos, int gain)
         return 0;
 
 	limit = (uint32_t)stab.global_max_isp_digital_gain << 11;
-    cur_limit = *(uint32_t *)((uintptr_t)cmos + 0x1e4);
+    cur_limit = fsm->field_1e4;
 
     if ((int)cur_limit < (int)limit)
         limit = cur_limit;
@@ -8693,7 +8694,7 @@ uint32_t cmos_convert_integration_time_ms2lines(uint32_t *cmos_words, uint32_t m
 int32_t cmos_update_exposure_partitioning_lut(int32_t *cmos_words)
 {
 	int32_t *sensor = (int32_t *)cmos_words[0];
-	int32_t priority = cmos_words[0x12];
+	int32_t priority = ((struct t20_fsm_cmos *)cmos_words)->partition_mode;
 	int32_t *partition;
 	int32_t total_log2;
 	int32_t *lut_slot;
@@ -8709,7 +8710,7 @@ int32_t cmos_update_exposure_partitioning_lut(int32_t *cmos_words)
 	else
 		partition = (int32_t *)&exposure_partitions_balanced;
 
-	total_log2 = sensor[0x64/4] + sensor[0x68/4] + cmos_words[0x1e4/4];
+	total_log2 = sensor[0x64/4] + sensor[0x68/4] + ((struct t20_fsm_cmos *)cmos_words)->field_1e4;
 
 	/* OEM 0x1e1fc: one accumulator per partition type (0 integration
 	 * time, 1 gain) in two stack words sp+16/sp+20, zeroed per call; the
@@ -8778,14 +8779,15 @@ int32_t cmos_get_lines_per_second(int32_t *cmos_words)
 /* WHOLE_DRIVER_CANDIDATE fn_000000000001ed48 origin=model_output original=cmos_get_frame_exposure_set */
 void *cmos_get_frame_exposure_set(void *cmos, int32_t frame)
 {
+	struct t20_fsm_cmos *fsm = cmos;
 	int32_t index;
 
-	index = frame + *(int32_t *)((uintptr_t)cmos + 0x1a4);
+	index = frame + fsm->history_index;
 	if (index < 0)
 		index += 8;
 	else if (index >= 8)
 		index -= 8;
-	return (void *)((uintptr_t)cmos + index * 40 + 100);
+	return t20_member_ptr(fsm, history[index]);
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000001ed7c origin=model_output original=cmos_update_exposure_history */
@@ -9852,39 +9854,39 @@ uint32_t cmos_long_exposure_update(uint32_t *cmos_words)
 	 * dev+0x56; the recovery passed arg1 + 0x71 *bytes*, so the sensor
 	 * clamped a random halfword instead of the exposure.  The long
 	 * integration time at 0x1c8 is a u16. */
-	uint8_t *ctx = (uint8_t *)cmos_words;
-	uint8_t *dev = *(uint8_t **)cmos_words;
-	uint8_t mode = dev[0x1524];
-	void (*alloc_it)(void *, void *) = *(void (**)(void *, void *))(dev + 0xa4);
+	struct t20_fsm_cmos *ctx = (struct t20_fsm_cmos *)cmos_words;
+	struct t20_isp_ctx *dev = ctx->hdr.isp;
+	uint8_t mode = dev->general.wdr_mode;
+	void (*alloc_it)(uint16_t *, struct t20_sensor_context *) = dev->sensor.ctrl.alloc_integration_time;
 	uint32_t val, max_int, quantised;
 	uint16_t it;
 
 	if (mode != 1 && mode != 3) {
-		*(uint16_t *)(ctx + 0x1ca) = 0x40;
-		alloc_it(ctx + 0x1c4, dev + 0x56);
+		ctx->exposure_ratio = 0x40;
+		alloc_it(&ctx->integration_time, &dev->sensor.ctrl.param.sensor_ctx);
 		return 0;
 	}
 
-	val = cmos_words[0x6f];
+	val = ctx->ratio_request;
 	if (val < 0x40)
 		val = 0x40;
-	max_int = *(uint32_t *)(dev + 0x74);
-	quantised = (val * *(uint16_t *)(ctx + 0x1c4)) >> 6;
+	max_int = dev->sensor.ctrl.param.integration_time_long_max;
+	quantised = (val * ctx->integration_time) >> 6;
 	if (quantised >= 0x10000)
 		quantised = 0xffff;
 
 	quantised = get_quantised_long_integration_time(cmos_words, quantised, max_int);
 	if (!(max_int < quantised))
 		max_int = quantised;
-	dev = *(uint8_t **)cmos_words;
-	*(uint16_t *)(ctx + 0x1c8) = (uint16_t)max_int;
-	(*(void (**)(void *, void *))(dev + 0xa4))(ctx + 0x1c4, dev + 0x56);
+	dev = ctx->hdr.isp;
+	ctx->field_1c8 = (uint16_t)max_int;
+	dev->sensor.ctrl.alloc_integration_time(&ctx->integration_time, &dev->sensor.ctrl.param.sensor_ctx);
 
-	it = *(uint16_t *)(ctx + 0x1c4);
+	it = ctx->integration_time;
 	if (it == 0)
 		BUG();
 
-	*(uint16_t *)(ctx + 0x1ca) = ((uint32_t)*(uint16_t *)(ctx + 0x1c8) << 6) / it;
+	ctx->exposure_ratio = ((uint32_t)ctx->field_1c8 << 6) / it;
 	return it;
 }
 
@@ -10870,7 +10872,7 @@ int32_t iridix_initialize(int32_t *fsm)
 			APICAL_WRITE_32(0x1c04, val);
 			i++;
 		}
-		byte_val = *(uint8_t *)((char *)iridix_fsm + 0x10);
+		byte_val = ((struct t20_fsm_iridix *)iridix_fsm)->strength_target;
 	} else {
 		uint32_t *lut_ptr;
 		reg = APICAL_READ_32(0x3e0);
@@ -10883,13 +10885,13 @@ int32_t iridix_initialize(int32_t *fsm)
 			APICAL_WRITE_32(0x1c04, val);
 			i++;
 		}
-		byte_val = *(uint8_t *)((char *)iridix_fsm + 0x10);
+		byte_val = ((struct t20_fsm_iridix *)iridix_fsm)->strength_target;
 	}
 
 	stab.global_iridix_strength_target = byte_val;
 
 	base_ptr = *(uint32_t **)iridix_fsm;
-	mode = *(uint8_t *)((char *)base_ptr + 0x1524);
+	mode = ((struct t20_isp_ctx *)base_ptr)->general.wdr_mode;
 
 	if (mode != 0) {
 		if (mode == 3) {
@@ -10928,12 +10930,12 @@ common_path:
 unsigned int iridix_control_strength_calculate(int32_t * fsm) {
     void *isp = *(void **)fsm;
     int32_t weighted_sum = 0;
-    uint32_t target_sum = (uint32_t)(*(uint16_t *)_GET_USHORT_PTR(0xd0)) * (uint32_t)(*(int32_t *)((uintptr_t)isp + 0x738)) / 0x64;
+    uint32_t target_sum = (uint32_t)(*(uint16_t *)_GET_USHORT_PTR(0xd0)) * (uint32_t)(((struct t20_isp_ctx *)isp)->ae.hist_total) / 0x64;
     int32_t cum_count = 0;
     int32_t *i = 0;
 
     do {
-        int32_t bin_count = *(int32_t *)((uintptr_t)isp + 0x308 + ((uintptr_t)i << 2) + 0x30);
+        int32_t bin_count = ((struct t20_isp_ctx *)isp)->ae.hist[(uintptr_t)i];
         cum_count += bin_count;
         weighted_sum += bin_count * (uintptr_t)i;
 
@@ -10966,14 +10968,14 @@ unsigned int iridix_control_strength_calculate(int32_t * fsm) {
      * 32-bit read sees 0x01000001 in FS-HDR mode, takes the linear branch
      * and asks for HDR table 0x24 + 0x1000001: _GET_LUT_PTR() finds no
      * such table and never returns. */
-    if (*(uint8_t *)((char *)isp + 0x1524) != 1) {
+    if (((struct t20_isp_ctx *)isp)->general.wdr_mode != 1) {
         isp_cur = *(void **)fsm;
     } else {
         percentile = (int32_t)(*(uint16_t *)_GET_USHORT_PTR(0xd1)) << 2;
         isp_cur = *(void **)fsm;
     }
 
-    uint32_t wdr_mode = (uint32_t)(*(uint8_t *)((char *)isp_cur + 0x1524));
+    uint32_t wdr_mode = (uint32_t)(((struct t20_isp_ctx *)isp_cur)->general.wdr_mode);
     uint16_t result;
 
     if (wdr_mode != 1) {
@@ -10992,13 +10994,13 @@ unsigned int iridix_control_strength_calculate(int32_t * fsm) {
             pct_range = 1;
 
         int32_t hist_pct = (percentile - 1) * 0x64 / pct_range;
-        int32_t full_exposure = *(int32_t *)_GET_UINT_PTR(_GET_HDR_TABLE_INDEX(0x24, (int32_t)(*(uint8_t *)((char *)isp + 0x1524))));
+        int32_t full_exposure = *(int32_t *)_GET_UINT_PTR(_GET_HDR_TABLE_INDEX(0x24, (int32_t)(((struct t20_isp_ctx *)isp)->general.wdr_mode)));
         /* OEM 0x22028-0x22038 clamps the signed percentile to zero. */
         int32_t hist_factor = max_t(int32_t, (int16_t)hist_pct, 0);
         int32_t exp_factor = 0x64;
 
-        if ((uint32_t)(*(int32_t *)((char *)isp + 0x11c)) >= *(uint32_t *)_GET_UINT_PTR(0xd3)) {
-            int32_t cur_exposure = *(int32_t *)((char *)isp + 0x11c);
+        if ((uint32_t)(((struct t20_isp_ctx *)isp)->cmos.exposure_log2) >= *(uint32_t *)_GET_UINT_PTR(0xd3)) {
+            int32_t cur_exposure = ((struct t20_isp_ctx *)isp)->cmos.exposure_log2;
             exp_factor = 0;
 
             if ((uint32_t)full_exposure >= (uint32_t)cur_exposure) {
@@ -11015,7 +11017,7 @@ unsigned int iridix_control_strength_calculate(int32_t * fsm) {
         int32_t exp_less = exp_factor < hist_factor ? 1 : 0;
 
         if (exp_factor < (int32_t)(*(uint16_t *)_GET_USHORT_PTR(0xd2))) {
-            if ((uint32_t)(*(int32_t *)((char *)isp + 0x11c)) < *(uint32_t *)_GET_UINT_PTR(0xd3)) {
+            if ((uint32_t)(((struct t20_isp_ctx *)isp)->cmos.exposure_log2) < *(uint32_t *)_GET_UINT_PTR(0xd3)) {
                 exp_factor = (int32_t)(*(uint16_t *)_GET_USHORT_PTR(0xd2));
             } else if (exp_factor < 0) {
                 exp_factor = 0;
@@ -11450,8 +11452,8 @@ int32_t apical_switch_wdr_mode(uint32_t wdr_mode)
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000023794 origin=model_output original=general_set_wdr_mode */
 int32_t general_set_wdr_mode(int32_t *fsm)
 {
-	int32_t *base = (int32_t *)(*(int32_t *)fsm);
-	uint8_t mode = *(uint8_t *)((char *)fsm + 0x3c);
+	struct t20_isp_ctx *base = *(struct t20_isp_ctx **)fsm;
+	uint8_t mode = ((struct t20_fsm_general *)fsm)->wdr_mode;
 	int32_t *entry;
 	int32_t entry2;
 	uint32_t rows;
@@ -11459,12 +11461,12 @@ int32_t general_set_wdr_mode(int32_t *fsm)
 	int32_t isp_ctx_val;
 
 	printk(KERN_INFO "T20FW general_wdr enter fsm=%p isp=%p mode=%u\n",
-	       fsm, base, mode);
+	       fsm, (void *)base, mode);
 	apical_switch_wdr_mode(mode);
 	printk(KERN_INFO "T20FW general_wdr switch done\n");
 
 	if (mode == 1) {
-		stab.global_max_integration_time = *(uint16_t *)((char *)base + 0x70);
+		stab.global_max_integration_time = *(uint16_t *)t20_member_ptr(base, sensor.ctrl.param.integration_time_max);
 		entry = _GET_MOD_ENTRY16_PTR(0x2f);
 		val = *(uint8_t *)((char *)entry + 2);
 		stab.global_minimum_sinter_strength = val;
@@ -11476,7 +11478,7 @@ int32_t general_set_wdr_mode(int32_t *fsm)
 		printk(KERN_INFO "T20FW general_wdr sequence 0 done\n");
 		isp_ctx_val = *fsm;
 	} else if (mode == 0) {
-		stab.global_max_integration_time = *(uint16_t *)((char *)base + 0x78);
+		stab.global_max_integration_time = *(uint16_t *)t20_member_ptr(base, sensor.ctrl.param.integration_time_limit);
 		entry = _GET_MOD_ENTRY16_PTR(0x2e);
 		val = *(uint8_t *)((char *)entry + 2);
 		stab.global_minimum_sinter_strength = val;
@@ -11488,7 +11490,7 @@ int32_t general_set_wdr_mode(int32_t *fsm)
 		printk(KERN_INFO "T20FW general_wdr sequence 1 done\n");
 		isp_ctx_val = *fsm;
 	} else if (mode == 2) {
-		stab.global_max_integration_time = *(uint16_t *)((char *)base + 0x70);
+		stab.global_max_integration_time = *(uint16_t *)t20_member_ptr(base, sensor.ctrl.param.integration_time_max);
 		rows = _GET_ROWS(0x30);
 		entry = _GET_MOD_ENTRY16_PTR(0x30);
 		val = *(uint8_t *)((char *)entry + 2);
@@ -11663,8 +11665,8 @@ uint32_t calc_fe_lut_output(int32_t *fsm, int16_t value)
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000023d04 origin=model_output original=calc_fe_lut_input */
 static uint32_t calc_fe_lut_input(uint32_t *fsm, uint16_t value)
 {
-	uint32_t *base = *fsm;
-	uint8_t mode = *(uint8_t *)((char *)base + 0x1524);
+	struct t20_isp_ctx *isp = *(struct t20_isp_ctx **)fsm;
+	uint8_t mode = isp->general.wdr_mode;
 	uint16_t val = value;
 	uint16_t *ptr;
 	uint16_t len;
@@ -13315,6 +13317,9 @@ int32_t apical_isp_process_interrupt(void *ctx, char event)
 {
 	static unsigned int trace_count;
 	char *base = (char *)ctx;
+	struct t20_isp_ctx *isp = ctx;
+#define IRQ_STATUS(f) (*(int32_t *)t20_member_ptr(isp, f.hdr.pending_irq))
+#define IRQ_MASK(f) (((int32_t *)t20_member_ptr(isp, f.hdr.pending_irq))[1])
 	uint32_t bit = (uint32_t)event;
 	int32_t mask = 1 << (bit & 0x1f);
 	int32_t v;
@@ -13336,16 +13341,16 @@ int32_t apical_isp_process_interrupt(void *ctx, char event)
 	}
 
 	/* cmos: status 0x108, pending 0x10c, handler arg 0x100 */
-	v = *(int32_t *)((uintptr_t)base + 0x108) & mask;
+	v = IRQ_STATUS(cmos) & mask;
 	if (!(t20_fsm_irq_allow_mask & (1u << 0)))
 		v = 0;
 	if (v) {
-		*(int32_t *)((uintptr_t)base + 0x108) = (~v | *(int32_t *)((uintptr_t)base + 0x10c)) & *(int32_t *)((uintptr_t)base + 0x108);
+		IRQ_STATUS(cmos) = (~v | IRQ_MASK(cmos)) & IRQ_STATUS(cmos);
 		cmos_fsm_process_interrupt(base + 0x100, (char)bit);
 	}
 
 	/* AE: status 0x310, pending 0x314, handler arg 0x308 */
-	v = *(int32_t *)((uintptr_t)base + 0x310) & mask;
+	v = IRQ_STATUS(ae) & mask;
 	if (!(t20_fsm_irq_allow_mask & (1u << 1)))
 		v = 0;
 	if (v) {
@@ -13356,7 +13361,7 @@ int32_t apical_isp_process_interrupt(void *ctx, char event)
 			       bit, *(uint32_t *)(base + 0x310),
 			       *(uint32_t *)(base + 0x314), base + 0x308,
 			       *(void **)(base + 0x308), *(void **)(base + 4));
-		*(int32_t *)((uintptr_t)base + 0x310) = (~v | *(int32_t *)((uintptr_t)base + 0x314)) & *(int32_t *)((uintptr_t)base + 0x310);
+		IRQ_STATUS(ae) = (~v | IRQ_MASK(ae)) & IRQ_STATUS(ae);
 		AE_fsm_process_interrupt(base + 0x308, (char)bit);
 		if (trace_ae)
 			printk(KERN_INFO "T20AE dispatch after status=%08x\n",
@@ -13364,60 +13369,62 @@ int32_t apical_isp_process_interrupt(void *ctx, char event)
 	}
 
 	/* AWB: status 0x750, pending 0x754, handler arg 0x748 */
-	v = *(int32_t *)((uintptr_t)base + 0x750) & mask;
+	v = IRQ_STATUS(awb) & mask;
 	if (!(t20_fsm_irq_allow_mask & (1u << 2)))
 		v = 0;
 	if (v) {
-		*(int32_t *)((uintptr_t)base + 0x750) = (~v | *(int32_t *)((uintptr_t)base + 0x754)) & *(int32_t *)((uintptr_t)base + 0x750);
+		IRQ_STATUS(awb) = (~v | IRQ_MASK(awb)) & IRQ_STATUS(awb);
 		AWB_fsm_process_interrupt(base + 0x748, (char)bit);
 	}
 
 	/* color_matrix: status 0xef0, pending 0xef4, handler arg 0xee8 */
-	v = *(int32_t *)((uintptr_t)base + 0xef0) & mask;
+	v = IRQ_STATUS(color_matrix) & mask;
 	if (!(t20_fsm_irq_allow_mask & (1u << 3)))
 		v = 0;
 	if (v) {
-		*(int32_t *)((uintptr_t)base + 0xef0) = (~v | *(int32_t *)((uintptr_t)base + 0xef4)) & *(int32_t *)((uintptr_t)base + 0xef0);
+		IRQ_STATUS(color_matrix) = (~v | IRQ_MASK(color_matrix)) & IRQ_STATUS(color_matrix);
 		color_matrix_fsm_process_interrupt();
 	}
 
 	/* iridix: status 0xfdc, pending 0xfe0, handler arg 0xfd4 */
-	v = *(int32_t *)((uintptr_t)base + 0xfdc) & mask;
+	v = IRQ_STATUS(iridix) & mask;
 	if (!(t20_fsm_irq_allow_mask & (1u << 4)))
 		v = 0;
 	if (v) {
-		*(int32_t *)((uintptr_t)base + 0xfdc) = (~v | *(int32_t *)((uintptr_t)base + 0xfe0)) & *(int32_t *)((uintptr_t)base + 0xfdc);
+		IRQ_STATUS(iridix) = (~v | IRQ_MASK(iridix)) & IRQ_STATUS(iridix);
 		iridix_fsm_process_interrupt(base + 0xfd4, (char)bit);
 	}
 
 	/* crop: status 0x14a8, pending 0x14ac, handler arg 0x14a0 */
-	v = *(int32_t *)((uintptr_t)base + 0x14a8) & mask;
+	v = IRQ_STATUS(crop) & mask;
 	if (!(t20_fsm_irq_allow_mask & (1u << 5)))
 		v = 0;
 	if (v) {
-		*(int32_t *)((uintptr_t)base + 0x14a8) = (~v | *(int32_t *)((uintptr_t)base + 0x14ac)) & *(int32_t *)((uintptr_t)base + 0x14a8);
+		IRQ_STATUS(crop) = (~v | IRQ_MASK(crop)) & IRQ_STATUS(crop);
 		crop_fsm_process_interrupt(base + 0x14a0, (char)bit);
 	}
 
 	/* general: status 0x14f0, pending 0x14f4, handler arg 0x14e8 */
-	v = *(int32_t *)((uintptr_t)base + 0x14f0) & mask;
+	v = IRQ_STATUS(general) & mask;
 	if (!(t20_fsm_irq_allow_mask & (1u << 6)))
 		v = 0;
 	if (v) {
-		*(int32_t *)((uintptr_t)base + 0x14f0) = (~v | *(int32_t *)((uintptr_t)base + 0x14f4)) & *(int32_t *)((uintptr_t)base + 0x14f0);
+		IRQ_STATUS(general) = (~v | IRQ_MASK(general)) & IRQ_STATUS(general);
 		general_fsm_process_interrupt(base + 0x14e8, (char)bit);
 	}
 
 	/* dis: status 0x1534, pending 0x1538, handler arg 0x152c */
-	v = *(int32_t *)((uintptr_t)base + 0x1534) & mask;
+	v = IRQ_STATUS(dis) & mask;
 	if (!(t20_fsm_irq_allow_mask & (1u << 7)))
 		v = 0;
 	if (v) {
-		*(int32_t *)((uintptr_t)base + 0x1534) = (~v | *(int32_t *)((uintptr_t)base + 0x1538)) & *(int32_t *)((uintptr_t)base + 0x1534);
+		IRQ_STATUS(dis) = (~v | IRQ_MASK(dis)) & IRQ_STATUS(dis);
 		return dis_fsm_process_interrupt(base + 0x152c, (char)bit);
 	}
 
 	return *(int32_t *)(base + 0x1534);
+#undef IRQ_STATUS
+#undef IRQ_MASK
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000027038 origin=model_output original=apical_isp_process_events */
@@ -13429,16 +13436,17 @@ int32_t apical_isp_process_events(void *ctx, int32_t max_events)
 	int32_t result;
 	int32_t acc;
 	bool trace;
+	struct t20_isp_ctx *isp = ctx;
 
 	for (;;) {
-		void *fw = *(void **)((char *)ctx + 4);
+		struct t20_fw_outer *fw = isp->fw;
 
-		if (*(int32_t *)((char *)fw + 4) == 0)
+		if (fw->irq_locked == 0)
 			system_hw_interrupts_disable();
 
-		event = apical_event_queue_pop((int32_t *)((char *)ctx + 0x2ea4));
+		event = apical_event_queue_pop((int32_t *)t20_member_ptr(isp, event_queue));
 
-		if (*(int32_t *)((char *)fw + 4) == 0)
+		if (fw->irq_locked == 0)
 			result = system_hw_interrupts_enable();
 		else
 			result = 0;
@@ -13450,59 +13458,59 @@ int32_t apical_isp_process_events(void *ctx, int32_t max_events)
 		acc = 0;
 		if (t20_fsm_event_allow_mask & (1u << 0)) {
 			if (trace) printk(KERN_INFO "T20EV event=%d fsm=sensor\n", event);
-			acc |= sensor_fsm_process_event((int32_t *)((char *)ctx + 0xc), event);
+			acc |= sensor_fsm_process_event((int32_t *)t20_member_ptr(isp, sensor), event);
 		}
 		if (t20_fsm_event_allow_mask & (1u << 1)) {
 			if (trace) printk(KERN_INFO "T20EV event=%d fsm=cmos\n", event);
-			acc |= cmos_fsm_process_event((int32_t *)((char *)ctx + 0x100), event);
+			acc |= cmos_fsm_process_event((int32_t *)t20_member_ptr(isp, cmos), event);
 		}
 		if (t20_fsm_event_allow_mask & (1u << 2)) {
 			if (trace) printk(KERN_INFO "T20EV event=%d fsm=defect_pixel\n", event);
-			acc |= defect_pixel_fsm_process_event((int32_t *)((char *)ctx + 0x2e8), event);
+			acc |= defect_pixel_fsm_process_event((int32_t *)t20_member_ptr(isp, defect_pixel), event);
 		}
 		if (t20_fsm_event_allow_mask & (1u << 3)) {
 			if (trace) printk(KERN_INFO "T20EV event=%d fsm=ae\n", event);
-			acc |= AE_fsm_process_event((int32_t *)((char *)ctx + 0x308), event);
+			acc |= AE_fsm_process_event((int32_t *)t20_member_ptr(isp, ae), event);
 		}
 		if (t20_fsm_event_allow_mask & (1u << 4)) {
 			if (trace) printk(KERN_INFO "T20EV event=%d fsm=awb\n", event);
-			acc |= AWB_fsm_process_event((int32_t *)((char *)ctx + 0x748), event);
+			acc |= AWB_fsm_process_event((int32_t *)t20_member_ptr(isp, awb), event);
 		}
 		if (t20_fsm_event_allow_mask & (1u << 5)) {
 			if (trace) printk(KERN_INFO "T20EV event=%d fsm=color_matrix\n", event);
-			acc |= color_matrix_fsm_process_event((int32_t *)((char *)ctx + 0xee8), event);
+			acc |= color_matrix_fsm_process_event((int32_t *)t20_member_ptr(isp, color_matrix), event);
 		}
 		if (t20_fsm_event_allow_mask & (1u << 6)) {
 			if (trace) printk(KERN_INFO "T20EV event=%d fsm=iridix\n", event);
-			acc |= iridix_fsm_process_event((int32_t *)((char *)ctx + 0xfd4), event);
+			acc |= iridix_fsm_process_event((int32_t *)t20_member_ptr(isp, iridix), event);
 		}
 		if (t20_fsm_event_allow_mask & (1u << 7)) {
 			if (trace) printk(KERN_INFO "T20EV event=%d fsm=noise_reduction\n", event);
-			acc |= noise_reduction_fsm_process_event((int32_t *)((char *)ctx + 0xff0), event);
+			acc |= noise_reduction_fsm_process_event((int32_t *)t20_member_ptr(isp, noise_reduction), event);
 		}
 		if (t20_fsm_event_allow_mask & (1u << 8)) {
 			if (trace) printk(KERN_INFO "T20EV event=%d fsm=sharpening\n", event);
-			acc |= sharpening_fsm_process_event((int32_t *)((char *)ctx + 0x1014), event);
+			acc |= sharpening_fsm_process_event((int32_t *)t20_member_ptr(isp, sharpening), event);
 		}
 		if (t20_fsm_event_allow_mask & (1u << 9)) {
 			if (trace) printk(KERN_INFO "T20EV event=%d fsm=flash\n", event);
-			acc |= flash_fsm_process_event((int32_t *)((char *)ctx + 0x147c), event);
+			acc |= flash_fsm_process_event((int32_t *)t20_member_ptr(isp, flash), event);
 		}
 		if (t20_fsm_event_allow_mask & (1u << 10)) {
 			if (trace) printk(KERN_INFO "T20EV event=%d fsm=crop\n", event);
-			acc |= crop_fsm_process_event((int32_t *)((char *)ctx + 0x14a0), event);
+			acc |= crop_fsm_process_event((int32_t *)t20_member_ptr(isp, crop), event);
 		}
 		if (t20_fsm_event_allow_mask & (1u << 11)) {
 			if (trace) printk(KERN_INFO "T20EV event=%d fsm=general\n", event);
-			acc |= general_fsm_process_event((int32_t *)((char *)ctx + 0x14e8), event);
+			acc |= general_fsm_process_event((int32_t *)t20_member_ptr(isp, general), event);
 		}
 		if (t20_fsm_event_allow_mask & (1u << 12)) {
 			if (trace) printk(KERN_INFO "T20EV event=%d fsm=dis\n", event);
-			acc |= dis_fsm_process_event((int32_t *)((char *)ctx + 0x152c), event);
+			acc |= dis_fsm_process_event((int32_t *)t20_member_ptr(isp, dis), event);
 		}
 		if (t20_fsm_event_allow_mask & (1u << 13)) {
 			if (trace) printk(KERN_INFO "T20EV event=%d fsm=matrix_yuv\n", event);
-			acc |= matrix_yuv_fsm_process_event((int32_t *)((char *)ctx + 0x2d74), event);
+			acc |= matrix_yuv_fsm_process_event((int32_t *)t20_member_ptr(isp, matrix_yuv), event);
 		}
 		if (trace) printk(KERN_INFO "T20EV event=%d done acc=%d\n", event, acc);
 
@@ -16697,12 +16705,12 @@ int32_t ae_calculate_exposure(int32_t *ae_fsm)
 	int32_t exposure_log2;
 
 	if (manual_exposure == 0) {
-		int32_t hdr_byte = *(uint8_t *)((char *)isp + 0x1524);
+		int32_t hdr_byte = ((struct t20_isp_ctx *)isp)->general.wdr_mode;
 		int32_t hdr_idx = _GET_HDR_TABLE_INDEX(0x92, hdr_byte);
 		int32_t lut_ptr = _GET_UINT_PTR(hdr_idx);
 		int32_t lut_gain = *(int32_t *)lut_ptr;
-		int32_t again_log2 = *(int32_t *)((char *)isp + 0x64);
-		int32_t dgain_log2 = *(int32_t *)((char *)isp + 0x68);
+		int32_t again_log2 = ((struct t20_isp_ctx *)isp)->sensor.ctrl.param.again_log2_max;
+		int32_t dgain_log2 = ((struct t20_isp_ctx *)isp)->sensor.ctrl.param.dgain_log2_max;
 		int32_t isp_dgain_log2 = *(int32_t *)((char *)isp + 0x2e4);
 		int32_t max_inttime_word = APICAL_READ_32(0x40114); /* OEM: ext max_integration_time word (vendor 0x2b348) */
 		int32_t max_inttime_log2 = log2_fixed_to_fixed((uint32_t)max_inttime_word >> 0x10, 0, 0x10);
@@ -17894,8 +17902,8 @@ int32_t awb_calc_avg_weighted_gr_gb_mesh(uintptr_t awb_fsm)
 	uint32_t len;
 	uint8_t idx;
 
-	*(uint16_t *)(fsm + 16) = (uint16_t)(((stat1 & 0xff00) >> 8) * (stat0 & 0xff));
-	zones = *(uint16_t *)(fsm + 16);
+	((struct t20_fsm_awb *)fsm)->field_10 = (uint16_t)(((stat1 & 0xff00) >> 8) * (stat0 & 0xff));
+	zones = ((struct t20_fsm_awb *)fsm)->field_10;
 	if (zones >= 226)
 		return 0;
 	for (i = 0; (uint16_t)i < zones; i++) {
@@ -17908,8 +17916,8 @@ int32_t awb_calc_avg_weighted_gr_gb_mesh(uintptr_t awb_fsm)
 	}
 
 	/* colour-temperature limit from the sensor gain (tables 151 -> 243) */
-	gain = *(uint32_t *)(isp + 284);
-	idx = (uint8_t)_GET_HDR_TABLE_INDEX(151, *(uint8_t *)(isp + 5412));
+	gain = (uint32_t)((struct t20_isp_ctx *)isp)->cmos.exposure_log2;
+	idx = (uint8_t)_GET_HDR_TABLE_INDEX(151, ((struct t20_isp_ctx *)isp)->general.wdr_mode);
 	gains = (uint32_t *)(uintptr_t)_GET_UINT_PTR(idx);
 	cts = (uint32_t *)(uintptr_t)_GET_UINT_PTR(243);
 	len = _GET_LEN(idx);
@@ -17965,7 +17973,7 @@ int32_t awb_calc_avg_weighted_gr_gb_mesh(uintptr_t awb_fsm)
 	counted = 0;
 	sum_a = 0;
 	sum_b = 0;
-	for (i = 0; i < *(uint16_t *)(fsm + 16); i = (uint16_t)(i + 1)) {
+	for (i = 0; i < ((struct t20_fsm_awb *)fsm)->field_10; i = (uint16_t)(i + 1)) {
 		uint16_t *zone = (uint16_t *)(fsm + (i + 11) * 8);
 		int32_t rg = zone[0];
 		int32_t bg = zone[1];
@@ -18032,7 +18040,7 @@ int32_t awb_calc_avg_weighted_gr_gb_mesh(uintptr_t awb_fsm)
 	fsm[28] = avg_a;
 	fsm[29] = avg_b;
 
-	zones = *(uint16_t *)(fsm + 16);
+	zones = ((struct t20_fsm_awb *)fsm)->field_10;
 	if ((avg_a < avg_b ? avg_b - avg_a : avg_a - avg_b) < 15) {
 		if (ct < 80) {
 			uint16_t *lim_rg = t20_awb_lut16(224);
@@ -18116,7 +18124,7 @@ int32_t awb_calc_avg_weighted_gr_gb_mesh(uintptr_t awb_fsm)
 	}
 
 	/* which zones count, and their ratios */
-	zones = *(uint16_t *)(fsm + 16);
+	zones = ((struct t20_fsm_awb *)fsm)->field_10;
 	near0 = 0;
 	for (i = 0; (uint16_t)i < zones; i++)
 		near0 += t20_awb_near_source0[i];
@@ -18280,8 +18288,9 @@ void awb_process_temp_and_shift(void)
 /* WHOLE_DRIVER_CANDIDATE fn_000000000002e470 origin=model_output original=awb_detect_light_source */
 int32_t awb_detect_light_source(void *fsm)
 {
-    uint8_t *flag = (uint8_t *)((uintptr_t)fsm + 0x77d);
-    int32_t *color_temp = (int32_t *)((uintptr_t)fsm + 0x778);
+    struct t20_fsm_awb *awb = fsm;
+    uint8_t *flag = t20_member_ptr(awb, light_source_cand);
+    int32_t *color_temp = t20_member_ptr(awb, color_temp);
     int32_t temp;
     int32_t result;
 
@@ -18869,8 +18878,8 @@ int32_t sinter_strength_calculate(struct tx_isp_t20_nr_state *state)
 /* WHOLE_DRIVER_CANDIDATE fn_000000000002ed34 origin=model_output original=temper_strength_calculate */
 static uint32_t temper_strength_calculate_recovered(int32_t *fsm)
 {
-    void *owner = *(void **)fsm;
-    uint32_t log_val = log16(*(uint16_t *)((char *)owner + 0x2ca));
+    struct t20_isp_ctx *owner = *(void **)fsm;
+    uint32_t log_val = log16(owner->cmos.exposure_ratio);
     uint32_t *log_offset = log_val - 0x60;
     uint32_t log_offset16 = (int16_t)log_offset;
     uint32_t threshold;
@@ -18878,10 +18887,10 @@ static uint32_t temper_strength_calculate_recovered(int32_t *fsm)
     if (stab.global_manual_temper) {
         threshold = stab.global_temper_threshold_target;
     } else {
-        void *owner2 = *(void **)fsm;
-        uint32_t sum = (*(int32_t *)((char *)owner2 + 0x2cc) +
-                        *(int32_t *)((char *)owner2 + 0x2d0) +
-                        *(int32_t *)((char *)owner2 + 0x2d4));
+        struct t20_isp_ctx *owner2 = *(void **)fsm;
+        uint32_t sum = (owner2->cmos.sensor_again_log2 +
+                        owner2->cmos.sensor_dgain_log2 +
+                        owner2->cmos.isp_dgain_log2);
         uint32_t shifted = (uint16_t)(sum >> 8);
         uint32_t mod_entry = _GET_MOD_ENTRY16_PTR(0xcd);
         uint32_t rows = _GET_ROWS(0xcd);
@@ -18903,13 +18912,13 @@ static uint32_t temper_strength_calculate_recovered(int32_t *fsm)
     if ((uint32_t)log_offset16 < threshold)
         delta = (int16_t)threshold - (int16_t)log_offset;
 
-    uint32_t gain = *(uint16_t *)((char *)owner + 0x2ca);
+    uint32_t gain = owner->cmos.exposure_ratio;
     *(uint16_t *)((char *)fsm + 0x12) = (uint16_t)threshold;
     uint32_t scale = *(uint8_t *)((char *)fsm + 0x1a);
     *(uint16_t *)((char *)fsm + 0x10) = (uint16_t)delta;
     *(uint8_t *)((char *)fsm + 0x19) = (uint8_t)(((int32_t)scale * (int32_t)gain) >> 6);
 
-    uint32_t result = *(uint16_t *)((char *)owner + 0x2ca);
+    uint32_t result = owner->cmos.exposure_ratio;
     if (result != 0) {
         *(uint8_t *)((char *)fsm + 0x18) = (uint8_t)((uintptr_t)&calibration_luxhigh_lut / (int32_t)result);
     }
@@ -18972,12 +18981,14 @@ static int32_t noise_reduction_initialize_recovered(void *fsm)
     uint32_t *lut_ptr;
     uint32_t last_entry;
 
-	base[0x22] = 1;
-	base[0x23] = 1;
+	struct t20_fsm_noise_reduction *nr = fsm;
+
+	nr->sinter_enable = 1;
+	nr->temper_enable = 1;
 	base[0x1b] = 0xf;
-	base[0x1c] = 0xf;
+	nr->sinter_threshold = 0xf;
     *(uint16_t *)(base + 0x1e) = 0xf;
-    *(uint16_t *)(base + 0x20) = 0xf;
+    nr->sinter_offset = 0xf;
 
     lut_ptr = (uint32_t *)_GET_MOD_ENTRY16_PTR(0xcd);
     byte_val = *(uint8_t *)(lut_ptr + 2);
@@ -19180,7 +19191,7 @@ int32_t noise_reduction_update(struct tx_isp_t20_nr_state *state)
 				_GET_UINT_PTR(T20_CAL_SINTER_WDR_OFFSET);
 			const u16 *recursion = (void *)(uintptr_t)
 				_GET_USHORT_PTR(T20_CAL_TEMPER_RECURSION_LIMIT);
-			int32_t *general = (void *)((u8 *)owner + 0x14e8);
+			int32_t *general = (void *)t20_member_ptr((struct t20_isp_ctx *)owner, general);
 			u32 ratio = owner->exposure_ratio;
 			u32 fe_long;
 			u32 fe_short;
@@ -19322,7 +19333,7 @@ int32_t setup_parameters_to_default(uintptr_t fsm_addr)
 uint32_t sharpening_initialize(int32_t *sharp)
 {
 	int32_t *base = *(int32_t **)sharp;
-	uint8_t mode = *(uint8_t *)((char *)base + 0x1524);
+	uint8_t mode = ((struct t20_isp_ctx *)base)->general.wdr_mode;
 	int32_t lut_idx;
 	int32_t *lut_ptr;
 	uint32_t result;
@@ -19358,7 +19369,7 @@ uint32_t sharpening_initialize(int32_t *sharp)
 
 	*(uint8_t *)((char *)sharp + 0x1c) = 1;
 
-	result = *(uint8_t *)((char *)base + 0x1524);
+	result = ((struct t20_isp_ctx *)base)->general.wdr_mode;
 
 	/* OEM 0x2ecec..0x2eefc: per mode the first/last value of the
 	 * modulation table 0x42+mode go to stab.global_maximum_directional_sharpening/[0x24] and the
@@ -19430,7 +19441,7 @@ int32_t sharpening_update(int32_t *fsm)
 	uint32_t scale;
 	uint32_t hdr_byte;
 
-	mode = *(uint8_t *)((char *)fsm + 0x4c);
+	mode = ((struct t20_fsm_sharpening *)fsm)->field_4c;
 	base = (int32_t *)*fsm;
 
 	if (mode == 0x2d) {
@@ -19441,15 +19452,15 @@ int32_t sharpening_update(int32_t *fsm)
 	} else {
 		au_read_histogram(fsm);
 		base = (int32_t *)*fsm;
-		hdr_idx = _GET_HDR_TABLE_INDEX(0xb, *(uint8_t *)((char *)base + 0x1524));
+		hdr_idx = _GET_HDR_TABLE_INDEX(0xb, ((struct t20_isp_ctx *)base)->general.wdr_mode);
 		lut = (uint16_t *)_GET_USHORT_PTR(hdr_idx);
-		hist_val = fsm[0x119];
-		width = fsm[0x16];
-		height = fsm[0x17];
-		thresh1 = *(uint16_t *)((char *)fsm + 0x50);
-		thresh2 = *(uint16_t *)((char *)fsm + 0x52);
-		thresh3 = *(uint16_t *)((char *)fsm + 0x54);
-		thresh4 = *(uint16_t *)((char *)fsm + 0x56);
+		hist_val = ((struct t20_fsm_sharpening *)fsm)->hist_total;
+		width = ((struct t20_fsm_sharpening *)fsm)->field_58;
+		height = ((struct t20_fsm_sharpening *)fsm)->field_5c;
+		thresh1 = ((struct t20_fsm_sharpening *)fsm)->field_50;
+		thresh2 = ((struct t20_fsm_sharpening *)fsm)->field_52;
+		thresh3 = ((struct t20_fsm_sharpening *)fsm)->field_54;
+		thresh4 = ((struct t20_fsm_sharpening *)fsm)->field_56;
 
 		if (width == 0)
 			return -1;
@@ -19458,7 +19469,7 @@ int32_t sharpening_update(int32_t *fsm)
 
 		idx1 = 0;
 		while (idx1 < 0x100) {
-			if ((uint32_t)fsm[0x1a + idx1] >= (uint32_t)thresh1 * (uint32_t)hist_val / (uint32_t)(width * 0x64))
+			if ((uint32_t)((struct t20_fsm_sharpening *)fsm)->hist[idx1] >= (uint32_t)thresh1 * (uint32_t)hist_val / (uint32_t)(width * 0x64))
 				break;
 			idx1++;
 		}
@@ -19467,7 +19478,7 @@ int32_t sharpening_update(int32_t *fsm)
 
 		idx2 = 0;
 		while (idx2 < 0x100) {
-			if ((uint32_t)fsm[0x1a + idx2] >= (uint32_t)thresh3 * (uint32_t)hist_val / (uint32_t)(width * 0x64))
+			if ((uint32_t)((struct t20_fsm_sharpening *)fsm)->hist[idx2] >= (uint32_t)thresh3 * (uint32_t)hist_val / (uint32_t)(width * 0x64))
 				break;
 			idx2++;
 		}
@@ -19476,7 +19487,7 @@ int32_t sharpening_update(int32_t *fsm)
 
 		idx3 = 0;
 		while (idx3 < 0x100) {
-			if ((uint32_t)fsm[0x1a + idx3] >= (uint32_t)hist_val - (uint32_t)thresh4 * (uint32_t)hist_val / (uint32_t)(height * 0x64))
+			if ((uint32_t)((struct t20_fsm_sharpening *)fsm)->hist[idx3] >= (uint32_t)hist_val - (uint32_t)thresh4 * (uint32_t)hist_val / (uint32_t)(height * 0x64))
 				break;
 			idx3++;
 		}
@@ -19486,21 +19497,21 @@ int32_t sharpening_update(int32_t *fsm)
 		idx4 = 0;
 		flag = 0;
 		while (idx4 < 0x100) {
-			if ((uint32_t)fsm[0x1a + idx4] >= (uint32_t)hist_val - (uint32_t)thresh2 * (uint32_t)hist_val / (uint32_t)(height * 0x64)) {
-				flag = (*(uint8_t *)((char *)fsm + 0x4d) < idx1) ? 1 : 0;
+			if ((uint32_t)((struct t20_fsm_sharpening *)fsm)->hist[idx4] >= (uint32_t)hist_val - (uint32_t)thresh2 * (uint32_t)hist_val / (uint32_t)(height * 0x64)) {
+				flag = (((struct t20_fsm_sharpening *)fsm)->field_4d < idx1) ? 1 : 0;
 				break;
 			}
 			idx4++;
 		}
 		if (idx4 >= 0x100) {
 			idx4 = 0;
-			flag = (*(uint8_t *)((char *)fsm + 0x4d) < idx1) ? 1 : 0;
+			flag = (((struct t20_fsm_sharpening *)fsm)->field_4d < idx1) ? 1 : 0;
 		}
 
 		if (flag == 0) {
 			idx2 = 0;
 		} else {
-			uint32_t diff_idx = (uint32_t)idx1 - (uint32_t)(*(uint8_t *)((char *)fsm + 0x4d));
+			uint32_t diff_idx = (uint32_t)idx1 - (uint32_t)(((struct t20_fsm_sharpening *)fsm)->field_4d);
 			if (idx2 < diff_idx) {
 				/* keep idx2 */
 			} else {
@@ -19509,10 +19520,10 @@ int32_t sharpening_update(int32_t *fsm)
 		}
 
 		val = 0xff;
-		if ((idx4 < *(uint8_t *)((char *)fsm + 0x4e)) != 0) {
-			if (*(uint8_t *)((char *)fsm + 0x4e) == 0)
+		if ((idx4 < ((struct t20_fsm_sharpening *)fsm)->field_4e) != 0) {
+			if (((struct t20_fsm_sharpening *)fsm)->field_4e == 0)
 				return -1;
-			val = ((idx4 << 8) / *(uint8_t *)((char *)fsm + 0x4e)) & 0xffff;
+			val = ((idx4 << 8) / ((struct t20_fsm_sharpening *)fsm)->field_4e) & 0xffff;
 		}
 
 		if (val < idx3)
@@ -19526,7 +19537,7 @@ int32_t sharpening_update(int32_t *fsm)
 			avg_lo = ((uint32_t)lut[gamma_lo] + (uint32_t)lut[gamma_lo - 1]) >> 1;
 		}
 
-		shift = *(uint8_t *)((char *)fsm + 0x66) - 0xa;
+		shift = ((struct t20_fsm_sharpening *)fsm)->field_66 - 0xa;
 		/* vendor 0x2f340..0x2f3b4: srav then andi 0xffff (zero extension) */
 		scaled_lo = (uint32_t)((int32_t)avg_lo >> (shift & 0x1f)) & 0xffff;
 
@@ -19555,13 +19566,13 @@ int32_t sharpening_update(int32_t *fsm)
 		}
 
 		neg_result = -(int32_t)result;
-		*(int16_t *)((char *)fsm + 0x62) = (int16_t)neg_result;
-		*(uint16_t *)((char *)fsm + 0x64) = (uint16_t)inv;
+		((struct t20_fsm_sharpening *)fsm)->field_62 = (int16_t)neg_result;
+		((struct t20_fsm_sharpening *)fsm)->field_64 = (uint16_t)inv;
 		base = (int32_t *)*fsm;
 	}
 
-	hdr_byte = *(uint8_t *)((char *)base + 0x1524);
-	mod_val = ((int32_t)(*(int32_t *)((uintptr_t)base + 0x2cc) + *(int32_t *)((uintptr_t)base + 0x2d0) + *(int32_t *)((uintptr_t)base + 0x2d4)) >> 8);
+	hdr_byte = ((struct t20_isp_ctx *)base)->general.wdr_mode;
+	mod_val = ((int32_t)(((struct t20_isp_ctx *)base)->cmos.sensor_again_log2 + ((struct t20_isp_ctx *)base)->cmos.sensor_dgain_log2 + ((struct t20_isp_ctx *)base)->cmos.isp_dgain_log2) >> 8);
 
 	if (hdr_byte == 1) {
 		mod_ptr = (int16_t *)_GET_MOD_ENTRY16_PTR(0x43);
@@ -19582,7 +19593,7 @@ int32_t sharpening_update(int32_t *fsm)
 			(int16_t)stab.global_maximum_directional_sharpening,
 			(int16_t)stab.global_minimum_directional_sharpening,
 			(uintptr_t)mod_ptr, (int32_t)rows);
-		scale = *(uint16_t *)((char *)fsm + 0x20);
+		scale = ((struct t20_fsm_sharpening *)fsm)->field_20;
 		s1_val = (uint32_t)((uint16_t)((calc_val * scale) >> 7));
 		if (s1_val >= 0x100)
 			s1_val = 0xff;
@@ -19597,7 +19608,7 @@ int32_t sharpening_update(int32_t *fsm)
 			(int16_t)stab.global_maximum_un_directional_sharpening,
 			(int16_t)stab.global_minimum_un_directional_sharpening,
 			(uintptr_t)mod_ptr2, (int32_t)rows);
-		scale = *(uint16_t *)((char *)fsm + 0x20);
+		scale = ((struct t20_fsm_sharpening *)fsm)->field_20;
 		fp_val = (uint32_t)((uint16_t)((calc_val * scale) >> 7));
 		if (fp_val >= 0x100)
 			fp_val = 0xff;
@@ -19610,19 +19621,19 @@ int32_t sharpening_update(int32_t *fsm)
 	APICAL_WRITE_32(0x43c, (APICAL_READ_32(0x43c) & mask) | s1_val);
 	APICAL_WRITE_32(0x440, (APICAL_READ_32(0x440) & mask) | fp_val);
 
-	hdr_idx = _GET_HDR_TABLE_INDEX(0x65, *(uint8_t *)((char *)base + 0x1524));
+	hdr_idx = _GET_HDR_TABLE_INDEX(0x65, ((struct t20_isp_ctx *)base)->general.wdr_mode);
 	mod_ptr = (int16_t *)_GET_MOD_ENTRY16_PTR(hdr_idx);
 	rows = _GET_ROWS(0x65);
 	calc_val = calc_modulation_u16((uint16_t)(mod_val & 0xffff), (uintptr_t)mod_ptr, (int32_t)rows);
 	APICAL_WRITE_32(0x504, (calc_val & 0xff) | (APICAL_READ_32(0x504) & mask));
 
-	hdr_idx = _GET_HDR_TABLE_INDEX(0x6a, *(uint8_t *)((char *)base + 0x1524));
+	hdr_idx = _GET_HDR_TABLE_INDEX(0x6a, ((struct t20_isp_ctx *)base)->general.wdr_mode);
 	mod_ptr = (int16_t *)_GET_MOD_ENTRY16_PTR(hdr_idx);
 	rows = _GET_ROWS(0x6a);
 	calc_val = calc_modulation_u16((uint16_t)(mod_val & 0xffff), (uintptr_t)mod_ptr, (int32_t)rows);
 	APICAL_WRITE_32(0x624, (calc_val & 0xff) | (APICAL_READ_32(0x624) & mask));
 
-	hdr_idx = _GET_HDR_TABLE_INDEX(0x6f, *(uint8_t *)((char *)base + 0x1524));
+	hdr_idx = _GET_HDR_TABLE_INDEX(0x6f, ((struct t20_isp_ctx *)base)->general.wdr_mode);
 	mod_ptr = (int16_t *)_GET_MOD_ENTRY16_PTR(hdr_idx);
 	rows = _GET_ROWS(0x6f);
 	calc_val = calc_modulation_u16((uint16_t)(mod_val & 0xffff), (uintptr_t)mod_ptr, (int32_t)rows);
@@ -19639,7 +19650,7 @@ int32_t write_to_flash_output_port(int32_t value)
 /* WHOLE_DRIVER_CANDIDATE fn_000000000002ff18 origin=model_output original=flash_initialize */
 int32_t flash_initialize(void *fsm)
 {
-    *(uint8_t *)((uintptr_t)fsm + 0x10) = 0x58;
+    ((struct t20_fsm_flash *)fsm)->state = 0x58;
 
     flash_clear_bits(0x2020, 0xffff0000);
     flash_clear_bits(0x2020, 0xfffeffff);
@@ -20047,7 +20058,7 @@ int32_t dis_open(void **ctx_out, int32_t setting0, int32_t setting1,
 	*(uint32_t *)(ctx + 0xdc) = 0x3dcccccd;
 	*(uint32_t *)(ctx + 0xe0) = 0x14;
 	*(uint32_t *)(ctx + 0xe4) = 0x28;
-	*(uint32_t *)(ctx + 0x24) = (uint32_t)get_gmv_gauss_method_fast_v2;
+	((struct t20_dis_ctx *)ctx)->method = (void *)get_gmv_gauss_method_fast_v2;
 	if (setting0 != 0)
 		return 0;
 	return get_gmv_gauss_init((void **)(ctx + 0xfc), setting6);
