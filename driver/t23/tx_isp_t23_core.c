@@ -9636,6 +9636,7 @@ static int regtrace_t23_call_sensor_chip_ident(const char *reason);
 uint32_t tisp_set_fps(uint32_t unused, uint32_t fps);
 static uint32_t regtrace_t23_sensor_fps_request;
 static int regtrace_t23_sensor_fps_stream_on(const char *reason);
+static void regtrace_t23_sensor_flip_resync(void);
 static uint32_t regtrace_t23_sensor_fps_report(void);
 
 /*
@@ -11985,6 +11986,8 @@ static int regtrace_t23_call_sensor_stream(int enable, const char *reason)
         uint32_t packed;
 
         regtrace_t23_sensor_streaming = enable ? true : false;
+        if (enable)
+            regtrace_t23_sensor_flip_resync();	/* #829: the core init reset the sensor flip */
         if (enable)
             ret = regtrace_t23_sensor_fps_stream_on(reason);
         if (enable && !ret)
@@ -104602,6 +104605,34 @@ static void regtrace_t23_flip_route(uint32_t mode, bool split)
     /* the MSCA does the rest: picture V = sensor V (held) ^ MSCA V = request V */
     msca = mode ^ (regtrace_t23_hvflip_sensor_v ? 2U : 0U);
     regtrace_t23_isp_flip_apply(msca);
+}
+
+/*
+ * #829 follow-up: the sensor core init of a stream-on writes the sensor's
+ * init registers, so a flip the driver sent before (HV_FLIP split, SENSOR_*
+ * controls) is gone while regtrace_t23_sensor_flip_mode and
+ * regtrace_t23_hvflip_sensor_v still describe it.  Re-send the last sensor
+ * flip after every sensor stream-on so the cached state is true again.
+ * Nothing to do when the driver never wrote the sensor flip (the sensor
+ * init orientation is then the truth, as in the vendor flow).  The vendor
+ * 1.3.0 has no such re-send (its flip event is sent only on a new HV_FLIP);
+ * a running_mode (day/night) switch does not touch the sensor in either
+ * driver (tisp_day_or_night_s_ctrl, ko_all.c:49175).
+ */
+static void regtrace_t23_sensor_flip_resync(void)
+{
+    int m = regtrace_t23_sensor_flip_mode;
+
+    if (m < 0)
+        return;
+    if (regtrace_t23_sensor_flip_set((uint32_t)m)) {
+        /* the sensor stays at its init (mount) orientation: everything on the MSCA */
+        printk(KERN_WARNING "t23: hvflip: sensor flip 0x%x not restored after the stream-on, flipping in the ISP\n",
+               (uint32_t)m);
+        regtrace_t23_sensor_flip_mode = (int)(sensor_mount_flip & 3U);
+        regtrace_t23_hvflip_sensor_v = false;
+        regtrace_t23_isp_flip_apply(regtrace_t23_hvflip_request);
+    }
 }
 
 static void regtrace_t23_hvflip_update(uint32_t mode)

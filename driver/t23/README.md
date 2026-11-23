@@ -262,7 +262,12 @@ Inferred (consistent with the evidence, not isolated on the device):
   is upright and VFLIP(1) no longer double-flips; the vendor 1.3.0 keeps
   the sensor V there (0x980915 only rewrites the MSCA mask, ko_all.c
   4056-4070).  An explicit SENSOR_HFLIP/VFLIP hands the sensor axis to the
-  client (flag cleared).  Host proof: `tests/t23_hvflip_route_host.sh`.
+  client (flag cleared).  After every sensor stream-on the last sensor
+  flip the driver sent is sent again (the sensor core init rewrote it);
+  running_mode does not touch the sensor.  With a self-flipping sensor
+  (thingino sc2336p, shvflip=1) and `sensor_mount_flip=0` any driver write
+  of the sensor flip loses the self flip (#796).  Host proof:
+  `tests/t23_hvflip_route_host.sh`.
 - Lost flip update (#787): a 0xd010 update request written while the
   previous one is still pending is dropped, although 0xd050 reads back the
   new word.  timps sends SetISPHflip and SetISPVflip right after the
