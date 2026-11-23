@@ -125,4 +125,32 @@ static inline int t23_ivdc_ring(unsigned int w, unsigned int mem_line,
 	return n;
 }
 
+/*
+ * openimp #800: ISP top register 0x1c bits 31:29 = 0b101 route the MSCA
+ * channel 0 output into the IVDC.  The core start (tisp_init order) writes
+ * 0x1c = 0 / 8; the vendor re-applies the bits with ivdc_core_ops_init(sd, 1)
+ * at every ISP enable and drops its state to 2 at every disable.  Without
+ * the bits the MSCA writes channel 0 to the IVDC addresses as real bus
+ * addresses: 0x80000000 / 0x81000000 alias to DDR 0 / 16 MB on a 32 MB part
+ * (kernel text, exception vector).  Returns 1 when the init must run
+ * (again): direct mode on and the bits are not set, or the state is not 3.
+ */
+#define T23_IVDC_TOP_MASK	0xe0000000U
+#define T23_IVDC_TOP_DIRECT	0xa0000000U
+
+static inline int t23_ivdc_needs_init(int direct_mode, int state,
+				      unsigned int top1c)
+{
+	if (direct_mode <= 0)
+		return 0;
+	return state != 3 || (top1c & T23_IVDC_TOP_MASK) != T23_IVDC_TOP_DIRECT;
+}
+
+/* 1 when an IVDC address would reach a non-direct MSCA (the DDR alias case) */
+static inline int t23_ivdc_tag_unsafe(int direct_mode, unsigned int top1c)
+{
+	return direct_mode > 0 &&
+	       (top1c & T23_IVDC_TOP_MASK) != T23_IVDC_TOP_DIRECT;
+}
+
 #endif
