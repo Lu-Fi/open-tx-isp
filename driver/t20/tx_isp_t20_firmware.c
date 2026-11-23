@@ -10930,12 +10930,12 @@ common_path:
 unsigned int iridix_control_strength_calculate(int32_t * fsm) {
     void *isp = *(void **)fsm;
     int32_t weighted_sum = 0;
-    uint32_t target_sum = (uint32_t)(*(uint16_t *)_GET_USHORT_PTR(0xd0)) * (uint32_t)(*(int32_t *)((uintptr_t)isp + 0x738)) / 0x64;
+    uint32_t target_sum = (uint32_t)(*(uint16_t *)_GET_USHORT_PTR(0xd0)) * (uint32_t)(((struct t20_isp_ctx *)isp)->ae.hist_total) / 0x64;
     int32_t cum_count = 0;
     int32_t *i = 0;
 
     do {
-        int32_t bin_count = *(int32_t *)((uintptr_t)isp + 0x308 + ((uintptr_t)i << 2) + 0x30);
+        int32_t bin_count = ((struct t20_isp_ctx *)isp)->ae.hist[(uintptr_t)i];
         cum_count += bin_count;
         weighted_sum += bin_count * (uintptr_t)i;
 
@@ -10968,14 +10968,14 @@ unsigned int iridix_control_strength_calculate(int32_t * fsm) {
      * 32-bit read sees 0x01000001 in FS-HDR mode, takes the linear branch
      * and asks for HDR table 0x24 + 0x1000001: _GET_LUT_PTR() finds no
      * such table and never returns. */
-    if (*(uint8_t *)((char *)isp + 0x1524) != 1) {
+    if (((struct t20_isp_ctx *)isp)->general.wdr_mode != 1) {
         isp_cur = *(void **)fsm;
     } else {
         percentile = (int32_t)(*(uint16_t *)_GET_USHORT_PTR(0xd1)) << 2;
         isp_cur = *(void **)fsm;
     }
 
-    uint32_t wdr_mode = (uint32_t)(*(uint8_t *)((char *)isp_cur + 0x1524));
+    uint32_t wdr_mode = (uint32_t)(((struct t20_isp_ctx *)isp_cur)->general.wdr_mode);
     uint16_t result;
 
     if (wdr_mode != 1) {
@@ -10994,13 +10994,13 @@ unsigned int iridix_control_strength_calculate(int32_t * fsm) {
             pct_range = 1;
 
         int32_t hist_pct = (percentile - 1) * 0x64 / pct_range;
-        int32_t full_exposure = *(int32_t *)_GET_UINT_PTR(_GET_HDR_TABLE_INDEX(0x24, (int32_t)(*(uint8_t *)((char *)isp + 0x1524))));
+        int32_t full_exposure = *(int32_t *)_GET_UINT_PTR(_GET_HDR_TABLE_INDEX(0x24, (int32_t)(((struct t20_isp_ctx *)isp)->general.wdr_mode)));
         /* OEM 0x22028-0x22038 clamps the signed percentile to zero. */
         int32_t hist_factor = max_t(int32_t, (int16_t)hist_pct, 0);
         int32_t exp_factor = 0x64;
 
-        if ((uint32_t)(*(int32_t *)((char *)isp + 0x11c)) >= *(uint32_t *)_GET_UINT_PTR(0xd3)) {
-            int32_t cur_exposure = *(int32_t *)((char *)isp + 0x11c);
+        if ((uint32_t)(((struct t20_isp_ctx *)isp)->cmos.exposure_log2) >= *(uint32_t *)_GET_UINT_PTR(0xd3)) {
+            int32_t cur_exposure = ((struct t20_isp_ctx *)isp)->cmos.exposure_log2;
             exp_factor = 0;
 
             if ((uint32_t)full_exposure >= (uint32_t)cur_exposure) {
@@ -11017,7 +11017,7 @@ unsigned int iridix_control_strength_calculate(int32_t * fsm) {
         int32_t exp_less = exp_factor < hist_factor ? 1 : 0;
 
         if (exp_factor < (int32_t)(*(uint16_t *)_GET_USHORT_PTR(0xd2))) {
-            if ((uint32_t)(*(int32_t *)((char *)isp + 0x11c)) < *(uint32_t *)_GET_UINT_PTR(0xd3)) {
+            if ((uint32_t)(((struct t20_isp_ctx *)isp)->cmos.exposure_log2) < *(uint32_t *)_GET_UINT_PTR(0xd3)) {
                 exp_factor = (int32_t)(*(uint16_t *)_GET_USHORT_PTR(0xd2));
             } else if (exp_factor < 0) {
                 exp_factor = 0;
