@@ -213,7 +213,7 @@ EXPORT_SYMBOL(tx_isp_subdev_deinit);
 /* the sensor module is going away: forget every reference into it */
 void t32_core_sensor_driver_gone(struct i2c_driver *drv)
 {
-	int i;
+	int i, gone = 0;
 
 	mutex_lock(&core.lock);
 	for (i = 0; i < T32_MAX_VI; i++) {
@@ -223,8 +223,11 @@ void t32_core_sensor_driver_gone(struct i2c_driver *drv)
 			vi->sd = NULL;
 			vi->registered = 0;
 			vi->streaming = 0;
+			gone = 1;
 		}
 	}
+	if (gone)
+		t32_ivdc_unlive();	/* #828: no STREAMOFF will come for this sensor */
 	mutex_unlock(&core.lock);
 }
 
@@ -1530,6 +1533,7 @@ static int t32_isp_release(struct inode *inode, struct file *file)
 		t33_hw_lib_deinit();	/* lib_tisp_deinit: tisp_all_reset, LDC mask */
 #endif
 		t32_clks_deactivate();
+		t32_ivdc_unlive();	/* #828: last close without STREAMOFF, no stream runs any more */
 		/*
 		 * vendor tx_isp_release (tx-isp-t33.ko and tx-isp-t32.ko): the last close kfrees every MEMORY_MALLOC
 		 * slot libimp left (16 slots at core + 0x170 / + 0x168); here the whole list.  Before, a killed

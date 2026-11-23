@@ -273,6 +273,19 @@ long t32_ivdc_misc_ioctl(unsigned int cmd, unsigned long arg)
 	return r;
 }
 
+/*
+ * #828: a stream ended without STREAMOFF (last close of a killed streamer, sensor rmmod): no stream
+ * runs any more, so SET_MODE may change the direct mode again.  Only the flag; no register access
+ * (the clocks are off / the sensor is gone), the next STREAMON runs core_ops_init with the new mode.
+ * Called under core.lock (order core.lock -> ivdc_mutex as in t32_ivdc_stream).
+ */
+void t32_ivdc_unlive(void)
+{
+	mutex_lock(&ivdc_mutex);
+	ivdc_live = 0;
+	mutex_unlock(&ivdc_mutex);
+}
+
 /* ISP stream on / off: the IVDC core start (mode word) / stop */
 int t32_ivdc_stream(int on)
 {
