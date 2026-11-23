@@ -340,8 +340,12 @@ def t_awb_irq(V, O, rnd, n):            # #620 AWB_fsm_process_interrupt, OEM pa
     bad = 0
     sa = O.e.symaddr.get("simple_3a")
     if sa is None: print("  awb_irq: no simple_3a symbol in the open object"); return 1
-    O.e.write(sa, b"\0")
+    sw = O.e.symaddr.get("simple_awb")
     for k in range(n):
+        # #840: the vendor path runs with simple_3a=0 (#620) and, by default (simple_awb=0), under the compact AE too
+        a3 = rnd.choice([0, 1]) if sw is not None else 0
+        O.e.write(sa, bytes([a3]))
+        if sw is not None: O.e.write(sw, b"\0")
         fsm = bytearray(rnd.getrandbits(8) for _ in range(0x800))
         nz = rnd.choice([0, 1, 4, rnd.randrange(0, 64)]); struct.pack_into("<H", fsm, 0x10, nz)
         ev = rnd.choice([4, 4, 3, 0x104, 0, rnd.getrandbits(8)])
