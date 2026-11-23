@@ -14,6 +14,7 @@ Runs functions of the SDK-built vendor tx-isp-t30.ko (4ea12e1f) and of our drive
   awb_detect_light_source                       light source +0x77d from the colour temperature +0x778 (#450)
   awb_read_statistics                           zone records +0x58 + 8 i, sum +0x14 from 0x8740.. (#620, new in the T30 driver)
   AWB_fsm_process_interrupt (simple_3a=0)       OEM path: statistics read + raise_event(*fsm, 4), return, FSM bytes (#620)
+  cmos_inttime_update / cmos_fsm_process_interrupt(7)   vendor AE to sensor: partition walk, frame values +0x54 (#620)
   apical_event_queue_push                       queue head, _qlock1
   luts_fetch / AWB_mesh / AWB_mesh_LUT / mesh_AWB_getKnownSourceLight_weight_LUT / compute_weight
   awb_calc_avg_weighted_gr_gb_mesh              every FSM byte, fifo state (vendor rg_avg/gb_avg)
@@ -1353,8 +1354,87 @@ def t_matrix_yuv(V, O, rnd, n):
             if bad < 4: print("DIFF matrix_yuv k=%d seq=%s: %s" % (k, [(hex(a), v) for a, v in seq], diffdesc(res[0], res[1])))
     return bad
 
+def t_inttime(V, O, rnd, n):
+    """#620 cmos_inttime_update (vendor 0x257f4): partition walk k = 0..9 (type byte part[2 k], step exp_lut[k]),
+    signed target clamp, anti-flicker snap (lhu +0x50, table 146 word 6); the argument of the
+    cmos_alloc_integration_time tail call.  The lift walked part[-k] / cmos[0x19 - k] with pointer compares."""
+    bad = 0
+    lut_sym = {V: "exp_lut", O: "exposure_partition_lut"}
+    for k in range(n):
+        st = bytearray(rnd.getrandbits(8) for _ in range(60))
+        st[3] = rnd.choice([0, 0, 0, 1]); st[13] = rnd.choice([0, 1, 1])
+        part = bytes(rnd.choice([0, 0, 1, 1, 2, rnd.getrandbits(8)]) if i % 2 == 0 else rnd.getrandbits(8) for i in range(20))
+        lut = [rnd.choice([0, 0x10000, rnd.randrange(0, 0x100000), rnd.getrandbits(32)]) for _ in range(10)]
+        cm = bytearray(rnd.getrandbits(8) for _ in range(0x400))
+        cm[16] = rnd.choice([0, 0, 0, 1, 2])
+        struct.pack_into("<I", cm, 0x48, rnd.choice([0x2a, 0x29, rnd.getrandbits(32)]))
+        struct.pack_into("<I", cm, 0x1c, rnd.choice([0, rnd.randrange(0, 0x100000), rnd.randrange(0, 0x800000), rnd.getrandbits(32)]))
+        struct.pack_into("<H", cm, 0x1b4, rnd.choice([0, 0, 50, 60, rnd.getrandbits(16)]))
+        own = bytearray(rnd.getrandbits(8) for _ in range(0x1600)); own[0x1524] = rnd.choice([0, 1, 2])
+        man = [rnd.choice([-1, -1, 0, rnd.randrange(0, 0x40000)]) & M32 for _ in range(3)]
+        fps = rnd.choice([0, 0xf00, 0x1900, rnd.getrandbits(16)])
+        hyst = rnd.choice([0, 0x800, 0x10000, rnd.getrandbits(20)])
+        res = []
+        for m in (V, O):
+            m.e.heap_reset()
+            o = m.e.alloc(len(own), own); c = bytearray(cm); struct.pack_into("<I", c, 0, o); c = m.e.alloc(len(c), c)
+            tab = m.e.alloc(32, struct.pack("<8I", 1, 2, 3, 4, 5, 6, hyst, 8))
+            m.e.write(m.stab(), bytes(st))
+            for nm in ("exposure_partitions_balanced", "exposure_partition_int_priority"): m.e.write(m.e.symaddr[nm], part)
+            if lut_sym[m] in m.e.symaddr:   # a module that never reads the LUT may not keep it (the lift: #620)
+                m.e.write(m.e.symaddr[lut_sym[m]], struct.pack("<10I", *[x & M32 for x in lut]))
+            for nm, v in zip(("cmos_get_manual_again_log2", "cmos_get_manual_dgain_log2", "cmos_get_manual_isp_dgain_log2"), man):
+                m.hook(nm, m.rec(nm, 1, v))
+            m.hook("log2_fixed_to_fixed", lambda e: (e.get_reg(UC_MIPS_REG_A0) * 2654435761 + e.get_reg(UC_MIPS_REG_A1) * 97 + (e.get_reg(UC_MIPS_REG_A2) & 0xff)) & 0x3fffff)
+            m.hook("math_exp2", lambda e: ((e.get_reg(UC_MIPS_REG_A0) * 40503) ^ (e.get_reg(UC_MIPS_REG_A1) & 0xff)) & M32)
+            m.hook("cmos_get_fps", lambda e: fps)
+            m.hook("_GET_HDR_TABLE_INDEX", lambda e: 0x92 + 1000 * e.get_reg(UC_MIPS_REG_A1))
+            m.hook("_GET_UINT_PTR", lambda e, tab=tab: tab)
+            m.hook("cmos_alloc_integration_time", m.rec("alloc_it", 2, 0x77))
+            r = m.call("cmos_inttime_update", c)
+            for nm in ("cmos_get_manual_again_log2", "cmos_get_manual_dgain_log2", "cmos_get_manual_isp_dgain_log2", "log2_fixed_to_fixed",
+                       "math_exp2", "cmos_get_fps", "_GET_HDR_TABLE_INDEX", "_GET_UINT_PTR", "cmos_alloc_integration_time"):
+                m.unhook(nm)
+            res.append((r.stop, [x for x in m.log if x[0] == "alloc_it"], m.e.read(c + 4, 0x3fc)))
+        if res[0] != res[1]:
+            bad += 1
+            if bad < 4: print("DIFF cmos_inttime_update st3=%d mode=%d sel=%#x: vendor %s open %s" % (st[3], cm[16], struct.unpack_from("<I", cm, 0x48)[0], res[0][:2], res[1][:2]))
+    return bad
+
+def t_cmos7(V, O, rnd, n):
+    """#620 cmos_fsm_process_interrupt(cmos, 7) (vendor 0x2523c): frame values from the history sets stored to
+    cmos+0x54..0x6b (the lift memcpy'd 0x18 bytes from six separate locals), 0x400a4, sensor callbacks"""
+    bad = 0
+    for k in range(n):
+        cm = bytearray(rnd.getrandbits(8) for _ in range(0x400))
+        own = bytearray(rnd.getrandbits(8) for _ in range(0x1600))
+        own[0x1524] = rnd.choice([0, 1, 2, 3]); own[0x7e] = rnd.randrange(0, 8); own[0x7f] = rnd.randrange(0, 8); own[0x80] = rnd.randrange(0, 8)
+        sets = bytes(rnd.getrandbits(8) for _ in range(8 * 0x40))
+        st = bytearray(rnd.getrandbits(8) for _ in range(60)); st[0] = rnd.choice([0, 1, 1])
+        regs = {0x400a4: rnd.getrandbits(32), 0x7c: rnd.getrandbits(32), 0x1a0: rnd.getrandbits(32)}
+        res = []
+        for m in (V, O):
+            m.e.heap_reset(); wl = []; regfile(m, dict(regs), wl)
+            o = bytearray(own)
+            for off in range(0xa8, 0xbc, 4): struct.pack_into("<I", o, off, CB)
+            o = m.e.alloc(len(o), o); c = bytearray(cm); struct.pack_into("<I", c, 0, o); c = m.e.alloc(len(c), c)
+            sb = m.e.alloc(len(sets), sets)
+            m.e.write(m.stab(), bytes(st))
+            m.hook("cmos_get_frame_exposure_set", lambda e, sb=sb: sb + 0x40 * (e.get_reg(UC_MIPS_REG_A1) & 7))
+            for nm in ("cmos_move_exposure_history", "sensor_update_black", "apical_isp_raise_event"): m.hook(nm, m.rec(nm, 2))
+            r = m.call("cmos_fsm_process_interrupt", c, 7)
+            for nm in ("cmos_get_frame_exposure_set", "cmos_move_exposure_history", "sensor_update_black", "apical_isp_raise_event"): m.unhook(nm)
+            log = [(x[0],) + tuple(a - o if o <= a < o + 0x1600 else a for a in x[1:]) for x in m.log]
+            res.append((r.stop, log, m.e.read(c + 4, 0x3fc), m.e.read(o, 0x1600), wl))
+        if res[0] != res[1]:
+            bad += 1
+            if bad < 4:
+                d = [hex(i + 4) for i in range(0x3fc) if res[0][2][i] != res[1][2][i]]
+                print("DIFF cmos_fsm_process_interrupt(7) mode=%d st0=%d: cmos bytes %s log %s / %s" % (own[0x1524], st[0], d[:8], res[0][1][:3], res[1][1][:3]))
+    return bad
+
 TESTS = [("nr_selectors", t_nr), ("general_frame_start", t_general), ("fsm_switch_state", t_fsm), ("crop_event", t_crop),
-         ("sbus_write_u8", t_sbus), ("sbus_write_u16", t_sbus16), ("sharpening_update", t_sharp), ("awb_normalise", t_normalise), ("awb_detect_light_source", t_detect_ls), ("awb_read_statistics", t_read_stats), ("awb_irq_oem", t_awb_irq), ("event_queue_push", t_queue),
+         ("sbus_write_u8", t_sbus), ("sbus_write_u16", t_sbus16), ("sharpening_update", t_sharp), ("awb_normalise", t_normalise), ("awb_detect_light_source", t_detect_ls), ("awb_read_statistics", t_read_stats), ("awb_irq_oem", t_awb_irq), ("cmos_inttime_update", t_inttime), ("cmos_irq7", t_cmos7), ("event_queue_push", t_queue),
          ("awb_mesh_chain", t_mesh), ("compute_weight", t_weight), ("awb_calc_mesh", t_calc),
          ("gp_lock_paths", t_gp_lock), ("ioctl_uaccess", t_uaccess),
          ("ptr_scale", t_ptr_scale), ("fsm_buffers", t_fsm_buffers), ("cm_initialize", t_cm_init), ("ptr_class_463", t_class463), ("fci_args", t_fci_args), ("sync_watchdog", t_sync), ("ldc_ncu_counts", t_counts), ("ldc_core_ops_init", t_ldc_init),
