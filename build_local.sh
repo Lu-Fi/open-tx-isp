@@ -57,6 +57,11 @@ fi
 [ -x "$ROOT/host/bin/${CROSS}gcc" ] || { echo "toolchain missing: $ROOT/host/bin/${CROSS}gcc"; exit 1; }
 [ -n "${KDIR:-}" ] && [ -f "$KDIR/Module.symvers" ] || { echo "kernel tree not built (no Module.symvers): ${KDIR:-<unset>}"; exit 1; }
 
+# The SDK headers (tx-isp-vic.h etc.) live in the external/ingenic-sdk submodule.
+# Without it t10/t20 fail with "tx-isp-vic.h: No such file" (openimp #842).
+[ -f "$HERE/external/ingenic-sdk/3.10.14/isp/${SOC:-t31}/tx-isp-vic.h" ] || [ -d "$HERE/external/ingenic-sdk/3.10.14/isp/${SOC:-t31}" ] || {
+	echo "external/ingenic-sdk submodule is empty: run 'git submodule update --init' in $HERE"; exit 1; }
+
 echo "ROOT=$ROOT"
 echo "KDIR=$KDIR"
 
