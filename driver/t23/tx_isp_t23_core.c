@@ -5766,7 +5766,11 @@ static uintptr_t (*data_abc4c)();
 static uintptr_t (*data_abc70)();
 typedef int32_t (*data_abc4c_fn)(int32_t, int16_t *);
 typedef void (*data_abc70_fn)(uint32_t, int32_t);
-static unsigned char IspAeStatic[0x40bc];	/* stock size */
+/*
+ * stock size; also the AE lift's IspAeStatic (oem_IspAeStatic is a #define
+ * to this object, tx_isp_t23_ae_oem.inc): one copy like stock (#834)
+ */
+static unsigned char IspAeStatic[0x40bc] __aligned(4);
 static uint32_t IntNum;
 static unsigned char IspAeTuneParam[92];
 static uintptr_t frameNum;
@@ -15898,7 +15902,16 @@ static void t23_osd_commit(void)
     spin_lock(&t23_osd_lock);
     if (!t23_osd_dirty(mscaler) && !t23_mask_dirty(mscaler) && !t23_draw_dirty(mscaler))
         goto out;
+    /*
+     * #811: also wait while an MSCA update request (0xd010 bit 0, a live
+     * mirror/flip from regtrace_t23_isp_flip_apply) is pending: the
+     * request is taken at the next frame start, and a shadow transfer
+     * kicked in the same frame gave a block whose picture rows were
+     * scrambled until it was sent again.  The flip marks every shown
+     * block dirty, so they are all sent once the new orientation is live.
+     */
     if (ACCESS_ONCE(t23_msca_port_owned) ||
+        (system_reg_read(0xd010U) & 1U) ||
         ((system_reg_read(T23_MSCA_SHD_KICK) |
           system_reg_read(T23_MSCA_SHD_STATUS)) & 2U)) {
         /* dirty bits stay: the next frame retries */
@@ -17149,6 +17162,17 @@ static uint32_t regtrace_framechan_done_tail[REGTRACE_FRAMECHAN_COUNT];
 static uint32_t regtrace_framechan_done_count[REGTRACE_FRAMECHAN_COUNT];
 static uint32_t regtrace_framechan_done_total[REGTRACE_FRAMECHAN_COUNT];
 static uint32_t regtrace_framechan_done_unmatched[REGTRACE_FRAMECHAN_COUNT];
+/*
+ * #816: per-channel MSCA completion accounting (read only, diagnostics):
+ * [4 * ch + 0] completions handed to the done ring, [+1] done-ring
+ * overwrites (oldest unread frame lost: userspace DQBUF too late),
+ * [+2] completions that left no buffer queued for the channel (the MSCA
+ * has no address for the next frame: that frame is lost in hardware),
+ * [+3] unmatched completions. Channels 0..2.
+ */
+static unsigned int t23_chan_cnt[12];
+module_param_array_named(chan_done_cnt, t23_chan_cnt, uint, NULL, 0444);
+MODULE_PARM_DESC(chan_done_cnt, "per channel 0..2: done,ring overwrite,fifo empty after done,unmatched (read only, #816)");
 static bool regtrace_framechan_streaming[REGTRACE_FRAMECHAN_COUNT];
 static wait_queue_head_t regtrace_framechan_done_wait[REGTRACE_FRAMECHAN_COUNT];
 static spinlock_t regtrace_framechan_done_lock;
@@ -18102,6 +18126,8 @@ static void regtrace_framechan_complete_fifo(int channel,
 
     if (match < 0) {
         count = ++regtrace_framechan_done_unmatched[channel];
+        if (channel < 3)
+            t23_chan_cnt[4 * channel + 3]++;
         spin_unlock_irqrestore(&regtrace_framechan_done_lock, flags);
         if (regtrace_t23_log_irq_count(count))
             printk(KERN_WARNING "t23: framechan%d unmatched MSCA completion y=0x%x uv=0x%x count=%u\n",
@@ -18114,9 +18140,19 @@ static void regtrace_framechan_complete_fifo(int channel,
             (regtrace_framechan_done_tail[channel] + 1U) %
             REGTRACE_FRAMECHAN_DONE_SLOTS;
         regtrace_framechan_done_count[channel]--;
+        if (channel < 3)
+            t23_chan_cnt[4 * channel + 1]++;
     }
 
     regtrace_framechan_qbuf_queued[channel][match] = false;
+    if (channel < 3) {
+        for (i = 0; i < REGTRACE_FRAMECHAN_QBUF_SLOTS; i++)
+            if (regtrace_framechan_qbuf_queued[channel][i])
+                break;
+        t23_chan_cnt[4 * channel + 0]++;
+        if (i == REGTRACE_FRAMECHAN_QBUF_SLOTS)
+            t23_chan_cnt[4 * channel + 2]++;
+    }
     slot = regtrace_framechan_done_head[channel];
     done = &regtrace_framechan_done_ring[channel][slot];
     done->index = regtrace_framechan_qbuf_index[channel][match];
@@ -82445,7 +82481,12 @@ static int32_t tisp_ae_get_y_zone(uint32_t a0, uint32_t a1)
     /* function prologue: stack frame and callee-saved register setup */
 
     /* fragment 1: CallSetup */
-    v0 = (uintptr_t *)memcpy((void *)(uint32_t *)a1, (void *)(uintptr_t)&IspAeStatic, 900); /* jalr target resolved by relocation */
+    /*
+     * stock tisp_ae_get_y_zone (0x4a300): memcpy(a1, IspAeStatic + 13872,
+     * 900), the 15 x 15 AE0 luma zones (lui/addiu pair at 0x4a30c/0x4a320);
+     * the lift had dropped the LO16 addend and copied offset 0 (#834)
+     */
+    v0 = (uintptr_t *)memcpy((void *)(uint32_t *)a1, (void *)((uintptr_t)&IspAeStatic + 13872U), 900); /* jalr target resolved by relocation */
 
     /* fragment 2: Epilogue */
     /* function epilogue: restore registers and return */
@@ -104671,6 +104712,15 @@ static void regtrace_t23_isp_flip_apply(uint32_t mode)
     t23_crumb(T23C_FLIP_WRITE, mode & 3U);
     system_reg_write(0xd050U, value);
     system_reg_write(0xd010U, 1U);
+    /*
+     * #811: send the shown ISP OSD pictures and masks again once this
+     * update is taken (t23_osd_commit waits for 0xd010 bit 0).  The stock
+     * 1.3.0 only writes 0xd050/0xd010 here (tisp_msca_api_set_mirr_flip
+     * @0x1afec) and its tisp_s_mscaler_hvflip_mask (@0x66df0) is empty; a
+     * block stored right after a live toggle came out with scrambled rows
+     * on the QC3 until it was stored again.
+     */
+    t23_osd_restart();
 }
 
 /* Sensor mirror/flip: TX_ISP_EVENT_SENSOR_VFLIP (bit 0 mirror, bit 1

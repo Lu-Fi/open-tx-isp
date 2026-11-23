@@ -106,4 +106,10 @@ out_ = re.sub(r'([A-Za-z_][A-Za-z0-9_]*)\.(isra|constprop|part)\.(\d+)', r'\1_\2
 # keep one C frame per stock frame: inlining would stack every inlined
 # callee's frame[] into one kernel stack frame (24 KiB seen with GCC 16)
 out_ = re.sub(r'^static uint64_t LA_', 'static noinline uint64_t LA_', out_, flags=re.M)
+# stock has ONE IspAeStatic (AE0 + AE1 statistics, read by tisp_ae_get_y_zone):
+# share the driver's object instead of a second 16.2 KiB private copy (#834)
+out_, n = re.subn(r'^static uint8_t oem_IspAeStatic\[16572\] __aligned\(4\) = \{ 0 \};$',
+                  '/* stock IspAeStatic: the driver object itself (one copy, like stock) */\n'
+                  '#define oem_IspAeStatic IspAeStatic', out_, flags=re.M)
+assert n == 1
 print(out_, end='')
