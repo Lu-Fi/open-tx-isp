@@ -104565,14 +104565,31 @@ MODULE_PARM_DESC(sensor_mount_flip,
  * sensor_mount_flip (default 0 = vendor) is XORed in for sensor drivers that
  * flip by themselves at init (beyond vendor, see the parameter).
  */
-static void regtrace_t23_hvflip_update(uint32_t mode)
-{
-    uint32_t msca = mode & 3U;
+/*
+ * #829: V flip that HV_FLIP handed to a shvflip sensor (on top of
+ * sensor_mount_flip).  The one source of truth for the ISP-level flip is
+ * regtrace_t23_hvflip_request; this flag only says which stage holds V, so
+ * every later HFLIP / VFLIP / HV_FLIP gives picture = request (no stale
+ * sensor V, no double flip when a client mixes the CIDs).
+ */
+static bool regtrace_t23_hvflip_sensor_v;
 
-    regtrace_t23_hvflip_request = mode & 3U;
-    if (regtrace_t23_sensor_shvflip()) {
-        uint32_t mount = sensor_mount_flip & 3U;
-        uint32_t sensor = ((mount ^ mode) & 2U) | (mount & 1U);
+/*
+ * Route the ISP-level flip request: split = V to the sensor (HV_FLIP or
+ * direct mode with a shvflip sensor), else both axes on the MSCA as the OEM
+ * HFLIP / VFLIP (0x980915 / 0x980914, ko_all.c:4056-4070) and the sensor V
+ * of an earlier HV_FLIP is given back to the mount flip first.
+ */
+static void regtrace_t23_flip_route(uint32_t mode, bool split)
+{
+    uint32_t mount = sensor_mount_flip & 3U;
+    bool want_v = split && (mode & 2U);
+    uint32_t msca;
+
+    mode &= 3U;
+    regtrace_t23_hvflip_request = mode;
+    if (split || regtrace_t23_hvflip_sensor_v) {
+        uint32_t sensor = ((mount ^ (want_v ? 2U : 0U)) & 2U) | (mount & 1U);
         int ret = regtrace_t23_sensor_flip_set(sensor);
 
         if (ret)
@@ -104580,9 +104597,16 @@ static void regtrace_t23_hvflip_update(uint32_t mode)
                    "t23: hvflip: sensor flip 0x%x failed: %d, flipping in the ISP\n",
                    sensor, ret);
         else
-            msca = mode & 1U;
+            regtrace_t23_hvflip_sensor_v = want_v;
     }
+    /* the MSCA does the rest: picture V = sensor V (held) ^ MSCA V = request V */
+    msca = mode ^ (regtrace_t23_hvflip_sensor_v ? 2U : 0U);
     regtrace_t23_isp_flip_apply(msca);
+}
+
+static void regtrace_t23_hvflip_update(uint32_t mode)
+{
+    regtrace_t23_flip_route(mode, regtrace_t23_sensor_shvflip());
 }
 
 /*
@@ -104942,12 +104966,10 @@ static long regtrace_t23_tuning_cid(bool get, uint32_t id, uint32_t *value)
          * so there the HV_FLIP split (V to a shvflip sensor) is used:
          * beyond vendor, the vendor stack has no IVDC flip handling at all.
          */
-        if (t23_ivdc_direct_mode) {
+        if (t23_ivdc_direct_mode)
             regtrace_t23_hvflip_update(mode);
-        } else {
-            regtrace_t23_hvflip_request = mode & 3U;
-            regtrace_t23_isp_flip_apply(mode);
-        }
+        else
+            regtrace_t23_flip_route(mode, false);	/* #829: drops a sensor V left by HV_FLIP */
         return 0;
     }
     case REGTRACE_TISP_CTRL_HV_FLIP:
@@ -104968,6 +104990,8 @@ static long regtrace_t23_tuning_cid(bool get, uint32_t id, uint32_t *value)
             *value = (mode & bit) ? 1U : 0U;
             return 0;
         }
+        /* an explicit sensor orientation: the sensor axis is the client's now (#829) */
+        regtrace_t23_hvflip_sensor_v = false;
         return regtrace_t23_sensor_flip_set((v & 0xffU) ? (mode | bit) :
                                                           (mode & ~bit));
     }
