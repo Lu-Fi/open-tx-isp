@@ -4,6 +4,15 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD[-rcN]` are set on the `aperto` branch, the same tag in open-tx-isp and OpenIMP: RC1 `v2026.10.11-rc1`, RC2 `v2026.10.25-rc2`, RC3 `v2026.11.07-rc3` (2026-11-07). Gate SoCs of RC3 and Release 1: T10, T20, T21, T23, T30, T31, T40, T41 (T32/T33 planned, QEMU only); release notes: [docs/releases/ in OpenIMP](https://github.com/Lu-Fi/openimp/blob/next/docs/releases/README.md). Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-11-23: T30 vendor AE reaches the sensor with simple_3a=0 (openimp #620)
+- Device (ABUS T30 imx307, room light, runtime swap): with simple_3a=0 the vendor AWB graph ran close to the vendor (WB R 0x142 / B 0x309 against vendor 0x167 / 0x301), but the picture was dark (Y 30 against 112). The AE graph computed exposures every frame, but the sensor kept its init exposure (SHS1 0x3fe, gain 0).
+- Four lift defects on that path (`driver/t30/tx_isp_t30_recovered.c`):
+  - Firmware source 7 (`apical_interrupt_frame_start` -> cmos FSM -> sensor callbacks) was never dispatched. It is now dispatched with simple_3a=0, as the vendor does.
+  - `cmos_inttime_update` (SDK ko 0x257f4) walked the partition table backwards with pointer compares, giving an integration time of 1 line. Rewritten like the vendor.
+  - `cmos_fsm_process_interrupt(7)` stored the frame values at +0x54 from separate locals. The vendor uses +0x4c from one block. This broke the ISP gain in register 0x1a0.
+  - The same function read the system item 0 from the address byte of `stab`.
+- Tests: `tools/ko_emu/diff_t30_lift.py` has new cases `cmos_inttime_update` and `cmos_irq7` against the SDK vendor ko. The fix gives 0 diff at N=200 (suite 31/31); the previous next differs in 93/200 and 200/200. Device: with the fix, AE drives the sensor (dark scene, 0 oops); the lit-scene proof is pending (`audit/issue620/abus3/run620.sh`). Default simple_3a=1 is unchanged.
+
 ## 2026-11-23: T23 flip controls give one picture orientation when HV_FLIP and HFLIP/VFLIP are mixed (openimp #829, beyond the vendor)
 - With `direct_mode=0` and a shvflip sensor, HV_FLIP hands V to the sensor (vendor split, #787), but HFLIP/VFLIP only drove the MSCA and never reset the sensor: HV_FLIP(2) then VFLIP(0) stayed V-flipped with GET 0, VFLIP(1) double-flipped. The vendor 1.3.0 behaves the same (0x980915 rewrites only the MSCA mask, ko_all.c:4056-4070; HV_FLIP sends mode & 0xfe to the sensor, ko_all.c:4433-4476).
 - New `regtrace_t23_flip_route(mode, split)` (`driver/t23/tx_isp_t23_core.c`): `regtrace_t23_hvflip_request` stays the one source of truth, `regtrace_t23_hvflip_sensor_v` records whether the sensor holds V; the non-split path (HFLIP/VFLIP with direct_mode 0) gives the sensor V back to `sensor_mount_flip` first and the MSCA gets request ^ held V. HV_FLIP and the direct-mode paths give the same register writes as before. SENSOR_HFLIP/VFLIP clear the flag (the client owns the sensor axis).

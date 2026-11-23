@@ -15959,7 +15959,7 @@ static void tx_isp_t30_frame_start_ring(void);
 
 static void tx_isp_t30_dispatch_firmware_irqs(u32 status)
 {
-	const u32 recovered_sources = BIT(0) | BIT(3) | BIT(4);
+	u32 recovered_sources = BIT(0) | BIT(3) | BIT(4);
 	unsigned int source;
 
 	if (!ACCESS_ONCE(tx_isp_t30_fw_ready))
@@ -15979,6 +15979,18 @@ static void tx_isp_t30_dispatch_firmware_irqs(u32 status)
 		       isr_param[0]);
 	if (status & BIT(7))
 		tx_isp_t30_frame_start_ring();
+	/*
+	 * #620: with simple_3a=0 the vendor AE graph only reaches the sensor
+	 * through source 7 (apical_interrupt_frame_start -> cmos FSM source 7:
+	 * exposure history, then the sensor set_integration_time / analog gain
+	 * callbacks), as in the vendor dispatch (SDK ko apical_fw_interrupts_init
+	 * 0x1cd64 installs it, every asserted source is called).  Without it the
+	 * AE accumulator ran to its limit while the sensor kept the init exposure
+	 * (device: SHS1 0x3fe, gain 0, picture Y 30 vs vendor 112).  The compact
+	 * controllers (simple_3a=1) write the sensor themselves and keep 7 off.
+	 */
+	if (!simple_3a)
+		recovered_sources |= BIT(7);
 	status &= recovered_sources;
 	for (source = 0; source < ARRAY_SIZE(isr_func); source++) {
 		if ((status & BIT(source)) && isr_func[source]) {
@@ -35619,19 +35631,32 @@ uint32_t cmos_fsm_process_interrupt(int32_t *arg1, char arg2)
 	int32_t var_50 = *(int32_t *)((char *)cmos_get_frame_exposure_set(arg1, idx_80) + 0x18);
 	int32_t var_4c = *(int32_t *)((char *)cmos_get_frame_exposure_set(arg1, 1) + 0x1c);
 
-	memcpy((char *)arg1 + 0x54, &var_58, 0x18);
+	/*
+	 * #620: the OEM (SDK ko 0x253bc: addiu a0,s0,76; addiu a1,sp,16;
+	 * li a2,24) stores the six frame values from one stack block (time,
+	 * again, dgain, isp gain, long time, short time) to cmos+0x4c..0x63,
+	 * so cmos+0x58 is the ISP gain that source 0 writes to register 0x1a0.
+	 * The lift copied to +0x54 and from &var_58 alone, relying on six
+	 * separate locals being laid out in that order (device: 0x1a0 = 0).
+	 */
+	{
+		int32_t frame_set[6] = { var_58, var_54, var_50, var_4c, var_48, var_44 };
 
-	uint8_t stab_val = (uint8_t)stab;
-	void *s2_3 = (char *)s1 + 0x34;
-
-	if (stab_val != 1) {
-		goto call_callbacks;
+		memcpy((char *)arg1 + 0x4c, frame_set, sizeof(frame_set));
 	}
 
-	if ((uint32_t)(uint8_t)((char *)s1)[0x1524] == (uint32_t)stab_val)
-		s2_3 = (char *)s1 + 0x34;
+	uint8_t stab_val = stab[0];	/* #620: OEM lbu 0(stab); the lift took the low byte of the address */
+	void *s2_3 = (char *)s1 + 0x34;
 
-call_callbacks:
+	/*
+	 * #620: OEM 0x253d8..0x25400: with system item 0 set (== 1) the sensor
+	 * callbacks only run in mode 1; otherwise they are skipped (the lift
+	 * called them in every mode).
+	 */
+	if (stab_val == 1 &&
+	    (uint32_t)(uint8_t)((char *)s1)[0x1524] != (uint32_t)stab_val)
+		goto skip_callbacks;
+
 	{
 		void (*cb_ac)(void *, void *) = *(void (**)(void *, void *))((char *)s1 + 0xac);
 		cb_ac(s2_3, (char *)s1 + 0x56);
@@ -35654,6 +35679,7 @@ call_callbacks:
 		cb_b0(s2_3, (char *)s1 + 0x56);
 	}
 
+skip_callbacks:
 	result = (uintptr_t)stab[52] << 8;
 	if (stab[13] == 0)
 		result = 0;
@@ -35667,142 +35693,104 @@ call_callbacks:
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000260d4 origin=model_output original=cmos_inttime_update */
-int cmos_inttime_update(int32_t *arg1) {
-    int32_t *s0 = 0;
-    int32_t *s2;
-    int32_t v1;
-    int32_t *v0;
-    int32_t t5;
-    uint32_t v0_10;
-    uint32_t v0_13;
-    uint32_t v1_8;
-    uint32_t lo_1;
-    int32_t v0_15;
-    int32_t v0_16;
-    void *v0_18;
-    uint32_t lo_2;
-    uint32_t lo_3;
-    uint32_t v0_20;
-    uint32_t v0_21;
-    int32_t v1_11;
-    uint32_t lo_4;
-    int32_t *part;
-    int32_t a1_2;
-    int32_t a0_6;
-    int32_t *i;
+int cmos_inttime_update(int32_t *arg1)
+{
+	/*
+	 * OEM cmos_inttime_update (SDK ko 0x257f4), #620.  The lift walked the
+	 * partition table and the per-step limits with a falling index
+	 * (part[-k], arg1[0x19 - k]: bytes before the table and words of the
+	 * CMOS FSM), held the exposure in pointer types (unsigned compares, the
+	 * s2 < 0 clamp never fired) and read the line count +0x50 as a word.
+	 * The OEM: k = 0..9, type byte part[2 k], step exp_lut[k] (our
+	 * exposure_partition_lut, .bss 0x8200), signed compares, lhu +0x50.
+	 * Only the simple_3a=0 (vendor AE) path reaches it; on the device it
+	 * set an integration time of 1 line and put the whole exposure into
+	 * the analogue gain.
+	 */
+	int32_t it = 0;
 
-    if (stab[3] == 0) {
-        s2 = arg1[7];
+	if (stab[3] == 0) {
+		int32_t target = arg1[7];
 
-        if (*(uint8_t *)(arg1 + 4) != 1) {
-            v0 = cmos_get_manual_again_log2(arg1);
-            if (v0 >= 0)
-                s2 = (void *)(uintptr_t)((uintptr_t)s2 - ((uintptr_t)v0));
+		if (*(uint8_t *)((char *)arg1 + 16) != 1) {
+			const uint8_t *part;
+			int32_t acc = 0, v;
+			uint32_t lines_div;
+			int k;
 
-            v0 = cmos_get_manual_dgain_log2(arg1);
-            if (v0 >= 0)
-                s2 = (void *)(uintptr_t)((uintptr_t)s2 - ((uintptr_t)v0));
+			v = cmos_get_manual_again_log2(arg1);
+			if (v >= 0)
+				target -= v;
+			v = cmos_get_manual_dgain_log2(arg1);
+			if (v >= 0)
+				target -= v;
+			v = cmos_get_manual_isp_dgain_log2(arg1);
+			if (v >= 0)
+				target -= v;
+			if (target < 0)
+				target = 0;
 
-            v0 = cmos_get_manual_isp_dgain_log2(arg1);
-            if (v0 >= 0)
-                s2 = (void *)(uintptr_t)((uintptr_t)s2 - ((uintptr_t)v0));
+			for (k = 0; k < 10; k++) {
+				uint32_t type;
+				int32_t step;
 
-            if (s2 < 0)
-                s2 = 0;
+				part = arg1[0x48 / 4] == 0x2a ?
+					exposure_partition_int_priority :
+					exposure_partitions_balanced;
+				type = part[2 * k];
+				step = exposure_partition_lut[k];
+				if (type >= 2)
+					continue;
+				if (type != 0) {
+					acc += step;
+				} else {
+					if (target < acc + step)
+						step = target - acc;
+					it += step;
+					acc += step;
+				}
+				if (acc >= target)
+					break;
+			}
 
-            v1 = 0;
-            i = 0;
-            t5 = arg1[0x12];
+			/* anti-flicker: snap the time to whole flicker periods */
+			lines_div = *(uint16_t *)((char *)arg1 + 0x1b4);
+			if (lines_div && *(uint8_t *)((char *)arg1 + 16) == 0 && stab[13]) {
+				uint8_t *own = (uint8_t *)(uintptr_t)arg1[0];
+				uint32_t period = cmos_get_fps(arg1) *
+					(uint32_t)*(uint16_t *)(own + 0x50) / (lines_div << 1);
 
-            while (1) {
-                part = exposure_partitions_balanced;
-                if (t5 == 0x2a)
-                    part = exposure_partition_int_priority;
+				if (period) {
+					int32_t min_it = log2_fixed_to_fixed(period, 0, 16);
+					int32_t *tab;
+					uint32_t cur, now, hi, lo;
+					int32_t hyst;
 
-                a1_2 = part[(uintptr_t)i];
-                a0_6 = arg1[0x19 + (uintptr_t)i];
+					if (it < min_it)
+						it = target < min_it ? target : min_it;
+					tab = (int32_t *)_GET_UINT_PTR(_GET_HDR_TABLE_INDEX(0x92, own[0x1524]));
+					cur = (uint32_t)*(uint16_t *)((char *)arg1 + 0x1c4) / period;
+					now = math_exp2(it, 16, 0) / period;
+					if (now != cur) {
+						hyst = tab[6];
+						hi = math_exp2(it + hyst, 16, 0);
+						lo = math_exp2(it - hyst, 16, 0);
+						if (now < cur) {
+							if ((uint32_t)hyst < (uint32_t)(target - it) &&
+							    !(cur < hi / period))
+								it += hyst;
+						} else if (lo / period >= cur) {
+							it -= hyst;
+						}
+					}
+				}
+			}
+		} else {
+			it = target - log2_fixed_to_fixed(arg1[5], 8, 16);
+		}
+	}
 
-                if ((uint32_t)a1_2 < 2) {
-                    if (a1_2 != 0) {
-                        v1 += a0_6;
-                    } else {
-                        if (s2 < v1 + a0_6)
-                            a0_6 = s2 - v1;
-                        s0 = (void *)(uintptr_t)((uintptr_t)s0 + (a0_6));
-                        v1 += a0_6;
-                    }
-                    if (v1 >= s2) {
-                        v0_10 = *(uint16_t *)(arg1 + 0x6d);
-                        break;
-                    }
-                }
-
-                i = (void *)(uintptr_t)((uintptr_t)i - (1));
-                if (i == -10) {
-                    v0_10 = *(uint16_t *)(arg1 + 0x6d);
-                    break;
-                }
-                t5 = arg1[0x12];
-            }
-
-            if (v0_10 != 0 && *(uint8_t *)(arg1 + 4) == 0 && stab[13] != 0) {
-                v0_13 = cmos_get_fps(arg1);
-                v1_8 = (uint32_t)v0_10 << 1;
-                lo_1 = v0_13 * (uint32_t)*(int32_t *)(*(int32_t *)arg1 + 0x50) / v1_8;
-
-                if (lo_1 != 0) {
-                    v0_15 = log2_fixed_to_fixed(lo_1, 0, 0x10);
-                    if (s0 >= v0_15) {
-                        v0_16 = *arg1;
-                    } else {
-                        if (s2 < v0_15)
-                            v0_15 = s2;
-                        s0 = v0_15;
-                        v0_16 = *arg1;
-                    }
-
-                    v0_18 = _GET_UINT_PTR(_GET_HDR_TABLE_INDEX(
-                        0x92, *(uint8_t *)((char *)(uintptr_t)v0_16 + 0x1524)));
-                    lo_2 = (uint32_t)*(uint16_t *)(arg1 + 0x71) / lo_1;
-                    lo_3 = math_exp2((uintptr_t)s0, 0x10, 0) / lo_1;
-
-                    if (lo_3 != lo_2) {
-                        v0_20 = math_exp2(s0 + *(int32_t *)((char *)v0_18 + 0x18), 0x10, 0);
-                        v0_21 = math_exp2(s0 - *(int32_t *)((char *)v0_18 + 0x18), 0x10, 0);
-
-                        if ((uint32_t)lo_3 >= lo_2) {
-                            if (lo_2 < (uint32_t)lo_3) {
-                                if (v0_21 / lo_1 >= lo_2)
-                                    s0 = (void *)(uintptr_t)((uintptr_t)s0 - (*(int32_t *)((char *)(uintptr_t)v0_18 + 0x18)));
-                            }
-                        } else {
-                            v1_11 = *(int32_t *)((char *)v0_18 + 0x18);
-                            if ((uint32_t)v1_11 >= (uint32_t)((uintptr_t)s2 - (uintptr_t)s0)) {
-                                if (lo_2 < (uint32_t)lo_3) {
-                                    if (v0_21 / lo_1 >= lo_2)
-                                        s0 = (void *)(uintptr_t)((uintptr_t)s0 - (v1_11));
-                                }
-                            } else {
-                                lo_4 = v0_20 / lo_1;
-                                if (lo_2 < lo_4) {
-                                    if (lo_2 < (uint32_t)lo_3) {
-                                        if (v0_21 / lo_1 >= lo_2)
-                                            s0 = (void *)(uintptr_t)((uintptr_t)s0 - (v1_11));
-                                    }
-                                } else {
-                                    s0 = (void *)(uintptr_t)((uintptr_t)s0 + (v1_11));
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        } else {
-            s0 = s2 - log2_fixed_to_fixed((uintptr_t *)arg1[5], 8, 0x10);
-        }
-    }
-
-    return cmos_alloc_integration_time(arg1, s0);
+	return cmos_alloc_integration_time((uint32_t *)arg1, it);
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000026404 origin=model_output original=cmos_analog_gain_update */
