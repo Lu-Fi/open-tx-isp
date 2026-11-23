@@ -19191,7 +19191,7 @@ int32_t noise_reduction_update(struct tx_isp_t20_nr_state *state)
 				_GET_UINT_PTR(T20_CAL_SINTER_WDR_OFFSET);
 			const u16 *recursion = (void *)(uintptr_t)
 				_GET_USHORT_PTR(T20_CAL_TEMPER_RECURSION_LIMIT);
-			int32_t *general = (void *)((u8 *)owner + 0x14e8);
+			int32_t *general = (void *)t20_member_ptr((struct t20_isp_ctx *)owner, general);
 			u32 ratio = owner->exposure_ratio;
 			u32 fe_long;
 			u32 fe_short;
@@ -19441,7 +19441,7 @@ int32_t sharpening_update(int32_t *fsm)
 	uint32_t scale;
 	uint32_t hdr_byte;
 
-	mode = *(uint8_t *)((char *)fsm + 0x4c);
+	mode = ((struct t20_fsm_sharpening *)fsm)->field_4c;
 	base = (int32_t *)*fsm;
 
 	if (mode == 0x2d) {
@@ -19452,15 +19452,15 @@ int32_t sharpening_update(int32_t *fsm)
 	} else {
 		au_read_histogram(fsm);
 		base = (int32_t *)*fsm;
-		hdr_idx = _GET_HDR_TABLE_INDEX(0xb, *(uint8_t *)((char *)base + 0x1524));
+		hdr_idx = _GET_HDR_TABLE_INDEX(0xb, ((struct t20_isp_ctx *)base)->general.wdr_mode);
 		lut = (uint16_t *)_GET_USHORT_PTR(hdr_idx);
-		hist_val = fsm[0x119];
-		width = fsm[0x16];
-		height = fsm[0x17];
-		thresh1 = *(uint16_t *)((char *)fsm + 0x50);
-		thresh2 = *(uint16_t *)((char *)fsm + 0x52);
-		thresh3 = *(uint16_t *)((char *)fsm + 0x54);
-		thresh4 = *(uint16_t *)((char *)fsm + 0x56);
+		hist_val = ((struct t20_fsm_sharpening *)fsm)->hist_total;
+		width = ((struct t20_fsm_sharpening *)fsm)->field_58;
+		height = ((struct t20_fsm_sharpening *)fsm)->field_5c;
+		thresh1 = ((struct t20_fsm_sharpening *)fsm)->field_50;
+		thresh2 = ((struct t20_fsm_sharpening *)fsm)->field_52;
+		thresh3 = ((struct t20_fsm_sharpening *)fsm)->field_54;
+		thresh4 = ((struct t20_fsm_sharpening *)fsm)->field_56;
 
 		if (width == 0)
 			return -1;
@@ -19469,7 +19469,7 @@ int32_t sharpening_update(int32_t *fsm)
 
 		idx1 = 0;
 		while (idx1 < 0x100) {
-			if ((uint32_t)fsm[0x1a + idx1] >= (uint32_t)thresh1 * (uint32_t)hist_val / (uint32_t)(width * 0x64))
+			if ((uint32_t)((struct t20_fsm_sharpening *)fsm)->hist[idx1] >= (uint32_t)thresh1 * (uint32_t)hist_val / (uint32_t)(width * 0x64))
 				break;
 			idx1++;
 		}
@@ -19478,7 +19478,7 @@ int32_t sharpening_update(int32_t *fsm)
 
 		idx2 = 0;
 		while (idx2 < 0x100) {
-			if ((uint32_t)fsm[0x1a + idx2] >= (uint32_t)thresh3 * (uint32_t)hist_val / (uint32_t)(width * 0x64))
+			if ((uint32_t)((struct t20_fsm_sharpening *)fsm)->hist[idx2] >= (uint32_t)thresh3 * (uint32_t)hist_val / (uint32_t)(width * 0x64))
 				break;
 			idx2++;
 		}
@@ -19487,7 +19487,7 @@ int32_t sharpening_update(int32_t *fsm)
 
 		idx3 = 0;
 		while (idx3 < 0x100) {
-			if ((uint32_t)fsm[0x1a + idx3] >= (uint32_t)hist_val - (uint32_t)thresh4 * (uint32_t)hist_val / (uint32_t)(height * 0x64))
+			if ((uint32_t)((struct t20_fsm_sharpening *)fsm)->hist[idx3] >= (uint32_t)hist_val - (uint32_t)thresh4 * (uint32_t)hist_val / (uint32_t)(height * 0x64))
 				break;
 			idx3++;
 		}
@@ -19497,21 +19497,21 @@ int32_t sharpening_update(int32_t *fsm)
 		idx4 = 0;
 		flag = 0;
 		while (idx4 < 0x100) {
-			if ((uint32_t)fsm[0x1a + idx4] >= (uint32_t)hist_val - (uint32_t)thresh2 * (uint32_t)hist_val / (uint32_t)(height * 0x64)) {
-				flag = (*(uint8_t *)((char *)fsm + 0x4d) < idx1) ? 1 : 0;
+			if ((uint32_t)((struct t20_fsm_sharpening *)fsm)->hist[idx4] >= (uint32_t)hist_val - (uint32_t)thresh2 * (uint32_t)hist_val / (uint32_t)(height * 0x64)) {
+				flag = (((struct t20_fsm_sharpening *)fsm)->field_4d < idx1) ? 1 : 0;
 				break;
 			}
 			idx4++;
 		}
 		if (idx4 >= 0x100) {
 			idx4 = 0;
-			flag = (*(uint8_t *)((char *)fsm + 0x4d) < idx1) ? 1 : 0;
+			flag = (((struct t20_fsm_sharpening *)fsm)->field_4d < idx1) ? 1 : 0;
 		}
 
 		if (flag == 0) {
 			idx2 = 0;
 		} else {
-			uint32_t diff_idx = (uint32_t)idx1 - (uint32_t)(*(uint8_t *)((char *)fsm + 0x4d));
+			uint32_t diff_idx = (uint32_t)idx1 - (uint32_t)(((struct t20_fsm_sharpening *)fsm)->field_4d);
 			if (idx2 < diff_idx) {
 				/* keep idx2 */
 			} else {
@@ -19520,10 +19520,10 @@ int32_t sharpening_update(int32_t *fsm)
 		}
 
 		val = 0xff;
-		if ((idx4 < *(uint8_t *)((char *)fsm + 0x4e)) != 0) {
-			if (*(uint8_t *)((char *)fsm + 0x4e) == 0)
+		if ((idx4 < ((struct t20_fsm_sharpening *)fsm)->field_4e) != 0) {
+			if (((struct t20_fsm_sharpening *)fsm)->field_4e == 0)
 				return -1;
-			val = ((idx4 << 8) / *(uint8_t *)((char *)fsm + 0x4e)) & 0xffff;
+			val = ((idx4 << 8) / ((struct t20_fsm_sharpening *)fsm)->field_4e) & 0xffff;
 		}
 
 		if (val < idx3)
@@ -19537,7 +19537,7 @@ int32_t sharpening_update(int32_t *fsm)
 			avg_lo = ((uint32_t)lut[gamma_lo] + (uint32_t)lut[gamma_lo - 1]) >> 1;
 		}
 
-		shift = *(uint8_t *)((char *)fsm + 0x66) - 0xa;
+		shift = ((struct t20_fsm_sharpening *)fsm)->field_66 - 0xa;
 		/* vendor 0x2f340..0x2f3b4: srav then andi 0xffff (zero extension) */
 		scaled_lo = (uint32_t)((int32_t)avg_lo >> (shift & 0x1f)) & 0xffff;
 
@@ -19566,13 +19566,13 @@ int32_t sharpening_update(int32_t *fsm)
 		}
 
 		neg_result = -(int32_t)result;
-		*(int16_t *)((char *)fsm + 0x62) = (int16_t)neg_result;
-		*(uint16_t *)((char *)fsm + 0x64) = (uint16_t)inv;
+		((struct t20_fsm_sharpening *)fsm)->field_62 = (int16_t)neg_result;
+		((struct t20_fsm_sharpening *)fsm)->field_64 = (uint16_t)inv;
 		base = (int32_t *)*fsm;
 	}
 
-	hdr_byte = *(uint8_t *)((char *)base + 0x1524);
-	mod_val = ((int32_t)(*(int32_t *)((uintptr_t)base + 0x2cc) + *(int32_t *)((uintptr_t)base + 0x2d0) + *(int32_t *)((uintptr_t)base + 0x2d4)) >> 8);
+	hdr_byte = ((struct t20_isp_ctx *)base)->general.wdr_mode;
+	mod_val = ((int32_t)(((struct t20_isp_ctx *)base)->cmos.sensor_again_log2 + ((struct t20_isp_ctx *)base)->cmos.sensor_dgain_log2 + ((struct t20_isp_ctx *)base)->cmos.isp_dgain_log2) >> 8);
 
 	if (hdr_byte == 1) {
 		mod_ptr = (int16_t *)_GET_MOD_ENTRY16_PTR(0x43);
@@ -19593,7 +19593,7 @@ int32_t sharpening_update(int32_t *fsm)
 			(int16_t)stab.global_maximum_directional_sharpening,
 			(int16_t)stab.global_minimum_directional_sharpening,
 			(uintptr_t)mod_ptr, (int32_t)rows);
-		scale = *(uint16_t *)((char *)fsm + 0x20);
+		scale = ((struct t20_fsm_sharpening *)fsm)->field_20;
 		s1_val = (uint32_t)((uint16_t)((calc_val * scale) >> 7));
 		if (s1_val >= 0x100)
 			s1_val = 0xff;
@@ -19608,7 +19608,7 @@ int32_t sharpening_update(int32_t *fsm)
 			(int16_t)stab.global_maximum_un_directional_sharpening,
 			(int16_t)stab.global_minimum_un_directional_sharpening,
 			(uintptr_t)mod_ptr2, (int32_t)rows);
-		scale = *(uint16_t *)((char *)fsm + 0x20);
+		scale = ((struct t20_fsm_sharpening *)fsm)->field_20;
 		fp_val = (uint32_t)((uint16_t)((calc_val * scale) >> 7));
 		if (fp_val >= 0x100)
 			fp_val = 0xff;
@@ -19621,19 +19621,19 @@ int32_t sharpening_update(int32_t *fsm)
 	APICAL_WRITE_32(0x43c, (APICAL_READ_32(0x43c) & mask) | s1_val);
 	APICAL_WRITE_32(0x440, (APICAL_READ_32(0x440) & mask) | fp_val);
 
-	hdr_idx = _GET_HDR_TABLE_INDEX(0x65, *(uint8_t *)((char *)base + 0x1524));
+	hdr_idx = _GET_HDR_TABLE_INDEX(0x65, ((struct t20_isp_ctx *)base)->general.wdr_mode);
 	mod_ptr = (int16_t *)_GET_MOD_ENTRY16_PTR(hdr_idx);
 	rows = _GET_ROWS(0x65);
 	calc_val = calc_modulation_u16((uint16_t)(mod_val & 0xffff), (uintptr_t)mod_ptr, (int32_t)rows);
 	APICAL_WRITE_32(0x504, (calc_val & 0xff) | (APICAL_READ_32(0x504) & mask));
 
-	hdr_idx = _GET_HDR_TABLE_INDEX(0x6a, *(uint8_t *)((char *)base + 0x1524));
+	hdr_idx = _GET_HDR_TABLE_INDEX(0x6a, ((struct t20_isp_ctx *)base)->general.wdr_mode);
 	mod_ptr = (int16_t *)_GET_MOD_ENTRY16_PTR(hdr_idx);
 	rows = _GET_ROWS(0x6a);
 	calc_val = calc_modulation_u16((uint16_t)(mod_val & 0xffff), (uintptr_t)mod_ptr, (int32_t)rows);
 	APICAL_WRITE_32(0x624, (calc_val & 0xff) | (APICAL_READ_32(0x624) & mask));
 
-	hdr_idx = _GET_HDR_TABLE_INDEX(0x6f, *(uint8_t *)((char *)base + 0x1524));
+	hdr_idx = _GET_HDR_TABLE_INDEX(0x6f, ((struct t20_isp_ctx *)base)->general.wdr_mode);
 	mod_ptr = (int16_t *)_GET_MOD_ENTRY16_PTR(hdr_idx);
 	rows = _GET_ROWS(0x6f);
 	calc_val = calc_modulation_u16((uint16_t)(mod_val & 0xffff), (uintptr_t)mod_ptr, (int32_t)rows);
