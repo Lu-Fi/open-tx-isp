@@ -20058,7 +20058,7 @@ int32_t dis_open(void **ctx_out, int32_t setting0, int32_t setting1,
 	*(uint32_t *)(ctx + 0xdc) = 0x3dcccccd;
 	*(uint32_t *)(ctx + 0xe0) = 0x14;
 	*(uint32_t *)(ctx + 0xe4) = 0x28;
-	*(uint32_t *)(ctx + 0x24) = (uint32_t)get_gmv_gauss_method_fast_v2;
+	((struct t20_dis_ctx *)ctx)->method = (void *)get_gmv_gauss_method_fast_v2;
 	if (setting0 != 0)
 		return 0;
 	return get_gmv_gauss_init((void **)(ctx + 0xfc), setting6);
