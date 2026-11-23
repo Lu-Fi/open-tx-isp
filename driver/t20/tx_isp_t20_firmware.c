@@ -17902,8 +17902,8 @@ int32_t awb_calc_avg_weighted_gr_gb_mesh(uintptr_t awb_fsm)
 	uint32_t len;
 	uint8_t idx;
 
-	*(uint16_t *)(fsm + 16) = (uint16_t)(((stat1 & 0xff00) >> 8) * (stat0 & 0xff));
-	zones = *(uint16_t *)(fsm + 16);
+	((struct t20_fsm_awb *)fsm)->field_10 = (uint16_t)(((stat1 & 0xff00) >> 8) * (stat0 & 0xff));
+	zones = ((struct t20_fsm_awb *)fsm)->field_10;
 	if (zones >= 226)
 		return 0;
 	for (i = 0; (uint16_t)i < zones; i++) {
@@ -17916,8 +17916,8 @@ int32_t awb_calc_avg_weighted_gr_gb_mesh(uintptr_t awb_fsm)
 	}
 
 	/* colour-temperature limit from the sensor gain (tables 151 -> 243) */
-	gain = *(uint32_t *)(isp + 284);
-	idx = (uint8_t)_GET_HDR_TABLE_INDEX(151, *(uint8_t *)(isp + 5412));
+	gain = (uint32_t)((struct t20_isp_ctx *)isp)->cmos.exposure_log2;
+	idx = (uint8_t)_GET_HDR_TABLE_INDEX(151, ((struct t20_isp_ctx *)isp)->general.wdr_mode);
 	gains = (uint32_t *)(uintptr_t)_GET_UINT_PTR(idx);
 	cts = (uint32_t *)(uintptr_t)_GET_UINT_PTR(243);
 	len = _GET_LEN(idx);
@@ -17973,7 +17973,7 @@ int32_t awb_calc_avg_weighted_gr_gb_mesh(uintptr_t awb_fsm)
 	counted = 0;
 	sum_a = 0;
 	sum_b = 0;
-	for (i = 0; i < *(uint16_t *)(fsm + 16); i = (uint16_t)(i + 1)) {
+	for (i = 0; i < ((struct t20_fsm_awb *)fsm)->field_10; i = (uint16_t)(i + 1)) {
 		uint16_t *zone = (uint16_t *)(fsm + (i + 11) * 8);
 		int32_t rg = zone[0];
 		int32_t bg = zone[1];
@@ -18040,7 +18040,7 @@ int32_t awb_calc_avg_weighted_gr_gb_mesh(uintptr_t awb_fsm)
 	fsm[28] = avg_a;
 	fsm[29] = avg_b;
 
-	zones = *(uint16_t *)(fsm + 16);
+	zones = ((struct t20_fsm_awb *)fsm)->field_10;
 	if ((avg_a < avg_b ? avg_b - avg_a : avg_a - avg_b) < 15) {
 		if (ct < 80) {
 			uint16_t *lim_rg = t20_awb_lut16(224);
@@ -18124,7 +18124,7 @@ int32_t awb_calc_avg_weighted_gr_gb_mesh(uintptr_t awb_fsm)
 	}
 
 	/* which zones count, and their ratios */
-	zones = *(uint16_t *)(fsm + 16);
+	zones = ((struct t20_fsm_awb *)fsm)->field_10;
 	near0 = 0;
 	for (i = 0; (uint16_t)i < zones; i++)
 		near0 += t20_awb_near_source0[i];
