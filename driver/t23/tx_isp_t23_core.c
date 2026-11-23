@@ -18,6 +18,7 @@
 #include "tx_isp_t23_scratch.h"
 #include "tx_isp_t23_ivdc_misc.h"
 #include "tx_isp_t23_ivdc_direct.h"
+#include "tx_isp_t23_clk.h"
 #include "tx_isp_t23_bypass.h"
 #include "tx_isp_t23_core_ioctl.h"
 #include "tx_isp_t23_msca_geom.h"
@@ -9636,6 +9637,7 @@ static int regtrace_t23_call_sensor_chip_ident(const char *reason);
 uint32_t tisp_set_fps(uint32_t unused, uint32_t fps);
 static uint32_t regtrace_t23_sensor_fps_request;
 static int regtrace_t23_sensor_fps_stream_on(const char *reason);
+static void regtrace_t23_sensor_flip_resync(void);
 static uint32_t regtrace_t23_sensor_fps_report(void);
 
 /*
@@ -11333,6 +11335,62 @@ static ssize_t regtrace_t23_vic_proc_write(struct file *file,
     return ret ? ret : (ssize_t)input_count;
 }
 
+/* openimp #813: vendor ispcore_activate_module clock step (tx_isp_t23_clk.h). */
+static void *t23_clk_op_get(const char *name)
+{
+    struct clk *c = clk_get(NULL, name);
+
+    return IS_ERR_OR_NULL(c) ? NULL : c;
+}
+static void t23_clk_op_put(void *clk) { clk_put((struct clk *)clk); }
+static int t23_clk_op_set_parent(void *clk, void *parent)
+{
+    return clk_set_parent((struct clk *)clk, (struct clk *)parent);
+}
+static int t23_clk_op_set_rate(void *clk, unsigned long rate)
+{
+    return private_clk_set_rate((struct clk *)clk, rate);
+}
+static void t23_clk_op_log(const char *msg, const char *arg)
+{
+    char b[96];
+
+    snprintf(b, sizeof(b), msg, arg);
+    printk(KERN_ERR "t23: %s", b);
+}
+static const struct t23_clk_ops t23_clk_kernel_ops = {
+    .get = t23_clk_op_get,
+    .put = t23_clk_op_put,
+    .set_parent = t23_clk_op_set_parent,
+    .set_rate = t23_clk_op_set_rate,
+    .log = t23_clk_op_log,
+};
+
+static void t23_core_clk_params(unsigned char *sd)
+{
+    uintptr_t clk_ptr = *(uint32_t *)(sd + REGTRACE_TX_ISP_MODULE_CLK_PTR_OFFSET);
+    uint32_t clk_num = *(uint32_t *)(sd + REGTRACE_TX_ISP_MODULE_CLK_NUM_OFFSET);
+    void *clks[2] = { NULL, NULL };
+    uint32_t i;
+
+    if (!clk_ptr || clk_num > 8)
+        return;
+    for (i = 0; i < clk_num && i < 2; i++) {
+        struct clk *c = *(struct clk **)(clk_ptr + i * sizeof(uint32_t));
+
+        clks[i] = IS_ERR_OR_NULL(c) ? NULL : c;
+    }
+    t23_core_apply_clk_params(&t23_clk_kernel_ops, clks, clk_num,
+                              clk_name, clka_name,
+                              (unsigned long)(unsigned int)isp_clk,
+                              (unsigned long)(unsigned int)isp_clka);
+    printk(KERN_WARNING "t23: core clocks cgu_isp=%lu cgu_vpu=%lu (isp_clk=%u isp_clka=%u clk_name=%s clka_name=%s)\n",
+           clks[0] ? private_clk_get_rate(clks[0]) : 0UL,
+           clks[1] ? private_clk_get_rate(clks[1]) : 0UL,
+           (unsigned int)isp_clk, (unsigned int)isp_clka,
+           clk_name ? clk_name : "-", clka_name ? clka_name : "-");
+}
+
 static void regtrace_t23_enable_subdev_clks(const char *name,
                                             unsigned char *sd,
                                             bool *enabled)
@@ -11348,6 +11406,10 @@ static void regtrace_t23_enable_subdev_clks(const char *name,
     clk_num = *(uint32_t *)(sd + REGTRACE_TX_ISP_MODULE_CLK_NUM_OFFSET);
     if (!clk_ptr || clk_num > 8)
         return;
+
+    /* vendor ispcore_activate_module: parents + rates before the enable */
+    if (sd == regtrace_t23_core_sd)
+        t23_core_clk_params(sd);
 
     for (i = 0; i < clk_num; i++) {
         struct clk *clk = *(struct clk **)(clk_ptr + i * sizeof(uint32_t));
@@ -11985,6 +12047,8 @@ static int regtrace_t23_call_sensor_stream(int enable, const char *reason)
         uint32_t packed;
 
         regtrace_t23_sensor_streaming = enable ? true : false;
+        if (enable)
+            regtrace_t23_sensor_flip_resync();	/* #829: the core init reset the sensor flip */
         if (enable)
             ret = regtrace_t23_sensor_fps_stream_on(reason);
         if (enable && !ret)
@@ -17566,6 +17630,85 @@ static void regtrace_t23_ivdc_core_init(void)
     regtrace_t23_ivdc_state = 3;
 }
 
+/*
+ * openimp #800: the vendor runs ivdc_core_ops_init(sd, 1) at every ISP
+ * enable (after tisp_init wrote 0x1c = 0) and (sd, 0) = state 2 at every
+ * disable.  Here the init ran only from the channel 0 format event, and only
+ * while the state was not 3: a core restart (new timps session whose last
+ * one ended without a channel 0 STREAMOFF, or an input stop / start inside
+ * a session) left 0x1c without the direct bits while the MSCA channel 0
+ * FIFO held the IVDC addresses, so the MSCA wrote the frame to 0x80000000 /
+ * 0x81000000 = DDR 0 / 16 MB: kernel text and the exception vector
+ * (0x80808080 grey UV in the code dump, reset PC 0x80000188 / 0x80000198).
+ */
+static unsigned int regtrace_t23_ivdc_reinits;
+module_param_named(ivdc_reinits, regtrace_t23_ivdc_reinits, uint, 0444);
+MODULE_PARM_DESC(ivdc_reinits, "IVDC direct-mode re-inits after a core start (read only, #800)");
+static unsigned int regtrace_t23_ivdc_bits_lost;
+module_param_named(ivdc_bits_lost, regtrace_t23_ivdc_bits_lost, uint, 0444);
+MODULE_PARM_DESC(ivdc_bits_lost, "channel 0 IVDC addresses about to reach a non-direct MSCA, re-inited first (read only, #800)");
+/* #807/#800: channel 0 MSCA FIFO accounting in direct mode (read only).
+ * fd = core IRQs with frame done (bit 0), fd0 = of these with no channel 0
+ * entry drained, drain = entries drained and pushed again, qpush = QBUF
+ * pushes, fs = frame starts (bit 0x1000), bad = drained entries that were
+ * not the IVDC pair (pushed back as the IVDC pair, never as read). */
+static unsigned int t23_ivdc_cnt[7];
+module_param_array_named(ivdc_fifo_cnt, t23_ivdc_cnt, uint, NULL, 0444);
+MODULE_PARM_DESC(ivdc_fifo_cnt, "fd,fd0,drain,qpush,fs,bad,last bad y (read only, #807/#800)");
+
+static struct t23_ivdc_reg regtrace_t23_ivdc_ring_regs[8];
+static int regtrace_t23_ivdc_ring_n;
+static unsigned int regtrace_t23_ivdc_ring_paddr;
+
+/* #800: the IVDC ring base must be the programmed ring, never 0 (an IVDC
+ * with base 0 writes its 300-line ring over DDR 0..0x8ca00).  Rewrites the
+ * saved ring registers when the base reads back different; returns 0 when
+ * the ring is in place. */
+static int regtrace_t23_ivdc_ring_check(const char *why)
+{
+    void __iomem *base = regtrace_t23_ivdc_base();
+    uint32_t b;
+
+    if (!base || t23_ivdc_direct_mode <= 0)
+        return 0;
+    b = readl(base + 0x34);
+    if (regtrace_t23_ivdc_ring_n > 0 && b == regtrace_t23_ivdc_ring_paddr && b)
+        return 0;
+    if (regtrace_t23_ivdc_ring_n > 0 && regtrace_t23_ivdc_ring_paddr) {
+        regtrace_t23_ivdc_write_regs(regtrace_t23_ivdc_ring_regs,
+                                     regtrace_t23_ivdc_ring_n);
+        regtrace_t23_ivdc_bits_lost++;
+        printk(KERN_ERR "t23: IVDC ring base 0x%x != 0x%x before %s: rewritten (0x%x)\n",
+               b, regtrace_t23_ivdc_ring_paddr, why, readl(base + 0x34));
+        return readl(base + 0x34) ? 0 : -EIO;
+    }
+    printk(KERN_ERR "t23: IVDC ring not programmed (0x34 = 0x%x) before %s\n", b, why);
+    return -EIO;
+}
+
+static void regtrace_t23_ivdc_reassert(const char *why, bool guard)
+{
+    uint32_t top;
+
+    if (!regtrace_t23_ivdc_base())
+        return;
+    top = (uint32_t)system_reg_read(0x1cU);
+    if (guard ? !t23_ivdc_tag_unsafe(t23_ivdc_direct_mode, top)
+              : !t23_ivdc_needs_init(t23_ivdc_direct_mode,
+                                     regtrace_t23_ivdc_state, top))
+        return;
+    if (guard)
+        regtrace_t23_ivdc_bits_lost++;
+    regtrace_t23_ivdc_reinits++;
+    regtrace_t23_ivdc_state = 2;
+    regtrace_t23_ivdc_core_init();
+    if (guard)
+        (void)regtrace_t23_ivdc_ring_check(why);
+    printk(guard ? KERN_ERR "t23: IVDC direct bits lost (0x1c = 0x%x) before %s: re-init, 0x1c = 0x%x\n"
+                 : KERN_NOTICE "t23: IVDC re-init (0x1c = 0x%x) at %s, 0x1c = 0x%x\n",
+           top, why, (uint32_t)system_reg_read(0x1cU));
+}
+
 /* vendor pad event 0x3000002: channel 0 format */
 static void regtrace_t23_ivdc_set_fmt(unsigned int w, unsigned int h)
 {
@@ -17627,6 +17770,9 @@ static int regtrace_t23_ivdc_reqbufs(unsigned int w, unsigned int h)
         return -EINVAL;
     }
     regtrace_t23_ivdc_write_regs(r, n);
+    memcpy(regtrace_t23_ivdc_ring_regs, r, sizeof(r));
+    regtrace_t23_ivdc_ring_n = n;
+    regtrace_t23_ivdc_ring_paddr = paddr;
     printk(KERN_NOTICE "t23: ivdc_paddr = 0x%08x (%u lines, %u bytes%s)\n", paddr,
            line, size, regtrace_t23_ivdc_ring_virt ? ", driver" : "");
     return 0;
@@ -17656,6 +17802,7 @@ static int32_t regtrace_t23_msca_fifo_push(int channel, uint32_t y, uint32_t uv)
     if (regtrace_t23_ivdc_ch(channel)) {
         y = T23_IVDC_Y_ADDR;
         uv = T23_IVDC_UV_ADDR;
+        regtrace_t23_ivdc_reassert("channel 0 FIFO push", true);
     }
     return tisp_msca_addr_fifo_write((char)channel, (int32_t)y, (int32_t)uv);
 }
@@ -17684,6 +17831,9 @@ static int regtrace_t23_ivdc_qbuf(const uint32_t *words)
     regtrace_framechan_qbuf_deferred[0][slot] = false;
     regtrace_framechan_qbuf_last[0] = slot;
     regtrace_framechan_qbuf_count[0]++;
+    /* #800: never hand the IVDC addresses to a non-direct MSCA */
+    regtrace_t23_ivdc_reassert("channel 0 QBUF", true);
+    t23_ivdc_cnt[3]++;
     tisp_msca_addr_fifo_write(0, (int32_t)T23_IVDC_Y_ADDR,
                               (int32_t)T23_IVDC_UV_ADDR);
     spin_unlock_irqrestore(&regtrace_framechan_done_lock, flags);
@@ -17841,6 +17991,8 @@ static void regtrace_t23_ivdc_frame_start(void)
     struct regtrace_framechan_done *done;
     unsigned long flags;
     unsigned int i, slot, head;
+
+    t23_ivdc_cnt[4]++;
 
     spin_lock_irqsave(&regtrace_framechan_done_lock, flags);
     for (i = 0; regtrace_framechan_streaming[0] &&
@@ -18771,14 +18923,18 @@ static void regtrace_framechan_stream_off(int channel, const char *reason)
  * it. The owner is checked under the stream lock, so a racing STREAMON of
  * another file of the same channel is not stopped by this close.
  */
-static void regtrace_framechan_stream_off_owned(struct file *file,
+static bool regtrace_framechan_stream_off_owned(struct file *file,
                                                 int channel,
                                                 const char *reason)
 {
+    bool owned;
+
     mutex_lock(&regtrace_framechan_stream_lock);
-    if (regtrace_framechan_stream_owner[channel] == file)
+    owned = regtrace_framechan_stream_owner[channel] == file;
+    if (owned)
         regtrace_framechan_stream_off_locked(channel, reason);
     mutex_unlock(&regtrace_framechan_stream_lock);
+    return owned;
 }
 
 /*
@@ -18885,6 +19041,8 @@ static int regtrace_t23_txisp_stream_locked(int enable, const char *reason)
         ret = regtrace_t23_tisp_prestart(reason);
         if (ret)
             return ret;
+        /* vendor ivdc_core_ops_init(sd, 1) at the enable (#800) */
+        regtrace_t23_ivdc_reassert(reason, false);
         regtrace_t23_msca_release_stale(reason);
         regtrace_t23_source_input_stream(1, reason);
         regtrace_t23_direct_vic_input_stream(1, reason);
@@ -18892,6 +19050,9 @@ static int regtrace_t23_txisp_stream_locked(int enable, const char *reason)
         regtrace_t23_stream_irq_gate(1, reason, -1);
     } else {
         regtrace_t23_scratch_settle(reason);
+        /* vendor ivdc_core_ops_init(sd, 0): state 2 at the disable (#800) */
+        if (regtrace_t23_ivdc_state == 3)
+            regtrace_t23_ivdc_state = 2;
         regtrace_t23_source_input_stream(0, reason);
         regtrace_t23_direct_vic_input_stream(0, reason);
         regtrace_t23_tisp_stream_regs(0, -1, reason);
@@ -19150,9 +19311,13 @@ static int regtrace_framechan_release(struct inode *inode, struct file *file)
      * this file started it. Another open file of the same channel (or of
      * another channel) does not touch the stream.
      */
-    if (file && channel >= 0 && channel < REGTRACE_FRAMECHAN_COUNT)
+    /* vendor frame_channel_release -> streamoff -> IVDC pad event
+     * 0x3000004 (state 2) for channel 0 in direct mode (#800) */
+    if (file && channel >= 0 && channel < REGTRACE_FRAMECHAN_COUNT &&
         regtrace_framechan_stream_off_owned(file, channel,
-                                            "framechan-release");
+                                            "framechan-release") &&
+        regtrace_t23_ivdc_ch(channel))
+        regtrace_t23_ivdc_stream(false);
     if (file)
         file->private_data = NULL;
     printk(KERN_INFO "t23: release /dev/framechan%d pid=%d comm=%s\n",
@@ -19291,6 +19456,12 @@ static long regtrace_framechan_ioctl_body(struct file *file, unsigned int cmd,
             channel, arg, file && (file->f_flags & O_NONBLOCK));
         break;
     case REGTRACE_T23_VIDIOC_STREAMON:
+        /* #800: no channel 0 IVDC stream onto an unprogrammed ring */
+        if (regtrace_t23_ivdc_ch(channel) &&
+            regtrace_t23_ivdc_ring_check("channel 0 STREAMON")) {
+            ret = -EIO;
+            break;
+        }
         ret = regtrace_framechan_stream_on(file, channel);
         if (!ret && regtrace_t23_ivdc_ch(channel))
             regtrace_t23_ivdc_stream(true);
@@ -36059,15 +36230,29 @@ static int32_t isp_irq_handle_body(int32_t irq, void *dev_id)
                     uint32_t uv_phys =
                         readl(base + fifo_base + 0x158U) & ~7U;
 
-                    if (regtrace_t23_ivdc_ch(channel))
-                        /* direct mode: the IVDC pair goes back into the FIFO */
-                        tisp_msca_addr_fifo_write(0, (int32_t)y_phys,
-                                                  (int32_t)uv_phys);
-                    else
+                    if (regtrace_t23_ivdc_ch(channel)) {
+                        /* direct mode: the IVDC pair goes back into the FIFO
+                         * (vendor ISR pushes the drained pair as read; we
+                         * push the constants so a bad read can never send
+                         * the MSCA to low DDR, #800) */
+                        t23_ivdc_cnt[2]++;
+                        if (y_phys != T23_IVDC_Y_ADDR ||
+                            uv_phys != T23_IVDC_UV_ADDR) {
+                            t23_ivdc_cnt[5]++;
+                            t23_ivdc_cnt[6] = y_phys;
+                        }
+                        tisp_msca_addr_fifo_write(0, (int32_t)T23_IVDC_Y_ADDR,
+                                                  (int32_t)T23_IVDC_UV_ADDR);
+                    } else
                         regtrace_framechan_complete_fifo(channel, y_phys,
                                                          uv_phys);
                     drained++;
                     fifo_status = readl(base + fifo_base + 0x13cU);
+                }
+                if (channel == 0 && regtrace_t23_ivdc_ch(0) && (status0 & 1U)) {
+                    t23_ivdc_cnt[0]++;
+                    if (!drained)
+                        t23_ivdc_cnt[1]++;
                 }
                 drained_total += drained;
                 if (regtrace_t23_log_irq_count(regtrace_t23_core_irq_count))
@@ -101737,11 +101922,16 @@ int ispcore_activate_module(void *arg1) {
 
                 if (*((int *)((char *)s0 + 0xe8)) == 1) {
                     int *s1 = *(int **)((char *)arg1 + 0xbc);
-                    void (*clk_parent_fn)(const char *, const char *);
-                    clk_parent_fn = (void (*)(const char *, const char *))get_clk_name(0);
-                    clk_parent_fn("cgu_isp", "cgu_isp");
-                    clk_parent_fn = (void (*)(const char *, const char *))get_clka_name(0);
-                    clk_parent_fn("cgu_vpu", "cgu_vpu");
+                    /*
+                     * openimp #813: the lift called the char return of
+                     * get_clk_name / get_clka_name as a function pointer.
+                     * Vendor: ispcore_set_clk_parent(clk_name, "cgu_isp"),
+                     * (clka_name, "cgu_vpu").  This function is not wired
+                     * to /dev/tx-isp; the live path applies the same step
+                     * in t23_core_clk_params() before the stream clocks.
+                     */
+                    t23_clk_set_parent(&t23_clk_kernel_ops, clk_name, "cgu_isp");
+                    t23_clk_set_parent(&t23_clk_kernel_ops, clka_name, "cgu_vpu");
 
                     int *i = 0;
                     int *var_2c;
@@ -101774,7 +101964,7 @@ int ispcore_activate_module(void *arg1) {
                             private_clk_enable(*s1);
 
                         i = (void *)(uintptr_t)((uintptr_t)i + (1));
-                        s1 = (void *)(uintptr_t)((uintptr_t)s1 + (1));
+                        s1 = s1 + 1;    /* next struct clk * (was 1 byte) */
                     }
 
                     int *a2 = 0;
@@ -104565,14 +104755,31 @@ MODULE_PARM_DESC(sensor_mount_flip,
  * sensor_mount_flip (default 0 = vendor) is XORed in for sensor drivers that
  * flip by themselves at init (beyond vendor, see the parameter).
  */
-static void regtrace_t23_hvflip_update(uint32_t mode)
-{
-    uint32_t msca = mode & 3U;
+/*
+ * #829: V flip that HV_FLIP handed to a shvflip sensor (on top of
+ * sensor_mount_flip).  The one source of truth for the ISP-level flip is
+ * regtrace_t23_hvflip_request; this flag only says which stage holds V, so
+ * every later HFLIP / VFLIP / HV_FLIP gives picture = request (no stale
+ * sensor V, no double flip when a client mixes the CIDs).
+ */
+static bool regtrace_t23_hvflip_sensor_v;
 
-    regtrace_t23_hvflip_request = mode & 3U;
-    if (regtrace_t23_sensor_shvflip()) {
-        uint32_t mount = sensor_mount_flip & 3U;
-        uint32_t sensor = ((mount ^ mode) & 2U) | (mount & 1U);
+/*
+ * Route the ISP-level flip request: split = V to the sensor (HV_FLIP or
+ * direct mode with a shvflip sensor), else both axes on the MSCA as the OEM
+ * HFLIP / VFLIP (0x980915 / 0x980914, ko_all.c:4056-4070) and the sensor V
+ * of an earlier HV_FLIP is given back to the mount flip first.
+ */
+static void regtrace_t23_flip_route(uint32_t mode, bool split)
+{
+    uint32_t mount = sensor_mount_flip & 3U;
+    bool want_v = split && (mode & 2U);
+    uint32_t msca;
+
+    mode &= 3U;
+    regtrace_t23_hvflip_request = mode;
+    if (split || regtrace_t23_hvflip_sensor_v) {
+        uint32_t sensor = ((mount ^ (want_v ? 2U : 0U)) & 2U) | (mount & 1U);
         int ret = regtrace_t23_sensor_flip_set(sensor);
 
         if (ret)
@@ -104580,9 +104787,44 @@ static void regtrace_t23_hvflip_update(uint32_t mode)
                    "t23: hvflip: sensor flip 0x%x failed: %d, flipping in the ISP\n",
                    sensor, ret);
         else
-            msca = mode & 1U;
+            regtrace_t23_hvflip_sensor_v = want_v;
     }
+    /* the MSCA does the rest: picture V = sensor V (held) ^ MSCA V = request V */
+    msca = mode ^ (regtrace_t23_hvflip_sensor_v ? 2U : 0U);
     regtrace_t23_isp_flip_apply(msca);
+}
+
+/*
+ * #829 follow-up: the sensor core init of a stream-on writes the sensor's
+ * init registers, so a flip the driver sent before (HV_FLIP split, SENSOR_*
+ * controls) is gone while regtrace_t23_sensor_flip_mode and
+ * regtrace_t23_hvflip_sensor_v still describe it.  Re-send the last sensor
+ * flip after every sensor stream-on so the cached state is true again.
+ * Nothing to do when the driver never wrote the sensor flip (the sensor
+ * init orientation is then the truth, as in the vendor flow).  The vendor
+ * 1.3.0 has no such re-send (its flip event is sent only on a new HV_FLIP);
+ * a running_mode (day/night) switch does not touch the sensor in either
+ * driver (tisp_day_or_night_s_ctrl, ko_all.c:49175).
+ */
+static void regtrace_t23_sensor_flip_resync(void)
+{
+    int m = regtrace_t23_sensor_flip_mode;
+
+    if (m < 0)
+        return;
+    if (regtrace_t23_sensor_flip_set((uint32_t)m)) {
+        /* the sensor stays at its init (mount) orientation: everything on the MSCA */
+        printk(KERN_WARNING "t23: hvflip: sensor flip 0x%x not restored after the stream-on, flipping in the ISP\n",
+               (uint32_t)m);
+        regtrace_t23_sensor_flip_mode = (int)(sensor_mount_flip & 3U);
+        regtrace_t23_hvflip_sensor_v = false;
+        regtrace_t23_isp_flip_apply(regtrace_t23_hvflip_request);
+    }
+}
+
+static void regtrace_t23_hvflip_update(uint32_t mode)
+{
+    regtrace_t23_flip_route(mode, regtrace_t23_sensor_shvflip());
 }
 
 /*
@@ -104942,12 +105184,10 @@ static long regtrace_t23_tuning_cid(bool get, uint32_t id, uint32_t *value)
          * so there the HV_FLIP split (V to a shvflip sensor) is used:
          * beyond vendor, the vendor stack has no IVDC flip handling at all.
          */
-        if (t23_ivdc_direct_mode) {
+        if (t23_ivdc_direct_mode)
             regtrace_t23_hvflip_update(mode);
-        } else {
-            regtrace_t23_hvflip_request = mode & 3U;
-            regtrace_t23_isp_flip_apply(mode);
-        }
+        else
+            regtrace_t23_flip_route(mode, false);	/* #829: drops a sensor V left by HV_FLIP */
         return 0;
     }
     case REGTRACE_TISP_CTRL_HV_FLIP:
@@ -104968,6 +105208,8 @@ static long regtrace_t23_tuning_cid(bool get, uint32_t id, uint32_t *value)
             *value = (mode & bit) ? 1U : 0U;
             return 0;
         }
+        /* an explicit sensor orientation: the sensor axis is the client's now (#829) */
+        regtrace_t23_hvflip_sensor_v = false;
         return regtrace_t23_sensor_flip_set((v & 0xffU) ? (mode | bit) :
                                                           (mode & ~bit));
     }

@@ -70,6 +70,18 @@ int main(int argc, char **argv)
 	dm = 1;
 	assert(t23_ivdc_ring(3840, 5000, 0x1000000, &dm, r) == 5 && dm == 2);
 	assert(r[0].val == 0x48000u / 3840u && r[2].val == (2500u << 16 | 0xf00u));
+	/* openimp #800: re-init after a core start cleared 0x1c (vendor init(1) per enable) */
+	assert(!t23_ivdc_needs_init(0, 0, 0));
+	assert(!t23_ivdc_needs_init(1, 3, 0xa0000000U));
+	assert(!t23_ivdc_needs_init(1, 3, 0xa0000008U));
+	assert(t23_ivdc_needs_init(1, 3, 0x00000000U));   /* core start wrote 0 */
+	assert(t23_ivdc_needs_init(1, 3, 0x00000008U));   /* core start wrote 8 */
+	assert(t23_ivdc_needs_init(1, 2, 0xa0000000U));   /* after stream off */
+	assert(t23_ivdc_needs_init(1, 0, 0));
+	assert(t23_ivdc_tag_unsafe(1, 0) && t23_ivdc_tag_unsafe(1, 0x20000000U));
+	assert(!t23_ivdc_tag_unsafe(1, 0xa0000000U) && !t23_ivdc_tag_unsafe(0, 0));
+	/* the alias the tags hit on a 32 MB part (mem=24M + rmem=8M) */
+	assert((T23_IVDC_Y_ADDR & ((32u << 20) - 1u)) == 0u && (T23_IVDC_UV_ADDR & ((32u << 20) - 1u)) == 16u << 20);
 	printf("t23_ivdc_direct_host: ok (%d registers equal to the vendor trace)\n", checked);
 	return 0;
 }

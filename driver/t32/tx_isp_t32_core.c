@@ -213,7 +213,7 @@ EXPORT_SYMBOL(tx_isp_subdev_deinit);
 /* the sensor module is going away: forget every reference into it */
 void t32_core_sensor_driver_gone(struct i2c_driver *drv)
 {
-	int i;
+	int i, gone = 0;
 
 	mutex_lock(&core.lock);
 	for (i = 0; i < T32_MAX_VI; i++) {
@@ -223,8 +223,11 @@ void t32_core_sensor_driver_gone(struct i2c_driver *drv)
 			vi->sd = NULL;
 			vi->registered = 0;
 			vi->streaming = 0;
+			gone = 1;
 		}
 	}
+	if (gone)
+		t32_ivdc_unlive();	/* #828: no STREAMOFF will come for this sensor */
 	mutex_unlock(&core.lock);
 }
 
@@ -1488,16 +1491,49 @@ static int t32_isp_open(struct inode *inode, struct file *file)
 
 static int t32_isp_release(struct inode *inode, struct file *file)
 {
+	int i, last;
+
 #ifdef TX_ISP_T33
 	t33_calgo_release(file);	/* #805: a library its dead client left open */
 #endif
+	/*
+	 * #806: the vendor ispcore_slake_module (T33 0x112018) puts every frame channel to state 1 on the last
+	 * close; the channels' own fds may close after /dev/tx-isp (kill -9), so stop them first.  t32_fs_* takes
+	 * f->op and may call into core.lock, so this runs before core.lock.
+	 */
+	mutex_lock(&core.lock);
+	last = t32_clk_users == 1;
+	mutex_unlock(&core.lock);
+	if (last)
+		t32_fs_stop_all();
 	mutex_lock(&core.lock);
 	if (t32_clk_users && !--t32_clk_users) {
+		/*
+		 * #806: vendor tx_isp_release -> tx_isp_vin_slake_subdev (T33 0x1481c, T32 the same): a streaming
+		 * sensor is stopped (vin_set_stream 0, tx_isp_vin_init 0), the input is cleared
+		 * (subdev_sensor_ops_set_input 0) and the sensors libimp registered are released
+		 * (subdev_sensor_ops_release_all_sensor).  Before, a killed client left the sensor streaming and
+		 * input_on set, so the next S_INPUT skipped the input setup after the reset below: no frames.
+		 */
+		for (i = 0; i < T32_MAX_VI; i++) {
+			struct t32_vi *vi = &core.vi[i];
+
+			if (vi->streaming)
+				t32_sensor_stream(vi, 0);
+#ifndef TX_ISP_T33
+			if (vi->input_on)
+				t32_ldc_input_off();
+#endif
+			vi->input_on = 0;
+			if (vi->registered || vi->client)
+				t32_vi_release(vi);
+		}
 		t33_hw_flip_stop();	/* #779: no VIC hold left over, before the clocks stop */
 #ifdef TX_ISP_T33
 		t33_hw_lib_deinit();	/* lib_tisp_deinit: tisp_all_reset, LDC mask */
 #endif
 		t32_clks_deactivate();
+		t32_ivdc_unlive();	/* #828: last close without STREAMOFF, no stream runs any more */
 		/*
 		 * vendor tx_isp_release (tx-isp-t33.ko and tx-isp-t32.ko): the last close kfrees every MEMORY_MALLOC
 		 * slot libimp left (16 slots at core + 0x170 / + 0x168); here the whole list.  Before, a killed
