@@ -709,11 +709,18 @@ module_param(simple_3a, bool, 0);
 MODULE_PARM_DESC(simple_3a,
 		 "use the calibration-driven recovery AE/AWB path");
 
-/* Keep AE active while allowing live AWB diagnostics to hold the tuning seed. */
-static bool simple_awb = true;
-module_param(simple_awb, bool, 0644);
+/*
+ * #840: the white balance runs the vendor AWB state graph by default (as the
+ * vendor firmware, also under the compact AE).  The compact recovery AWB held
+ * the calibration seed on the device (R/G 1.16, B/G 0.52 against the vendor
+ * 1.04 / 0.76 under warm light); simple_awb=1 at insmod keeps it available.
+ * Load-time only: the graph and the compact controller re-arm source 4
+ * differently (cf. T10/T20 #627).
+ */
+static bool simple_awb;
+module_param(simple_awb, bool, 0444);
 MODULE_PARM_DESC(simple_awb,
-		 "enable calibration-driven recovery AWB updates");
+		 "1 = compact recovery AWB instead of the vendor AWB graph (default 0)");
 
 static int isp_m2_bufs = 2;
 module_param(isp_m2_bufs, int, 0);
@@ -43031,9 +43038,9 @@ int32_t AWB_fsm_process_interrupt(int32_t *arg1, char arg2)
 	if ((arg2 & 0xff) != 4)
 		return 4;
 
-	if (!simple_3a) {
+	if (!simple_3a || !simple_awb) {
 		/*
-		 * #620: the vendor flow (SDK ko 0x32ec8): read the zone statistics
+		 * #620 / #840: the vendor flow (SDK ko 0x32ec8): read the zone statistics
 		 * and raise event 4; the AWB state graph (zones -> mesh -> light
 		 * source -> normalise) runs in the firmware thread and re-arms
 		 * source 4 from its wait state 11.
@@ -43041,10 +43048,7 @@ int32_t AWB_fsm_process_interrupt(int32_t *arg1, char arg2)
 		awb_read_statistics(arg1);
 		return (int32_t)apical_isp_raise_event((void *)(uintptr_t)*arg1, 4);
 	}
-	if (simple_awb)
-		tx_isp_t30_simple_awb_update(arg1);
-	else
-		tx_isp_t30_awb_apply_calibrated_gains();
+	tx_isp_t30_simple_awb_update(arg1);
 	/* The compact controller bypasses the OEM state graph: re-arm source 4. */
 	return AWB_request_interrupt(arg1, BIT(4));
 }

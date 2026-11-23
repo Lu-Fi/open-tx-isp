@@ -4,6 +4,12 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD[-rcN]` are set on the `aperto` branch, the same tag in open-tx-isp and OpenIMP: RC1 `v2026.10.11-rc1`, RC2 `v2026.10.25-rc2`, RC3 `v2026.11.07-rc3` (2026-11-07). Gate SoCs of RC3 and Release 1: T10, T20, T21, T23, T30, T31, T40, T41 (T32/T33 planned, QEMU only); release notes: [docs/releases/ in OpenIMP](https://github.com/Lu-Fi/openimp/blob/next/docs/releases/README.md). Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-11-23: T30 white balance runs the vendor AWB graph by default (openimp #840)
+- Device (ABUS T30 imx307, warm room light, runtime swap, same scene): the compact recovery AWB (default before) held the calibration seed WB R 0x1C3 / B 0x229, so the frame had a strong yellow cast (R/G 1.170, B/G 0.533). With the vendor ko and the vendor libimp: R 0x163..0x165 / B 0x2FE..0x301, R/G 1.030, B/G 0.769.
+- `driver/t30/tx_isp_t30_recovered.c`: `AWB_fsm_process_interrupt` now takes the vendor flow (statistics read + event 4, AWB state graph, #620) also under the compact AE. `simple_awb` defaults to 0 and is load-time only (0444); `simple_awb=1` keeps the compact AWB. The static-seed branch of the old `simple_awb=0` is gone.
+- Device with the fix (default load): WB R 0x163..0x165 / B 0x2FE..0x301, Y 112.0, R/G 1.029, B/G 0.766. This equals the vendor run (Y 112.1, 1.030 / 0.769). Both stages: 0 oops, 1625/1625 frames.
+- Tests: `tools/ko_emu/diff_t30_lift.py` case `awb_irq_oem` now runs with simple_3a 0 and 1 (simple_awb=0) against the SDK vendor ko: 0 diff at N=400. The previous object differs in 115/400.
+
 ## 2026-11-23: T30 vendor AE reaches the sensor with simple_3a=0 (openimp #620)
 - Device (ABUS T30 imx307, room light, runtime swap): with simple_3a=0 the vendor AWB graph ran close to the vendor (WB R 0x142 / B 0x309 against vendor 0x167 / 0x301), but the picture was dark (Y 30 against 112). The AE graph computed exposures every frame, but the sensor kept its init exposure (SHS1 0x3fe, gain 0).
 - Four lift defects on that path (`driver/t30/tx_isp_t30_recovered.c`):
