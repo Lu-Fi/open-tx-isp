@@ -55,7 +55,8 @@ generation-shared come from the shared code instead:
   DMA area (0xa210..0xa21c); without the IPC words the IPC start 0x1040 = 1 stays
   pending and no frame reaches the core. Before 0x1040 = 1 a guard bypasses MDNS /
   defog when their DMA address is still 0 (the running core would write to
-  physical 0 and hang the SoC). QEMU does not model the IPC gate.
+  physical 0 and hang the SoC); this guard is beyond the vendor (user OK
+  2026-11-24, docs/BEYOND_VENDOR.md). QEMU does not model the IPC gate.
 - Register-list completion on the T32 silicon (openimp #852, device-proven on
   PRJ007): a list starts with 0x2c = 2; its bit in 0x22014 / 0x22010 stays set
   after the list ran until the interrupt handler writes the list-done status
