@@ -60,6 +60,7 @@ void t32_hw_exit(void);
 void t33_hw_lib_deinit(void);
 int t32_hw_input_setup(const void *attr, u32 w, u32 h);
 void t32_hw_rcfg_run_stream_on(void);
+void t32_hw_mdns_mem_cfg(u32 pa, u32 width, u32 height, u32 memopt);
 void t32_hw_rcfg_lsc_trig(u32 list_pa);
 extern u32 t32_rcfg_runs, t32_rcfg_timeouts, t32_rcfg_last_len;
 void t32_hw_stream_on(void);

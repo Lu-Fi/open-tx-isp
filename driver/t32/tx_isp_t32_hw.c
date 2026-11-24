@@ -4817,8 +4817,10 @@ void t32_hw_rcfg_run_stream_on(void)
 	struct t32_rcfg_list l;
 	u32 list_pa;
 
-	if (!rcfg_pages)
+	if (!rcfg_pages) {
+		isp_wr(0x002c, 2);
 		return;
+	}
 	/* the core reads both through DMA: write them uncached */
 	table = (u32 *)CKSEG1ADDR(rcfg_pa);
 	list = table + T32_RCFG_TABLE_WORDS;
@@ -4836,7 +4838,13 @@ void t32_hw_rcfg_run_stream_on(void)
 	isp_wr(T32_RDMA_TABLE, rcfg_pa);
 	isp_wr(T32_RDMA_TRIG, T32_RCFG_STREAM_ON_BIT);
 	isp_wr(T32_RDMA_TRIG2, T32_RCFG_STREAM_ON_BIT);
-	if (t32_wait_clear(T32_RDMA_TRIG, T32_RDMA_BUSY_MASK, 1000)) {
+	/*
+	 * Vendor order (openimp #850): tisp_single_lsc_rcfg_cfg_trig writes 0x2c = 2 right
+	 * after the trigger (vendor T32 ko 0x1cbb4), then lib_tisp_stream_on polls the whole
+	 * 0x22014 for 0 (0x25b40, 20000 polls).  Before #850 0x2c = 2 came after the wait.
+	 */
+	isp_wr(0x002c, 2);
+	if (t32_wait_clear(T32_RDMA_TRIG, 0xffffffffU, 20000)) {
 		t32_rcfg_timeouts++;
 		isp_printf(2, "tx-isp-t32: stream-on register list did not finish\n");
 	}
@@ -4956,6 +4964,49 @@ int t32_hw_input_setup(const void *attr, u32 w, u32 h)
 	isp_wr(0x10c8, w * h / 6);
 	isp_wr(0x10cc, 0xffffffff);
 	isp_wr(0x10d0, 0xffffffff);
+#else
+	{
+		/*
+		 * T32: lib_tisp_init -> tisp_top_ipc_init (vendor T32 ko H20260618a 0x2987c,
+		 * one sensor, not direct mode: info +900 = 1, IR bit off; vendor QEMU trace
+		 * t32plan/s0/tr10-isp.txt 5632-5644: 0x1080 = 0, 0x1084 = 0, 0x1090 = 1,
+		 * 0x10a0 = ~0, 0x10a4 = 4, 0x10a8..0x10b8, 0x10bc / 0x10c0 = ~0,
+		 * 0x10c4 / 0x10c8 = w * h / 6).  The T32 layout differs from the T33 one
+		 * above (0x1090, 0x10a8..0x10c0, no 0x10cc / 0x10d0).  Without it the IPC
+		 * start (0x1040) stayed pending on the T32 silicon and no frame reached the
+		 * core (openimp #850).  tisp_top_ipc_set_mem_cfg follows at
+		 * SET_ISP_IPC_MEM_INFO (tx_isp_t32_core.c, #759), as in the vendor flow.
+		 */
+		static u8 info[904];
+		struct t32_front_write tw[13];
+		unsigned int k, n;
+
+		memset(info, 0, sizeof(info));
+		info[0] = w; info[1] = w >> 8; info[2] = w >> 16; info[3] = w >> 24;
+		info[4] = h; info[5] = h >> 8; info[6] = h >> 16; info[7] = h >> 24;
+		info[900] = 1;
+		n = t32_top_ipc_init(info, tw);
+		for (k = 0; k < n; k++)
+			isp_wr(tw[k].reg, tw[k].val);
+	}
+	/*
+	 * T32 defog statistics DMA area (tisp_defog_init, t32_defog_init in
+	 * tx_isp_t32_defog.h: an 8 KiB kmalloc buffer, 0xa210..0xa21c = phys + 0 /
+	 * 2048 / 4096 / 6144, 0xa20c = 3).  Before #850 the T32 path never wrote it:
+	 * with the core running (IPC init) a non-bypassed defog block wrote its
+	 * statistics to physical 0 (openimp #850).
+	 */
+	if (!t33_defog_pages)
+		t33_defog_pages = t32_dma_zpages(T33_DEFOG_ORDER);
+	if (t33_defog_pages) {
+		u32 pa = (u32)virt_to_phys((void *)t33_defog_pages);
+
+		isp_wr(0xa210, pa);
+		isp_wr(0xa214, pa + 2048);
+		isp_wr(0xa218, pa + 4096);
+		isp_wr(0xa21c, pa + 6144);
+		isp_wr(0xa20c, 3);
+	}
 #endif
 	t32_vic_wr(0, 0x1a8, 0x4444);
 	t32_vic_wr(1, 0x1a8, 0x4444);
@@ -4995,10 +5046,9 @@ int t32_hw_input_setup(const void *attr, u32 w, u32 h)
 		isp_wr(T32_MSCA_CH_EN, 0);
 		isp_wr(T32_MSCA_UPDATE, 1);
 	}
-#ifndef TX_ISP_T33
-	isp_wr(T32_CORE_IDLE_REQ, 0);
-#endif
 	/*
+	 * T32 and T33: no write to 0x200 after the reset (T32 until #850 wrote 0 here;
+	 * the vendor T32 ko writes 0x200 only with 1: 0x24ee8, 0x25010, 0x258fc, 0x8fd3c).
 	 * T33: no write to 0x200 after the reset.  The vendor module writes the idle request only in
 	 * tisp_all_reset (1), lib_tisp_func_reset (0x80020001) and tisp_reset (1), never 0 (all three
 	 * "li a0,0x200" register writes of tx-isp-t33.ko); the vendor QEMU trace shows no other write.
@@ -5083,6 +5133,53 @@ static void t32_csi_stop(void)
  * list, core run bits, VIC interrupt setup, both VICs reset and run, then
  * the CSI host and D-PHY.
  */
+#ifndef TX_ISP_T33
+/*
+ * tisp_mdns_set_mem_cfg at SET_ISP_MEM_INFO (lib_tisp_set_isp_memory_space, vendor trace
+ * t32plan/s0/tr10-isp.txt 5682-5687: 0xd040 = base, 0xd080, 0xd050 / 0xd054, 0xd058 / 0xd05c):
+ * the MDNS reference / statistics planes in the ISP working memory libimp handed over, the
+ * layout of t32_isp_mem_size (GET_ISP_MEM_INFO).  Single sensor, no hold check, no func_en
+ * (the vendor trace writes 0xd058 / 0xd05c).  Never written on T32 before #850: the core
+ * then wrote its MDNS planes to physical 0.
+ */
+void t32_hw_mdns_mem_cfg(u32 pa, u32 width, u32 height, u32 memopt)
+{
+	struct t32_mdns_mem m;
+	struct t32_mdns_memchk chk;
+	struct t32_front_write w[12];
+	int i, n;
+
+	memset(&m, 0, sizeof(m));
+	memset(&chk, 0, sizeof(chk));
+	m.memopt = (u16)memopt;
+	n = t32_mdns_set_mem_cfg(&m, NULL, width, height, pa, 0, &chk, w);
+	for (i = 0; i < n && i < (int)ARRAY_SIZE(w); i++)
+		isp_wr(w[i].reg, w[i].val);
+	isp_printf(0, "tx-isp-t32: MDNS memory %#x..%#x (memopt %u)\n", pa, pa + chk.end, memopt);
+}
+
+/*
+ * Guard (openimp #850, beyond the vendor: the vendor programs every address before the
+ * IPC start): a block the top bypass word (0x40) leaves on but whose DMA address is 0
+ * would write to physical 0 once the core runs (silent hang of the T32).  Bypass it and
+ * say so instead.  MDNS 0x800 (T32_LTG_BYP_MDNS), defog 0x100 (T32_LEV_BYP_DEFOG).
+ */
+static void t32_dma_addr_guard(void)
+{
+	u32 byp = isp_rd(0x0040), add = 0;
+
+	if (!(byp & 0x800) && (!isp_rd(0xd040) || !isp_rd(0xd050)))
+		add |= 0x800;
+	if (!(byp & 0x100) && !isp_rd(0xa210))
+		add |= 0x100;
+	if (!add)
+		return;
+	isp_wr(0x0040, byp | add);
+	isp_printf(2, "tx-isp-t32: DMA address 0 for%s%s: bypassed (top %#x -> %#x)\n",
+		   (add & 0x800) ? " MDNS" : "", (add & 0x100) ? " defog" : "", byp, byp | add);
+}
+#endif
+
 void t32_hw_stream_on(void)
 {
 	isp_wr(T32_INT_EN, 0xffffffff);
@@ -5132,8 +5229,10 @@ void t32_hw_stream_on(void)
 			isp_wr(T32_MSCA_CH_EN, isp_rd(T32_MSCA_CH_EN) & ~(1U << ch));
 	} else {
 		t32_pf_start();
-		t32_hw_rcfg_run_stream_on();
-		isp_wr(0x002c, 2);
+		t32_hw_rcfg_run_stream_on();	/* writes 0x2c = 2 (vendor order, #850) */
+#ifndef TX_ISP_T33
+		t32_dma_addr_guard();
+#endif
 	}
 	isp_wr(0x1040, 1);
 	t32_vic_wr(0, T32_VIC_INT_MSK, 0);

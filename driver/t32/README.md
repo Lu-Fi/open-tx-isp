@@ -47,6 +47,15 @@ generation-shared come from the shared code instead:
   - `GET_ISP_MEM_INFO` returns the ISP working-memory size
     (`tx_isp_t32_mem.h`, same value as the vendor: 0x9f9000 at 3840x2160,
     `isp_memopt` 1500); IPC (RISC-V) memory 0.
+  - `SET_ISP_MEM_INFO` programs the MDNS planes in that memory
+    (`tisp_mdns_set_mem_cfg`: 0xd040 / 0xd080 / 0xd050..0xd05c, openimp #850).
+- Start-up on the T32 silicon (openimp #850, device-proven on PRJ007 gc4653):
+  `S_INPUT` runs `tisp_top_ipc_init` (0x1080..0x10c8, T32 layout with 0x1090 = 1;
+  the T33 layout is separate) after the core reset and sets the defog statistics
+  DMA area (0xa210..0xa21c); without the IPC words the IPC start 0x1040 = 1 stays
+  pending and no frame reaches the core. Before 0x1040 = 1 a guard bypasses MDNS /
+  defog when their DMA address is still 0 (the running core would write to
+  physical 0 and hang the SoC). QEMU does not model the IPC gate.
   - `STREAMON`/`STREAMOFF` run the sensor's own init and `s_stream`.
 - Register lists (`tx_isp_t32_rcfg.h`): builder and walker for the RCFG list
   format, for S2 (the vendor driver runs one list at stream-on).

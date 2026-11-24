@@ -1015,6 +1015,15 @@ static long t32_isp_ioctl(struct file *file, unsigned int cmd, unsigned long arg
 		if (!ret) {
 			vi->isp_mem_pa = bi.word1;
 			vi->isp_mem_size = bi.size;
+#ifndef TX_ISP_T33
+			/* lib_tisp_set_isp_memory_space -> tisp_mdns_set_mem_cfg (#850) */
+			if (bi.word1 && vi->width && vi->height &&
+			    bi.size >= t32_isp_mem_size(vi->width, vi->height, isp_memopt, 0, 0))
+				t32_hw_mdns_mem_cfg(bi.word1, vi->width, vi->height, isp_memopt);
+			else
+				isp_printf(2, "tx-isp-t32: ISP memory %#x size %u too small for MDNS\n",
+					   bi.word1, bi.size);
+#endif
 		}
 		break;
 	case T32_IOC_G_INPUT:
