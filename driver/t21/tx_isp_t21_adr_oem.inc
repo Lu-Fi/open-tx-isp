@@ -1913,7 +1913,35 @@ L_2c650:
 	r_a2 = (uint32_t)(0u + (uint32_t)10);
 	{ uint64_t q_ = L_tisp_math_exp2(r_a0, r_a1, r_a2, r_a3, sp_base); r_v0 = (uint32_t)q_; r_v1 = (uint32_t)(q_ >> 32); }
 	r_v1 = (uint32_t)(0x19010000u);
-	*(uint32_t *)(uintptr_t)((uint32_t)((uintptr_t)((uintptr_t)(((uint32_t)(uintptr_t)&tisp_ae_ctrls + 0))) + 20u)) = r_v0;
+	{
+	/* Beyond vendor (user OK 2026-11-22): a LOWERED cap is applied at once.
+	 * Stock only stores it (tisp_ae_ctrls +20, copied into _exp_parameter
+	 * by tisp_ae_ctrls_update), so a converged AE (luma in its band) keeps
+	 * the higher gain until the scene moves (openimp #775).  As stock
+	 * tisp_ae_param_array_set does, trig / force_trig make ae_tune2 take
+	 * its decision with the next frame.  Equal or higher: stock. */
+	uint32_t *cap_ = (uint32_t *)(uintptr_t)((uint32_t)((uintptr_t)((uintptr_t)(((uint32_t)(uintptr_t)&tisp_ae_ctrls + 0))) + 20u));
+	uint32_t old_ = *cap_;
+
+	*cap_ = r_v0;
+	if (t21_cap_lowered(old_, r_v0)) {
+		/* Box run 2026-11-22: trig / force_trig alone keep the gain of a
+		 * converged AE (3444 > cap 1024): its decision reuses the split.
+		 * A gain above the new cap is therefore written down to the cap
+		 * through the stock setter now; the darker frame takes the AE
+		 * out of its band and its next decision runs under the cap. */
+		struct t21_ae_ctrls_view *aec_ = (struct t21_ae_ctrls_view *)tisp_ae_ctrls;
+
+		if (t21_cap_clamp_needed(ACCESS_ONCE(aec_->sensor_again), r_v0)) {
+			uint32_t stk_[8] = { 0 };
+			uint64_t g_ = L_tisp_set_sensor_analog_gain(r_v0, 0, 0, 0, (uint32_t)(uintptr_t)stk_);
+
+			ACCESS_ONCE(aec_->sensor_again) = (uint32_t)g_ ? (uint32_t)g_ : r_v0;
+		}
+		*(volatile uint32_t *)(uintptr_t)&trig = 1;
+		*(volatile uint32_t *)(uintptr_t)&force_trig = 1;
+	}
+	}
 	r_v0 = (uint32_t)(0u + 0u);
 L_2c670:
 	r_ra = (uint32_t)(*(uint32_t *)(uintptr_t)(sp_base + 20));
@@ -17212,7 +17240,8 @@ static uint64_t L_ae_tune2(uint32_t r_a0, uint32_t r_a1, uint32_t r_a2, uint32_t
 
 		ACCESS_ONCE(t21_ae_comp_pending) = 0;
 		if (raw) {
-			r_s3 = t21_ae_comp_scale(raw, (uint32_t)ACCESS_ONCE(ae_compensation));
+			r_s3 = t21_ae_comp_scale(raw, t21_ae_comp_combine((uint32_t)ACCESS_ONCE(ae_compensation),
+									  ACCESS_ONCE(t21_ae_comp_user)));
 			*(uint32_t *)(uintptr_t)(r_t0 + (uint32_t)0) = r_s3;
 		}
 	}
@@ -19492,7 +19521,8 @@ L_2a878:
 static uint64_t L_tisp_ae_target(uint32_t r_a0, uint32_t r_a1, uint32_t r_a2, uint32_t r_a3, uint32_t csp)
 {
 	uint64_t q = L_tisp_ae_target_stock(r_a0, r_a1, r_a2, r_a3, csp);
-	uint32_t comp = (uint32_t)ACCESS_ONCE(ae_compensation);
+	uint32_t comp = t21_ae_comp_combine((uint32_t)ACCESS_ONCE(ae_compensation),
+					    ACCESS_ONCE(t21_ae_comp_user));
 
 	ACCESS_ONCE(t21_ae_raw_target) = (uint32_t)q;
 	if (comp == T21_AE_COMP_NEUTRAL)

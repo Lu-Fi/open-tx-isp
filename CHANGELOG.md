@@ -4,6 +4,15 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD[-rcN]` are set on the `aperto` branch, the same tag in open-tx-isp and OpenIMP: RC1 `v2026.10.11-rc1`, RC2 `v2026.10.25-rc2`, RC3 `v2026.11.07-rc3` (2026-11-07). Gate SoCs of RC3 and Release 1: T10, T20, T21, T23, T30, T31, T40, T41 (T32/T33 planned, QEMU only); release notes: [docs/releases/ in OpenIMP](https://github.com/Lu-Fi/openimp/blob/next/docs/releases/README.md). Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-11-24: T21 lowered max_again cap with the next frame + SetAeComp on the AE target (openimp #827, #775, beyond vendor)
+- Merged `claude/t21-aecomp`: a lowered `max_again` cap is applied with the next frame and writes an applied gain above it down at once; `IMP_ISP_Tuning_SetAeComp` moves the AE target (vendor T21 libimp has no SetAeComp). Light-box T21 .24 gate run 2026-11-23/24 ran with this branch (a604173c): GATE PASS at 3000 K and 5000 K.
+
+
+## 2026-11-22: T21 IMP_ISP_Tuning_SetAeComp and an immediate max_again cap (beyond the vendor, user OK 2026-11-22)
+- The T21 tuning dispatcher answers CID 0x08000023 (set / get, 0..255, 128 neutral). The value is kept beside the brightness compensation and both scale the AE luma target: `t21_ae_comp_combine(brightness, aecomp)` = product / 128 (either alone unchanged), used by `L_tisp_ae_target` and the converged-AE refresh in `ae_tune2` (`tx_isp_t21_adr_oem.inc`). The vendor libimp 1.0.33 has no such call; OpenIMP's T21 libimp already sends it.
+- SetMaxAgain: a lowered cap now takes effect with the next frame (trig / force_trig after the stock store, as `tisp_ae_param_array_set`; openimp #775: a converged AE kept 1837 > cap 1024). Raised or equal caps are unchanged.
+- Host test `tests/t21_ae_comp_host_test.c` (combine: identity for either at 128, product, cap 255; cap-lowered rule). Cross-built for T21 (linux 3.10.14). Light box (T21 jxf23, 5000 K, timps with the T21 ae_compensation key): frame Y 98.6 / 106.1 / 117.7 / 128.6 / 143.5 / 158.7 at comp 40 / 64 / 96 / 128 / 160 / 200, settle 4-5 s per step, path test from dark / bright 128.6 / 130.2 Y, 0 oopses. Immediate cap: an applied gain above a lowered cap is written down through the stock analog-gain setter (trig / force_trig alone kept 3444 > 1024); light box: free 3444, max_again 0 -> 1024 <= 1024 without a lamp step (#775), 0 oopses.
+
 ## 2026-11-24: build_local.sh checks the ingenic-sdk submodule (openimp #842)
 - `SOC=t10 ./build_local.sh` failed with `tx-isp-vic.h: No such file` when `external/ingenic-sdk` was not checked out (the T10/T20 SDK units include the header from `external/ingenic-sdk/3.10.14/isp/<soc>/`). The script now stops early with the hint `git submodule update --init`. With the submodule present t10, t20 and t31 build and resolve all symbols.
 
