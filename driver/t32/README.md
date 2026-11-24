@@ -56,6 +56,16 @@ generation-shared come from the shared code instead:
   pending and no frame reaches the core. Before 0x1040 = 1 a guard bypasses MDNS /
   defog when their DMA address is still 0 (the running core would write to
   physical 0 and hang the SoC). QEMU does not model the IPC gate.
+- Register-list completion on the T32 silicon (openimp #852, device-proven on
+  PRJ007): a list starts with 0x2c = 2; its bit in 0x22014 / 0x22010 stays set
+  after the list ran until the interrupt handler writes the list-done status
+  (st[5], 0x300d8) to 0x2202c (write-1-to-clear), as the vendor
+  `lib_tisp_intp_handler` does (0xac390). Writing 0 there (before #852) left
+  0x22014 = 0x20000 and the stream-on poll timed out. QEMU clears the bit by
+  itself.
+- Defog is bypassed on T32 (top bit 0x100, openimp #852 / #854): neither
+  `tisp_defog_init` nor the per-frame defog is wired, and the block with its
+  reset grid drew horizontal streaks over the picture.
   - `STREAMON`/`STREAMOFF` run the sensor's own init and `s_stream`.
 - Register lists (`tx_isp_t32_rcfg.h`): builder and walker for the RCFG list
   format, for S2 (the vendor driver runs one list at stream-on).

@@ -265,7 +265,17 @@ static irqreturn_t t32_isp_irq(int irq, void *dev)
 	if (T32_SOC_LIST_IRQ)
 		isp_wr(T32_INT5_CLR, s5);
 	isp_wr(T32_INT4_CLR, s4);
+#ifdef TX_ISP_T33
 	isp_wr(T32_RDMA_IRQ_CLR, 0);
+#else
+	/*
+	 * lib_tisp_intp_handler (vendor T32 ko 0xac390..0xac39c): st[5] (0x300d8) is also
+	 * written to 0x2202c.  On the silicon that write-1-to-clear acknowledges a finished
+	 * register list: bit 17 clears bit 17 of 0x22014 (list 49, the stream-on / LSC
+	 * list).  Writing 0 here left 0x22014 = 0x20000 forever (openimp #852).
+	 */
+	isp_wr(T32_RDMA_IRQ_CLR, s4);
+#endif
 	t32_hw_stats.isp_irqs++;
 #ifdef TX_ISP_T33
 	t33_tisp_count_isp(sta, done, s2, msca, s3, s5, s4);	/* /proc/tisp counters (#589) */
@@ -5178,6 +5188,24 @@ static void t32_dma_addr_guard(void)
 	isp_printf(2, "tx-isp-t32: DMA address 0 for%s%s: bypassed (top %#x -> %#x)\n",
 		   (add & 0x800) ? " MDNS" : "", (add & 0x100) ? " defog" : "", byp, byp | add);
 }
+
+/*
+ * Defog (openimp #852): the T32 path runs neither tisp_defog_init (grid 0xa040 / 0xa044,
+ * 0xa204 / 0xa208, 0xa20c = 2, 0xa010 = 3; port in tx_isp_t32_defog.h, not wired) nor the
+ * per-frame defog (Tiziano_defog_soft is not ported).  Left on with its reset grid the
+ * block draws horizontal streaks over the gc4653 PRJ007 picture (on the device setting
+ * top bit 0x100 alone removes them).  Bypassed until the defog path is wired; the vendor
+ * runs defog when the bin enables it, so this is below vendor until then.
+ */
+static void t32_defog_unwired_bypass(void)
+{
+	u32 byp = isp_rd(0x0040);
+
+	if (byp & 0x100)
+		return;
+	isp_wr(0x0040, byp | 0x100);
+	isp_printf(1, "tx-isp-t32: defog not wired yet: bypassed (top %#x -> %#x)\n", byp, byp | 0x100);
+}
 #endif
 
 void t32_hw_stream_on(void)
@@ -5232,6 +5260,7 @@ void t32_hw_stream_on(void)
 		t32_hw_rcfg_run_stream_on();	/* writes 0x2c = 2 (vendor order, #850) */
 #ifndef TX_ISP_T33
 		t32_dma_addr_guard();
+		t32_defog_unwired_bypass();
 #endif
 	}
 	isp_wr(0x1040, 1);
