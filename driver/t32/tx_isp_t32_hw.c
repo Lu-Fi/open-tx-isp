@@ -2516,7 +2516,7 @@ void t33_core_bin_switch(const void *req)
  * no day restore without the vendor's frame-done CSCCR path, so the UV clip stays as it is (counted).
  */
 static struct {
-	u32 calls, holds, ipc_waits, ipc_timeouts, refreshes, blocks, csccr_skipped;
+	u32 calls, holds, ipc_waits, ipc_timeouts, refreshes, blocks, csccr_skipped, csccr[2];
 } t32_binsw_st;
 
 static void t32_binsw_vic_ctrl(u32 vic, u32 val)
@@ -2556,11 +2556,24 @@ static void t32_binsw_refresh(const u8 *req)
 	t32_binsw_st.blocks = (u32)t32_pf_dn_refresh(bin, bytes, req[12]);
 }
 
+/*
+ * lib_tisp_set_csccr (vendor tx-isp-t32.ko 0xb043c) for the day/night bin switch (openimp #853):
+ * night (mode 1) writes the CSCCR UV clip 0x14054 = 0 and 0x14010 = 0xffffffff at once (grey picture);
+ * day (mode 0) sets frame marks, and tisp_top_frame_count (0xafbc4..0xafbf4) then writes
+ * 0x14054 = 0x007fff80 and 0x14010 = 0xffffffff one / two frames later.  The T32 per-frame top frame
+ * count is not wired, so the day values are written here at once, inside the VIC hold of the switch
+ * (same values, one to two frames earlier than the vendor).  Other modes: vendor -1, nothing written.
+ */
 static void t32_binsw_set_csccr(u32 ch, u32 mode)
 {
 	(void)ch;
-	(void)mode;
-	t32_binsw_st.csccr_skipped++;
+	if (mode > 1) {
+		t32_binsw_st.csccr_skipped++;
+		return;
+	}
+	isp_wr(0x14054, mode ? 0 : 0x007fff80);
+	isp_wr(0x14010, 0xffffffff);
+	t32_binsw_st.csccr[mode]++;
 }
 
 static int t32_binsw_event(u32 sd, u32 cmd, const u32 *ev)
@@ -2612,9 +2625,10 @@ void t32_flip_show(struct seq_file *m)
 	seq_printf(m, "t32 msca: soff %u timeout %u last %u ms\n", t33_msca_soff_waits, t33_msca_soff_timeouts,
 		   t33_msca_soff_last_ms);
 	/* #534: SET_TIZIANO_PAR while streaming */
-	seq_printf(m, "t32 binsw: calls %u holds %u ipc waits %u timeouts %u refresh %u blocks %u csccr skipped %u\n",
+	seq_printf(m, "t32 binsw: calls %u holds %u ipc waits %u timeouts %u refresh %u blocks %u csccr skipped %u day %u night %u\n",
 		   t32_binsw_st.calls, t32_binsw_st.holds, t32_binsw_st.ipc_waits, t32_binsw_st.ipc_timeouts,
-		   t32_binsw_st.refreshes, t32_binsw_st.blocks, t32_binsw_st.csccr_skipped);
+		   t32_binsw_st.refreshes, t32_binsw_st.blocks, t32_binsw_st.csccr_skipped,
+		   t32_binsw_st.csccr[0], t32_binsw_st.csccr[1]);
 	{
 		u32 live, inits, starts, stops;
 

@@ -21,5 +21,7 @@ awk '/^void t32_hw_stream_on\(void\)/{f=1} f&&/t32_dma_addr_guard\(\);/{g=NR} f&
 chk "$hw" 'isp_wr(T32_RDMA_IRQ_CLR, s4);' "T32 ISR: 0x2202c = st[5] (list done acknowledge, #852)"
 chk "$hw" 't32_defog_unwired_bypass();' "T32 defog bypass while the defog path is not wired (#852)"
 grep -n 'isp_wr(T32_CORE_IDLE_REQ, 0)' "$hw" && { echo "check_t32_ipc_dma: 0x200 = 0 is back (vendor writes 1 only)"; fail=1; }
+# #853: the day/night bin switch writes the CSCCR UV clip (night 0x14054 = 0 -> grey, day 0x7fff80)
+chk "$hw" 'isp_wr(0x14054, mode ? 0 : 0x007fff80);' "T32 lib_tisp_set_csccr UV clip at the day/night switch (#853)"
 [ $fail = 0 ] && echo "check_t32_ipc_dma: OK"
 exit $fail

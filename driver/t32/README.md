@@ -64,6 +64,11 @@ generation-shared come from the shared code instead:
   `lib_tisp_intp_handler` does (0xac390). Writing 0 there (before #852) left
   0x22014 = 0x20000 and the stream-on poll timed out. QEMU clears the bit by
   itself.
+- Day/night bin switch (`SET_TIZIANO_PAR` while streaming): `lib_tisp_set_csccr` writes the CSCCR UV
+  clip like the vendor (0xb043c): night 0x14054 = 0 (grey picture), day 0x14054 = 0x007fff80, both with
+  0x14010 = 0xffffffff (openimp #853). The vendor writes the day values one / two frames later from
+  `tisp_top_frame_count` (0xafbc4); the T32 frame count is not wired, so they are written at once inside
+  the VIC hold of the switch.
 - Defog is bypassed on T32 (top bit 0x100, openimp #852 / #854): neither
   `tisp_defog_init` nor the per-frame defog is wired, and the block with its
   reset grid drew horizontal streaks over the picture.
