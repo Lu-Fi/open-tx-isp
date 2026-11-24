@@ -59,6 +59,13 @@ static DECLARE_WAIT_QUEUE_HEAD(aec_api_wq);
  * the sync comes from the sensor's set_fps, which the AE work and t32_aec_tisp_set_fps call under aec_lock.
  */
 #define T32_AEC_R_PAR_TRIG	1285U
+/*
+ * The AE histogram block (vendor .data tisp_ae_hist, tx-isp-t32.ko .data + 0x37a0) is not zero at load: bytes 1044..1051
+ * hold the 5-bin thresholds 13 / 64 / 144 / 192 and 15 / 15 (tisp_ae_get_hist_bin / set_hist_bin, api_ae_long_process).
+ * A zeroed block put the whole 5-bin histogram of GetAeStatistics into the last bin until SetStatisConfig (#859).
+ */
+#define T32_AEC_HIST_BIN_OFF	1044U
+static u8 aec_hist_bin[8] = { 13, 64, 144, 192, 15, 15, 0, 0 };
 static DEFINE_MUTEX(aec_sync_lock);
 static u8 *aec_sync_S, *aec_sync_R;
 
@@ -137,6 +144,15 @@ static void aec_work_fn(struct work_struct *w)
 		mutex_unlock(&aec_lock);
 		return;
 	}
+	/*
+	 * tisp_ae_interrupt_hist (vendor tx-isp-t32.ko 0x2ab70, system irq 5): the histogram buffer
+	 * 0x1708c & 3 (2 KiB each behind the four zone buffers) unpacked by tisp_ae_get_hist (0x2a9e4)
+	 * into the AE block B + 0 (long) / + 1024 (short), as selected by bits 1 / 2 of top register
+	 * 0x60.  Not wired before openimp #859: B stayed zero, GetAeStatistics showed one bin.  Run
+	 * here, in the AE work, so it never races the AE frame (the vendor takes its spin lock).
+	 */
+	t32_ae_interrupt_hist(aec.zones + 0x4000, t32_hw_rd(T32_AE_CUR), aec.b.B, t32_hw_rd(0x60), t32_hw_rd(0x60));
+	t32_aec_stats.hists++;
 	t32_aec_irq(&aec);
 	aec_flush();
 	t32_aec_calc(&aec);
@@ -174,6 +190,8 @@ int t32_aec_attach(const struct t32_ae_blk *b, u8 *S, const u8 *zones)
 	u8 roi[4];
 
 	mutex_lock(&aec_lock);
+	if (aec.hist)	/* vendor .data tisp_ae_hist: the histogram thresholds survive tisp_ae_init (#859) */
+		memcpy(aec_hist_bin, aec.hist + T32_AEC_HIST_BIN_OFF, sizeof(aec_hist_bin));
 	kfree(aec.hist); kfree(aec.comp); kfree(aec.lum);
 	memcpy(roi, aec.roi, sizeof(roi));	/* vendor .bss: the face ROI bounds survive tisp_ae_init */
 	memset(&aec, 0, sizeof(aec));
@@ -186,6 +204,8 @@ int t32_aec_attach(const struct t32_ae_blk *b, u8 *S, const u8 *zones)
 	aec.hist = kzalloc(T32_AEC_HIST_BYTES, GFP_KERNEL);
 	aec.comp = kzalloc(T32_AEC_COMP_BYTES, GFP_KERNEL);
 	aec.lum = kzalloc(T32_AEC_HIST_BYTES, GFP_KERNEL);
+	if (aec.hist)
+		memcpy(aec.hist + T32_AEC_HIST_BIN_OFF, aec_hist_bin, sizeof(aec_hist_bin));
 	aec_it = aec_ag = 0;
 	aec_wsel[0] = aec_wsel[1] = 0;
 	aec_sent = ~0U;

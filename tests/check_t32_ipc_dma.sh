@@ -23,5 +23,7 @@ chk "$hw" 't32_defog_unwired_bypass();' "T32 defog bypass while the defog path i
 grep -n 'isp_wr(T32_CORE_IDLE_REQ, 0)' "$hw" && { echo "check_t32_ipc_dma: 0x200 = 0 is back (vendor writes 1 only)"; fail=1; }
 # #853: the day/night bin switch writes the CSCCR UV clip (night 0x14054 = 0 -> grey, day 0x7fff80)
 chk "$hw" 'isp_wr(0x14054, mode ? 0 : 0x007fff80);' "T32 lib_tisp_set_csccr UV clip at the day/night switch (#853)"
+# #859: the AE work unpacks the AE histogram (tisp_ae_interrupt_hist) into the AE block, else GetAeStatistics has one bin
+chk "$d/tx_isp_t32_ae.c" 't32_ae_interrupt_hist(aec.zones + 0x4000, t32_hw_rd(T32_AE_CUR), aec.b.B' "T32 AE histogram unpack (#859)"
 [ $fail = 0 ] && echo "check_t32_ipc_dma: OK"
 exit $fail

@@ -98,6 +98,7 @@ struct t32_aec_drv_stats {
 #ifndef TX_ISP_T33
 	u32 face_sets, face_en, face_zone, face_target;	/* tisp_ae_face_set on the live AE (#686) */
 	u32 syncs, sync_fps;	/* TX_ISP_EVENT_SYNC_SENSOR_ATTR on the live AE, S + 0x38 after it (#724) */
+	u32 hists;		/* tisp_ae_interrupt_hist unpacks (#859) */
 #endif
 };
 extern struct t32_aec_drv_stats t32_aec_stats;
