@@ -1014,3 +1014,14 @@ Helpers and oracle: `tx_isp_t40_expo_fs.h`, `tests/t40_expo_fs_host.sh`.
 The vendor's work selector (vic+0x24c+idx*4, VIC -> ISP channel) is not a field here: this driver keeps the VIC stream
 state at vic+0x24c (vendor +0x264), so the ack filter passes the selector (streaming VIC0 -> main, VIC1 -> sec). Note:
 the `vic index` line of `/proc/jz/isp/isp-w02` therefore shows the stream state ("4, 1, 1"), not the vendor's index ("0, 4, 4").
+
+## Frame time stamps (2026-11-25, openimp #886)
+DQBUF returns the done buffer's time stamp in `v4l2_buffer.timestamp` (words 5/6) like the vendor `frame_chan_event`
+(`tx-isp-t40.ko` 0xee9c: `private_getrawmonotonic` -> `getrawmonotonic64`, `tv_usec = tv_nsec / 1000`). The
+frame-done interrupt stamps the deferred work item (`regtrace_frame_stamp`), the ring slot keeps it
+(`regtrace_irq_frame_done_queue_ts`) and both DQBUF paths copy it out; before, words 5/6 stayed 0. OpenIMP stamps frames
+in user space (`IMP_System_GetTimeStamp`) and does not use it; a vendor libimp compares it with `CLOCK_MONOTONIC_RAW`.
+`private_getrawmonotonic` now uses a real `struct timespec64` (16 bytes on the 4.4 kernel, `getrawmonotonic64` stores
+at 0/4/8): the lift passed 8 bytes, so `tv_nsec` overwrote the saved s0. That path (`frame_chan_event`) only runs with
+`core_isr_oem_frame_event=1` or a REMOTE frame-done delivery mode, not with the default LOCAL profile, which is why it
+never crashed. Guard: `tests/check_t40_frame_ts.sh`.

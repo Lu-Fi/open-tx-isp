@@ -14326,6 +14326,25 @@ static spinlock_t regtrace_irq_frame_done_queue_lock[4];
 static uint32_t regtrace_irq_frame_done_queue_phys[4][REGTRACE_IRQ_FRAME_DONE_QUEUE_MAX];
 static uint32_t regtrace_irq_frame_done_queue_uv[4][REGTRACE_IRQ_FRAME_DONE_QUEUE_MAX];
 static uint32_t regtrace_irq_frame_done_queue_index[4][REGTRACE_IRQ_FRAME_DONE_QUEUE_MAX];
+/*
+ * #886: done-buffer time stamp {tv_sec, tv_usec} per ring slot.  The vendor
+ * ko's frame_chan_event (T40 0xee9c) stamps the done buffer in the frame-done
+ * interrupt with getrawmonotonic64, tv_usec = tv_nsec / 1000, and DQBUF hands
+ * it out as v4l2_buffer.timestamp (words 5/6).  isr_ts carries the stamp of
+ * the interrupt into the deferred frame-done work.
+ */
+static uint32_t regtrace_irq_frame_done_queue_ts[4][REGTRACE_IRQ_FRAME_DONE_QUEUE_MAX][2];
+static uint32_t regtrace_irq_frame_done_isr_ts[4][2];
+static bool regtrace_irq_frame_done_isr_ts_valid[4];
+
+static void regtrace_frame_stamp(uint32_t ts[2])
+{
+    struct timespec64 now;
+
+    getrawmonotonic64(&now);
+    ts[0] = (uint32_t)now.tv_sec;
+    ts[1] = (uint32_t)now.tv_nsec / 1000U;
+}
 static uint32_t regtrace_irq_frame_done_queue_head[4];
 static uint32_t regtrace_irq_frame_done_queue_tail[4];
 static uint32_t regtrace_irq_frame_done_queue_count[4];
@@ -14399,6 +14418,7 @@ struct regtrace_irq_frame_done_work_item {
     uint32_t uv;
     uint32_t index;
     uint32_t read_fifo;
+    uint32_t ts[2];         /* #886: raw monotonic stamp of the frame-done interrupt */
 };
 
 static struct regtrace_irq_frame_done_work_item regtrace_irq_frame_done_work[4];
@@ -23948,8 +23968,9 @@ static int regtrace_core_event_qbuf(int channel, void *data)
     return ret;
 }
 
-static int regtrace_irq_frame_done_queue_pop(int channel, uint32_t *y,
-                                             uint32_t *uv, uint32_t *index);
+static int regtrace_irq_frame_done_queue_pop_ts(int channel, uint32_t *y,
+                                                uint32_t *uv, uint32_t *index,
+                                                uint32_t *ts);
 
 #ifdef REGTRACE_KERNEL_TREE_BUILD
 static int regtrace_tisp_event_thread(void *data)
@@ -25062,8 +25083,14 @@ static long regtrace_framechan_buffer_ioctl(int channel, unsigned int cmd, unsig
             uint32_t done_index = 0xffffffffU;
             uint32_t done_y = 0;
             uint32_t done_uv = 0;
-            int have_done = regtrace_irq_frame_done_queue_pop(channel,
-                &done_y, &done_uv, &done_index);
+            uint32_t done_ts[2] = { 0, 0 };
+            int have_done = regtrace_irq_frame_done_queue_pop_ts(channel,
+                &done_y, &done_uv, &done_index, done_ts);
+
+            if (have_done) {
+                words[5] = done_ts[0];  /* #886: timestamp (raw monotonic) */
+                words[6] = done_ts[1];
+            }
 
             if (!have_done &&
                 regtrace_irq_frame_done_local_count[channel] &&
@@ -25799,6 +25826,7 @@ static long regtrace_framechan_repair_dqbuf_event(int channel,
     uint32_t index = 0xffffffffU;
     uint32_t phys = 0;
     uint32_t uv = 0;
+    uint32_t ts[2] = { 0, 0 };
     long ret = 0;
     static unsigned int log_count[4];
 
@@ -25813,7 +25841,7 @@ static long regtrace_framechan_repair_dqbuf_event(int channel,
         return -EFAULT;
     }
 
-    if (!regtrace_irq_frame_done_queue_pop(channel, &phys, &uv, &index)) {
+    if (!regtrace_irq_frame_done_queue_pop_ts(channel, &phys, &uv, &index, ts)) {
         regtrace_framechan_dqbuf_repair_no_done[channel]++;
         regtrace_core_dqbuf_enodata_count++;
         regtrace_framechan_dqbuf_repair_last_ret[channel] = -ENODATA;
@@ -25829,6 +25857,8 @@ static long regtrace_framechan_repair_dqbuf_event(int channel,
     regtrace_get_framechan_format(channel, &format);
     regtrace_fill_tisp_buffer_words(channel, words, &format);
     words[0] = index;
+    words[5] = ts[0];       /* #886: timestamp.tv_sec  (raw monotonic, vendor frame_chan_event) */
+    words[6] = ts[1];       /* #886: timestamp.tv_usec */
     if (regtrace_framechan_qbuf_phys[channel][index])
         words[13] = regtrace_framechan_qbuf_phys[channel][index];
     else if (phys)
@@ -30017,14 +30047,17 @@ int32_t private_dma_cache_sync(void)
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000000884 origin=model_output original=private_getrawmonotonic */
 int32_t private_getrawmonotonic(int32_t *arg1)
 {
-    int32_t var_18[2];
-    int32_t *result;
-    
-    getrawmonotonic64(var_18);
-    ((void **)arg1)[0] = var_18[0];
-    ((void **)arg1)[1] = var_18[1];
-    result = var_18[1];
-    return result;
+    /*
+     * #886: OEM 0x914 keeps a 16-byte struct timespec64 at sp+16 and copies
+     * words 0 (tv_sec low) and 2 (tv_nsec).  The lift passed an 8-byte
+     * array: getrawmonotonic64 wrote tv_nsec over the saved s0.
+     */
+    struct timespec64 ts;
+
+    getrawmonotonic64(&ts);
+    arg1[0] = (int32_t)ts.tv_sec;
+    arg1[1] = (int32_t)ts.tv_nsec;
+    return arg1[1];
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000008c4 origin=fragment_seed original=private_kthread_should_stop */
@@ -47261,6 +47294,17 @@ static void regtrace_irq_frame_done_queue_push(int channel, uint32_t y,
     regtrace_irq_frame_done_queue_phys[channel][slot] = y;
     regtrace_irq_frame_done_queue_uv[channel][slot] = uv;
     regtrace_irq_frame_done_queue_index[channel][slot] = index;
+    /* #886: the deferred work (process context) delivers the interrupt's
+     * stamp; a push from interrupt context stamps now, as the vendor. */
+    if (!in_interrupt() && regtrace_irq_frame_done_isr_ts_valid[channel]) {
+        regtrace_irq_frame_done_queue_ts[channel][slot][0] =
+            regtrace_irq_frame_done_isr_ts[channel][0];
+        regtrace_irq_frame_done_queue_ts[channel][slot][1] =
+            regtrace_irq_frame_done_isr_ts[channel][1];
+        regtrace_irq_frame_done_isr_ts_valid[channel] = false;
+    } else {
+        regtrace_frame_stamp(regtrace_irq_frame_done_queue_ts[channel][slot]);
+    }
     regtrace_irq_frame_done_queue_tail[channel] =
         (slot + 1) % REGTRACE_IRQ_FRAME_DONE_QUEUE_MAX;
     regtrace_irq_frame_done_queue_count[channel]++;
@@ -47269,8 +47313,9 @@ static void regtrace_irq_frame_done_queue_push(int channel, uint32_t y,
                            flags);
 }
 
-static int regtrace_irq_frame_done_queue_pop(int channel, uint32_t *y,
-                                             uint32_t *uv, uint32_t *index)
+static int regtrace_irq_frame_done_queue_pop_ts(int channel, uint32_t *y,
+                                                uint32_t *uv, uint32_t *index,
+                                                uint32_t *ts)
 {
     unsigned long flags;
     uint32_t slot;
@@ -47289,6 +47334,10 @@ static int regtrace_irq_frame_done_queue_pop(int channel, uint32_t *y,
     *y = regtrace_irq_frame_done_queue_phys[channel][slot];
     *uv = regtrace_irq_frame_done_queue_uv[channel][slot];
     *index = regtrace_irq_frame_done_queue_index[channel][slot];
+    if (ts) {
+        ts[0] = regtrace_irq_frame_done_queue_ts[channel][slot][0];
+        ts[1] = regtrace_irq_frame_done_queue_ts[channel][slot][1];
+    }
     regtrace_irq_frame_done_queue_head[channel] =
         (slot + 1) % REGTRACE_IRQ_FRAME_DONE_QUEUE_MAX;
     regtrace_irq_frame_done_queue_count[channel]--;
@@ -48137,6 +48186,11 @@ static void regtrace_irq_frame_done_workfn(struct work_struct *work)
     uv = item->uv;
     index = item->index;
     read_fifo = item->read_fifo;
+    if (channel < 4) {
+        regtrace_irq_frame_done_isr_ts[channel][0] = item->ts[0];
+        regtrace_irq_frame_done_isr_ts[channel][1] = item->ts[1];
+        regtrace_irq_frame_done_isr_ts_valid[channel] = true;
+    }
     spin_unlock_irqrestore(&item->lock, flags);
 
     if (channel < 4)
@@ -48337,6 +48391,7 @@ static long regtrace_irq_frame_done_event(int channel, uint32_t source)
         item->uv = 0;
         item->index = 0xffffffffU;
         item->read_fifo = 1;
+        regtrace_frame_stamp(item->ts);
         spin_unlock_irqrestore(&item->lock, flags);
 
         if (was_pending)
@@ -48400,6 +48455,7 @@ static long regtrace_irq_frame_done_event(int channel, uint32_t source)
         item->uv = uv;
         item->index = index;
         item->read_fifo = 0;
+        regtrace_frame_stamp(item->ts);
         spin_unlock_irqrestore(&item->lock, flags);
 
         if (was_pending)
