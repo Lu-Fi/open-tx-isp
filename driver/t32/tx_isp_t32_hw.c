@@ -242,6 +242,27 @@ static void t33_lcepf_isr8(void);
 static void t33_lcepf_isr30(void);
 #endif
 
+#ifndef TX_ISP_T33
+/*
+ * openimp #897 diagnostics: interrupt status words seen since the last stream-on (OR of isp 0x30028,
+ * chdone 0x30038, 0x30068, msca 0x300a8, 0x300b8, 0x300c8, 0x300d8; VIC0/1 0x1e0 / 0x1e4) and the
+ * VIC0 status bit counts, shown by t32_flip_show.  Counting only, no register access.
+ */
+static u32 t32_irq_or[7], t32_vic_or[4], t32_vic_bits[2][32];
+
+static void t32_vic_count(u32 s0, u32 s1)
+{
+	int b;
+
+	for (b = 0; b < 32; b++) {
+		if (s0 & (1U << b))
+			t32_vic_bits[0][b]++;
+		if (s1 & (1U << b))
+			t32_vic_bits[1][b]++;
+	}
+}
+#endif
+
 static irqreturn_t t32_isp_irq(int irq, void *dev)
 {
 	u32 sta, done, s2, msca, s3, s4, s5 = 0;
@@ -262,6 +283,15 @@ static irqreturn_t t32_isp_irq(int irq, void *dev)
 		s5 = isp_rd(T32_INT5_STA);
 	if (!(sta | done | s2 | msca | s3 | s4 | s5))
 		return IRQ_NONE;
+#ifndef TX_ISP_T33
+	t32_irq_or[0] |= sta;
+	t32_irq_or[1] |= done;
+	t32_irq_or[2] |= s2;
+	t32_irq_or[3] |= msca;
+	t32_irq_or[4] |= s3;
+	t32_irq_or[5] |= s5;
+	t32_irq_or[6] |= s4;
+#endif
 	isp_wr(T32_INT_CLR, sta);
 	isp_wr(T32_CHDONE_CLR, done);
 	if (s2)
@@ -417,6 +447,12 @@ static irqreturn_t t32_vic_irq(int irq, void *dev)
 #ifdef TX_ISP_T33
 	t33_tisp_count_vic(0, s0, s1);	/* /proc/tisp VIC counters (#589) */
 	t33_tisp_count_vic(1, t0, t1);
+#else
+	t32_vic_or[0] |= s0;
+	t32_vic_or[1] |= s1;
+	t32_vic_or[2] |= t0;
+	t32_vic_or[3] |= t1;
+	t32_vic_count(s0, s1);
 #endif
 	t33_vic_hold_tick(s0);		/* the sensor flip's VIC hold (T33 #669, T32 #689) */
 #ifndef TX_ISP_T33
@@ -2313,6 +2349,9 @@ static struct {
 	u32 requests, applied, mode, holds, releases;
 	int ret;
 	u32 deferred, stop_releases;	/* #779: work runs without a streaming sensor, holds dropped at stop */
+#ifndef TX_ISP_T33
+	u32 sns_frames;			/* #898: the sensor's last drop_frame answer (msg[1]; 0 = no answer) */
+#endif
 } t33_flip_st;
 
 /* isp_vic_interrupt_service_routine, frame start (0x1e0 bit 4) with the hold armed: count down, release */
@@ -2386,6 +2425,9 @@ static void t33_flip_work(struct work_struct *w)
 	t33_flip_st.applied++;
 	t33_flip_st.mode = mode;
 	t33_flip_st.ret = ret;
+#ifndef TX_ISP_T33
+	t33_flip_st.sns_frames = frames;
+#endif
 	spin_unlock_irqrestore(&t33_flip_lock, fl);
 	t32_core_unlock();
 }
@@ -2631,10 +2673,24 @@ extern u32 t32_msca_vendor_starts, t32_msca_direct_starts;	/* #730 (below) */
 void t32_flip_show(struct seq_file *m)
 {
 	seq_printf(m, "t32 flip: requests %u applied %u mode %u ret %d pending %u vic holds %u releases %u left %d"
-		   " deferred %u stop releases %u\n",
+		   " deferred %u stop releases %u sensor frames %u\n",
 		   t33_flip_st.requests, t33_flip_st.applied, t33_flip_st.mode, t33_flip_st.ret, t33_flip_pend,
 		   t33_flip_st.holds, t33_flip_st.releases, t33_vic_hold, t33_flip_st.deferred,
-		   t33_flip_st.stop_releases);
+		   t33_flip_st.stop_releases, t33_flip_st.sns_frames);
+	{	/* #897: interrupt status since the last stream-on, VIC0 status bit counts */
+		int w, b;
+
+		seq_printf(m, "t32 irq or: isp %08x chdone %08x s2 %08x msca %08x s3 %08x s5 %08x s4 %08x"
+			   " vic0 %08x/%08x vic1 %08x/%08x\n", t32_irq_or[0], t32_irq_or[1], t32_irq_or[2],
+			   t32_irq_or[3], t32_irq_or[4], t32_irq_or[5], t32_irq_or[6], t32_vic_or[0], t32_vic_or[1],
+			   t32_vic_or[2], t32_vic_or[3]);
+		seq_printf(m, "t32 vic0 bits:");
+		for (w = 0; w < 2; w++)
+			for (b = 0; b < 32; b++)
+				if (t32_vic_bits[w][b])
+					seq_printf(m, " %s%d=%u", w ? "b" : "a", b, t32_vic_bits[w][b]);
+		seq_printf(m, "\n");
+	}
 	/* #652: frame-channel stream-offs, work-state wait timeouts, length of the last wait */
 	seq_printf(m, "t32 msca: soff %u timeout %u last %u ms\n", t33_msca_soff_waits, t33_msca_soff_timeouts,
 		   t33_msca_soff_last_ms);
@@ -5490,6 +5546,11 @@ void t32_hw_stream_on(void)
 	t32_vic_wr(1, T32_VIC_CTRL, 1);
 	t32_csi_start();
 	t32_hw_stats.stream_ons++;
+#ifndef TX_ISP_T33
+	memset(t32_irq_or, 0, sizeof(t32_irq_or));	/* #897: per stream-on */
+	memset(t32_vic_or, 0, sizeof(t32_vic_or));
+	memset(t32_vic_bits, 0, sizeof(t32_vic_bits));
+#endif
 }
 
 void t32_hw_stream_off(void)

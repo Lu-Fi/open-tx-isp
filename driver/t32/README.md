@@ -457,6 +457,20 @@ queues them once). The ISP vertical flip is refused in direct mode (ported
 116-byte format on every channel (ported `frame_channel_vidioc_get_fmt` /
 `set_fmt`). Direct modes 2..4 (several sensors) are refused at load (mode 0).
 
+## Sensor flip ABI for sensor ports (openimp #898)
+
+`TX_ISP_EVENT_SENSOR_HVFLIP` (0x2000010, `tx_isp_core_shvflip` after the
+next frame end) passes `{ vinum, struct tx_isp_hvflip_par * }`: word 1 is a
+pointer to `{ hvflip (0 normal, 1 mirror, 2 flip, 3 both), drop_frame,
+reset }`, not the mode. The sensor writes its registers and answers
+`drop_frame` (frames the VICs hold; the vendor `sensor_gc4653_t32.ko`
+answers 2, `gc4653_sensor_ops_ioctl` 0x12f8). A port from an older SDK that
+reads word 1 as the mode sees a kernel pointer, matches no mode, writes
+nothing and returns 0: the request counts as applied but the picture does
+not move. `/proc/jz/isp/*` shows the answer as `sensor frames` in the
+`t32 flip:` line (0 = the sensor did not answer: check the port). Guard:
+`tests/check_t32_sensor_flip_abi.sh`.
+
 ## Not yet (S4+)
 
 No tisp/3A, no IQ bin parsing (the bin's physical address is kept), no
