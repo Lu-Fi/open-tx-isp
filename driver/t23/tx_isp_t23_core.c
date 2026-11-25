@@ -20898,6 +20898,59 @@ static int regtrace_t23_probe_fs_safe(struct platform_device *pdev)
     return 0;
 }
 
+/*
+ * #910: mask all IVDC interrupt sources (+0x40) and ack the latched status
+ * (+0x44 -> +0x54 write-1-clear, as ivdc_core_interrupt_service_routine).
+ * Direct-mode STREAMON writes the stock mask again (regtrace_t23_ivdc_stream).
+ * The IVDC clocks (ahb0, ivdc: CLKGR1 bit 3) are off after a remove; an
+ * access to the gated block hangs the bus (watchdog reset on the T23N), so
+ * the clocks are held across the access (clk_enable counts, the stream
+ * enable state is unchanged).
+ */
+static void regtrace_t23_ivdc_quiesce(unsigned char *sd, const char *why)
+{
+    void __iomem *base;
+    uintptr_t clk_ptr;
+    uint32_t clk_num, i, n = 0;
+    struct clk *clks[8];
+    u32 mask, status;
+
+    if (!sd)
+        return;
+    base = (void __iomem *)(uintptr_t)*(uint32_t *)(sd + 184);
+    clk_ptr = *(uint32_t *)(sd + REGTRACE_TX_ISP_MODULE_CLK_PTR_OFFSET);
+    clk_num = *(uint32_t *)(sd + REGTRACE_TX_ISP_MODULE_CLK_NUM_OFFSET);
+    if (!base || !clk_ptr || !clk_num || clk_num > 8U) {
+        printk(KERN_WARNING "t23: IVDC %s quiesce skipped (base=%p clks=%u)\n",
+               why, base, clk_num);
+        return;
+    }
+    for (i = 0; i < clk_num; i++) {
+        struct clk *clk = *(struct clk **)(clk_ptr + i * sizeof(uint32_t));
+
+        if (!clk || IS_ERR(clk) || private_clk_enable(clk))
+            continue;
+        clks[n++] = clk;
+    }
+    if (n != clk_num) {
+        printk(KERN_WARNING "t23: IVDC %s quiesce skipped (%u of %u clocks)\n",
+               why, n, clk_num);
+        goto out;
+    }
+    mask = readl(base + 0x40);
+    status = readl(base + 0x44);
+    writel(0U, base + 0x40);
+    if (status)
+        writel(status, base + 0x54);
+    wmb();
+    if (mask || status)
+        printk(KERN_NOTICE "t23: IVDC %s quiesce mask=0x%x status=0x%x -> 0x%x\n",
+               why, mask, status, readl(base + 0x44));
+out:
+    while (n)
+        private_clk_disable(clks[--n]);
+}
+
 static int regtrace_t23_probe_ivdc_safe(struct platform_device *pdev)
 {
     unsigned char *ivdc = private_kmalloc(440, GFP_KERNEL);
@@ -20912,17 +20965,30 @@ static int regtrace_t23_probe_ivdc_safe(struct platform_device *pdev)
                              (uint32_t)(uintptr_t)&ivdc_subdev_ops);
     if (ret)
         goto fail;
-    ret = regtrace_t23_request_irq(pdev, sd);
-    if (ret)
-        goto fail;
+    /*
+     * #910: map, quiesce and register the IVDC before its line is
+     * requested.  The IVDC keeps its interrupt mask (+0x40) and latched
+     * status (+0x44) across an rmmod (no block reset), and request_irq
+     * unmasks IRQ 46 before tx_isp_request_irq() disables it again; a
+     * pending status then stormed into a handler that did not know the
+     * IVDC yet (IRQ_NONE, "nobody cared", line disabled for good).  The
+     * stock probe has the same order (request_irq inside
+     * tx_isp_subdev_init before the ioremap and the sd+212 owner store).
+     */
     ret = regtrace_t23_map_mem(pdev, sd, 0, 184, 0);
     if (ret)
         goto fail;
+    regtrace_t23_ivdc_quiesce(sd, "probe");
     *(uint32_t *)(sd + 52) = (uint32_t)(uintptr_t)&sclk_name;
     *(uint32_t *)(sd + 212) = (uint32_t)(uintptr_t)sd;
     *(uint32_t *)(ivdc + 376) = (uint32_t)(uintptr_t)pdev->dev.platform_data;
-    g_ivdc = (uintptr_t)ivdc;
     regtrace_t23_ivdc_sd = sd;
+    ret = regtrace_t23_request_irq(pdev, sd);
+    if (ret) {
+        regtrace_t23_ivdc_sd = NULL;
+        goto fail;
+    }
+    g_ivdc = (uintptr_t)ivdc;
     t23_ivdc_dev = &pdev->dev;
     printk(KERN_INFO "t23: safe probe ivdc dev=%p sd=%p base=%p\n",
            ivdc, sd, (void *)(uintptr_t)*(uint32_t *)(sd + 184));
@@ -21119,6 +21185,8 @@ static int regtrace_t23_remove_ivdc_safe(struct platform_device *pdev)
     if (!sd)
         return 0;
     ivdc = sd - 36;
+    /* #910: leave no unmasked, latched IVDC status for the next load */
+    regtrace_t23_ivdc_quiesce(sd, "remove");
     regtrace_t23_release_subdev_safe(
         pdev, sd, true, true, &regtrace_t23_ivdc_clks_enabled);
     private_kfree(ivdc);
@@ -36353,6 +36421,10 @@ static int32_t isp_irq_handle_body(int32_t irq, void *dev_id)
         base = (void __iomem *)(uintptr_t)*(u32 *)(sd + 0xb8);
         if (!regtrace_t23_valid_ptr((uintptr_t)base))
             return IRQ_NONE;
+        /* #910: no access to the gated IVDC (bus hang); the probe
+         * quiesce leaves no source pending before the stream clocks */
+        if (!regtrace_t23_ivdc_clks_enabled)
+            return regtrace_t23_irq_none("IVDC gated", irq);
 
         status0 = readl(base + 0x44);
         if (status0) {
