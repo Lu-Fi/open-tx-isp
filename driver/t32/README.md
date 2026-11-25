@@ -98,7 +98,10 @@ generation-shared come from the shared code instead:
   QBUF word 19 and stride word 17), `STREAMON`/`STREAMOFF`, `LISTEN_BUF`
   (`listen_timeout_ms`). Queued buffers go to the MSCA channel's push FIFOs;
   the ISP interrupt (INTC 29, `isp_irq`) drains the done FIFO (UV read
-  before the Y pop) and wakes the listener. VIC interrupt: INTC 30
+  before the Y pop) and wakes the listener. The done buffer's time stamp
+  (DQBUF words 5/6) is the raw monotonic clock, as the vendor's
+  `frame_chan_event` (openimp #884; vendor libimp compares it with
+  `CLOCK_MONOTONIC_RAW`). VIC interrupt: INTC 30
   (`vic_irq`). Closing the channel stops it.
 - QEMU (vendor libimp 2.2.0, `sensor_cv8001_t32.ko`): FrameSource 10/10
   frames at 1920x1080 and 5/5 at 1280x720 with the model's colour bars, JPEG

@@ -106,6 +106,23 @@ struct t32_fchan {
 
 static struct t32_fchan fchan[T32_MSCA_CHANNELS];
 
+/*
+ * #884: frame time stamp from the raw monotonic clock, as the vendor ko's
+ * frame_chan_event (T32 0x131f8 getrawmonotonic64, T33 0x11f78
+ * getrawmonotonic; tv_usec = tv_nsec / 1000).  The vendor libimp builds
+ * the frame time stamp from it and compares it with IMP_System_GetTimeStamp
+ * (CLOCK_MONOTONIC_RAW); the wall clock made GetTimedFrame and
+ * SetRgnAttrWithTimestamp fail with the vendor library.
+ */
+static void fs_stamp(struct timeval *tv)
+{
+	struct timespec ts;
+
+	getrawmonotonic(&ts);
+	tv->tv_sec = ts.tv_sec;
+	tv->tv_usec = ts.tv_nsec / 1000;
+}
+
 /* ISP interrupt: channel done bits */
 void t32_fs_done_irq(u32 done)
 {
@@ -139,7 +156,7 @@ void t32_fs_done_irq(u32 done)
 			}
 			f->buf[i].state = BUF_DONE;
 			f->buf[i].seq = f->seq++;
-			do_gettimeofday(&f->buf[i].ts);
+			fs_stamp(&f->buf[i].ts);
 			f->done[(f->done_rd + f->done_n++) % T32_FS_MAX_BUFS] = i;
 			f->frames++;
 			woke = 1;
@@ -224,7 +241,7 @@ int t32_fs_ivdc_frame(u32 ch)
 			continue;
 		f->buf[i].state = BUF_DONE;
 		f->buf[i].seq = f->seq++;
-		do_gettimeofday(&f->buf[i].ts);
+		fs_stamp(&f->buf[i].ts);
 		f->done[(f->done_rd + f->done_n++) % T32_FS_MAX_BUFS] = i;
 		f->frames++;
 		f->ivdc_next = (i + 1) % f->nbufs;
