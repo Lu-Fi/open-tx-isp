@@ -43,7 +43,7 @@ struct t32_blk_drv_stats t32_blk_stats;
 static DEFINE_SPINLOCK(blk_lock);	/* dispatch against attach / detach */
 static DEFINE_SPINLOCK(blk_par_lock);	/* the lock of tisp_lce_par */
 static DEFINE_SPINLOCK(blk_ev_lock);	/* the event queue lock (vendor t32_small_bss) */
-static bool blk_lce_on, blk_tmo_on;
+static bool blk_lce_on, blk_tmo_on, blk_defog_on;
 static t32_intp_fn blk_irq[T32_INTP_BITS];	/* vendor t32_data_e3b50 (system_irq_func_set) */
 static struct t32_intp_glob blk_g;
 static struct t32_event_q *blk_q;
@@ -127,6 +127,8 @@ void t32_blk_irq(u32 sta)
 	}
 	if (blk_tmo_on && t32_pp_on(T32_PP_TMO))
 		on |= T32_BLK_IRQ_TMO_BITS;
+	if (blk_defog_on && t32_pp_on(T32_PP_DEFOG))
+		on |= T32_BLK_IRQ_DEFOG_BITS;
 	if (sta & on)
 		t32_blk_dispatch(&blk_g, blk_irq, sta & on, 0);
 	spin_unlock_irqrestore(&blk_lock, f);
@@ -213,6 +215,17 @@ void t32_blk_tmo_set(u32 (*tmo)(u32 ch), u32 (*fbf)(u32 ch))
 	blk_irq[T32_BLK_IRQ_TMO] = tmo;
 	blk_irq[T32_BLK_IRQ_FBF] = fbf;
 	blk_tmo_on = tmo || fbf;
+	spin_unlock_irqrestore(&blk_lock, f);
+}
+
+/* tx_isp_t32_defogd.c: the defog handler of bit 10 (system_irq_func_set of tisp_defog_init), NULL = off */
+void t32_blk_defog_set(u32 (*defog)(u32 ch))
+{
+	unsigned long f;
+
+	spin_lock_irqsave(&blk_lock, f);
+	blk_irq[T32_BLK_IRQ_DEFOG] = defog;
+	blk_defog_on = defog != NULL;
 	spin_unlock_irqrestore(&blk_lock, f);
 }
 

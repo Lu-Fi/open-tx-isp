@@ -1971,6 +1971,9 @@ static int t32_proc_show(struct seq_file *m, void *v)
 		   t32_blk_stats.ev_full);
 	seq_printf(m, "tmo: attaches %u, irqs tmo %u fbf %u, tgain updates %u\n",
 		   t32_tmo_stats.attaches, t32_tmo_stats.tmo_irqs, t32_tmo_stats.fbf_irqs, t32_tmo_stats.tgains);
+#ifndef TX_ISP_T33
+	t32_defog_show(m);	/* openimp #854 */
+#endif
 	seq_printf(m, "af / gsm: attaches %u / %u, irqs %u / %u, events %u / %u (queue full %u)\n",
 		   t32_afg_stats.af_attaches, t32_afg_stats.gsm_attaches, t32_afg_stats.af_irqs, t32_afg_stats.gsm_irqs,
 		   t32_afg_stats.af_events, t32_afg_stats.gsm_events, t32_afg_stats.ev_full);

@@ -69,9 +69,21 @@ generation-shared come from the shared code instead:
   0x14010 = 0xffffffff (openimp #853). The vendor writes the day values one / two frames later from
   `tisp_top_frame_count` (0xafbc4); the T32 frame count is not wired, so they are written at once inside
   the VIC hold of the switch.
-- Defog is bypassed on T32 (top bit 0x100, openimp #852 / #854): neither
-  `tisp_defog_init` nor the per-frame defog is wired, and the block with its
-  reset grid drew horizontal streaks over the picture.
+- Defog (`tx_isp_t32_defogd.c`, openimp #854, `t32_ported_paths` bit 20): the
+  vendor flow on the oracle-proven ports. Stream-on runs `tisp_defog_init` on a
+  copy of IQ section 14 (656 bytes, tuning base + 0x8204) with the sensor size:
+  8 KiB statistics DMA buffer (0xa210..0xa21c, 0xa20c), grid, weight curves
+  (`defog_count_weight35abc`), para1 / para2, the LUT (0x320a0 / 0x320a4) and
+  0xa004; bit 10 of the ISP status word 0x30028 runs
+  `tisp_defog_interrupt_static` in the block dispatch (`tx_isp_t32_blkirq.c`),
+  its event 3 runs `tisp_defog_par` (trans-k, `Tiziano_defog_soft`, LUT) in a
+  work item once per event, the AE EV fan-out runs `tisp_defog_ev_update`, the
+  bin switch `tisp_defog_dn_params_refresh`. The init writes equal the vendor
+  `tisp_defog_init` write by write (`tests/t32_defogtr`, 309 writes, cv8001
+  3840x2160 QEMU trace). Stream-off points the DMA registers back at the static
+  area before `tisp_defog_deinit` frees the buffer. Only when the defog did not
+  attach (no section, bit 20 off, no memory) is the block bypassed (top bit
+  0x100), since with its reset grid it drew horizontal streaks (#852).
   - `STREAMON`/`STREAMOFF` run the sensor's own init and `s_stream`.
 - Register lists (`tx_isp_t32_rcfg.h`): builder and walker for the RCFG list
   format, for S2 (the vendor driver runs one list at stream-on).
@@ -235,7 +247,8 @@ generation-shared come from the shared code instead:
   runs `tisp_long_ev_update` (`t32_long_ev_update`, oracle
   `t32_longev_oracle`): the AWB part (bit 14), `t32_ccm_ev_update` and
   `t32_bcsh_ev_update` (x = the AE brightness word) on the CCM / BCSH states
-  of bit 15. Gamma, defog, TMO and WDR EV updates are not wired. Host only.
+  of bit 15; defog: `tisp_defog_ev_update` (#854). Gamma, TMO and WDR EV
+  updates are not wired.
 
 - **Front end: CSC, CSCCR, ISP top** (`tx_isp_t32_front.h`, flow of the vendor
   `tisp_csc_init`, `tisp_csccr_init`, `tisp_top_init`, `tisp_top_reg_cfg`),

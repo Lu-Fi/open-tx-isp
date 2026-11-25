@@ -4678,6 +4678,11 @@ static void t32_tisp_init(void)
 		t32_tisp_flush("dpc", t32_dpc_init(bin + off, 0, tisp_w));	/* wide: ISP reg 0x88 & 0x1f > 4, never with this front end */
 		t32_pf_attach(T32_PP_DPC, kmemdup(bin + off, len, GFP_KERNEL));
 	}
+#ifndef TX_ISP_T33
+	/* lib_tisp_init: tisp_defog_init after the LSC init, before tisp_ydns_init (vendor 0x25448, openimp #854) */
+	if (!t32_core_sensor_size(&width, &height))
+		t32_defog_attach(bin, bytes, width, height);
+#endif
 	off = t32_iq_section(bin, bytes, T32_SEC_YDNS, &len);
 	if (off && T32_IQ_SEC_OK(len, T32_YDNS_SEC_BYTES)) {
 		t32_tisp_flush("ydns", t32_ydns_init(bin + off, tisp_w));
@@ -5204,21 +5209,34 @@ static void t32_dma_addr_guard(void)
 }
 
 /*
- * Defog (openimp #852): the T32 path runs neither tisp_defog_init (grid 0xa040 / 0xa044,
- * 0xa204 / 0xa208, 0xa20c = 2, 0xa010 = 3; port in tx_isp_t32_defog.h, not wired) nor the
- * per-frame defog (Tiziano_defog_soft is not ported).  Left on with its reset grid the
- * block draws horizontal streaks over the gc4653 PRJ007 picture (on the device setting
- * top bit 0x100 alone removes them).  Bypassed until the defog path is wired; the vendor
- * runs defog when the bin enables it, so this is below vendor until then.
+ * Defog (openimp #852, #854): tisp_defog_init and the per-frame defog run in
+ * tx_isp_t32_defogd.c.  When they did not attach (no defog section in the bin,
+ * t32_ported_paths bit 20 off, allocation failure) the block would run with its
+ * reset grid and draw horizontal streaks over the picture (#852): then it is
+ * bypassed (top bit 0x100) as before #854.
  */
 static void t32_defog_unwired_bypass(void)
 {
 	u32 byp = isp_rd(0x0040);
 
-	if (byp & 0x100)
+	if (t32_defog_attached() || (byp & 0x100))
 		return;
 	isp_wr(0x0040, byp | 0x100);
-	isp_printf(1, "tx-isp-t32: defog not wired yet: bypassed (top %#x -> %#x)\n", byp, byp | 0x100);
+	isp_printf(1, "tx-isp-t32: defog not attached: bypassed (top %#x -> %#x)\n", byp, byp | 0x100);
+}
+
+/* tx_isp_t32_defogd.c, before tisp_defog_deinit frees its buffer: DMA back to the static area (#850) */
+void t32_defog_park(void)
+{
+	u32 pa;
+
+	if (!t33_defog_pages || !t32_core_clk_active())
+		return;
+	pa = (u32)virt_to_phys((void *)t33_defog_pages);
+	isp_wr(0xa210, pa);
+	isp_wr(0xa214, pa + 2048);
+	isp_wr(0xa218, pa + 4096);
+	isp_wr(0xa21c, pa + 6144);
 }
 #endif
 

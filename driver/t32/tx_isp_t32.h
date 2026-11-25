@@ -153,7 +153,7 @@ void t32_awbc_api_set_gain(void);
 /* tx_isp_t32_tisp.c: per-frame tisp paths (ported blocks), switch t32_ported_paths */
 enum t32_pp { T32_PP_DMSC, T32_PP_YSP, T32_PP_CDNS, T32_PP_YDNS, T32_PP_SDNS, T32_PP_MDNS, T32_PP_DPC, T32_PP_GIB,
 	     T32_PP_RDNS, T32_PP_AE, T32_PP_LSC, T32_PP_LCE, T32_PP_TMO, T32_PP_AWB, T32_PP_CT, T32_PP_EV,
-	     T32_PP_AF, T32_PP_GSM, T32_PP_LSCCT, T32_PP_COUNT };
+	     T32_PP_AF, T32_PP_GSM, T32_PP_LSCCT, T32_PP_DEFOG, T32_PP_COUNT };
 struct t32_pf_stats {
 	u32 runs, writes;
 	u32 dn_runs, dn_blocks;	/* t32_pf_dn_refresh (#534): runs, blocks refreshed by the last one */
@@ -208,7 +208,8 @@ void t32_pf_exit(void);
  * TMO bits 9 / 31, behind T32_PP_TMO) */
 #define T32_BLK_IRQ_LCE_BITS	((1U << 8) | (1U << 30))
 #define T32_BLK_IRQ_TMO_BITS	((1U << 9) | (1U << 31))
-#define T32_BLK_IRQ_MASK	(T32_BLK_IRQ_LCE_BITS | T32_BLK_IRQ_TMO_BITS)
+#define T32_BLK_IRQ_DEFOG_BITS	(1U << 10)	/* tisp_defog_interrupt_static (tx_isp_t32_defogd.c, #854) */
+#define T32_BLK_IRQ_MASK	(T32_BLK_IRQ_LCE_BITS | T32_BLK_IRQ_TMO_BITS | T32_BLK_IRQ_DEFOG_BITS)
 struct t32_blk_drv_stats {
 	u32 attaches, lce_irqs, lsf_irqs, events, ev_full;
 };
@@ -220,6 +221,21 @@ void t32_blk_lce_detach(void);
 void t32_blk_lce_top_change_state(u8 *st);	/* tisp_lce_top_change_state on the stream's LCE state (#717) */
 void t32_blk_exit(void);
 void t32_blk_tmo_set(u32 (*tmo)(u32 ch), u32 (*fbf)(u32 ch));
+void t32_blk_defog_set(u32 (*defog)(u32 ch));
+
+/* tx_isp_t32_defogd.c: the vendor defog block (tisp_defog_init, bit 10, event 3), behind T32_PP_DEFOG (#854) */
+struct t32_defog_drv_stats {
+	u32 attaches, init_writes, irqs, pars, ev_full, evs, dns, writes, cw_fail;
+};
+extern struct t32_defog_drv_stats t32_defog_stats;
+struct seq_file;
+int t32_defog_attach(const u8 *bin, u32 bytes, u32 width, u32 height);
+void t32_defog_detach(void);
+bool t32_defog_attached(void);
+void t32_defog_ev(u32 lo, u32 hi, u32 x, u32 y);
+int t32_defog_dn_refresh(const u8 *bin, u32 bytes, u32 value);
+void t32_defog_show(struct seq_file *m);
+void t32_defog_park(void);	/* tx_isp_t32_hw.c: 0xa210..0xa21c back to the static statistics area */
 
 /* tx_isp_t32_tmo.c: the vendor TMO / ADR block (tisp_tmo_init, bits 9 / 31), behind T32_PP_TMO */
 struct t32_tmo_drv_stats {

@@ -31,7 +31,8 @@
  * (t32_awbc_ev, behind bit 14), CCM (t32_ccm_ev_update) and BCSH
  * (t32_bcsh_ev_update with x = the AE brightness word, its write request at
  * once) behind t32_ported_paths bit 16 (T32_PP_EV, on the states of bit 15).
- * Gamma, defog, TMO and WDR EV updates are not wired here.
+ * Defog: tisp_defog_ev_update (tx_isp_t32_defogd.c, openimp #854).  Gamma, TMO and
+ * WDR EV updates are not wired here.
  */
 /* tx_isp_t32_blkrest.h first (its wake_up member vs the linux/wait.h macro) */
 #include "tx_isp_t32_blkrest.h"
@@ -278,7 +279,11 @@ static void ev_block(enum t32_lev_blk blk, u32 ch, u64 ev, u32 x, u32 y)
 			ct_flush(t32_bcsh_frame_done(&bcsh, ct_w));
 		}
 		return;
-	default:		/* gamma, defog, TMO, WDR: not wired here */
+	case T32_LEV_DEFOG:	/* tisp_defog_ev_update(ch, ev lo, ev hi, x, y) (tx_isp_t32_defogd.c, #854) */
+		if (t32_pp_on(T32_PP_EV))
+			t32_defog_ev((u32)ev, (u32)(ev >> 32), x, y);
+		return;
+	default:		/* gamma, TMO, WDR: not wired here */
 		return;
 	}
 }

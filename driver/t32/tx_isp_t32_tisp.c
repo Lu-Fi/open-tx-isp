@@ -78,7 +78,8 @@ module_param(t32_ported_paths, uint, 0644);
 MODULE_PARM_DESC(t32_ported_paths,
 		 "1 (default): every wired per-frame block on its ported path; 0: all on the old path; "
 		 "else bit mask, bit 1+n = block n (0 dmsc, 1 ysp, 2 cdns, 3 ydns, 4 sdns, 5 mdns, 6 dpc, 7 gib, 8 rdns, 9 ae, "
-		 "10 lsc, 11 lce, 12 tmo, 13 awb, 14 ct fan-out, 15 ev into ccm / bcsh, 16 af, 17 gsm, 18 lsc ct mesh (bit 19)");
+		 "10 lsc, 11 lce, 12 tmo, 13 awb, 14 ct fan-out, 15 ev into ccm / bcsh, 16 af, 17 gsm, 18 lsc ct mesh (bit 19), "
+		 "19 defog (bit 20)");
 
 static unsigned int tisp_tgain = 0x10000;
 module_param(tisp_tgain, uint, 0644);
@@ -324,6 +325,7 @@ static void pf_free_locked(void)
 	kfree(pf.lsc.sec);
 	t32_blk_lce_detach();	/* the block interrupts stop using the state first */
 	t32_tmo_detach();	/* tisp_tmo_deinit (tx_isp_t32_tmo.c) */
+	t32_defog_detach();	/* tisp_defog_deinit (tx_isp_t32_defogd.c, #854) */
 	vfree(pf.lce_st);
 	kfree(pf.lce_sec);
 	memset(&pf, 0, sizeof(pf));
@@ -834,7 +836,8 @@ void t32_pf_start(void)
  * dn_params_refresh run in the vendor order.  Here each block's new section is a private copy, handed to
  * the ported tisp_<blk>_dn_params_refresh as tparamsP + the vendor offset (the T33 pattern), the old copy
  * freed; the block keeps its own gain.  Wired in this order: dpc, gib, dmsc, ysp, mdns, ydns, sdns, cdns, rdns.
- * The other blocks of the vendor list (top, ae, awb, lsc, tmo, gamma, ccm, clm, bcsh, defog, lce,
+ * Defog: tisp_defog_dn_params_refresh in tx_isp_t32_defogd.c (#854).
+ * The other blocks of the vendor list (top, ae, awb, lsc, tmo, gamma, ccm, clm, bcsh, lce,
  * decmp, csccr) keep the parameters of the stream-on bin (counted in t32_pf_stats.dn_missing).
  */
 static u8 *pf_dn_sec(const u8 *bin, u32 bytes, unsigned int idx, u32 need)
@@ -902,6 +905,8 @@ int t32_pf_dn_refresh(const u8 *bin, u32 bytes, u32 mode)
 		}
 		kfree(os);
 	}
+	/* tisp_defog_dn_params_refresh(ch, mode) on the new section (tx_isp_t32_defogd.c, #854) */
+	done += t32_defog_dn_refresh(bin, bytes, mode);
 	t32_pf_stats.dn_runs++;
 	t32_pf_stats.dn_blocks = done;
 	mutex_unlock(&pf_lock);

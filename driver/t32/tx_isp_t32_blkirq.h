@@ -50,6 +50,7 @@
 /* interrupt bits (system_irq_func_set index) and the event of the block paths */
 #define T32_BLK_IRQ_LCE		8	/* tisp_lce_interrupt_static */
 #define T32_BLK_IRQ_TMO		9	/* tisp_tmo_interrupt_static (tx_isp_t32_tmo.c) */
+#define T32_BLK_IRQ_DEFOG	10	/* tisp_defog_interrupt_static (tx_isp_t32_defogd.c) */
 #define T32_BLK_IRQ_LSF		30	/* tisp_lsf_interrupt_static */
 #define T32_BLK_IRQ_FBF		31	/* tisp_tmo_fbf_interrupt_calc (tx_isp_t32_tmo.c) */
 #define T32_BLK_EV_LCE_PAR	14	/* tisp_lce_par */
