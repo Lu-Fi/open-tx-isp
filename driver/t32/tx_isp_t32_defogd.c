@@ -31,7 +31,12 @@
  *    on the new section (tx_isp_t32_tisp.c, t32_pf_dn_refresh).
  *  - Stream-off / next stream-on: bit 10 is dropped, the DMA registers are
  *    pointed back at the driver's static statistics area (tx_isp_t32_hw.c,
- *    openimp #850) before tisp_defog_deinit frees the buffer.
+ *    openimp #850) before tisp_defog_deinit.  The statistics buffer itself is
+ *    that static area (openimp #892): after stream-off (only the VICs stop)
+ *    the core may still write the latched bank addresses; the vendor frees
+ *    its buffer only in lib_tisp_deinit after tisp_top_deinit (0x25d1c,
+ *    reloc 0x25da0).  The area lives until module exit and is written back /
+ *    invalidated before every attach.
  * Behind t32_ported_paths bit 20 (T32_PP_DEFOG).  Direct register mode
  * (d03a0 = 0): tisp_reg_write is a system register write.
  */
@@ -74,6 +79,9 @@ static void *drv_km(u32 size, u32 gfp) { (void)gfp; return kmalloc(size, GFP_KER
 static void drv_vf(void *p) { vfree(p); }
 static void drv_kf(void *p) { kfree(p); }
 static u32 drv_rd(u32 reg) { return t32_hw_rd(reg); }
+/* the statistics DMA buffer: the static area of tx_isp_t32_hw.c (module lifetime, cache-clean, #892) */
+static void *drv_dma_buf(u32 size) { return t32_defog_dma_area(size); }
+static void drv_dma_put(void *p) { (void)p; }	/* freed at module exit (t33_mod_free) */
 
 /* private_dma_cache_sync of the statistics block the engine wrote */
 static void drv_sync(const u8 *buf, u32 len)
@@ -130,6 +138,8 @@ static const struct t32_defog_ops drv_ops = {
 	.kfree = drv_kf,
 	.irq_set = drv_irq_set,
 	.event_set_cb = drv_ev_cb,
+	.dma_buf = drv_dma_buf,
+	.dma_put = drv_dma_put,
 };
 
 static void defog_flush(unsigned int n)

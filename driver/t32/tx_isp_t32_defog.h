@@ -99,6 +99,15 @@ struct t32_defog_ops {
 	void (*kfree)(void *p);
 	void (*irq_set)(u32 ch, u32 id);
 	void (*event_set_cb)(u32 ch, u32 ev);
+	/*
+	 * Optional (openimp #892): the statistics DMA buffer from a module-lifetime
+	 * area instead of kmalloc / kfree.  The vendor frees it only in
+	 * lib_tisp_deinit after tisp_top_deinit (0x25da0); the driver detaches at
+	 * stream-off while the core may still write the latched bank addresses.
+	 * NULL = kmalloc / kfree as the vendor (the oracles).
+	 */
+	void *(*dma_buf)(u32 size);
+	void (*dma_put)(void *p);
 };
 
 /* one channel slot: t32_data_e2130/e20e0/e211c[ch], d03a0, e20f0 */
@@ -549,7 +558,7 @@ static inline int t32_defog_init(struct t32_defog_chan *c, u32 ch, const u32 *si
 	if (!x)
 		return -1;
 	t32_defog_set((u8 *)x, 0, sizeof(*x));
-	x->buf = o->kmalloc(T32_DEFOG_DMA_BYTES, T32_DEFOG_GFP);
+	x->buf = o->dma_buf ? o->dma_buf(T32_DEFOG_DMA_BYTES) : o->kmalloc(T32_DEFOG_DMA_BYTES, T32_DEFOG_GFP);
 	if (!x->buf)
 		return -1;
 	phys = (u32)(unsigned long)x->buf + 0x80000000U;
@@ -626,7 +635,10 @@ static inline int t32_defog_deinit(struct t32_defog_chan *c)
 
 	if (x) {
 		if (x->buf) {
-			o->kfree(x->buf);
+			if (o->dma_put)
+				o->dma_put(x->buf);
+			else
+				o->kfree(x->buf);
 			x->buf = NULL;
 			x->buf_phys = 0;
 		}

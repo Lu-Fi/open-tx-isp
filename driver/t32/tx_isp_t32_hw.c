@@ -5384,7 +5384,27 @@ static void t32_defog_unwired_bypass(void)
 	isp_printf(1, "tx-isp-t32: defog not attached: bypassed (top %#x -> %#x)\n", byp, byp | 0x100);
 }
 
-/* tx_isp_t32_defogd.c, before tisp_defog_deinit frees its buffer: DMA back to the static area (#850) */
+/*
+ * The defog statistics buffer of tisp_defog_init (tx_isp_t32_defogd.c, openimp
+ * #892): the static area, allocated once and freed only at module exit
+ * (t33_mod_free), so a frame the core still finishes after stream-off never
+ * writes into freed memory.  Clean (written back and invalidated) before it
+ * goes to the hardware: no dirty line of an earlier user overwrites the
+ * first statistics.
+ */
+void *t32_defog_dma_area(u32 size)
+{
+	if (size > T33_DEFOG_DMA_BYTES)	/* 8 KiB, four 2 KiB banks */
+		return NULL;
+	if (!t33_defog_pages)
+		t33_defog_pages = t32_dma_zpages(T33_DEFOG_ORDER);
+	if (!t33_defog_pages)
+		return NULL;
+	dma_cache_wback_inv(t33_defog_pages, PAGE_SIZE << T33_DEFOG_ORDER);
+	return (void *)t33_defog_pages;
+}
+
+/* tx_isp_t32_defogd.c, before tisp_defog_deinit: DMA back to the static area (#850) */
 void t32_defog_park(void)
 {
 	u32 pa;

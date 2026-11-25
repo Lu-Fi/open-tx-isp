@@ -40,7 +40,7 @@ static void h_sync(const u8 *b, u32 l) { (void)b; (void)l; }
 static void h_push(u32 ch, const u32 *e) { (void)ch; (void)e; }
 static void h_irq(u32 ch, u32 id) { (void)ch; (void)id; }
 static void h_cb(u32 ch, u32 e) { (void)ch; (void)e; }
-static const struct t32_defog_ops ops = { h_cw, h_soft, h_rd, h_sync, h_push, h_vm, h_km, h_free, h_free, h_irq, h_cb };
+static const struct t32_defog_ops ops = { h_cw, h_soft, h_rd, h_sync, h_push, h_vm, h_km, h_free, h_free, h_irq, h_cb, NULL, NULL };	/* dma_buf / dma_put: vendor kmalloc path (#892) */
 
 int main(int argc, char **argv)
 {

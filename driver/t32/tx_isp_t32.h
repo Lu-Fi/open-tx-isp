@@ -235,6 +235,7 @@ bool t32_defog_attached(void);
 void t32_defog_ev(u32 lo, u32 hi, u32 x, u32 y);
 int t32_defog_dn_refresh(const u8 *bin, u32 bytes, u32 value);
 void t32_defog_show(struct seq_file *m);
+void *t32_defog_dma_area(u32 size);	/* tx_isp_t32_hw.c: the defog statistics buffer, module lifetime (#892) */
 void t32_defog_park(void);	/* tx_isp_t32_hw.c: 0xa210..0xa21c back to the static statistics area */
 
 /* tx_isp_t32_tmo.c: the vendor TMO / ADR block (tisp_tmo_init, bits 9 / 31), behind T32_PP_TMO */
