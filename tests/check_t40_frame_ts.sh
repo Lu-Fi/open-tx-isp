@@ -7,6 +7,9 @@
 #    tx-isp-t40.ko 0x914: 40-byte frame, timespec64 at sp+16, copies words 0 and 2.
 # 2. DQBUF (v4l2_buffer words 5/6) carries the raw monotonic stamp of the frame-done interrupt,
 #    tv_usec = tv_nsec / 1000 (vendor frame_chan_event 0xee9c..0xeed0).
+# 3. (#893) the private DQBUF path never re-delivers the last done frame from an empty ring with the
+#    caller's own timestamp words: vendor frame_channel_vb2_dqbuf only returns a buffer it unlinks
+#    from the done list.  An empty ring answers ENODATA like the default irq-dqbuf path.
 d=${1:-$(dirname "$0")/../driver/t40}
 f=$d/tx_isp_t40_recovered.c
 [ -f "$f" ] || { echo "usage: $0 [driver/t40]" >&2; exit 2; }
@@ -25,5 +28,8 @@ n=$(grep -c 'regtrace_frame_stamp(item->ts);' "$f")
 grep -q 'regtrace_frame_stamp(regtrace_irq_frame_done_queue_ts\[channel\]\[slot\]);' "$f" || { echo "check_t40_frame_ts: queue push does not stamp the ring slot"; fail=1; }
 n=$(grep -c 'words\[5\] = ts\[0\];\|words\[5\] = done_ts\[0\];' "$f")
 [ "$n" = 2 ] || { echo "check_t40_frame_ts: expected 2 DQBUF timestamp writes (irq-dqbuf, private), got $n"; fail=1; }
+bi=$(awk '/^static long regtrace_framechan_buffer_ioctl\(/{p=1} p{print} p&&/^}/{exit}' "$f")
+echo "$bi" | grep -q 'regtrace_irq_frame_done_local_done_index\[channel\]' && { echo "check_t40_frame_ts: private DQBUF re-delivers the last done frame (#893)"; fail=1; }
+echo "$bi" | grep -A1 'if (!have_done)$' | grep -q 'return -ENODATA;' || { echo "check_t40_frame_ts: private DQBUF does not answer an empty ring with ENODATA (#893)"; fail=1; }
 [ $fail = 0 ] && echo "check_t40_frame_ts: ok"
 exit $fail

@@ -25087,23 +25087,19 @@ static long regtrace_framechan_buffer_ioctl(int channel, unsigned int cmd, unsig
             int have_done = regtrace_irq_frame_done_queue_pop_ts(channel,
                 &done_y, &done_uv, &done_index, done_ts);
 
-            if (have_done) {
-                words[5] = done_ts[0];  /* #886: timestamp (raw monotonic) */
-                words[6] = done_ts[1];
-            }
-
-            if (!have_done &&
-                regtrace_irq_frame_done_local_count[channel] &&
-                regtrace_irq_frame_done_local_done_index[channel] !=
-                0xffffffffU) {
-                done_index =
-                    regtrace_irq_frame_done_local_done_index[channel];
-                done_y =
-                    regtrace_irq_frame_done_local_done_phys[channel];
-                done_uv =
-                    regtrace_irq_frame_done_local_done_uv[channel];
-                have_done = 1;
-            }
+            /*
+             * #893: an empty done ring delivers nothing.  The vendor
+             * frame_channel_vb2_dqbuf (tx-isp-t40.ko frame_channel_unlocked_ioctl,
+             * cmd 0xc0445456) only hands out a buffer it unlinks from the done
+             * list, stamped by frame_chan_event; it never re-delivers the last
+             * frame.  The old fallback here re-delivered the last done index
+             * with the caller's own timestamp words.  ENODATA = the answer of
+             * the default DQBUF path (regtrace_framechan_repair_dqbuf_event).
+             */
+            if (!have_done)
+                return -ENODATA;
+            words[5] = done_ts[0];  /* #886: timestamp (raw monotonic) */
+            words[6] = done_ts[1];
 
             if (have_done &&
                 done_index < REGTRACE_FRAMECHAN_QBUF_SHADOW_MAX) {
