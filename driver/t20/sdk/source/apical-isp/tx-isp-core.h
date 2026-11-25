@@ -70,6 +70,9 @@ struct tx_isp_frame_channel {
 	unsigned char state;
 	unsigned char usingbanks;
 	spinlock_t slock;
+	/* #896: frame writes cancelled because the next bank had no buffer
+	 * (isp_enable_channel); reset at STREAMON, /proc/jz/isp/isp-frames */
+	unsigned int dma_cancels;
 };
 
 #define APICAL_ISP_TOP_CONTROL_LOW_REG_DEFAULT (0x3f7fffff)

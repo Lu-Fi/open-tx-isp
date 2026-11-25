@@ -410,6 +410,8 @@ static inline int isp_enable_channel(struct tx_isp_frame_channel *chan)
 	/*current_bank = (hw_dma >> 8) & 0x7;*/
 	if (chan->bank_flag[next_bank] ^ chan->dma_state) {
 		chan->dma_state = chan->bank_flag[next_bank];
+		if (!chan->dma_state)
+			chan->dma_cancels++;
 		isp_enable_dma_transfer(chan, chan->dma_state);
 	}
 	return 0;
@@ -1886,6 +1888,7 @@ static int isp_core_frame_channel_streamon(struct tx_isp_core_device *core, int 
 	spin_unlock_irqrestore(&chan->slock, flags);
 
 	chan->usingbanks = vdev->reqbufs > ISP_DMA_WRITE_MAXBASE_NUM ? ISP_DMA_WRITE_MAXBASE_NUM : vdev->reqbufs;
+	chan->dma_cancels = 0;
 
 	switch (output->fmt.pix.pixelformat) {
 		case V4L2_PIX_FMT_NV12:
@@ -3026,6 +3029,41 @@ static const struct file_operations isp_m0_proc_fops = {
 	.llseek = seq_lseek,
 	.release = single_release,
 };
+/*
+ * /proc/jz/isp/isp-frames (open driver only, #896): per output channel the
+ * delivered frames, the vb2 "bank done without a buffer" count and the
+ * frame writes the ISR cancelled because the next DMA bank had no buffer
+ * (the application held both capture buffers past the next frame end).
+ * The OEM driver counts none of them visibly.
+ */
+static int isp_frames_show(struct seq_file *m, void *v)
+{
+	struct tx_isp_core_device *core = m->private;
+	int i;
+
+	for (i = 0; i < ISP_MAX_OUTPUT_VIDEOS; i++) {
+		struct tx_isp_frame_channel *chan = &core->chans[i];
+
+		seq_printf(m, "ch%d state %d banks %u out %u lose %u dma_cancel %u\n",
+			   i, chan->state, chan->usingbanks,
+			   chan->video.out_frames, chan->video.lose_frames,
+			   chan->dma_cancels);
+	}
+	return 0;
+}
+
+static int isp_frames_open(struct inode *inode, struct file *file)
+{
+	return single_open_size(file, isp_frames_show, PDE_DATA(inode), 1024);
+}
+
+static const struct file_operations isp_frames_proc_fops = {
+	.read = seq_read,
+	.open = isp_frames_open,
+	.llseek = seq_lseek,
+	.release = single_release,
+};
+
 /* gamma info */
 static int isp_gamma_show(struct seq_file *m, void *v)
 {
@@ -3502,6 +3540,7 @@ int register_tx_isp_core_device(struct platform_device *pdev, struct v4l2_device
 	} else {
 		proc_create_data("isp_info", S_IRUGO, proc, &isp_info_proc_fops, (void *)core_dev);
 		proc_create_data("isp-m0", S_IRUGO, proc, &isp_m0_proc_fops, (void *)core_dev);
+		proc_create_data("isp-frames", S_IRUGO, proc, &isp_frames_proc_fops, (void *)core_dev);
 		proc_create_data("isp_gamma", S_IRUGO, proc, &isp_gamma_proc_fops, (void *)core_dev);
 		proc_create_data("isp_de_hilight", S_IRUGO, proc, &isp_de_hilight_fops, (void *)core_dev);
 		proc_create_data("cmd", S_IRUGO, proc, &isp_cmd_fops, (void *)core_dev);
