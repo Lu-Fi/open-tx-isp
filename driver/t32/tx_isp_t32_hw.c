@@ -248,7 +248,7 @@ static void t33_lcepf_isr30(void);
  * chdone 0x30038, 0x30068, msca 0x300a8, 0x300b8, 0x300c8, 0x300d8; VIC0/1 0x1e0 / 0x1e4) and the
  * VIC0 status bit counts, shown by t32_flip_show.  Counting only, no register access.
  */
-static u32 t32_irq_or[7], t32_vic_or[4], t32_vic_bits[2][32];
+static u32 t32_irq_or[7], t32_vic_or[4], t32_vic_bits[2][32], t32_vic_err_restarts;
 
 static void t32_vic_count(u32 s0, u32 s1)
 {
@@ -429,6 +429,40 @@ static irqreturn_t t32_isp_irq(int irq, void *dev)
 	return IRQ_HANDLED;
 }
 
+#ifndef TX_ISP_T33
+/*
+ * VIC error recovery (openimp #897), vendor SDK 2.0.0 (20260804) libPRJ007-firmware-310-540.a
+ * isp_vic_interrupt_service_routine 0x2da4..0x2e00: per VIC channel, a status with any of the bits
+ * 0xffffff00 on a one-channel VIC (+1092 == 1) runs lib_tisp_vic_reset (0xabc1c: read 0x10 of both VICs,
+ * pulse 0x200 of each VIC to 0 and back, 0x18 = 0, 0x10 = 4 on VIC 0 and 1) and lib_tisp_vic_stream_on
+ * (0xac9e0: 0x10 = 1 on VIC 0 and 1).  The older module firmware ko (71bfc866, 0x1da8) only counts the
+ * error bits.  Without it a VIC that starts in error (PRJ007 gc4653: bit 14 once, then bit 28 on every
+ * frame) never delivers another frame end until the next stream-on.
+ */
+static void t32_vic_wr(int n, u32 off, u32 v);
+
+static void t32_vic_err_restart(void)
+{
+	int i;
+	u32 v;
+
+	(void)readl(isp_base + T32_VIC_BASE(0) + T32_VIC_CTRL);
+	(void)readl(isp_base + T32_VIC_BASE(1) + T32_VIC_CTRL);
+	for (i = 0; i < 2; i++) {
+		v = readl(isp_base + T32_VIC_BASE(i) + 0x200);
+		t32_vic_wr(i, 0x200, 0);
+		t32_vic_wr(i, 0x200, v);
+	}
+	t32_vic_wr(0, 0x018, 0);
+	t32_vic_wr(1, 0x018, 0);
+	t32_vic_wr(0, T32_VIC_CTRL, 4);
+	t32_vic_wr(1, T32_VIC_CTRL, 4);
+	t32_vic_wr(0, T32_VIC_CTRL, 1);
+	t32_vic_wr(1, T32_VIC_CTRL, 1);
+	t32_vic_err_restarts++;
+}
+#endif
+
 static irqreturn_t t32_vic_irq(int irq, void *dev)
 {
 	u32 s0 = readl(isp_base + T32_VIC_BASE(0) + T32_VIC_INT_STA);
@@ -453,6 +487,10 @@ static irqreturn_t t32_vic_irq(int irq, void *dev)
 	t32_vic_or[2] |= t0;
 	t32_vic_or[3] |= t1;
 	t32_vic_count(s0, s1);
+	if (s0 & 0xffffff00U)		/* vendor: per VIC channel, one-channel VIC (#897) */
+		t32_vic_err_restart();
+	if (t0 & 0xffffff00U)
+		t32_vic_err_restart();
 #endif
 	t33_vic_hold_tick(s0);		/* the sensor flip's VIC hold (T33 #669, T32 #689) */
 #ifndef TX_ISP_T33
@@ -2684,7 +2722,7 @@ void t32_flip_show(struct seq_file *m)
 			   " vic0 %08x/%08x vic1 %08x/%08x\n", t32_irq_or[0], t32_irq_or[1], t32_irq_or[2],
 			   t32_irq_or[3], t32_irq_or[4], t32_irq_or[5], t32_irq_or[6], t32_vic_or[0], t32_vic_or[1],
 			   t32_vic_or[2], t32_vic_or[3]);
-		seq_printf(m, "t32 vic0 bits:");
+		seq_printf(m, "t32 vic0 bits (error restarts %u):", t32_vic_err_restarts);
 		for (w = 0; w < 2; w++)
 			for (b = 0; b < 32; b++)
 				if (t32_vic_bits[w][b])

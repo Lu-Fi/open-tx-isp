@@ -471,6 +471,14 @@ not move. `/proc/jz/isp/*` shows the answer as `sensor frames` in the
 `t32 flip:` line (0 = the sensor did not answer: check the port). Guard:
 `tests/check_t32_sensor_flip_abi.sh`.
 
+Sensor ports built outside thingino's `ingenic-sdk` package must also be
+compiled with `-DSENSOR_PROC_OWNED_BY_ISP` (thingino adds it for every
+open-stack build, `package/ingenic-sdk/ingenic-sdk.mk`): the driver's sinfo
+owns `/proc/jz/sensor` (flat vendor files, `sensorN/` and the `<name>/`
+alias). Without it `sensor_common_init` creates `jz/sensor` again and the
+kernel warns `proc_dir_entry 'jz/sensor' already registered` at every
+sensor load (openimp #900).
+
 ## Not yet (S4+)
 
 No tisp/3A, no IQ bin parsing (the bin's physical address is kept), no

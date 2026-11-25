@@ -9,7 +9,7 @@
 #     never the mode itself as word 1;
 #  2. the sensor's drop_frame answer (msg[1]) is kept and shown in the "t32 flip:" proc line
 #     ("sensor frames", 0 = the sensor did not answer = suspect port);
-#  3. driver/t32/README.md documents the ABI for sensor ports.
+#  3. driver/t32/README.md documents the ABI for sensor ports and the SENSOR_PROC_OWNED_BY_ISP build flag (#900).
 d=${1:-$(dirname "$0")/../driver/t32}
 core=$d/tx_isp_t32_core.c hw=$d/tx_isp_t32_hw.c rd=$d/README.md
 for f in "$core" "$hw" "$rd"; do [ -f "$f" ] || { echo "usage: $0 [driver/t32]" >&2; exit 2; }; done
@@ -24,5 +24,6 @@ need "$c" '\*frames = msg\[1\];' 'the sensor drop_frame answer (msg[1]) must be 
 need "$(body "$hw" 'static void t33_flip_work(')" 't33_flip_st.sns_frames = frames;' 'flip work does not keep the sensor answer'
 need "$(body "$hw" 'void t32_flip_show(')" 'sensor frames %u' 'the proc line does not show the sensor answer'
 need "$(cat "$rd")" 'tx_isp_hvflip_par' 'README does not document the sensor flip ABI'
+need "$(cat "$rd")" 'SENSOR_PROC_OWNED_BY_ISP' 'README does not tell sensor ports to build with SENSOR_PROC_OWNED_BY_ISP (#900)'
 [ $fail -eq 0 ] && echo "check_t32_sensor_flip_abi: ok"
 exit $fail
