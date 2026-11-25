@@ -17154,7 +17154,22 @@ struct regtrace_framechan_done {
     uint32_t userptr;
     uint32_t length;
     uint32_t uv_phys;
+    uint32_t ts_sec;        /* #887: raw monotonic stamp of the completion */
+    uint32_t ts_usec;
 };
+/*
+ * #887: the vendor tx-isp-t23.ko frame_chan_event (0xed5c..0xedac) stamps the
+ * done buffer with private_getrawmonotonic (getrawmonotonic), tv_usec =
+ * tv_nsec / 1000, and DQBUF hands it out as v4l2_buffer.timestamp (words 5/6).
+ */
+static void regtrace_framechan_done_stamp(struct regtrace_framechan_done *done)
+{
+    struct timespec now;
+
+    private_getrawmonotonic(&now);
+    done->ts_sec = (uint32_t)now.tv_sec;
+    done->ts_usec = (uint32_t)now.tv_nsec / 1000U;
+}
 static struct regtrace_framechan_done
     regtrace_framechan_done_ring[REGTRACE_FRAMECHAN_COUNT][REGTRACE_FRAMECHAN_DONE_SLOTS];
 static uint32_t regtrace_framechan_done_head[REGTRACE_FRAMECHAN_COUNT];
@@ -18037,6 +18052,7 @@ static void regtrace_t23_ivdc_frame_start(void)
         done->userptr = regtrace_framechan_qbuf_userptr[0][slot];
         done->length = regtrace_framechan_qbuf_len[0][slot];
         done->uv_phys = T23_IVDC_UV_ADDR;
+        regtrace_framechan_done_stamp(done);
         regtrace_framechan_done_head[0] = (head + 1U) % REGTRACE_FRAMECHAN_DONE_SLOTS;
         regtrace_framechan_done_count[0]++;
         regtrace_framechan_done_total[0]++;
@@ -18159,6 +18175,7 @@ static void regtrace_framechan_complete_fifo(int channel,
     done->userptr = regtrace_framechan_qbuf_userptr[channel][match];
     done->length = regtrace_framechan_qbuf_len[channel][match];
     done->uv_phys = uv_phys;
+    regtrace_framechan_done_stamp(done);
     regtrace_framechan_done_head[channel] =
         (slot + 1U) % REGTRACE_FRAMECHAN_DONE_SLOTS;
     regtrace_framechan_done_count[channel]++;
@@ -18584,9 +18601,15 @@ static long regtrace_framechan_repair_dqbuf(int channel, unsigned long arg,
         words[TX_ISP_FRAME_WORD_INDEX] = done.index;
         words[TX_ISP_FRAME_WORD_DMA] = done.userptr;
         words[TX_ISP_FRAME_WORD_LENGTH] = done.length;
+        words[TX_ISP_FRAME_WORD_TIMESTAMP_SEC] = done.ts_sec;   /* #887 */
+        words[TX_ISP_FRAME_WORD_TIMESTAMP_USEC] = done.ts_usec;
     } else {
         slot = regtrace_framechan_latest_slot(channel);
         if (slot >= 0) {
+            /* #887: no completion ring here, stamp the hand-out */
+            regtrace_framechan_done_stamp(&done);
+            words[TX_ISP_FRAME_WORD_TIMESTAMP_SEC] = done.ts_sec;
+            words[TX_ISP_FRAME_WORD_TIMESTAMP_USEC] = done.ts_usec;
             words[TX_ISP_FRAME_WORD_INDEX] =
                 regtrace_framechan_qbuf_index[channel][slot];
             words[TX_ISP_FRAME_WORD_DMA] =

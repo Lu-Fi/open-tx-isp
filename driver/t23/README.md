@@ -966,3 +966,10 @@ Expected artifact:
 ## Module parameter `isp_bypass_graph`
 
 `isp_bypass_graph=1` enables the vendor ISP bypass graph (OEM `IMP_ISP_Tuning_SetISPBypass(DISABLE)`: link config 1, frame channel 0 delivers the sensor's raw frame from the VIC MDMA as `RG12`, 1280x720 = 1843200 bytes on the sc1a4t board; the frames do not go through the ISP pipeline or the MSCA). Default `0`: the link ioctls stay stubs and `ISP_PROCESS` accepts only 1, nothing else changes. Use order (as the OEM sample): create the channel, SetISPBypass(DISABLE), set the RAW format, enable the channel; after SetISPBypass(ENABLE) the raw channel delivers no more frames and has to be recreated (OEM behaviour). Only frame channel 0, only the sensor size. Read-only counters: `bypass_frames` (frames completed), `bypass_lost` (frame-done interrupts without a buffer owner). Bookkeeping of the five VIC banks: `tx_isp_t23_bypass.h` (host test `tests/tx_isp_t23_bypass_test.c`). Device-tested on the T23 (Jooan A6M, sc1a4t); nothing consumes it yet.
+
+## Frame time stamps (2026-11-25, openimp #887)
+DQBUF returns the done buffer's time stamp in `v4l2_buffer.timestamp` (words 5/6) like the vendor `frame_chan_event`
+(`tx-isp-t23.ko` 0xed5c: `private_getrawmonotonic` -> `getrawmonotonic`, `tv_usec = tv_nsec / 1000`). Each done-ring
+entry is stamped when it is pushed (MSCA completion, direct-mode frame start); without a done ring the hand-out is
+stamped. Before, words 5/6 stayed 0. OpenIMP stamps frames in user space and does not use it. Guard:
+`tests/check_t23_frame_ts.sh`.
