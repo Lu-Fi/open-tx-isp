@@ -15325,7 +15325,8 @@ static int regtrace_t23_source_core_set_stream_unlocked(int enable,
                      (regtrace_t23_source_sensor_width << 16) | regtrace_t23_source_sensor_height);
     ACCESS_ONCE(regtrace_t23_bayer_pending) = UINT_MAX;
     system_reg_write(0x8U, regtrace_t23_source_core_bayer);
-    system_reg_write(0x1cU, 0);
+    /* #800: direct mode keeps the IVDC bits (t23_ivdc_core_top1c) */
+    system_reg_write(0x1cU, t23_ivdc_core_top1c(t23_ivdc_direct_mode, 0U));
     system_reg_write(0x2cU, 0x400040U);
     system_reg_write(0xcU, bypass);
     system_reg_write(0x10U, 0xf3U);
@@ -15463,7 +15464,8 @@ static int regtrace_t23_source_core_set_stream_unlocked(int enable,
     if (regtrace_t23_source_msca_init)
         system_reg_write(0x33cU, 0x20230219U);
     system_reg_write(0x804U, regtrace_t23_source_core_mode);
-    system_reg_write(0x1cU, regtrace_t23_source_stock_stream_regs ? 0U : 8U);
+    system_reg_write(0x1cU, t23_ivdc_core_top1c(t23_ivdc_direct_mode,
+                                                regtrace_t23_source_stock_stream_regs ? 0U : 8U));
     system_reg_write(0x800U, 1U);
     if (regtrace_t23_source_awb_static_init)
         regtrace_t23_source_awb_write_static_startup();
@@ -17683,6 +17685,9 @@ static void regtrace_t23_ivdc_core_init(void)
 static unsigned int regtrace_t23_ivdc_reinits;
 module_param_named(ivdc_reinits, regtrace_t23_ivdc_reinits, uint, 0444);
 MODULE_PARM_DESC(ivdc_reinits, "IVDC direct-mode re-inits after a core start (read only, #800)");
+static unsigned int regtrace_t23_ivdc_fs_fixes;
+module_param_named(ivdc_fs_fixes, regtrace_t23_ivdc_fs_fixes, uint, 0444);
+MODULE_PARM_DESC(ivdc_fs_fixes, "frame starts with channel 0 on and no IVDC direct bits, restored by the ISR (read only, #800)");
 static unsigned int regtrace_t23_ivdc_bits_lost;
 module_param_named(ivdc_bits_lost, regtrace_t23_ivdc_bits_lost, uint, 0444);
 MODULE_PARM_DESC(ivdc_bits_lost, "channel 0 IVDC addresses about to reach a non-direct MSCA, re-inited first (read only, #800)");
@@ -19097,6 +19102,10 @@ static int regtrace_t23_txisp_stream_locked(int enable, const char *reason)
         int ret;
 
         regtrace_t23_enable_stream_clks();
+        /* #800: switch off outputs kept from the last session before the
+         * core starts (it ran with 0xd040 = 3 between prestart and the
+         * release below); the second call below is then a no-op */
+        regtrace_t23_msca_release_stale(reason);
         ret = regtrace_t23_tisp_prestart(reason);
         if (ret)
             return ret;
@@ -36265,6 +36274,20 @@ static int32_t isp_irq_handle_body(int32_t irq, void *dev_id)
             ACCESS_ONCE(regtrace_t23_bayer_pending) = UINT_MAX;
         }
 
+        /* #800 guard (beyond vendor): at the frame start, before the MSCA
+         * writes this frame, channel 0 must not run without the direct bits
+         * (it would write to DDR 0); restore them and count it */
+        if ((status0 & 0x1000U) && t23_ivdc_direct_mode == 1 &&
+            (readl(base + 0xd040U) & 1U)) {
+            uint32_t top = readl(base + 0x1cU);
+
+            if (t23_ivdc_tag_unsafe(t23_ivdc_direct_mode, top)) {
+                writel(t23_ivdc_core_top1c(1, top), base + 0x1cU);
+                regtrace_t23_ivdc_fs_fixes++;
+                printk_ratelimited(KERN_ERR "t23: frame start with channel 0 on and 0x1c = 0x%x: direct bits restored (#800)\n",
+                                   top);
+            }
+        }
         /* direct mode: channel 0 completes at the ISP frame start */
         if ((status0 & 0x1000U) && t23_ivdc_direct_mode == 1 &&
             regtrace_framechan_streaming[0])

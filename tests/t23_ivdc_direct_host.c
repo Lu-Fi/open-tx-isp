@@ -80,6 +80,13 @@ int main(int argc, char **argv)
 	assert(t23_ivdc_needs_init(1, 0, 0));
 	assert(t23_ivdc_tag_unsafe(1, 0) && t23_ivdc_tag_unsafe(1, 0x20000000U));
 	assert(!t23_ivdc_tag_unsafe(1, 0xa0000000U) && !t23_ivdc_tag_unsafe(0, 0));
+	/* #800: the core start keeps the direct bits in direct mode 1 only */
+	assert(t23_ivdc_core_top1c(1, 0) == 0xa0000000U);
+	assert(t23_ivdc_core_top1c(1, 8) == 0xa0000008U);
+	assert(t23_ivdc_core_top1c(1, 0x40000008U) == 0xa0000008U);
+	assert(t23_ivdc_core_top1c(0, 8) == 8U && t23_ivdc_core_top1c(2, 0) == 0U);
+	assert(!t23_ivdc_tag_unsafe(1, t23_ivdc_core_top1c(1, 0)));
+	assert(!t23_ivdc_needs_init(1, 3, t23_ivdc_core_top1c(1, 8)));
 	/* the alias the tags hit on a 32 MB part (mem=24M + rmem=8M) */
 	assert((T23_IVDC_Y_ADDR & ((32u << 20) - 1u)) == 0u && (T23_IVDC_UV_ADDR & ((32u << 20) - 1u)) == 16u << 20);
 	printf("t23_ivdc_direct_host: ok (%d registers equal to the vendor trace)\n", checked);

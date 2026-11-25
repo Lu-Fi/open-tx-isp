@@ -446,6 +446,29 @@ kernel RAM.
 
 Results: pending.
 
+## IVDC direct mode and low DDR (openimp #800)
+
+`direct_mode=1` routes MSCA channel 0 into the IVDC only while ISP 0x1c
+bits 31:29 = 0b101.  Without them the MSCA writes channel 0 as plain DDR
+(the IVDC tokens 0x80000000 / 0x81000000, or address 0 after a FIFO clear,
+all land at DDR 0 on a 32 MB part: exception vectors, kernel text).  The
+core start writes 0x1c (vendor `tisp_init`: 0, ours 0 / 8) and the vendor
+sets the bits only afterwards in `ivdc_core_ops_init(sd, 1)` (@0x1c2c0).
+With `msca_keep_enabled=2` channel 0 is still enabled from the last session
+at that moment (QC3 register watch at a timps restart: 0x800 = 1 with
+0xd040 = 3 before the session release), so a frame in that window went to
+DDR 0: the silent resets at a timps restart with `RESET ERROR PC
+0x80000188..0x80000198`.  Since 2026-11-25:
+
+- the core start keeps the direct bits in the same 0x1c write
+  (`t23_ivdc_core_top1c()`, `tx_isp_t23_ivdc_direct.h`);
+- the session release of kept outputs runs before the core start;
+- the core ISR checks 0x1c at every frame start while channel 0 is on and
+  restores the bits (counter `ivdc_fs_fixes`, read only; expected 0).
+
+Debug aid: physical 0x4000-0xffff (below `_text`, reserved, unused) can hold
+a canary; a later picture pattern there is a DMA into DDR 0.
+
 ## Historical recovery log
 
 The entries below are chronological bring-up evidence. Earlier SC2336

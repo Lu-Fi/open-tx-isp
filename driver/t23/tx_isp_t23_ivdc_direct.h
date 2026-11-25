@@ -146,6 +146,21 @@ static inline int t23_ivdc_needs_init(int direct_mode, int state,
 	return state != 3 || (top1c & T23_IVDC_TOP_MASK) != T23_IVDC_TOP_DIRECT;
 }
 
+/*
+ * #800 (beyond vendor, safety): the value the core start writes to ISP 0x1c.
+ * The vendor writes 0 / 8 in tisp_init and sets the direct bits only later
+ * in ivdc_core_ops_init(sd, 1); in between the core runs with channel 0
+ * still enabled from the last session (msca_keep_enabled), so one frame
+ * there goes to DDR 0 (kernel vectors).  In direct mode 1 the core start
+ * keeps the direct bits in the same write.
+ */
+static inline unsigned int t23_ivdc_core_top1c(int direct_mode, unsigned int v)
+{
+	if (direct_mode != 1)
+		return v;
+	return (v & ~T23_IVDC_TOP_MASK) | T23_IVDC_TOP_DIRECT;
+}
+
 /* 1 when an IVDC address would reach a non-direct MSCA (the DDR alias case) */
 static inline int t23_ivdc_tag_unsafe(int direct_mode, unsigned int top1c)
 {
