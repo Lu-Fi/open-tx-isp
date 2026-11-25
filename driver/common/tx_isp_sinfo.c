@@ -507,13 +507,49 @@ static void tx_isp_sinfo_show_key(struct seq_file *m,
 	}
 }
 
+static bool tx_isp_sinfo_vendor_lookup(const struct tx_isp_sinfo_slot *slot,
+				       struct tx_isp_sinfo_vinfo *vi);
+
+/*
+ * sensorN/{chip_id,width,height} of a slot whose sensor module never bound
+ * its subdevice (status "loaded"): the T10/T20/T21/T30 sensor modules do not
+ * call tx_isp_sinfo_sensor_bind(), so these files stayed empty for the life
+ * of the module.  Fall back to the module's own sensor_info, the same data
+ * the flat /proc/jz/sensor/<key> view and the vendor sensor module publish
+ * (openimp #872: the empty sensor0/width made the streamer guess 1280x720 on
+ * a 1080p jxf23 and crop the 720p main stream instead of scaling it).
+ */
+static void tx_isp_sinfo_unbound_value(struct seq_file *m,
+				       struct tx_isp_sinfo_slot *slot,
+				       enum tx_isp_sinfo_key key)
+{
+	struct tx_isp_sinfo_vinfo vi;
+
+	if (!slot->used || slot->subdev)
+		return;
+	if (key != TX_ISP_SINFO_CHIP_ID && key != TX_ISP_SINFO_WIDTH &&
+	    key != TX_ISP_SINFO_HEIGHT)
+		return;
+	if (!tx_isp_sinfo_vendor_lookup(slot, &vi))
+		return;
+	if (key == TX_ISP_SINFO_CHIP_ID)
+		seq_printf(m, "0x%x\n", vi.chip_id);
+	else if (key == TX_ISP_SINFO_WIDTH && vi.width > 0)
+		seq_printf(m, "%d\n", vi.width);
+	else if (key == TX_ISP_SINFO_HEIGHT && vi.height > 0)
+		seq_printf(m, "%d\n", vi.height);
+}
+
 static int tx_isp_sinfo_show(struct seq_file *m, void *unused)
 {
 	struct tx_isp_sinfo_file *file = m->private;
+	size_t start = m->count;
 
 	(void)unused;
 	mutex_lock(&tx_isp_sinfo_lock);
 	tx_isp_sinfo_show_key(m, file->slot, file->key, false);
+	if (m->count == start)
+		tx_isp_sinfo_unbound_value(m, file->slot, file->key);
 	mutex_unlock(&tx_isp_sinfo_lock);
 	return 0;
 }
