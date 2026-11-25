@@ -44,6 +44,9 @@
 #include "tx_isp_t33_lce.h"
 #include "tx_isp_t33_lsf.h"
 #ifdef TX_ISP_T33
+#include "tx_isp_t33_defogpf.h"	/* the per-frame defog (irq 10, event 3, irq 47; openimp #878) */
+static bool t33_dpf_active(void);
+static u32 t33_dpf_runs[5];	/* irqs, pars, ev updates, event queue full, irq 47 list starts */
 static void t33_lcepf_lock_irq(void);
 static void t33_lcepf_unlock_irq(void);
 static void t33_lcepf_wbinv(unsigned long pages, u32 len);
@@ -197,6 +200,9 @@ static void t33_csc_fra_down(const u32 *init);	/* system irq 48: tisp_csc_fra_do
 static void t33_ccm_fd(void);			/* system irq 45: tisp_ccm_irq_frame_done (tx_isp_t33_ccmv.h) */
 static void t33_gamma_fd(void);			/* system irq 46: tisp_gamma_irq_frame_done (tx_isp_t33_gammav.h) */
 static void t33_bcsh_fd(void);			/* system irq 52: tisp_bcsh_irq_frame_down (tx_isp_t33_g14glue.h) */
+static void t33_dpf_isr(void);			/* system irq 10: tisp_defog_interrupt_static (#878) */
+static void t33_dpf_fd(void);			/* system irq 47: tisp_defog_t33_frame_done_interrupt (#878) */
+static bool t33_dpf_ev(u32 lo, u32 hi, u32 x, u32 y);	/* tisp_defog_ev_update (#878) */
 extern u32 t33_st_isp_init_par_mode[1008];	/* stIspInitPar (word 226 = byte 904: 1) */
 int tisp_rcfg_module_cfg_trig(u32 ch, u32 mod);
 int tisp_rcfg_get_dma_state(u32 mod);
@@ -347,6 +353,8 @@ static irqreturn_t t32_isp_irq(int irq, void *dev)
 	}
 	if (sta & T33_INT_LCE)		/* system irq 8: tisp_lce_interrupt_static */
 		t33_lcepf_isr8();
+	if (sta & (1U << T33_DPF_IRQ_BIT))	/* system irq 10: tisp_defog_interrupt_static (#878) */
+		t33_dpf_isr();
 	if (sta & T33_INT_LSF)		/* system irq 30: tisp_lsf_interrupt_static */
 		t33_lcepf_isr30();
 #else
@@ -371,6 +379,8 @@ static irqreturn_t t32_isp_irq(int irq, void *dev)
 		t33_ccm_fd();
 	if (msca & (1U << T33_GAMMA_IRQ_BIT))	/* system irq 46: tisp_gamma_irq_frame_done (block gammav) */
 		t33_gamma_fd();
+	if (msca & (1U << T33_DPF_FD_BIT))	/* system irq 47: tisp_defog_t33_frame_done_interrupt (#878) */
+		t33_dpf_fd();
 	if (msca & (1U << 20))		/* system irq 52: tisp_bcsh_irq_frame_down (block bcshO) */
 		t33_bcsh_fd();
 #endif
@@ -840,6 +850,7 @@ static u8 *t33_defog_weight;		/* defog_weight[0] of tisp_defog_init (vmalloc) */
 static void t33_g15_defog_init(u32 width, u32 height);	/* tisp_defog_init (group 15, below) */
 extern u32 t33_g15_runs[3];
 static u32 t33_swg_defog_blk[14];		/* defog_info[0] (below) */
+static void t33_dpf_stop(void);			/* per-frame defog (#878, below) */
 #endif
 #define T33_DEFOG_ORDER	get_order(T33_DEFOG_DMA_BYTES)
 /* LCE curve buffer (0xc0a4, written by us) and statistics buffer (0xc090.., by the core) */
@@ -885,6 +896,9 @@ static void t33_mod_free(void)
 	if (t33_lsc_pages)
 		free_pages(t33_lsc_pages, T33_LSC_ORDER);
 	t33_lsc_pages = 0;
+#ifdef TX_ISP_T33
+	t33_dpf_stop();		/* before the statistics pages go (#878) */
+#endif
 	if (t33_defog_pages)
 		free_pages(t33_defog_pages, T33_DEFOG_ORDER);
 	t33_defog_pages = 0;
@@ -2693,8 +2707,11 @@ void t33_stats_show(struct seq_file *m)
 		   t33_g14_runs[11], t33_g14_runs[12]);
 	seq_printf(m, "t33 dpc: %s init %u gain %u switch %u refresh %u\n", t33_dpc_v[T33_DPC_SEC_WORD] ? "on" : "off",
 		   t33_g14_runs[13], t33_dpc_gains, t33_swg_runs[2], t33_bst_refresh[T33_BST_DPC]);
-	seq_printf(m, "t33 defog: %s init %u bad %u alloc %u\n", t33_swg_defog_blk[3] ? "on" : "off", t33_g15_runs[0],
-		   t33_g15_runs[1], t33_g15_runs[2]);
+	seq_printf(m, "t33 defog: %s init %u bad %u alloc %u per-frame %s irqs %u pars %u evs %u full %u fd %u "
+		   "irq_cnt %u ev %#x\n", t33_swg_defog_blk[3] ? "on" : "off", t33_g15_runs[0],
+		   t33_g15_runs[1], t33_g15_runs[2], t33_dpf_active() ? "on" : "off", t33_dpf_runs[0],
+		   t33_dpf_runs[1], t33_dpf_runs[2], t33_dpf_runs[3], t33_dpf_runs[4],
+		   t33_swg_defog_blk[T33_DPF_I_IRQ], t33_swg_defog_blk[T33_DPF_I_EV]);
 	seq_printf(m, "t33 mdns: %s init %u refresh %u/%u switch %u gain %#x zip %u bad %u\n",
 		   t33_mdnsg_info[0] ? "on" : "off", t33_mdnsg_runs[0], t33_mdnsg_runs[2], t33_mdnsg_runs[1],
 		   t33_swg_runs[8], t33_mdns_v[2181], t33_mdns_v[2190], t33_mdnsg_runs[3]);
@@ -3457,7 +3474,11 @@ void t33_ev_refresh(u32 lo, u32 hi, u32 bv, u32 bvh)
 		t33_lcepf_ev(lo, hi, bv);
 	if (!(byp & 0x100000))
 		t33_swg_rdns_ev(t33_gr_ev);	/* tisp_rdns_ev_update (tx_isp_t33_swglue.h) */
-	if (!(byp & 0x200))
+	/*
+	 * tisp_defog_ev_update (#878): EV words and tispDefogRefresh, irq 47 starts list 12; without the
+	 * per-frame path (t33_defog_pf = 0) the list reruns at the frame end as before
+	 */
+	if (!(byp & 0x200) && !t33_dpf_ev(lo, hi, bv, bvh))
 		t33_gr_rerun(T33_MOD_DEFOG);
 	if (!(byp & 0x20))
 		t33_gr_rerun(T33_MOD_TMO);
@@ -4068,7 +4089,9 @@ static void t33_sw_lce(const u8 *bin, u32 bytes)
 static u8 *t33_swg_tp8[4];
 static u8 t33_swg_csccr_sec[T32_CSCCR_BYTES];
 static u32 *t33_swg_csccr_info[4] = { t33_swg_csccr_blk };
-static u8 t33_swg_defog_tab[3948];	/* defog_info word 4 (tisp_defog_init: 3948 B; para3 tables 2458..3177) */
+/* defog_info word 4 (tisp_defog_init: 3948 B; para3 tables 2458..3177) with Tiziano_defog_soft's two table pointers */
+static struct t32_defog_par t33_dpf_p;
+#define t33_swg_defog_tab t33_dpf_p.b
 static u32 t33_swg_defog_blk[14], *t33_swg_defog_info[4] = { t33_swg_defog_blk };
 /* tisp_ccm_interp_by_ct / _by_ev / no_interp / calc_para_refresh / write_reg: tx_isp_t33_ccmv.h */
 
@@ -4121,13 +4144,16 @@ static int tisp_defog_write_reg_para1(u32 idx)
 
 static int tisp_defog_interp_trans_k(u32 idx, u32 k, u8 *p0, u8 *p1, u8 *p2, u8 *p3, u8 *p4, u8 *p5, u8 *p6)
 {
-	(void)idx; (void)k; (void)p0; (void)p1; (void)p2; (void)p3; (void)p4; (void)p5; (void)p6;
-	return 0;	/* feeds the per-frame soft path only, not list 12 */
+	(void)idx;
+	/* feeds the per-frame soft path only (sec + 260), not list 12; p0 = sec + 8 (#878) */
+	t33_dpf_interp_trans_k(p0 - 8, k, t33_swg_defog_blk[T33_DPF_I_EV2], p0, p1, p2, p3, p4, p5, p6);
+	return 0;
 }
 
 static int tisp_defog_update_reg_para2(u32 idx)
 {
-	(void)idx;
+	(void)idx;	/* the list words are t33_defog_para2; here the parameter block part (#878) */
+	t33_dpf_update_reg_para2(t33_defog_sec, &t33_dpf_p);
 	return 0;
 }
 
@@ -4242,7 +4268,15 @@ static void t33_g15_defog_hook(u32 id, u32 a, u32 b, u32 c, u32 d)
 	case T33_I9_EVENT:
 		t33_g15_runs[1] += b != 3U;
 		break;
-	default:	/* interp_trans_k (soft path), update_reg_para2 (part of t33_defog_para2) */
+	case T33_I9_INTERP_K:	/* (ch, EV, sec + 8, sec + 614): the per-frame soft path's sec + 260 (#878) */
+		t33_dpf_interp_trans_k(t33_defog_sec, b, t33_swg_defog_blk[T33_DPF_I_EV2], t33_defog_sec + 8,
+				       t33_defog_sec + 614, t33_defog_sec + 623, t33_defog_sec + 632,
+				       t33_defog_sec + 641, t33_defog_sec + 650, t33_defog_sec + 260);
+		break;
+	case T33_I9_PARA2_UPD:	/* the parameter block part; the list words are t33_defog_para2 (#878) */
+		t33_dpf_update_reg_para2(t33_defog_sec, &t33_dpf_p);
+		break;
+	default:
 		break;
 	}
 }
@@ -4251,8 +4285,125 @@ static const struct t33_i9_ops t33_g15_defog_ops = {
 	t33_g15_defog_kmalloc, t33_g15_defog_vmalloc, t33_g15_fill, t33_g15_copy, t33_g15_defog_hook,
 };
 
+/*
+ * Per-frame defog (openimp #878, tx_isp_t33_defogpf.h): what the vendor's tisp_defog_init registers.
+ * - system irq 10 (0x30028 bit 10): tisp_defog_interrupt_static in the hard interrupt (statistics of the
+ *   bank 0xa230 names into the parameter block, interrupt count) and event 3;
+ * - event 3: tisp_defog_par in a work item, once per event (bounded like the T32 one, tx_isp_t32_defogd.c):
+ *   update_trans_k, Tiziano_defog_soft, write_reg_para3 into the list 12 slots, tispDefogRefresh = 1;
+ * - system irq 47 (msca bit 15): tisp_defog_t33_frame_done_interrupt: with stIspInitPar word 226 == 1 and
+ *   tispDefogRefresh == 1 list 12 starts (tisp_rcfg_module_cfg_trig) and the flag clears;
+ * - AE event 6: tisp_defog_ev_update in t33_ev_refresh (EV words, tispDefogRefresh).
+ * Module parameter t33_defog_pf (default 1); 0 = the init-only path of before (device A/B).
+ */
+#define T33_DPF_PEND_MAX	4
+static bool t33_defog_pf = true;
+module_param(t33_defog_pf, bool, 0644);
+MODULE_PARM_DESC(t33_defog_pf, "T33 per-frame defog (irq 10 / event 3 / irq 47 as the vendor, openimp #878); 0 = init only");
+static DEFINE_SPINLOCK(t33_dpf_lock);
+static bool t33_dpf_on;
+static u32 t33_dpf_pend;
+static void t33_dpf_work_fn(struct work_struct *w);
+static DECLARE_WORK(t33_dpf_work, t33_dpf_work_fn);
+
+static void t33_dpf_sync(const u8 *b, u32 len)
+{
+	dma_cache_wback_inv((unsigned long)b, len);	/* private_dma_cache_sync of the bank the core wrote */
+}
+
+static bool t33_dpf_active(void)
+{
+	return READ_ONCE(t33_dpf_on) && READ_ONCE(t33_defog_pf);
+}
+
+/* system irq 10: tisp_defog_interrupt_static, event 3 */
+static void t33_dpf_isr(void)
+{
+	spin_lock(&t33_dpf_lock);
+	t33_dpf_runs[0]++;
+	if (t33_dpf_active() && t33_defog_pages) {
+		t33_dpf_interrupt_static(t33_swg_defog_blk, &t33_dpf_p, isp_rd(T33_DPF_BANK_REG),
+					 (const u8 *)t33_defog_pages, t33_dpf_sync);
+		if (t33_dpf_pend < T33_DPF_PEND_MAX)
+			t33_dpf_pend++;
+		else
+			t33_dpf_runs[3]++;
+		schedule_work(&t33_dpf_work);
+	}
+	spin_unlock(&t33_dpf_lock);
+}
+
+/* system irq 47: tisp_defog_t33_frame_done_interrupt */
+static void t33_dpf_fd(void)
+{
+	if (!t33_dpf_active() || t33_st_isp_init_par_mode[226] != 1)
+		return;
+	if (t33_g15_defog_refresh == 1) {
+		tisp_rcfg_module_cfg_trig(0, T33_MOD_DEFOG);
+		t33_g15_defog_refresh = 0;
+		t33_dpf_runs[4]++;
+	}
+}
+
+static void t33_dpf_slot(u32 slot, u32 val)
+{
+	tisp_reg_write_t33(0, T33_MOD_DEFOG, slot, val);
+}
+
+/* event 3: tisp_defog_par, once per queued event */
+static void t33_dpf_work_fn(struct work_struct *w)
+{
+	unsigned long f;
+
+	(void)w;
+	mutex_lock(&t33_gr_lock);
+	for (;;) {
+		spin_lock_irqsave(&t33_dpf_lock, f);
+		if (!t33_dpf_on || !t33_dpf_pend) {
+			t33_dpf_pend = 0;
+			spin_unlock_irqrestore(&t33_dpf_lock, f);
+			break;
+		}
+		t33_dpf_pend--;
+		spin_unlock_irqrestore(&t33_dpf_lock, f);
+		if (!READ_ONCE(t33_defog_pf))
+			continue;
+		t33_dpf_par(t33_defog_sec, t33_swg_defog_blk, &t33_dpf_p);
+		if (t33_bst_cfg_mode)		/* slot indexes (the open lists always use them) */
+			t33_dpf_write_reg_para3(&t33_dpf_p, t33_dpf_slot);
+		t33_g15_defog_refresh = 1;	/* tispDefogRefresh */
+		t33_dpf_runs[1]++;
+	}
+	mutex_unlock(&t33_gr_lock);
+}
+
+/* before tisp_defog_init runs again and before its buffers go: no interrupt / event works on them */
+static void t33_dpf_stop(void)
+{
+	unsigned long f;
+
+	spin_lock_irqsave(&t33_dpf_lock, f);
+	t33_dpf_on = false;
+	t33_dpf_pend = 0;
+	spin_unlock_irqrestore(&t33_dpf_lock, f);
+	cancel_work_sync(&t33_dpf_work);
+}
+
+/* AE event 6 (t33_ev_refresh, t33_gr_lock held): tisp_defog_ev_update */
+static bool t33_dpf_ev(u32 lo, u32 hi, u32 x, u32 y)
+{
+	if (!t33_dpf_active())
+		return false;
+	t33_dpf_ev_update(t33_defog_sec, t33_swg_defog_blk, &t33_dpf_p, lo, hi, x, y);
+	t33_g15_defog_refresh = 1;	/* tispDefogRefresh */
+	t33_dpf_runs[2]++;
+	return true;
+}
+
 static void t33_g15_defog_init(u32 width, u32 height)
 {
+	unsigned long f;
+	int r;
 	u8 sz[928];
 
 	/* stIspInitPar of channel 0 with the sensor size (u16 width / height at 12 / 14) */
@@ -4260,9 +4411,17 @@ static void t33_g15_defog_init(u32 width, u32 height)
 	t33_defog_put16(sz + 12, (u16)width);
 	t33_defog_put16(sz + 14, (u16)height);
 	t33_g15_defog_tp[0] = t33_defog_sec - 23496;
-	t33_defog_init_ctx(0, sz, t33_g15_defog_max, t33_g15_defog_wt, t33_g15_defog_info, t33_g15_defog_tp,
-			   &t33_bst_cfg_mode, &t33_g15_defog_refresh, &t33_g15_defog_ops);
+	t33_dpf_stop();
+	memset(&t33_dpf_p, 0, sizeof(t33_dpf_p));
+	r = t33_defog_init_ctx(0, sz, t33_g15_defog_max, t33_g15_defog_wt, t33_g15_defog_info, t33_g15_defog_tp,
+			       &t33_bst_cfg_mode, &t33_g15_defog_refresh, &t33_g15_defog_ops);
 	t33_g15_runs[0]++;
+	/* system_irq_func_set(10 / 47), tisp_event_set_cb(3) of the init: the per-frame path (#878) */
+	if (!r && t33_swg_defog_blk[T33_DPF_I_BUF]) {	/* list 12 slots: tisp_reg_write_t33 checks the list */
+		spin_lock_irqsave(&t33_dpf_lock, f);
+		t33_dpf_on = true;
+		spin_unlock_irqrestore(&t33_dpf_lock, f);
+	}
 }
 
 /*
@@ -4528,7 +4687,7 @@ static noinline_for_stack void t33_sw_space(const u8 *bin, u32 bytes, u32 width,
 		memcpy(t33_defog_sec, bin + off, sizeof(t33_defog_sec));
 		t33_swg_defog_blk[3] = (u32)(unsigned long)t33_defog_sec;
 		t33_swg_defog_blk[4] = (u32)(unsigned long)t33_swg_defog_tab;
-		t33_swg_defog_blk[6] = t33_le32(t33_defog_sec + 4);
+		/* word 6 keeps the EV of tisp_defog_ev_update (vendor info + 0x18; #878) */
 		t33_swg_defog_blk[8] = height;
 		t33_swg_defog_blk[9] = width;
 		t33_defog_switch_para(0, t33_swg_defog_info);
