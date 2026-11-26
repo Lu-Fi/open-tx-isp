@@ -441,6 +441,14 @@ static irqreturn_t t32_isp_irq(int irq, void *dev)
  */
 static void t32_vic_wr(int n, u32 off, u32 v);
 
+/*
+ * #915: the error restart only while the stream runs.  The vendor stream-off (vic_core_s_stream 0x13b6c)
+ * masks the VIC interrupts (tx_vic_disable_irq -> lib_tisp_vic_intp_disable 0xbdf38: VIC 0x1e8 / 0x1ec =
+ * 0xffffffff) before lib_tisp_vic_stop, so no late error interrupt can re-arm the VIC after the stop; the
+ * flag covers an interrupt that was already being serviced.
+ */
+static bool t32_vic_on;
+
 static void t32_vic_err_restart(void)
 {
 	int i;
@@ -487,9 +495,9 @@ static irqreturn_t t32_vic_irq(int irq, void *dev)
 	t32_vic_or[2] |= t0;
 	t32_vic_or[3] |= t1;
 	t32_vic_count(s0, s1);
-	if (s0 & 0xffffff00U)		/* vendor: per VIC channel, one-channel VIC (#897) */
+	if (ACCESS_ONCE(t32_vic_on) && (s0 & 0xffffff00U))	/* vendor: per VIC channel, one-channel VIC (#897) */
 		t32_vic_err_restart();
-	if (t0 & 0xffffff00U)
+	if (ACCESS_ONCE(t32_vic_on) && (t0 & 0xffffff00U))
 		t32_vic_err_restart();
 #endif
 	t33_vic_hold_tick(s0);		/* the sensor flip's VIC hold (T33 #669, T32 #689) */
@@ -5582,6 +5590,9 @@ void t32_hw_stream_on(void)
 	t32_wait_clear(T32_VIC_RESET_BUSY, 0xf, 1000);
 	t32_vic_wr(0, T32_VIC_CTRL, 1);
 	t32_vic_wr(1, T32_VIC_CTRL, 1);
+#ifndef TX_ISP_T33
+	ACCESS_ONCE(t32_vic_on) = true;	/* #915 */
+#endif
 	t32_csi_start();
 	t32_hw_stats.stream_ons++;
 #ifndef TX_ISP_T33
@@ -5597,6 +5608,12 @@ void t32_hw_stream_off(void)
 #ifdef TX_ISP_T33
 	t33_awbc_detach();
 	t33_aec_detach();
+#endif
+#ifndef TX_ISP_T33
+	/* #915: vendor order, the VIC interrupts masked before the VIC stops (no restart after it) */
+	ACCESS_ONCE(t32_vic_on) = false;
+	t32_vic_wr(0, T32_VIC_INT_MSK, 0xffffffff);
+	t32_vic_wr(0, T32_VIC_INT_MSK2, 0xffffffff);
 #endif
 	t32_vic_wr(0, T32_VIC_CTRL, 4);		/* stop + reset */
 	t32_vic_wr(1, T32_VIC_CTRL, 4);
