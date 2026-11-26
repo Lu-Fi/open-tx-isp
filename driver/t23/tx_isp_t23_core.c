@@ -17544,8 +17544,12 @@ static void regtrace_t23_set_msca_stream(int channel,
         regtrace_t23_msca_ch_en &= ~bit;
     }
 
-    keep = !enable && (regtrace_t23_msca_keep_enabled >= 2 ||
-                       (regtrace_t23_msca_keep_enabled == 1 && input_stops));
+    /* #914: never keep channel 0 in the IVDC direct mode: the kept output
+     * would feed the IVDC, which writes on into the ring that libimp frees
+     * at DisableChn (rmem) or REQBUFS frees (driver ring) */
+    keep = !enable && !(channel == 0 && t23_ivdc_direct_mode == 1) &&
+           (regtrace_t23_msca_keep_enabled >= 2 ||
+            (regtrace_t23_msca_keep_enabled == 1 && input_stops));
     before = system_reg_read(0xd040U);
     if (enable) {
         value = before | regtrace_t23_msca_ch_en;

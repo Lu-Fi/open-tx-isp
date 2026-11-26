@@ -18,5 +18,6 @@ rq=$(sed -n '/case REGTRACE_FRAMECHAN_REQBUFS: {/,/case REGTRACE_FRAMECHAN_QBUF:
 b=$(echo "$rq" | grep -n 'ret = -EBUSY' | head -1 | cut -d: -f1)
 a=$(echo "$rq" | grep -n 'regtrace_t23_ivdc_reqbufs(\|regtrace_t23_ivdc_free_ring()' | head -1 | cut -d: -f1)
 { [ -n "$b" ] && [ -n "$a" ] && [ "$b" -lt "$a" ]; } || { echo "check_t23_ivdc_ring: REQBUFS can touch the ring of a streaming channel"; fail=1; }
+grep -q 'keep = !enable && !(channel == 0 && t23_ivdc_direct_mode == 1)' "$f" || { echo "check_t23_ivdc_ring: STREAMOFF can keep the IVDC channel 0 output"; fail=1; }
 [ $fail -eq 0 ] && echo "check_t23_ivdc_ring: OK"
 exit $fail
