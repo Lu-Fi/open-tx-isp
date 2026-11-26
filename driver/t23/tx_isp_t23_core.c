@@ -9348,6 +9348,7 @@ static int32_t sub_b1e4(void);
 int32_t isp_irq_handle(int32_t arg1, void *arg2);
 /* MSCA channel config: front crop (ioctl) vs the core ISR FIFO drain */
 static DEFINE_SPINLOCK(regtrace_t23_msca_lock);
+#define T23_IVDC_QUIESCE_MS 80   /* #914: one frame at 15 fps plus margin */
 int32_t tx_isp_enable_irq(uintptr_t a0);
 int32_t tx_isp_disable_irq(uintptr_t a0);
 int tx_isp_request_irq(struct platform_device *pdev, struct tx_isp_irq_info *irq_info);
@@ -17772,8 +17773,38 @@ static void regtrace_t23_ivdc_set_fmt(unsigned int w, unsigned int h)
     printk(KERN_NOTICE "t23: IVDC channel 0 %ux%u threshold %u\n", w, h, thr);
 }
 
+/*
+ * #914: the driver-allocated IVDC ring must not be freed while channel 0's
+ * MSCA output still feeds the IVDC.  STREAMOFF keeps that output enabled
+ * (msca_keep_enabled=2, stock) and the core ISR keeps pushing the IVDC pair
+ * back into its FIFO while the input runs, so the IVDC would go on writing
+ * into the freed pages.  Stop the kept output first (as the FIFO clear does
+ * for a kept channel) and let the frame in flight finish.
+ */
+static void regtrace_t23_ivdc_ring_quiesce(void)
+{
+    unsigned long flags;
+    bool stopped = false;
+
+    spin_lock_irqsave(&regtrace_t23_msca_lock, flags);
+    if (!(regtrace_t23_msca_ch_en & 1U) &&
+        ((regtrace_t23_msca_kept & 1U) || (system_reg_read(0xd040U) & 1U))) {
+        system_reg_write(0xd040U, system_reg_read(0xd040U) & ~1U);
+        regtrace_t23_msca_kept &= ~1U;
+        stopped = true;
+    }
+    spin_unlock_irqrestore(&regtrace_t23_msca_lock, flags);
+    if (stopped) {
+        t23_crumb(T23C_CHAN_MSCA_OFF, 0x200U);
+        if (regtrace_t23_vic_streaming)
+            msleep(T23_IVDC_QUIESCE_MS);    /* the frame in flight (>= 1 frame at 15 fps) */
+    }
+}
+
 static void regtrace_t23_ivdc_free_ring(void)
 {
+    if (regtrace_t23_ivdc_ring_virt)
+        regtrace_t23_ivdc_ring_quiesce();
     if (regtrace_t23_ivdc_ring_virt)
         dma_free_coherent(t23_ivdc_dev,
                           regtrace_t23_ivdc_ring_size,
@@ -19475,6 +19506,14 @@ static long regtrace_framechan_ioctl_body(struct file *file, unsigned int cmd,
                 regtrace_framechan_forget_qbufs_locked(channel);
             }
             spin_unlock_irqrestore(&regtrace_framechan_done_lock, flags);
+        }
+        /* #914: vb2 refuses REQBUFS on a streaming queue (-EBUSY); the IVDC
+         * ring of channel 0 is in use then */
+        if (regtrace_t23_ivdc_ch(channel) && channel >= 0 &&
+            channel < REGTRACE_FRAMECHAN_COUNT &&
+            ACCESS_ONCE(regtrace_framechan_streaming[channel])) {
+            ret = -EBUSY;
+            break;
         }
         if (regtrace_t23_ivdc_ch(channel) && words[TX_ISP_FRAME_REQUEST_WORD_COUNT]) {
             ret = regtrace_t23_ivdc_reqbufs(regtrace_t23_frame_width(0),
