@@ -1115,6 +1115,7 @@ static uintptr_t data_a8f68;
 static struct file_operations video_input_cmd_fops;
 static struct file_operations isp_vic_frd_fops;
 static const struct file_operations regtrace_t23_isp_m0_proc_fops;
+static const struct file_operations regtrace_t23_ivdc_proc_fops;
 static int regtrace_t23_vic_proc_open(struct inode *inode, struct file *file);
 static int regtrace_t23_vic_proc_show(struct seq_file *seq, void *unused);
 static ssize_t regtrace_t23_vic_proc_write(struct file *file,
@@ -6322,6 +6323,13 @@ static unsigned char AFParam_Fv[12];
 static unsigned char data_98684[64]; /* BSS shrink: was [16384] fake-anchor padding, real max use verified smaller */
 static unsigned char data_986d4[16]; /* BSS shrink: was [16384] fake-anchor padding, real max use verified smaller */
 static unsigned char csccr_para_test[16];
+/* stock .data 0x348e4 / 0x348f4 (SDK 1.3.0), csccr_bp is below */
+static unsigned char __attribute__((aligned(4))) csccr_cp[16] = {
+    0x00, 0x04, 0x00, 0x00, 0xff, 0x00, 0x00, 0x00, 0x00, 0x04, 0x80, 0xff, 0x7f, 0x00, 0x00, 0x00,
+};
+static unsigned char __attribute__((aligned(4))) csccr_ap[16] = {
+    0x00, 0x00, 0x00, 0x00, 0x00, 0xff, 0x00, 0xff, 0x00, 0xff, 0x00, 0xff, 0x00, 0x00, 0xff, 0x00,
+};
 static unsigned char data_ca658[16]; /* BSS shrink: was [16384] fake-anchor padding, real max use verified smaller */
 static unsigned char dmsc_awb_gain_array[12];
 static unsigned char dmsc_deir_b_array[32];
@@ -8355,6 +8363,8 @@ static struct tisp_event_channel tisp_event_queues[TISP_EVENT_CHANNELS];
 static DEFINE_SPINLOCK(tisp_event_lock);
 static uintptr_t api_offset_flag;
 static unsigned char mscaHardParTmp[12];
+static uint16_t s_msca_width;   /* stock .data 0x29930 */
+static uint16_t s_msca_height;  /* stock .data 0x29932 */
 static uintptr_t osd_en;
 static uintptr_t mask_en;
 static uint32_t gamma_wdr_en;
@@ -8399,7 +8409,7 @@ static unsigned char __attribute__((aligned(4))) jump_table_6d900[64] = {
     0x04, 0xfe, 0xff, 0xff, 0xf3, 0xfe, 0xff, 0xff, 0xfe, 0xff, 0xff, 0xff, 0x05, 0x09, 0x00, 0x00, 
     0x5f, 0x01, 0x00, 0x00, 0xfe, 0xff, 0xff, 0xff, 0xf1, 0x02, 0x00, 0x00, 0x9b, 0x0a, 0x00, 0x00, 
 };
-static uintptr_t ccm_ctrl;
+static unsigned char __attribute__((aligned(4))) ccm_ctrl[40]; /* stock .bss ccm_ctrl (40 B) */
 static unsigned char __attribute__((aligned(4))) BCSH_ct[4] = {
     0x70, 0x17, 0x00, 0x00, 
 };
@@ -9945,6 +9955,14 @@ static int regtrace_t23_vin_proc_init(void)
     }
     if (!proc_create("isp-m0", 0444, regtrace_t23_isp_proc_root,
                      &regtrace_t23_isp_m0_proc_fops)) {
+        remove_proc_subtree("jz/isp", NULL);
+        regtrace_t23_isp_proc_root = NULL;
+        return -ENOMEM;
+    }
+    /* vendor: tx_isp_create_graph_and_nodes (0x12800) creates the per-subdev
+     * node with mode 292 (0444) from the ivdc sd's proc fops */
+    if (!proc_create("isp-ivdc", 0444, regtrace_t23_isp_proc_root,
+                     &regtrace_t23_ivdc_proc_fops)) {
         remove_proc_subtree("jz/isp", NULL);
         regtrace_t23_isp_proc_root = NULL;
         return -ENOMEM;
@@ -17636,6 +17654,7 @@ static int regtrace_t23_ivdc_state;          /* 3: core initialized (vendor +0x1
 static void *regtrace_t23_ivdc_ring_virt;    /* ring allocated here (no SET_PADDR) */
 static dma_addr_t regtrace_t23_ivdc_ring_dma;
 static unsigned int regtrace_t23_ivdc_ring_size;
+static unsigned int regtrace_t23_ivdc_ring_bytes_cur;  /* last ring size (isp-ivdc node) */
 static unsigned int regtrace_t23_ivdc_next_slot;
 static unsigned int regtrace_t23_ivdc_frames;
 module_param_named(ivdc_frames, regtrace_t23_ivdc_frames, uint, 0444);
@@ -17873,6 +17892,7 @@ static int regtrace_t23_ivdc_reqbufs(unsigned int w, unsigned int h)
     memcpy(regtrace_t23_ivdc_ring_regs, r, sizeof(r));
     regtrace_t23_ivdc_ring_n = n;
     regtrace_t23_ivdc_ring_paddr = paddr;
+    regtrace_t23_ivdc_ring_bytes_cur = size;
     printk(KERN_NOTICE "t23: ivdc_paddr = 0x%08x (%u lines, %u bytes%s)\n", paddr,
            line, size, regtrace_t23_ivdc_ring_virt ? ", driver" : "");
     return 0;
@@ -36259,6 +36279,47 @@ static u32 regtrace_t23_vic_irq_count;
 static u32 regtrace_t23_core_irq_count;
 static u32 regtrace_t23_ivdc_irq_count;
 
+/*
+ * openimp #807 / open-tx-isp #4: the vendor IVDC ISR (tx-isp-t23.ko
+ * 0xbf84, SDK 1.3.0) acks the status word (+0x44 -> +0x54) and counts every
+ * set bit in module statics that /proc/jz/isp/isp-ivdc prints (0xb71c):
+ *   0x1 ddr_y_overflow  0x2 ddr_c_overflow  0x4 fifo_y_overflow  0x8 fifo_c_overflow
+ *   0x10 vpu_discard_over  0x20 vpu_stop_over  0x40 isp_frm_err  0x80 isp_rst
+ *   0x4000 vpu0_half_end  0x8000 vpu1_half_end  0x10000 isp_frm_done
+ *   0x20000 isp_frm_start  0x40000 vpu0_end  0x80000 vpu1_end
+ *   0x4000000 vpu_err  0x400000 ivdc_dma_done
+ * (bss offsets .bss+0x384.. in the vendor, same plain increments.)
+ */
+struct t23_ivdc_stats {
+    u32 ddr_y_overflow, ddr_c_overflow, fifo_y_overflow, fifo_c_overflow;
+    u32 vpu_discard_over, vpu_stop_over, isp_frm_err, isp_rst, vpu_err;
+    u32 isp_frm_done, isp_frm_start;
+    u32 vpu0_end, vpu0_half_end, vpu1_end, vpu1_half_end, dma_done;
+};
+static struct t23_ivdc_stats regtrace_t23_ivdc_stats;
+
+static void regtrace_t23_ivdc_count(u32 st)
+{
+    struct t23_ivdc_stats *c = &regtrace_t23_ivdc_stats;
+
+    if (st & 0x00000008U) c->fifo_c_overflow++;
+    if (st & 0x00000004U) c->fifo_y_overflow++;
+    if (st & 0x00000002U) c->ddr_c_overflow++;
+    if (st & 0x00000001U) c->ddr_y_overflow++;
+    if (st & 0x00010000U) c->isp_frm_done++;
+    if (st & 0x00020000U) c->isp_frm_start++;
+    if (st & 0x00040000U) c->vpu0_end++;
+    if (st & 0x00004000U) c->vpu0_half_end++;
+    if (st & 0x00080000U) c->vpu1_end++;
+    if (st & 0x00008000U) c->vpu1_half_end++;
+    if (st & 0x04000000U) c->vpu_err++;
+    if (st & 0x00000080U) c->isp_rst++;
+    if (st & 0x00000040U) c->isp_frm_err++;
+    if (st & 0x00000020U) c->vpu_stop_over++;
+    if (st & 0x00000010U) c->vpu_discard_over++;
+    if (st & 0x00400000U) c->dma_done++;
+}
+
 static bool regtrace_t23_log_irq_count(u32 count)
 {
     return count <= 8 || !(count & (count - 1));
@@ -36525,6 +36586,7 @@ static int32_t isp_irq_handle_body(int32_t irq, void *dev_id)
         }
         if (!status0)
             return regtrace_t23_irq_none("IVDC", irq);
+        regtrace_t23_ivdc_count(status0);
         regtrace_t23_ivdc_irq_count++;
         if (regtrace_t23_log_irq_count(regtrace_t23_ivdc_irq_count))
             printk(KERN_INFO
@@ -47768,61 +47830,28 @@ static int32_t tisp_msca_params_refresh(void)
 /* WHOLE_DRIVER_CANDIDATE fn_000000000001a0dc origin=fragment_seed original=tisp_msca_init */
 static int32_t tisp_msca_init(uint32_t a0, uint32_t a1, uint32_t a2)
 {
-    uint32_t *local_10 = 0;
-    uint32_t *local_14 = 0;
-    uint32_t *local_18 = 0;
-    uint32_t local_1c = 0;
-    uint32_t ra = 0;
-    uint32_t *s0 = 0;
-    uintptr_t *s1 = 0;
-    uintptr_t *s2 = 0;
-    uintptr_t *v0 = 0;
-    uintptr_t v1 = 0;
+    uint32_t *par = (uint32_t *)mscaHardPar;
+    uint32_t *tmp = (uint32_t *)mscaHardParTmp;
+    int i;
 
-    /* fragment 0: Prologue */
-    /* function prologue: stack frame and callee-saved register setup */
-
-    /* fragment 1: CallSetup */
-    *(uint16_t *)((char *)&sclk_name + -26286) = a2;
-    *(uint16_t *)((char *)&sclk_name + -26288) = a1;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uint32_t *)private_kmalloc)(56, 208, a2); /* jalr target resolved by relocation */
-
-    /* fragment 2: CallSetup */
-    *(uint32_t *)((char *)&sclk_name + -26284) = v0;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uint32_t *)private_kmalloc)(56, 208); /* jalr target resolved by relocation */
-
-    /* fragment 3: CallSetup */
-    *(uint32_t *)((char *)&ivdc_mem_line) = v0;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uint32_t *)private_kmalloc)(56, 208); /* jalr target resolved by relocation */
-
-    /* fragment 4: CallSetup */
-    *(uint32_t *)((char *)((char *)&mscaHardParTmp)) = (*(uint32_t *)((char *)&sclk_name + -26284));
-    *(uint32_t *)((char *)((char *)&ivdc_mem_line)) = *(uint32_t *)((char *)&ivdc_mem_line);
-    *(uint32_t *)((char *)((char *)&direct_mode)) = v0;
-    *(uint32_t *)((char *)&direct_mode) = v0;
-    v0 = (uintptr_t *)memset((void *)(uint32_t *)(*(uint32_t *)((char *)&sclk_name + -26284)), 0, 56); /* jalr target resolved by relocation */
-
-    /* fragment 5: CallSetup */
-    v0 = (uintptr_t *)memset((void *)(uint32_t *)(*(uint32_t *)((char *)(s1) + 4)), 0, 56); /* jalr target resolved by relocation */
-
-    /* fragment 6: CallSetup */
-    v0 = (uintptr_t *)memset((void *)(uint32_t *)(*(uint32_t *)((char *)(s1) + 8)), 0, 56); /* jalr target resolved by relocation */
-
-    /* fragment 7: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)tisp_msca_params_refresh)(a0); /* jalr target resolved by relocation */
-
-    /* fragment 8: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)(828, 539164672 + 537); /* jalr target resolved by relocation */
-
-    /* fragment 9: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    /* fragment 10: Arithmetic */
-    v0 = 0;
-
-    /* fragment 11: Epilogue */
-    /* function epilogue: restore registers and return */
-
+    /*
+     * openimp #6: stock tisp_msca_init (0x19e9c): s_msca_width/height (.data
+     * 0x29930/0x29932) = a1/a2, three 56-byte kmalloc blocks into mscaHardPar
+     * (.data 0x29934) and mscaHardParTmp (.bss), cleared, then
+     * tisp_msca_params_refresh and reg 0x33c.  The recovered code stored
+     * through sclk_name - 26288 / ivdc_mem_line / direct_mode.
+     */
+    s_msca_width = a1;
+    s_msca_height = a2;
+    for (i = 0; i < 3; i++) {
+        par[i] = (uintptr_t)private_kmalloc(56, 208);
+        tmp[i] = par[i];
+    }
+    for (i = 0; i < 3; i++)
+        memset((void *)(uintptr_t)par[i], 0, 56);
+    (void)a0;
+    tisp_msca_params_refresh();
+    system_reg_write(828, 0x20230000 + 537);
     return 0;
 }
 
@@ -57537,54 +57566,32 @@ int32_t tiziano_ccm_dn_params_refresh(void)
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000235b0 origin=fragment_seed original=tiziano_ccm_init */
 static int32_t tiziano_ccm_init(void)
 {
-    uintptr_t *s0;
-    uintptr_t *s1;
-    uintptr_t *v0;
-    uintptr_t v1;
-    uint32_t *a0;
-    uint32_t *a1;
-    uint32_t *a2;
+    uint32_t *real = (uint32_t *)ccm_real;
 
-    v0 = (uintptr_t *)&tiziano_ccm_a_linear;
-    *(uint32_t *)&tiziano_ccm_a_now = v0;
+    *(uint32_t *)&tiziano_ccm_a_now = (uintptr_t)&tiziano_ccm_a_linear;
+    *(uint32_t *)&tiziano_ccm_t_now = (uintptr_t)&tiziano_ccm_t_linear;
+    *(uint32_t *)&tiziano_ccm_d_now = (uintptr_t)&tiziano_ccm_d_linear;
+    *(uint32_t *)&tiziano_ccm_d2_now = (uintptr_t)&tiziano_ccm_d2_linear;
+    *(uint32_t *)&cm_ev_list_now = (uintptr_t)&cm_ev_list;
+    *(uint32_t *)&cm_sat_list_now = (uintptr_t)&cm_sat_list;
 
-    v0 = (uintptr_t *)&tiziano_ccm_t_linear;
-    *(uint32_t *)&tiziano_ccm_t_now = v0;
-
-    v0 = (uintptr_t *)&tiziano_ccm_d_linear;
-    *(uint32_t *)&tiziano_ccm_d_now = v0;
-
-    v0 = (uintptr_t *)&tiziano_ccm_d2_linear;
-    *(uint32_t *)&tiziano_ccm_d2_now = v0;
-
-    v0 = (uintptr_t *)&cm_ev_list;
-    *(uint32_t *)&cm_ev_list_now = v0;
-
-    v0 = (uintptr_t *)&cm_sat_list;
-    *(uint32_t *)&cm_sat_list_now = v0;
-
-    s1 = (int32_t *)&ivdc_threshold_line;
-    s0 = (uintptr_t *)&memset;
-    a0 = s1 + 340;
-    a1 = 0;
-    a2 = 24;
-    v0 = (uintptr_t *)memset((void *)a0, a1, a2);
-
-    a0 = s1 + 364;
-    a1 = 0;
-    a2 = 40;
-    v0 = (uintptr_t *)memset((void *)a0, a1, a2);
-
-    v1 = *(uint32_t *)&sclk_name;
-    v0 = v1 >> 10;
-    *(uint32_t *)&ivdc_threshold_line = v0;
-    *(uint32_t *)((char *)((char *)&ivdc_mem_line)) = 0;
-    *(uint32_t *)((char *)((char *)&direct_mode)) = 0;
-    *(uint32_t *)((char *)((char *)&direct_mode + 0x4)) = 0xffff;
-    *(uint32_t *)((char *)((char *)&gpio_info)) = 32;
-    *(uint32_t *)((char *)((char *)&gpio_info + 0x4)) = 256;
-    *(uint32_t *)&ivdc_threshold_line = 1;
-    *(uint32_t *)((char *)((char *)&direct_mode)) = 40;
+    /*
+     * openimp #6 (open-tx-isp): stock tiziano_ccm_init (tx-isp-t23.ko
+     * 0x23370, SDK 1.3.0 pike) clears ccm_real (.bss 0x10144, 24 B) and
+     * ccm_ctrl (.bss 0x1015c, 40 B) and fills ccm_real: [0] = 1,
+     * [4] = _ev >> 10 (.data 0x2bbb0, our ccm_ev), [8] = 40, [12] = 0xffff,
+     * [16] = 32, [20] = 256.  The recovered code addressed them through the
+     * ivdc_threshold_line / ivdc_mem_line / direct_mode placeholders
+     * (memset over &ivdc_threshold_line + 1360 ...).
+     */
+    memset(ccm_real, 0, 24);
+    memset(ccm_ctrl, 0, 40);
+    real[1] = ccm_ev >> 10;
+    real[3] = 0xffff;
+    real[5] = 256;
+    real[0] = 1;
+    real[4] = 32;
+    real[2] = 40;
 
     tiziano_ccm_params_refresh();
 
@@ -86380,73 +86387,38 @@ tisp_csccr_sync_api_para0x124:
 /* WHOLE_DRIVER_CANDIDATE fn_000000000004e934 origin=fragment_seed original=tiziano_csccr_init */
 static int32_t tiziano_csccr_init(void)
 {
-    uint32_t *local_14 = 0;
-    uint32_t *a0 = 0;
-    uintptr_t *a1 = 0;
-    uintptr_t *a2 = 0;
-    uint32_t ra = 0;
-    uintptr_t *v0 = 0;
-    uint32_t v1 = 0;
+    uint8_t *bp = csccr_bp;
+    const uint8_t *tp = tparams;
 
-    /* fragment 0: ConstantLoad */
-    a1 = ((char *)&csccr_bp);
+    /*
+     * openimp #6: stock tiziano_csccr_init (0x4e6f4): csccr_para_test[0..2] =
+     * &csccr_bp / &csccr_cp / &csccr_ap (.data 0x34900 / 0x348e4 / 0x348f4),
+     * then csccr_bp[0..12] from the tparams words at -30612.. (bytes 9/10 = 0)
+     * and the mode refresh / update / write chain, finally reg 0xc000.  The
+     * recovered code stored them through ivdc_mem_line / direct_mode /
+     * ivdc_threshold_line + n.
+     */
+    ((uint32_t *)csccr_para_test)[0] = (uintptr_t)csccr_bp;
+    ((uint32_t *)csccr_para_test)[1] = (uintptr_t)csccr_cp;
+    ((uint32_t *)csccr_para_test)[2] = (uintptr_t)csccr_ap;
+    bp[1] = *(const uint32_t *)(tp - 30608);
+    bp[0] = *(const uint32_t *)(tp - 30612);
+    bp[2] = *(const uint32_t *)(tp - 30604);
+    bp[3] = *(const uint32_t *)(tp - 30600);
+    bp[4] = *(const uint32_t *)(tp - 30596);
+    bp[9] = 0;
+    bp[5] = *(const uint32_t *)(tp - 30592);
+    bp[10] = 0;
+    bp[6] = *(const uint32_t *)(tp - 30588);
+    bp[7] = *(const uint32_t *)(tp - 30584);
+    bp[8] = *(const uint32_t *)(tp - 30580);
+    bp[11] = *(const uint32_t *)(tp - 30568);
+    bp[12] = *(const uint32_t *)(tp - 30564);
 
-    /* fragment 1: MemoryAccess */
-    *(uint32_t *)((char *)((char *)&csccr_para_test)) = a2;
-    v1 = v1 + 18692;
-    v0 = v0;
-    local_14 = ra;
-    *(uint32_t *)((char *)&ivdc_mem_line) = v1;
-    v1 = (uintptr_t)&sclk_name;
-    v1 = v1 + 18708;
-    *(uint32_t *)((char *)&direct_mode) = v1;
-    v0 = (uintptr_t *)&tparams;
-    v0 = v0;
-    v1 = *(uint32_t *)((char *)v0 + -30608);
-    a0 = *(uint32_t *)((char *)v0 + -30612);
-    *(uint8_t *)((char *)((char *)&ivdc_threshold_line + 0x1)) = v1;
-    v1 = *(uint32_t *)((char *)v0 + -30604);
-    *(uint8_t *)((char *)((char *)&tparams + 0x3920)) = a0;
-    *(uint8_t *)((char *)((char *)&ivdc_threshold_line + 0x2)) = v1;
-    v1 = *(uint32_t *)((char *)v0 + -30600);
-    a1 = 0;
-    *(uint8_t *)((char *)((char *)&ivdc_threshold_line + 0x3)) = v1;
-    v1 = *(uint32_t *)((char *)v0 + -30596);
-    *(uint8_t *)((char *)&ivdc_mem_line) = v1;
-    v1 = *(uint32_t *)((char *)v0 + -30592);
-    *(uint8_t *)((char *)((char *)&direct_mode + 0x1)) = 0;
-    *(uint8_t *)((char *)((char *)&ivdc_mem_line + 0x1)) = v1;
-    v1 = *(uint32_t *)((char *)v0 + -30588);
-    *(uint8_t *)((char *)((char *)&direct_mode + 0x2)) = 0;
-    *(uint8_t *)((char *)((char *)&ivdc_mem_line + 0x2)) = v1;
-    v1 = *(uint32_t *)((char *)v0 + -30584);
-    *(uint8_t *)((char *)((char *)&ivdc_mem_line + 0x3)) = v1;
-    v1 = *(uint32_t *)((char *)v0 + -30580);
-
-    /* fragment 2: CallSetup */
-    *(uint8_t *)((char *)&direct_mode) = v1;
-    *(uint8_t *)((char *)((char *)&direct_mode + 0x3)) = (*(uint32_t *)((char *)(v0) + -30568));
-    *(uint8_t *)((char *)((char *)&direct_mode + 0x4)) = (*(uint32_t *)((char *)(v0) + -30564));
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)tisp_csccr_para_refresh_by_mode)((uintptr_t)a0 & 255); /* jalr target resolved by relocation */
-
-    /* fragment 3: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)tisp_csccr_update_para)(a0); /* jalr target resolved by relocation */
-
-    /* fragment 4: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)tisp_csccr_write_reg)(a0); /* jalr target resolved by relocation */
-
-    /* fragment 5: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)(49152, 539164672 + 277); /* jalr target resolved by relocation */
-
-    /* fragment 6: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    /* fragment 7: Arithmetic */
-    v0 = 0;
-
-    /* fragment 8: Epilogue */
-    /* function epilogue: restore registers and return */
-
+    tisp_csccr_para_refresh_by_mode(bp[0], 0, 0);
+    tisp_csccr_update_para();
+    tisp_csccr_write_reg();
+    system_reg_write(0xc000, 0x20230115);
     return 0;
 }
 
@@ -95894,6 +95866,61 @@ static int regtrace_t23_isp_m0_proc_open(struct inode *inode, struct file *file)
 {
     return single_open(file, regtrace_t23_isp_m0_proc_show, PDE_DATA(inode));
 }
+
+/*
+ * /proc/jz/isp/isp-ivdc: vendor tx_isp_ivdc_show (tx-isp-t23.ko 0xb71c).  The
+ * vendor lines are kept verbatim.  Not ported: the clk/fmt_cnt_max pair
+ * (only printed after "echo ivdc_vb_cnt N", write handler 0xba00, which
+ * pokes the IVDC / CPM clocks and reallocates the ring; this node is
+ * read-only, 0444) and "IVDC Check Sum Err" (the stock prints a constant 0).
+ */
+static int regtrace_t23_ivdc_proc_show(struct seq_file *seq, void *v)
+{
+    struct t23_ivdc_stats *c = &regtrace_t23_ivdc_stats;
+    void __iomem *base = regtrace_t23_ivdc_base();
+    u32 line = 0;
+
+    /* no register access with the IVDC clocks off (bus hang, #910) */
+    if (base && regtrace_t23_ivdc_clks_enabled)
+        line = readl(base + 0xec);
+
+    seq_puts(seq, "****************** IVDC INFO **********************\n");
+    seq_printf(seq, " IVDC DDR Addr               : 0x%08x\n", regtrace_t23_ivdc_ring_paddr);
+    seq_printf(seq, " IVDC DDR Buffer Size        : %d\n", regtrace_t23_ivdc_ring_bytes_cur);
+    seq_printf(seq, " IVDC DMA Frame Done         : %d\n", c->dma_done);
+    seq_printf(seq, " IVDC Check Sum Err          : %d\n", 0);
+    seq_printf(seq, " IVDC Vpu Err                : %d\n", c->vpu_err);
+    seq_printf(seq, " IVDC ISP Rst                : %d\n", c->isp_rst);
+    seq_printf(seq, " IVDC ISP Frm Err            : %d\n", c->isp_frm_err);
+    seq_printf(seq, " IVDC Vpu Stop over          : %d\n", c->vpu_stop_over);
+    seq_printf(seq, " IVDC Vpu discard over       : %d\n", c->vpu_discard_over);
+    seq_printf(seq, " IVDC FIFO Overflow          : %d\n", c->fifo_c_overflow + c->fifo_y_overflow);
+    seq_printf(seq, " IVDC DDR Overflow           : %d\n", c->ddr_c_overflow + c->ddr_y_overflow);
+    seq_printf(seq, " VPU0 End                    : %d\n", c->vpu0_end);
+    seq_printf(seq, " VPU0 Half End               : %d\n", c->vpu0_half_end);
+    seq_printf(seq, " VPU1 End                    : %d\n", c->vpu1_end);
+    seq_printf(seq, " VPU1 Half End               : %d\n", c->vpu1_half_end);
+    seq_printf(seq, " ISP Frame Start             : %d\n", c->isp_frm_start);
+    seq_printf(seq, " ISP Frame Done              : %d\n", c->isp_frm_done);
+    seq_printf(seq, " IVDC Y Max ddr line         : %d\n", line & 0x7fff);
+    seq_printf(seq, " IVDC UV Max ddr line        : %d\n", (line >> 16) & 0x7fff);
+    seq_puts(seq, " help:\n");
+    seq_puts(seq, " clean Max ddr line : set 0x132000ec to 0\n,such as:devmem 0x132000ec 32 0x0\n");
+    return 0;
+}
+
+static int regtrace_t23_ivdc_proc_open(struct inode *inode, struct file *file)
+{
+    return single_open(file, regtrace_t23_ivdc_proc_show, NULL);
+}
+
+static const struct file_operations regtrace_t23_ivdc_proc_fops = {
+    .owner = THIS_MODULE,
+    .open = regtrace_t23_ivdc_proc_open,
+    .read = seq_read,
+    .llseek = seq_lseek,
+    .release = single_release,
+};
 
 static const struct file_operations regtrace_t23_isp_m0_proc_fops = {
     .owner = THIS_MODULE,
