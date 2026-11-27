@@ -6,6 +6,8 @@ marked otherwise. Release tags `vYYYY.MM.DD[-rcN]` are set on the `aperto` branc
 
 ## 2026-11-27: T33 stream-on register-list wait like SDK 2.1.0 (openimp #927)
 - `t33_rcfg_write_all` waited at most 1000 x udelay(1) (~1 ms) for the list trigger words 0x22010 / 0x22014 and then started the ISP (0x1040 = 1) with lists still loading. SDK 2.1.0 PRJ008 `lib_tisp_stream_on`: up to 1001 rounds of {both words 0: done; else write 0x22028 = 0 and 0x2202c = 0, msleep(5)} (~5 s), no 0x1040 on timeout. T33 now does the same (process context, no lock held); T32 keeps its short wait. Guard `tests/check_t33_streamon_wait.sh`. Built for T33 and T32 (rc 0); not run on a device or in QEMU (code-level fix; check `t33_rcfg_timeouts` stays 0 over a restart series).
+## 2026-11-27: T23 direct-mode ISR frame-drop counter wrap (open-tx-isp #5)
+- The frame-start ISR (`ispcore_interrupt_service_routine`) stepped the frame-drop counter at +478 and then stored 0 unconditionally: the lifted `beqzl v0,6b930` (delay slot `sb zero,478(s0)` @0x6b92c runs only when the counter passed the period at +477) was untranslated. Now `if (!v0) counter = 0` like the vendor (`ko_all.c:54209-54216`: ++ctr; if (period + 1 <= ctr) ctr = 0). Only matters after `IMP_ISP_SetFrameDrop` in direct mode (OpenIMP does not call it on T23). Guard `tests/check_t23_framedrop_wrap.sh`; T23 module builds (rc 0), no device run.
 
 ## 2026-11-27: low findings of the 2026-11-26 code check (openimp #919)
 - L1 (T23): a failing `request_irq` (or map) in the IVDC probe left the mapping, the memory region (a later insmod got -EBUSY) and the subdev clocks / pads behind; both failure paths now release them.
