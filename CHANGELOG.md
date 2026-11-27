@@ -18,6 +18,12 @@ marked otherwise. Release tags `vYYYY.MM.DD[-rcN]` are set on the `aperto` branc
 - #925 (T33): the vendor `sensor_cv2005_t33.ko` (H20260509c, md5 6351e2d9) has the codes of again table entries 13..15 out of order (`{0x0f, 4882}, {0x0d, 5330}, {0x0e, 5687}`); SDK 2.1.0 PRJ008 `cv2005.c:109-111` fixed it to 0x0d / 0x0e / 0x0f. `tools/patch_cv2005_again.py` patches the three code bytes at file offset 0x2068 / 0x2070 / 0x2078 (patched md5 49bde23e, refuses any other input). Wiring the patched ko into the T33L overlay and the AE ramp check on the device are pending.
 - #926 (T32/T33): the last close of /dev/tx-isp resets the online-LDC state like the SDK 2.1.0 `tx_isp_ldc_online_reset` (called from `tx_isp_release`, release notes ISP item 13): `core.ldc_mode = 0`, T33 `ldc_online_mode` / `ldc_init_on`, T32 `t32_ldc_sticky`. A killed client that used online LDC no longer leaves it latched for the next one. Guard `tests/check_t32_ldc_reset.sh`. Device / QEMU proof pending.
 
+## 2026-11-27: T23 direct mode DDR overflow counter (open-tx-isp #7, no code change)
+- Question: the IVDC DDR overflow counter rises once per frame in direct mode. Static check of the vendor tx-isp-t23.ko 1.3.0 ISR (`ivdc_core_interrupt_service_routine` ELF 0xbf84): the vendor reads the status word, writes it back (W1C) and counts every set bit per interrupt, with no ring or frame logic in the ISR, exactly like this port. The counter is therefore vendor-equal; it is visible through the new `/proc/jz/isp/isp-ivdc` (#4). Issue closed, no change.
+
+## 2026-11-27: frame-drop-once ioctls on T32 and T33 (openimp #929)
+- The module answered neither 0xc00454cd (set) nor 0xc00454ce (get) on T32 or T33 (f001 to the library). It now keeps the vendor once table per output and answers like the vendor modules (T33 vendor module `tx_isp_unlocked_ioctl` 0x17b80 / 0x17da0); QEMU `-M ingenic-t33` return codes and read-back as expected. Part of the commit with the #919 low findings above.
+
 ## 2026-11-27: low findings of the 2026-11-26 code check (openimp #919)
 - L1 (T23): a failing `request_irq` (or map) in the IVDC probe left the mapping, the memory region (a later insmod got -EBUSY) and the subdev clocks / pads behind; both failure paths now release them.
 - L2 (T23): the "IVDC gated" interrupt gate follows only the clocks the driver itself enables (`direct_enable_clks`); with that bring-up parameter off the stock path owns the clocks and the gate answered IRQ_NONE without the W1C ack (the #910 storm). Production builds do not have the parameter.
