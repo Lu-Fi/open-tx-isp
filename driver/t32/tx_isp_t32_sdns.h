@@ -16,6 +16,7 @@
 #define TX_ISP_T32_SDNS_H
 
 #include "tx_isp_t32_tp.h"
+#include "tx_isp_t32_dmsc.h"
 
 #define T32_SEC_SDNS		22
 #define T32_SDNS_SEC_BYTES	628U
@@ -104,7 +105,7 @@ struct t32_sdns_ctx {
 	u8 *param;		/* 55 interpolated parameter bytes */
 	u32 gain;		/* last accepted gain */
 	u32 rsvd;
-	u32 threshold;		/* not used by these functions */
+	u32 ratio;		/* vendor ctx +16: tisp_ratio byte, 128 at init (neutral) */
 };
 
 static inline void t32_sdns_intp(struct t32_sdns_ctx *ctx, u8 ch, u32 gain)
@@ -116,6 +117,14 @@ static inline void t32_sdns_intp(struct t32_sdns_ctx *ctx, u8 ch, u32 gain)
 		ctx->param[t32_sdns_map[k][1]] =
 			t32_tp_intp_u8(gain >> 16, gain & 0xffff,
 				       ctx->sec + t32_sdns_map[k][0]);
+	/*
+	 * SDK 2.1.0 tisp_sdns_intp (PRJ007 drv .dis 0x75314..0x75370): the ctx
+	 * ratio byte (+16, lw s5,16(v0)) scales output byte 20 (limit 16) and
+	 * byte 31 with the negated ratio (limit 108) via tisp_ratio.  2.0.0
+	 * ends after byte 54.  Ratio 128 (init value) leaves both unchanged.
+	 */
+	ctx->param[20] = t32_dmsc_ratio(ctx->ratio, ctx->param[20], 16);
+	ctx->param[31] = t32_dmsc_ratio(-ctx->ratio, ctx->param[31], 108);
 }
 
 static inline void t32_sdns_write_all_reg(const struct t32_sdns_ctx *ctx, u8 ch,

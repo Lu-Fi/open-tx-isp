@@ -522,6 +522,7 @@ void t32_pf_attach(enum t32_pp blk, u8 *sec)
 		pf.sdns.sec = sec;
 		pf.sdns.param = param;
 		pf.sdns.gain = (u32)-1;
+		pf.sdns.ratio = 128;	/* vendor tisp_sdns_init: ctx +16 = 128 */
 		break;
 	case T32_PP_DPC:
 		/*
