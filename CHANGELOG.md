@@ -4,6 +4,9 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD[-rcN]` are set on the `aperto` branch, the same tag in open-tx-isp and OpenIMP: RC1 `v2026.10.11-rc1`, RC2 `v2026.10.25-rc2`, RC3 `v2026.11.07-rc3` (2026-11-07). Gate SoCs of RC3 and Release 1: T10, T20, T21, T23, T30, T31, T40, T41 (T32/T33 planned, QEMU only); release notes: [docs/releases/ in OpenIMP](https://github.com/Lu-Fi/openimp/blob/next/docs/releases/README.md). Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-11-27: Tassadar SDK 2.1.0 fixes (openimp #923 #924 #925 #926)
+- #926 (T32/T33): the last close of /dev/tx-isp resets the online-LDC state like the SDK 2.1.0 `tx_isp_ldc_online_reset` (called from `tx_isp_release`, release notes ISP item 13): `core.ldc_mode = 0`, T33 `ldc_online_mode` / `ldc_init_on`, T32 `t32_ldc_sticky`. A killed client that used online LDC no longer leaves it latched for the next one. Guard `tests/check_t32_ldc_reset.sh`. Device / QEMU proof pending.
+
 ## 2026-11-27: low findings of the 2026-11-26 code check (openimp #919)
 - L1 (T23): a failing `request_irq` (or map) in the IVDC probe left the mapping, the memory region (a later insmod got -EBUSY) and the subdev clocks / pads behind; both failure paths now release them.
 - L2 (T23): the "IVDC gated" interrupt gate follows only the clocks the driver itself enables (`direct_enable_clks`); with that bring-up parameter off the stock path owns the clocks and the gate answered IRQ_NONE without the W1C ack (the #910 storm). Production builds do not have the parameter.

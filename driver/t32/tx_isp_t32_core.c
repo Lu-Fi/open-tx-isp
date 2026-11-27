@@ -1624,6 +1624,13 @@ static int t32_isp_release(struct inode *inode, struct file *file)
 			if (vi->registered || vi->client)
 				t32_vi_release(vi);
 		}
+		/*
+		 * #926: SDK 2.1.0 tx_isp_release calls the new tx_isp_ldc_online_reset on the last close (ldc_dev +316
+		 * LDC mode and the online flag, ldc_core_ops_ioctl 0x5000005): a dead client's online LDC must not
+		 * stay latched for the next one (RN 2.1.0 ISP item 13, process killed).
+		 */
+		core.ldc_mode = 0;
+		t32_ldc_online_reset();
 		t33_hw_flip_stop();	/* #779: no VIC hold left over, before the clocks stop */
 #ifdef TX_ISP_T33
 		t33_hw_lib_deinit();	/* lib_tisp_deinit: tisp_all_reset, LDC mask */

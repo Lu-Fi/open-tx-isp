@@ -296,6 +296,13 @@ void t32_ldc_input_latch(u32 mode)
 	ldc_init_on = ldc_online_mode && mode != 1;
 }
 
+/* #926: SDK 2.1.0 tx_isp_ldc_online_reset (tx_isp_release, last close): LDC mode and online flag cleared */
+void t32_ldc_online_reset(void)
+{
+	ldc_online_mode = 0;
+	ldc_init_on = 0;
+}
+
 /* GET_ISP_IPC_MEM_INFO: the LDC part (lib_tisp_get_isp_ipc_memory_space, single sensor) */
 u32 t32_ldc_ipc_size(u32 w, u32 h)
 {
@@ -598,6 +605,12 @@ void t32_ldc_mode_set(u32 mode)
 {
 	if (mode == 0)
 		t32_ldc_sticky = 1;
+}
+
+/* #926: SDK 2.1.0 tx_isp_ldc_online_reset (tx_isp_release, last close): LDC mode and online flag cleared */
+void t32_ldc_online_reset(void)
+{
+	t32_ldc_sticky = 0;
 }
 
 /* tisp_ldc_deinit (lib_tisp_deinit): LDC interrupts masked, context freed */
