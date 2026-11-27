@@ -1,0 +1,3 @@
+obj-m := sensor_gc4653_t32.o
+sensor_gc4653_t32-objs := gc4653.o sensor-info.o
+ccflags-y += -I$(src)/include -I$(K200) -DCONFIG_KERNEL_3_10 -DSENSOR_T32_PORT -DSENSOR_PROC_OWNED_BY_ISP
