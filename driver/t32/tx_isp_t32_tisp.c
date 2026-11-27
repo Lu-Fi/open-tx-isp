@@ -54,6 +54,7 @@
 #include "tx_isp_t32_dpc.h"
 #include "tx_isp_t32_gib.h"
 #include "tx_isp_t32_rdns.h"
+#include "tx_isp_t32_decmp.h"
 #include "tx_isp_t32_rdnstab.h"
 #include "tx_isp_t32_aeinit.h"
 #include "tx_isp_t32_aemath.h"
@@ -837,8 +838,8 @@ void t32_pf_start(void)
  * the ported tisp_<blk>_dn_params_refresh as tparamsP + the vendor offset (the T33 pattern), the old copy
  * freed; the block keeps its own gain.  Wired in this order: dpc, gib, dmsc, gamma, ysp, mdns, ydns, sdns,
  * cdns, rdns.  Defog: tisp_defog_dn_params_refresh in tx_isp_t32_defogd.c (#854).
- * The other blocks of the vendor list (top, ae, awb, lsc, tmo, ccm, clm, bcsh, lce,
- * decmp, csccr) keep the parameters of the stream-on bin (counted in t32_pf_stats.dn_missing).
+ * decmp follows rdns in the YUV stage (#970).  The other blocks of the vendor list (top, ae, awb, lsc, tmo, ccm,
+ * clm, bcsh, lce, csccr) keep the parameters of the stream-on bin (counted in t32_pf_stats.dn_missing).
  */
 static u8 *pf_dn_sec(const u8 *bin, u32 bytes, unsigned int idx, u32 need)
 {
@@ -959,6 +960,24 @@ yuv:
 			done++;
 		}
 		kfree(os);
+	}
+	/*
+	 * tisp_decmp_dn_params_refresh (vendor 0xaf9e0, openimp #970): decmp_info[0] word 0 = tuning base + 0xf00c
+	 * (section 26, 100 bytes; file offset 61604 - 0x98 = 0xf00c in gc4653-PRJ007), then tisp_decmp_ref_reg_cfg:
+	 * 23 writes from 0x27010.  No context and no gate: the vendor lib_tisp_init (tisp_decmp_init, 0xaf8d0) only
+	 * allocates it, so the first DECMP write of a channel is this refresh (or tisp_decmp_wake_up, aov / restart).
+	 */
+	{
+		u32 dlen, doff = t32_iq_section(bin, bytes, T32_SEC_DECMP, &dlen);
+
+		if (doff && dlen >= T32_DECMP_BYTES) {
+			u32 dp[T32_DECMP_BYTES / 4];
+			struct t32_decmp_ctx dc = { .param = dp, .rsvd = (u32)-1 };
+
+			memcpy(dp, bin + doff, sizeof(dp));
+			pf_flush(t32_decmp_ref_reg_cfg(&dc, pf_w));
+			done++;
+		}
 	}
 	t32_pf_stats.dn_runs++;
 out:

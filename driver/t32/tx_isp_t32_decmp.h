@@ -29,6 +29,7 @@
 
 #include "tx_isp_t32_tp.h"
 
+#define T32_SEC_DECMP 26
 #define T32_DECMP_PARAM_OFF 0xf00cU
 #define T32_DECMP_BYTES 100U
 #define T32_DECMP_WRITES 23

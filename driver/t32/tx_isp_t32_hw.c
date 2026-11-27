@@ -2737,8 +2737,8 @@ static int t32_csccr_dn_refresh(const u8 *bin, u32 bytes)
  * lib_tisp_refresh_para (vendor 0xc0714) after tisp_bin_data_parse, ispInitFinish == 1: the blocks' dn refreshes
  * in the vendor order top, dpc, gib, ae, awb, lsc, tmo, dmsc, gamma, ccm, clm, bcsh, ysp, mdns, ydns, sdns, cdns,
  * defog, lce, rdns, decmp, csccr, each on the live state of its module.  Not run here (counted in /proc):
- * lsc (PRJ007 day / night LSC sections and tables are identical), decmp (the T32 stream-on does not
- * program DECMP: no state to refresh).
+ * lsc (PRJ007 day / night LSC sections and tables are identical); decmp runs in the YUV stage (#970; the
+ * vendor stream-on does not program DECMP).
  */
 static void t32_binsw_refresh(const u8 *req)
 {
@@ -2853,7 +2853,7 @@ void t32_flip_show(struct seq_file *m)
 		   t32_binsw_st.calls, t32_binsw_st.holds, t32_binsw_st.ipc_waits, t32_binsw_st.ipc_timeouts,
 		   t32_binsw_st.refreshes, t32_binsw_st.blocks, t32_binsw_st.csccr_skipped,
 		   t32_binsw_st.csccr[0], t32_binsw_st.csccr[1]);
-	seq_printf(m, "t32 binsw dn: ae %u awb %u tmo %u tmo skipped %u (lsc, decmp: not refreshed)\n",
+	seq_printf(m, "t32 binsw dn: ae %u awb %u tmo %u tmo skipped %u (lsc: not refreshed)\n",
 		   t32_aec_stats.dn_refreshes, t32_awbc_stats.dn_refreshes, t32_tmo_stats.dn_refreshes,
 		   t32_tmo_stats.dn_skipped);
 	{
