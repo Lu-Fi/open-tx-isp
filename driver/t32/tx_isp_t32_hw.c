@@ -2288,12 +2288,18 @@ static noinline_for_stack void t33_tisp_init_mdns(const u8 *bin, u32 bytes)
 	if (!buf)
 		return;
 	t33_mdns_mem(width, height, r < 1001 ? r : r / 100 * 100, pa, t33_mdns_v, buf, &d080);
-	isp_wr(0xd080, d080);
-	tisp_rcfg_module_cfg_trig(0, 15);	/* tisp_mdns_t33_set_mem_cfg ends with trig(0, 15) (0x8b6f0, #755) */
+	/*
+	 * tisp_ysp_init's tisp_ysp_refresh -> par_refresh -> tisp_mdns_decode_reg_write writes the 14 decode words and
+	 * the 0x1c1 slot (the 15 words of port 0xd2fc, e.g. 0x00908008 0x00e0c0a0 ...) into list 15 before the
+	 * trig(0, 15) of tisp_mdns_t33_set_mem_cfg: the vendor's first list 15 run carries the curve (openimp #971).
+	 * Here the YSP block's words are decoded into the list before that trig.
+	 */
 	if (t33_mod_built & (1ULL << T33_MOD_YSP)) {
 		t33_mdns_decode(t33_ysp_v, buf);
 		t33_bst_refresh_mdns = 1;	/* tisp_mdns_decode_reg_write: tispMdnsRefresh = 1 (0x97dd4 / 0x97e0c, #755) */
 	}
+	isp_wr(0xd080, d080);
+	tisp_rcfg_module_cfg_trig(0, 15);	/* tisp_mdns_t33_set_mem_cfg ends with trig(0, 15) (0x8b6f0, #755) */
 }
 
 /*
