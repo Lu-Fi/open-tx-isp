@@ -250,8 +250,10 @@ void t32_defog_park(void);	/* tx_isp_t32_hw.c: 0xa210..0xa21c back to the static
 /* tx_isp_t32_tmo.c: the vendor TMO / ADR block (tisp_tmo_init, bits 9 / 31), behind T32_PP_TMO */
 struct t32_tmo_drv_stats {
 	u32 attaches, tmo_irqs, fbf_irqs, tgains;
+	u32 dn_refreshes, dn_skipped;	/* tisp_tmo_dn_params_refresh of the bin switch (#534) */
 };
 extern struct t32_tmo_drv_stats t32_tmo_stats;
+int t32_tmo_dn_refresh(const u8 *bin, u32 bytes);	/* tisp_tmo_dn_params_refresh on the live TMO (#534) */
 void t32_tmo_attach(const u8 *bin, u32 bytes, u32 width, u32 height);
 void t32_tmo_detach(void);
 void t32_tmo_tgain(u32 ch, u64 gain);

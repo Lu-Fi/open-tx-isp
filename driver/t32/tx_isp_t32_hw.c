@@ -232,8 +232,12 @@ static void t33_tisp_top_save(const u8 *sec)
 	memcpy(t33_tisp_top, sec, sizeof(t33_tisp_top));
 	t33_tisp_top_ok = true;
 }
-/* lists 2..4, 6..9, 12..15, 17..22 */
-#define T33_INIT_REFRESH	0x007ef3dcU
+/*
+ * lists 2..4, 6..9, 12..14, 17..22.  Not list 15 (MDNS): tisp_mdns_init leaves tispMdnsRefresh = 1 and mdnsInit = 1,
+ * and the vendor's first MDNS frame done (system irq 50, tisp_mdns_t33_frame_done_interrupt) writes slot 2 (0xd018)
+ * = 0 first, then triggers list 15 (openimp #507: the bulk mark ran list 15 before that slot write).
+ */
+#define T33_INIT_REFRESH	0x007e73dcU
 #define T33_TMO_START_REG	0x70f0U
 extern u32 t33_rcfg_runs;
 #define T33_INT_LCE	(1U << 8)
@@ -2733,7 +2737,7 @@ static int t32_csccr_dn_refresh(const u8 *bin, u32 bytes)
  * lib_tisp_refresh_para (vendor 0xc0714) after tisp_bin_data_parse, ispInitFinish == 1: the blocks' dn refreshes
  * in the vendor order top, dpc, gib, ae, awb, lsc, tmo, dmsc, gamma, ccm, clm, bcsh, ysp, mdns, ydns, sdns, cdns,
  * defog, lce, rdns, decmp, csccr, each on the live state of its module.  Not run here (counted in /proc):
- * lsc (PRJ007 day / night LSC sections and tables are identical), tmo, decmp (the T32 stream-on does not
+ * lsc (PRJ007 day / night LSC sections and tables are identical), decmp (the T32 stream-on does not
  * program DECMP: no state to refresh).
  */
 static void t32_binsw_refresh(const u8 *req)
@@ -2754,6 +2758,7 @@ static void t32_binsw_refresh(const u8 *req)
 	off = t32_iq_section(bin, bytes, T32_IQ_SEC_AWB, &len);
 	if (off)
 		blocks += t32_awbc_dn_refresh(bin + off, len);
+	blocks += t32_tmo_dn_refresh(bin, bytes);
 	blocks += t32_pf_dn_refresh(bin, bytes, mode, T32_PF_DN_RGB);
 	blocks += t32_ctup_dn_refresh(bin, bytes);
 	blocks += t32_pf_dn_refresh(bin, bytes, mode, T32_PF_DN_YUV);
@@ -2848,6 +2853,9 @@ void t32_flip_show(struct seq_file *m)
 		   t32_binsw_st.calls, t32_binsw_st.holds, t32_binsw_st.ipc_waits, t32_binsw_st.ipc_timeouts,
 		   t32_binsw_st.refreshes, t32_binsw_st.blocks, t32_binsw_st.csccr_skipped,
 		   t32_binsw_st.csccr[0], t32_binsw_st.csccr[1]);
+	seq_printf(m, "t32 binsw dn: ae %u awb %u tmo %u tmo skipped %u (lsc, decmp: not refreshed)\n",
+		   t32_aec_stats.dn_refreshes, t32_awbc_stats.dn_refreshes, t32_tmo_stats.dn_refreshes,
+		   t32_tmo_stats.dn_skipped);
 	{
 		u32 live, inits, starts, stops;
 

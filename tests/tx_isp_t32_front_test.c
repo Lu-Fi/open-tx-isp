@@ -63,8 +63,11 @@ int main(void)
 	{
 		static u8 sec[T32_CSCCR_BYTES], csc[T32_CSC_BYTES];
 
-		sec[4] = 3;
+		sec[4] = 3;	/* section ranges all 0: empty, refused */
 		CHECK(t32_csccr_init(sec, w) == -1);
+		sec[6] = sec[8] = sec[10] = sec[12] = 255;	/* mode 3 with 0..255 ranges (PRJ007 day bin, #534) */
+		CHECK(t32_csccr_init(sec, w) == 6 && w[0].val == 0x400 && w[3].val == 0x7f0180);
+		sec[6] = sec[8] = sec[10] = sec[12] = 0;
 		sec[4] = 1;
 		CHECK(t32_csccr_init(sec, w) == 6 && w[0].val == (255 * 1024 + 109) / 219);
 		csc[0x5b] = 6;

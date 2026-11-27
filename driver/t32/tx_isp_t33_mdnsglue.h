@@ -180,8 +180,11 @@ static int t33_mdnsg_init(const u8 *sec, u32 w, u32 h, u32 memopt)
 	t33_mdnsg_info[0] = 0;
 	local_irq_save(flags);
 	t33_tisp_mdns_init(0, ip);
-	/* the init's tispMdnsRefresh = 1 is the stream-on mark of T33_INIT_REFRESH (as group 14) */
-	t33_bst_refresh_mdns = 0;
+	/*
+	 * the init's tispMdnsRefresh = 1 stays: the first irq 50 (t33_mdns_fd) writes 0xd018 = 0 (mdnsInit), then
+	 * triggers list 15, as the vendor; list 15 is not in T33_INIT_REFRESH (openimp #507)
+	 */
+	t33_bst_refresh_mdns = 1;
 	local_irq_restore(flags);
 	t33_mdnsg_runs[0]++;
 	return t33_mdnsg_info[0] ? 0 : -1;

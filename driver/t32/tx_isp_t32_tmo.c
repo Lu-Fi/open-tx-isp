@@ -179,3 +179,78 @@ void t32_tmo_tgain(u32 ch, u64 gain)
 	}
 	spin_unlock_irqrestore(&tmo_lock, f);
 }
+
+/*
+ * tisp_tmo_dn_params_refresh (vendor tx-isp-t32.ko, Ghidra t32 0xae2c8; openimp #534) on the live TMO, through the
+ * ported t32_tmo_dn_params_refresh: the vendor copies 258 bytes of the gamma payload (stLutInfo[ch] + 0x20, the
+ * parse table's, i.e. the new bin's) to old context + 9272 and re-points the record at tparamsP + 0x2ec8.  Both are
+ * the same tparamsP bytes, which tisp_bin_data_parse rewrote in place: here the new section is copied over the
+ * TMO's context copy first (same address, as the vendor).  Then the setters' refresh t32_tmo_set_refresh:
+ * params_hard_refresh, dark_ctr_interp, satcurve_ev_interp, tmoadr_default_reg_refresh, lcac_no_refresh, and
+ * for the TMO mode (ctx byte 10042 == 1) ev_interp, tmo_default_reg_refresh, ramY (vi0, direct mode).  The ADR
+ * mode (byte 0) needs the vendor tables bff90 / c00bc this driver does not carry: such a bin is not refreshed
+ * (counted, the TMO keeps the stream-on context).  Under tmo_lock, as the interrupt handlers.  Returns 1 when refreshed.
+ */
+static void dn_hook(void *cb, int id, int ch)
+{
+	(void)cb;
+	switch (id) {
+	case 0:
+		t32_tmob_tmoadr_default(ch);
+		break;
+	case 1:
+		t32_lcac_no_refresh(&t32_tmob_lcac_ops, (u32)ch, T32_TMOB_PTR(t32_tmob_rw(ch)[0]));
+		break;
+	case 2:
+		t32_tmob_tmo_default(ch);
+		break;
+	case 3:
+	case 4:
+		t32_tmob_ramy(ch);	/* vi1 / vi0 by t32_tmob.d03a0, as the hook ids */
+		break;
+	default:		/* 5 adr_reg_write_sometimes: ADR mode only, refused above */
+		break;
+	}
+}
+
+int t32_tmo_dn_refresh(const u8 *bin, u32 bytes)
+{
+	struct t32_tmo_set_env e;
+	struct t32_tmo_rec r;
+	u32 off, len = 0, goff, glen = 0;
+	unsigned long f;
+	u8 *b;
+
+	off = t32_iq_section(bin, bytes, T32_TMOB_SEC, &len);
+	if (!off || len < T32_TMOB_SEC_BYTES)
+		return 0;
+	if (bin[off + 10042] == 0) {
+		t32_tmo_stats.dn_skipped++;
+		return 0;
+	}
+	goff = t32_iq_section(bin, bytes, 13, &glen);
+	spin_lock_irqsave(&tmo_lock, f);
+	if (!tmo_on || !tmo_ctx || !tmo_gamma || !t32_tmob.e35e0[0] || !t32_pp_on(T32_PP_TMO)) {
+		spin_unlock_irqrestore(&tmo_lock, f);
+		return 0;
+	}
+	memcpy(tmo_ctx, bin + off, T32_TMOB_SEC_BYTES);
+	if (goff && goff + glen + T32_TMOB_GAMMA_BYTES <= bytes)
+		memcpy(tmo_gamma, bin + goff + glen, T32_TMOB_GAMMA_BYTES);
+	t32_tmob_rec(0, &r);
+	b = t32_tmob_rb(0);
+	memset(&e, 0, sizeof(e));
+	e.r = &r;
+	e.rec50 = (u16 *)(b + 50);
+	e.rec52 = b + 52;
+	e.pend = (u16 *)&t32_tmob.e3528[0];
+	e.e3520 = (u16 *)&t32_tmob.e3520[0];
+	e.e3518 = &t32_tmob.e3518;
+	e.exp2 = t32_aem_exp2;
+	e.d03a0 = t32_tmob.d03a0;
+	e.hook = dn_hook;
+	t32_tmo_dn_params_refresh(&e, tmo_ctx, tmo_gamma, 0);
+	t32_tmo_stats.dn_refreshes++;
+	spin_unlock_irqrestore(&tmo_lock, f);
+	return 1;
+}

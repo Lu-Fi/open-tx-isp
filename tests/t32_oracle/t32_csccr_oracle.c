@@ -9,7 +9,8 @@
  * IQ section 10 (20 bytes) sits at tuning base + 27488 as in the vendor.
  * Inputs: random sections with every mode byte (+4) 0..255 and section 10 of
  * every *.bin in T32_IQ_DIR (default ../external/ingenic-sdk/sensor-iq/t32).
- * Modes above 2: ours refuses on purpose (returns -1); counted, not compared.
+ * Modes above 2 take the section's own ranges (+5 .. +12) like the vendor and are compared too (openimp #534);
+ * reversed or empty ranges are refused (the vendor divides by zero), counted, not compared.
  *
  * Exit 0 = all compared cases equal; 1 = mismatch; 2 = strict and no bins.
  */
@@ -41,9 +42,11 @@ static int run_mode(const char *what, const u8 *sec, u8 mode)
 	unsigned int i;
 
 	on = t32_csccr_init(sec, ow);
-	if (on < 0) {
+	if (on < 0) {	/* refused: reversed or empty ranges only (the vendor divides by zero there) */
+		const u8 *m = sec[4] <= 2 ? t32_csccr_modes[sec[4]] : sec + 5;
+
 		refused += !mode;
-		if (sec[4] <= 2) {	/* refusal is only for modes above 2 */
+		if (!(m[1] <= m[0] || m[3] < m[2] || m[5] <= m[4] || m[7] < m[6])) {
 			if (failed++ < 5)
 				printf("MISMATCH %s: ours refused mode %u\n", what, sec[4]);
 			return 1;
@@ -69,7 +72,8 @@ static int run_mode(const char *what, const u8 *sec, u8 mode)
 
 		memcpy(e, sec, SECB);
 		/* tisp_csccr_init stores the mode's range table in section bytes 5..12 and clears 13, 14 (ours keeps the section const) */
-		memcpy(e + 5, t32_csccr_modes[sec[4]], 8);
+		if (sec[4] <= 2)	/* modes above 2 keep the section's ranges (openimp #534) */
+			memcpy(e + 5, t32_csccr_modes[sec[4]], 8);
 		e[13] = e[14] = 0;
 		if (memcmp(base + SEC_OFF, e, SECB))
 			goto bad;

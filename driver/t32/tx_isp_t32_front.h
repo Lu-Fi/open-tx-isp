@@ -170,9 +170,8 @@ static inline int t32_csccr_init(const u8 *sec, struct t32_front_write *w)
 	int y_in, y_out, c_in, c_out, k_y, k_c;
 	unsigned int n = 0;
 
-	if (sec[4] > 2)
-		return -1;
-	m = t32_csccr_modes[sec[4]];
+	/* tisp_csccr_para_refresh_by_mode: modes above 2 keep the section's own ranges +5 .. +12 (openimp #534) */
+	m = sec[4] <= 2 ? t32_csccr_modes[sec[4]] : sec + 5;
 	if (m[1] < m[0] || m[3] < m[2] || m[5] < m[4] || m[7] < m[6] || m[1] == m[0] || m[5] == m[4])
 		return -1;
 	y_in = m[1] - m[0];
