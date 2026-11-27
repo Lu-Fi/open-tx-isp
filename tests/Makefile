@@ -196,6 +196,7 @@ t23_param_own_check:
 	sh ./check_t23_qc3_1123.sh ../driver/t23
 	sh ./check_t23_ivdc_irq.sh ../driver/t23
 	sh ./check_t23_ivdc_ring.sh ../driver/t23
+	sh ./check_919_lows.sh ../driver
 
 # T23 bypass graph VIC bank ring: mutation check (Lu-Fi/openimp#129)
 t23_bypass_host:

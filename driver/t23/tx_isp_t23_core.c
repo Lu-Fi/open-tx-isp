@@ -871,6 +871,9 @@ static int t23_ivdc_threshold_line;
 static unsigned int t23_ivdc_mem_paddr;
 static int t23_isp_memopt;
 static struct device *t23_ivdc_dev;     /* the probed IVDC device (ring allocation) */
+/* #919 L4: core top register 0x1c is written from process context and read-modify-written by the
+ * frame-start guard in the hard ISR; one irqsave lock makes each access atomic against the other */
+static DEFINE_SPINLOCK(t23_top1c_lock);
 
 static int isp_day_night_switch_drop_frame_num;
 module_param(isp_day_night_switch_drop_frame_num, int, 0);
@@ -15327,7 +15330,13 @@ static int regtrace_t23_source_core_set_stream_unlocked(int enable,
     ACCESS_ONCE(regtrace_t23_bayer_pending) = UINT_MAX;
     system_reg_write(0x8U, regtrace_t23_source_core_bayer);
     /* #800: direct mode keeps the IVDC bits (t23_ivdc_core_top1c) */
-    system_reg_write(0x1cU, t23_ivdc_core_top1c(t23_ivdc_direct_mode, 0U));
+    {
+        unsigned long f1c;
+
+        spin_lock_irqsave(&t23_top1c_lock, f1c);
+        system_reg_write(0x1cU, t23_ivdc_core_top1c(t23_ivdc_direct_mode, 0U));
+        spin_unlock_irqrestore(&t23_top1c_lock, f1c);
+    }
     system_reg_write(0x2cU, 0x400040U);
     system_reg_write(0xcU, bypass);
     system_reg_write(0x10U, 0xf3U);
@@ -15465,8 +15474,14 @@ static int regtrace_t23_source_core_set_stream_unlocked(int enable,
     if (regtrace_t23_source_msca_init)
         system_reg_write(0x33cU, 0x20230219U);
     system_reg_write(0x804U, regtrace_t23_source_core_mode);
-    system_reg_write(0x1cU, t23_ivdc_core_top1c(t23_ivdc_direct_mode,
-                                                regtrace_t23_source_stock_stream_regs ? 0U : 8U));
+    {
+        unsigned long f1c;
+
+        spin_lock_irqsave(&t23_top1c_lock, f1c);
+        system_reg_write(0x1cU, t23_ivdc_core_top1c(t23_ivdc_direct_mode,
+                                                    regtrace_t23_source_stock_stream_regs ? 0U : 8U));
+        spin_unlock_irqrestore(&t23_top1c_lock, f1c);
+    }
     system_reg_write(0x800U, 1U);
     if (regtrace_t23_source_awb_static_init)
         regtrace_t23_source_awb_write_static_startup();
@@ -17661,8 +17676,14 @@ static void regtrace_t23_ivdc_core_init(void)
     ACCESS_ONCE(t23_isr_enable) |= BIT(12);
     if (!base || regtrace_t23_ivdc_state == 3)
         return;
-    system_reg_write(0x1cU, ((uint32_t)system_reg_read(0x1cU) & 0x1fffffffU) |
-                            0xa0000000U);
+    {
+        unsigned long f1c;
+
+        spin_lock_irqsave(&t23_top1c_lock, f1c);
+        system_reg_write(0x1cU, ((uint32_t)system_reg_read(0x1cU) & 0x1fffffffU) |
+                                0xa0000000U);
+        spin_unlock_irqrestore(&t23_top1c_lock, f1c);
+    }
     writel(1U, base + 0x0);
     while ((readl(base + 0x0) & 1U) && tries--) {
         writel(0x30U, base + 0x70);
@@ -20994,6 +21015,12 @@ out:
         private_clk_disable(clks[--n]);
 }
 
+static void regtrace_t23_release_subdev_safe(struct platform_device *pdev,
+                                             unsigned char *sd,
+                                             bool release_irq,
+                                             bool release_mem,
+                                             bool *clks_enabled);
+
 static int regtrace_t23_probe_ivdc_safe(struct platform_device *pdev)
 {
     unsigned char *ivdc = private_kmalloc(440, GFP_KERNEL);
@@ -21020,7 +21047,7 @@ static int regtrace_t23_probe_ivdc_safe(struct platform_device *pdev)
      */
     ret = regtrace_t23_map_mem(pdev, sd, 0, 184, 0);
     if (ret)
-        goto fail;
+        goto fail_sd;    /* #919 L1: clocks / pads of tx_isp_subdev_init; no region of ours */
     regtrace_t23_ivdc_quiesce(sd, "probe");
     *(uint32_t *)(sd + 52) = (uint32_t)(uintptr_t)&sclk_name;
     *(uint32_t *)(sd + 212) = (uint32_t)(uintptr_t)sd;
@@ -21029,6 +21056,9 @@ static int regtrace_t23_probe_ivdc_safe(struct platform_device *pdev)
     ret = regtrace_t23_request_irq(pdev, sd);
     if (ret) {
         regtrace_t23_ivdc_sd = NULL;
+        /* #919 L1: the region + mapping of regtrace_t23_map_mem and the subdev
+         * resources would leak (a later insmod then fails with -EBUSY) */
+        regtrace_t23_release_subdev_safe(pdev, sd, false, true, NULL);
         goto fail;
     }
     g_ivdc = (uintptr_t)ivdc;
@@ -21037,6 +21067,8 @@ static int regtrace_t23_probe_ivdc_safe(struct platform_device *pdev)
            ivdc, sd, (void *)(uintptr_t)*(uint32_t *)(sd + 184));
     return 0;
 
+fail_sd:
+    regtrace_t23_release_subdev_safe(pdev, sd, false, false, NULL);
 fail:
     private_kfree(ivdc);
     return ret;
@@ -21228,6 +21260,9 @@ static int regtrace_t23_remove_ivdc_safe(struct platform_device *pdev)
     if (!sd)
         return 0;
     ivdc = sd - 36;
+    /* #919 L3: stop the kept output and free a driver-allocated ring
+     * (t23_ivdc_dev is still the owner); the next load programs its own */
+    regtrace_t23_ivdc_free_ring();
     /* #910: leave no unmasked, latched IVDC status for the next load */
     regtrace_t23_ivdc_quiesce(sd, "remove");
     regtrace_t23_release_subdev_safe(
@@ -21236,6 +21271,7 @@ static int regtrace_t23_remove_ivdc_safe(struct platform_device *pdev)
     regtrace_t23_ivdc_sd = NULL;
     regtrace_t23_ivdc_irq_enabled = false;
     g_ivdc = 0;
+    t23_ivdc_dev = NULL;
     printk(KERN_INFO "t23: safe remove ivdc\n");
     return 0;
 }
@@ -36385,15 +36421,25 @@ static int32_t isp_irq_handle_body(int32_t irq, void *dev_id)
             ACCESS_ONCE(regtrace_t23_bayer_pending) = UINT_MAX;
         }
 
-        /* #800 guard (beyond vendor): at the frame start, before the MSCA
-         * writes this frame, channel 0 must not run without the direct bits
-         * (it would write to DDR 0); restore them and count it */
+        /* #800 guard (beyond vendor): at the frame start (the interrupt
+         * runs a little after the start, so this limits a DDR 0 write to
+         * the rest of that frame, it does not prevent it), channel 0 must
+         * not run without the direct bits; restore them and count it.  The
+         * read-modify-write is atomic against the process-context 0x1c
+         * writes (#919 L4). */
         if ((status0 & 0x1000U) && t23_ivdc_direct_mode == 1 &&
             (readl(base + 0xd040U) & 1U)) {
-            uint32_t top = readl(base + 0x1cU);
+            uint32_t top;
+            bool fixed = false;
 
+            spin_lock(&t23_top1c_lock);
+            top = readl(base + 0x1cU);
             if (t23_ivdc_tag_unsafe(t23_ivdc_direct_mode, top)) {
                 writel(t23_ivdc_core_top1c(1, top), base + 0x1cU);
+                fixed = true;
+            }
+            spin_unlock(&t23_top1c_lock);
+            if (fixed) {
                 regtrace_t23_ivdc_fs_fixes++;
                 printk_ratelimited(KERN_ERR "t23: frame start with channel 0 on and 0x1c = 0x%x: direct bits restored (#800)\n",
                                    top);
@@ -36466,7 +36512,10 @@ static int32_t isp_irq_handle_body(int32_t irq, void *dev_id)
             return IRQ_NONE;
         /* #910: no access to the gated IVDC (bus hang); the probe
          * quiesce leaves no source pending before the stream clocks */
-        if (!regtrace_t23_ivdc_clks_enabled)
+        /* #919 L2: the flag only follows the clocks this driver enables
+         * (direct_enable_clks); with it off the stock path owns them and
+         * the gate must not swallow the interrupt without the W1C ack */
+        if (regtrace_t23_direct_enable_clks && !regtrace_t23_ivdc_clks_enabled)
             return regtrace_t23_irq_none("IVDC gated", irq);
 
         status0 = readl(base + 0x44);

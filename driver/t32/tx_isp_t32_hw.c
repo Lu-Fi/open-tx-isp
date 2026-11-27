@@ -6078,6 +6078,9 @@ err:
 	return ret;
 }
 
+/* rmmod: one frame still in flight inside the core (15 fps = 67 ms), with margin */
+#define T32_HW_EXIT_DRAIN_MS	100
+
 void t32_hw_exit(void)
 {
 	int i, regs;
@@ -6103,6 +6106,12 @@ void t32_hw_exit(void)
 		t32_ctup_detach();	/* after the AWB: its work runs the ct fan-out */
 		t32_afgsm_exit();	/* tisp_af_deinit */
 		t32_stats_off();	/* no statistics DMA into the buffers freed below */
+		/*
+		 * #919 L6: the VIC is stopped, but a frame already inside the core still finishes and its
+		 * defog / LCE / statistics DMA writes the buffers freed below (the vendor frees them only in
+		 * lib_tisp_deinit after tisp_top_deinit, openimp #892).  Let that frame drain.
+		 */
+		msleep(T32_HW_EXIT_DRAIN_MS);
 	}
 	if (irqs_requested) {
 		free_irq(vic_irq, &csi_base);

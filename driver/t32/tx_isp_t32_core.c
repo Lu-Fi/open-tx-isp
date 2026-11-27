@@ -668,6 +668,24 @@ static long t32_frame_drop_set(unsigned long arg)
 	return r;
 }
 #else
+/* tisp_set_frame_drop for one output (the per-output loop body of SET_FRAME_DROP): 0, or -1 for lsize >= 32 */
+static long t32_fd_hw_one(int k, const u32 *e)
+{
+	u32 skip = 0, mask = 0xffffffff;
+
+	if (e[0] == 1) {
+		skip = *(const u8 *)(e + 1);
+		if (skip >= 32) {
+			isp_printf(1, "FPS over 32 in the numerator or denominator!!! Setup failed!!!\n");
+			return -1;
+		}
+		mask = e[2];
+	}
+	t32_hw_wr(T32_MSCA_FDROP_SKIP(k), skip);
+	t32_hw_wr(T32_MSCA_FDROP_MASK(k), mask);
+	return 0;
+}
+
 static long t32_frame_drop_set(unsigned long arg)
 {
 	u32 b[T32_FD_BLOCK / 4];
@@ -678,22 +696,8 @@ static long t32_frame_drop_set(unsigned long arg)
 		isp_printf(2, "[ %s:%d ] copy from user error\n", "tx_isp_set_frame_drop", 0x775);
 		return -EFAULT;
 	}
-	for (k = 0; k < T32_FD_OUTPUTS; k++) {
-		u32 *e = &b[1 + 3 * k], skip = 0, mask = 0xffffffff;
-
-		r = 0;
-		if (e[0] == 1) {
-			skip = *(u8 *)(e + 1);
-			if (skip >= 32) {
-				isp_printf(1, "FPS over 32 in the numerator or denominator!!! Setup failed!!!\n");
-				r = -1;
-				continue;
-			}
-			mask = e[2];
-		}
-		t32_hw_wr(T32_MSCA_FDROP_SKIP(k), skip);
-		t32_hw_wr(T32_MSCA_FDROP_MASK(k), mask);
-	}
+	for (k = 0; k < T32_FD_OUTPUTS; k++)
+		r = t32_fd_hw_one(k, &b[1 + 3 * k]);
 	return r;
 }
 #endif
@@ -750,6 +754,83 @@ static long t32_frame_drop_get(unsigned long arg)
 #endif
 	if (copy_to_user((void __user *)arg, b, sizeof(b))) {
 		isp_printf(2, "[ %s:%d ] copy to user error\n", "tx_isp_get_frame_drop", 0x7b5);
+		return -EFAULT;
+	}
+	return 0;
+}
+
+/*
+ * SET_FRAME_DROP_ONCE 0xc00454cd / GET_FRAME_DROP_ONCE 0xc00454ce (vendor tx_isp_set_frame_drop_once /
+ * tx_isp_get_frame_drop_once, openimp #929; T33 vendor tx-isp-t33.ko tx_isp_unlocked_ioctl 0x17b80 / 0x17da0,
+ * the T32 oracle tx_isp_t32_txuioctl.h t32_uio_set_frame_drop_once).  Both keep a software once table per
+ * output {lsize, fmark} beside the register setter: Set per output k: enable != 1 -> table lsize 0, fmark
+ * 0xffffffff, enable stored; enable 1 -> lsize >= 32: message and -1 (earlier outputs stay set); else
+ * table lsize 31, fmark = (bits above lsize) | fmark; then the register setter with the block entry as
+ * given (the tisp path, core +1196 / +1192 == 1 on this stack), its result is the ioctl result.  Get: the
+ * block is read from user space, lsize / fmark of the table written back, 0.
+ */
+static struct {
+	u8 lsize;
+	u32 fmark;
+} t32_fd_once[T32_FD_OUTPUTS];
+static DEFINE_SPINLOCK(t32_fd_once_lock);
+
+static long t32_frame_drop_once_set(unsigned long arg)
+{
+	u32 b[T32_FD_BLOCK / 4];
+	long r = 0;
+	int k;
+
+	if (copy_from_user(b, (void __user *)arg, sizeof(b))) {
+		isp_printf(2, "[ %s:%d ] copy from user error\n", "tx_isp_set_frame_drop_once", 0x7c6);
+		return -EFAULT;
+	}
+	for (k = 0; k < T32_FD_OUTPUTS; k++) {
+		u32 *e = &b[1 + 3 * k];
+		u8 ls = *(u8 *)(e + 1);
+		unsigned long fl;
+
+		spin_lock_irqsave(&t32_fd_once_lock, fl);
+		if (e[0] != 1) {
+			t32_fd_once[k].lsize = 0;
+			t32_fd_once[k].fmark = 0xffffffff;
+		} else if (ls >= 32) {
+			spin_unlock_irqrestore(&t32_fd_once_lock, fl);
+			isp_printf(1, "FPS over 32 in the numerator or denominator!!! Setup failed!!!\n");
+			return -1;
+		} else {
+			t32_fd_once[k].lsize = 31;
+			t32_fd_once[k].fmark = (ls == 31 ? 0 : ~0u << (ls + 1)) | e[2];
+		}
+		spin_unlock_irqrestore(&t32_fd_once_lock, fl);
+#ifdef TX_ISP_T33
+		r = t33_msca_set_frame_drop(&t33_fd_io, 1, k, (const u8 *)e);
+#else
+		r = t32_fd_hw_one(k, e);
+#endif
+	}
+	return r;
+}
+
+static long t32_frame_drop_once_get(unsigned long arg)
+{
+	u32 b[T32_FD_BLOCK / 4];
+	int k;
+
+	if (copy_from_user(b, (void __user *)arg, sizeof(b))) {
+		isp_printf(2, "[ %s:%d ] copy from user error\n", "tx_isp_get_frame_drop_once", 0x801);
+		return -EFAULT;
+	}
+	for (k = 0; k < T32_FD_OUTPUTS; k++) {
+		unsigned long fl;
+
+		spin_lock_irqsave(&t32_fd_once_lock, fl);
+		*(u8 *)&b[2 + 3 * k] = t32_fd_once[k].lsize;
+		b[3 + 3 * k] = t32_fd_once[k].fmark;
+		spin_unlock_irqrestore(&t32_fd_once_lock, fl);
+	}
+	if (copy_to_user((void __user *)arg, b, sizeof(b))) {
+		isp_printf(2, "[ %s:%d ] copy to user error\n", "tx_isp_get_frame_drop_once", 0x80b);
 		return -EFAULT;
 	}
 	return 0;
@@ -1081,6 +1162,12 @@ static long t32_isp_ioctl(struct file *file, unsigned int cmd, unsigned long arg
 		break;
 	case T32_IOC_GET_FRAME_DROP:
 		ret = t32_frame_drop_get(arg);
+		break;
+	case T32_IOC_SET_FRAME_DROP_ONCE:
+		ret = t32_frame_drop_once_set(arg);
+		break;
+	case T32_IOC_GET_FRAME_DROP_ONCE:
+		ret = t32_frame_drop_once_get(arg);
 		break;
 	case T32_IOC_GET_RUN_MODE:
 		/* tx_isp_get_isp_driver_running_mode: the running-mode word */

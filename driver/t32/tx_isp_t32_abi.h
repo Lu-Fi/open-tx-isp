@@ -40,6 +40,8 @@
 #define T32_IOC_BYPASS_SENSOR		0x80085418U	/* W 8 B {enable, input} (vendor tx_isp_bypass_all; openimp #446) */
 #define T32_IOC_SET_FRAME_DROP		0xc004542cU	/* RW 40 B {u8 vi, 3 x {enable, u8 lsize, fmark}} (vendor tx_isp_set_frame_drop) */
 #define T32_IOC_GET_FRAME_DROP		0xc004542dU	/* same block, driver fills lsize / fmark (tx_isp_get_frame_drop) */
+#define T32_IOC_SET_FRAME_DROP_ONCE	0xc00454cdU	/* RW 40 B, same block (vendor tx_isp_set_frame_drop_once; openimp #929) */
+#define T32_IOC_GET_FRAME_DROP_ONCE	0xc00454ceU	/* same block, lsize / fmark of the once table back (tx_isp_get_frame_drop_once) */
 #define T32_IOC_SET_INTERNAL_CHN_ATTR	0xc004542fU	/* libimp IMP_ISP_SetInternalChnAttr: no vendor handler, answered 0, block untouched */
 #define T32_IOC_GET_INTERNAL_CHN_ATTR	0xc0045430U	/* libimp IMP_ISP_GetInternalChnAttr: same */
 #define T32_IOC_BYPASS_SENSOR		0x80085418U	/* W {enable, input}: IMP_ISP_SetISPBypass */

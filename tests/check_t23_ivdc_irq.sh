@@ -22,6 +22,6 @@ b=$(echo "$rem" | grep -n 'regtrace_t23_release_subdev_safe(' | cut -d: -f1)
 { [ -n "$a" ] && [ -n "$b" ] && [ "$a" -lt "$b" ]; } || { echo "check_t23_ivdc_irq: remove does not quiesce the IVDC before the irq is freed"; fail=1; }
 qz=$(sed -n '/^static void regtrace_t23_ivdc_quiesce(/,/^}/p' "$f")
 echo "$qz" | grep -q 'private_clk_enable(clk)' || { echo "check_t23_ivdc_irq: quiesce does not hold the IVDC clocks"; fail=1; }
-grep -q 'if (!regtrace_t23_ivdc_clks_enabled)' "$f" || { echo "check_t23_ivdc_irq: IVDC ISR without the gated-clock guard"; fail=1; }
+grep -q 'if (regtrace_t23_direct_enable_clks && !regtrace_t23_ivdc_clks_enabled)' "$f" || { echo "check_t23_ivdc_irq: IVDC ISR without the gated-clock guard"; fail=1; }
 [ $fail -eq 0 ] && echo "check_t23_ivdc_irq: OK"
 exit $fail
