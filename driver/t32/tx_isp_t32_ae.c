@@ -322,6 +322,62 @@ void t32_aec_sensor_sync(const u8 *vin)
 }
 
 /* the last long total gain of the vendor AE (event 4, log2 Q16); false before the first one */
+/*
+ * api_ae_dn_par_refresh (vendor tx-isp-t32.ko, Ghidra t32 0x42af4; openimp #534) on the live AE: the vendor AE reads
+ * its section in place in tparamsP (ae_info[ch] word 0), which tisp_bin_data_parse rewrote with the new bin; here
+ * the new section is copied over the AE's copy T.  Then tisp_ae_set_hardware_param (0x3a608: the zone sizes into
+ * B +0x2e14 / +0x2e32 = t32_ae_zone_sizes, the ten zone registers 0x17040 .. 0x17064, direct mode),
+ * tisp_ae_clac_deflicker_cfg (t32_ae_clac_deflicker_cfg), no RISC-V AE (riscvEnable 0), ae_cache + 0x505
+ * (R + 1285) = 1: the next tisp_ae_calc_process runs tisp_ae_par_update_trig on the new section.
+ * Returns 1 when refreshed, 0 without the live AE or a usable section.
+ */
+static u32 aec_zone4(const u8 *B, u32 o)
+{
+	return t32_st16(B, o + 6) << 24 | t32_st16(B, o + 4) << 16 | t32_st16(B, o + 2) << 8 | t32_st16(B, o);
+}
+
+static u32 aec_zone3(const u8 *B, u32 o)
+{
+	return t32_st16(B, o + 4) << 16 | t32_st16(B, o + 2) << 8 | t32_st16(B, o);
+}
+
+int t32_aec_dn_refresh(const u8 *sec, u32 len)
+{
+	const u8 *T, *B;
+	u32 lum;
+
+	if (!sec || len < T32_AEI_T_BYTES)
+		return 0;
+	mutex_lock(&aec_lock);
+	if (!aec_ready || !aec.b.T || !aec.b.B || !aec.b.R) {
+		mutex_unlock(&aec_lock);
+		return 0;
+	}
+	memcpy(aec.b.T, sec, T32_AEI_T_BYTES);
+	T = aec.b.T;
+	B = aec.b.B;
+	t32_ae_zone_sizes(&aec.b);
+	t32_hw_wr(0x17040, t32_st16(T, 2774) << 28 | t32_st16(T, 2772) << 16 | t32_st16(T, 2770) << 12 |
+		  t32_st16(T, 2768));
+	t32_hw_wr(0x17044, aec_zone4(B, 11796));
+	t32_hw_wr(0x17048, aec_zone4(B, 11804));
+	t32_hw_wr(0x1704c, aec_zone4(B, 11812));
+	t32_hw_wr(0x17050, aec_zone3(B, 11820));
+	t32_hw_wr(0x17054, aec_zone4(B, 11826));
+	t32_hw_wr(0x17058, aec_zone4(B, 11834));
+	t32_hw_wr(0x1705c, aec_zone4(B, 11842));
+	t32_hw_wr(0x17060, aec_zone3(B, 11850));
+	lum = t32_st16(T, 2778);
+	if (lum < 0xff)
+		lum = 0xff;
+	t32_hw_wr(0x17064, (lum << 1) / 3 << 8 | t32_st16(T, 2776) | 0x110000);
+	t32_ae_clac_deflicker_cfg(&aec.b, &t32_aec_iops);
+	aec.b.R[T32_AEC_R_PAR_TRIG] = 1;
+	t32_aec_stats.dn_refreshes++;
+	mutex_unlock(&aec_lock);
+	return 1;
+}
+
 bool t32_aec_tgain(u32 *g)
 {
 	bool v;

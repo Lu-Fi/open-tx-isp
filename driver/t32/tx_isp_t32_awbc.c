@@ -206,6 +206,78 @@ void t32_awbc_tgain(u32 gain)
 }
 
 /*
+ * tisp_awb_dn_params_refresh (vendor tx-isp-t32.ko, Ghidra t32 0x4f1b8; openimp #534) on the live AWB, through the
+ * oracle-checked port t32_awb_dn_params_refresh: the vendor points the context at tparamsP + 0xd40, which
+ * tisp_bin_data_parse rewrote with the new bin; here the new section is copied over the AWB's section copy.
+ * Hooks: tisp_awb_params_refresh = t32_awbi_params_refresh (zone divisors / tables from the sensor size);
+ * tisp_awb_set_hardware_param (0x4c15c, unless frozen): the zone registers 0x16040 .. 0x16060, 0x16088, 0x160f4
+ * from the section (+0xc70 ..), then tisp_awb_set_regional_threshold and tisp_awb_set_lum_th_freq at the
+ * block's gain (t32_awb_tgain_apply); no RISC-V AWB.  Returns 1 when refreshed.
+ */
+static u32 dn_h(const u8 *p, u32 o)
+{
+	return p[o] | (u32)p[o + 1] << 8;
+}
+
+/* four u16 fields: +6 << 24 | +4 << 16 | +2 << 8 | +0 (the vendor ORs the u16 values, no masks) */
+static u32 dn_b4(const u8 *p, u32 o)
+{
+	return dn_h(p, o + 6) << 24 | dn_h(p, o + 4) << 16 | dn_h(p, o + 2) << 8 | dn_h(p, o);
+}
+
+static void dn_call(void *priv, u32 id, u32 ch, u32 arg, struct t32_stats_write *w, unsigned int *n)
+{
+	struct t32_awb *a = priv;
+	const u8 *p = a->par->raw + 3184;	/* vendor par + 0xc70 */
+
+	(void)ch;
+	(void)arg;
+	if (id == T32_AWB_CALL_PARAMS_REFRESH) {
+		t32_awbi_params_refresh(a);
+		return;
+	}
+	if (id != T32_AWB_CALL_SET_HARDWARE_PARAM)
+		return;
+	t32_awbi_w(w, n, 0x16040, dn_h(p, 4) << 16 | dn_h(p, 0));
+	t32_awbi_w(w, n, 0x16044, dn_b4(p, 8));
+	t32_awbi_w(w, n, 0x16048, dn_b4(p, 16));
+	t32_awbi_w(w, n, 0x1604c, dn_b4(p, 24));
+	t32_awbi_w(w, n, 0x16050, dn_h(p, 6) << 24 | dn_h(p, 36) << 16 | dn_h(p, 34) << 8 | dn_h(p, 32));
+	t32_awbi_w(w, n, 0x16054, dn_b4(p, 38));
+	t32_awbi_w(w, n, 0x16058, dn_b4(p, 46));
+	t32_awbi_w(w, n, 0x1605c, dn_b4(p, 54));
+	t32_awbi_w(w, n, 0x16060, dn_h(p, 2) << 24 | dn_h(p, 66) << 16 | dn_h(p, 64) << 8 | dn_h(p, 62));
+	t32_awbi_w(w, n, 0x16088, 0x01010103 | (u32)p[92] << 12);
+	t32_awbi_w(w, n, 0x160f4, p[106] | p[107] << 8 | p[108] << 16 | (u32)p[109] << 24);
+	lumov.w[0] = ai.proc_flag;
+	*n += t32_awb_tgain_apply(a, &lumov, a->st->tgain, w + *n);
+}
+
+int t32_awbc_dn_refresh(const u8 *sec, u32 len)
+{
+	struct t32_stats_write w[16 + T32_AWBTG_MAX_WRITES];
+	struct t32_awb_ops ops = { NULL, dn_call };
+	unsigned int n, i;
+
+	if (!sec || len < sizeof(struct t32_awb_par))
+		return 0;
+	mutex_lock(&awbc_lock);
+	if (!ready || !par_copy) {
+		mutex_unlock(&awbc_lock);
+		return 0;
+	}
+	ops.priv = &ai.a;
+	memcpy(par_copy, sec, sizeof(struct t32_awb_par));
+	n = t32_awb_dn_params_refresh(&ai.a, &ops, 0, par_copy - T32_AWBI_PAR_OFF, 0, w);
+	for (i = 0; i < n; i++)
+		t32_hw_wr(w[i].reg, w[i].val);
+	t32_awbc_stats.writes += n;
+	t32_awbc_stats.dn_refreshes++;
+	mutex_unlock(&awbc_lock);
+	return 1;
+}
+
+/*
  * The tuning controls (tx_isp_t32_tunblk.c) on the live AWB blocks, as the
  * vendor AWB API sees them: e16b4[ch] words 0 / 1 / 2 = par (the IQ bin
  * section copy), run state, mode block; dd0a4[ch] = par - 3392 (the API

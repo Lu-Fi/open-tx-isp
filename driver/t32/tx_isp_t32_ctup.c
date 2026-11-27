@@ -51,6 +51,7 @@
 #pragma GCC diagnostic pop
 #include "tx_isp_t32_dispatch.h"
 #include "tx_isp_t32_clmct.h"
+#include "tx_isp_t32_iq.h"
 
 extern u8 t32_data_d03a0[4];
 
@@ -64,6 +65,7 @@ static u8 *ccm_mem, *bcsh_mem;	/* section copy + knots behind it */
 static bool ccm_on, bcsh_on, clm_on;
 static struct t32_clm_ctx clm;
 static u8 *clm_mem;
+static int clm_m1[9];		/* the front end's RGB -> YCbCr matrix of the CSC mode (tisp_csc_api_get) */
 static u64 ev_last[1];		/* tisp_long_ev_update's last EV (vendor dd678) */
 static const u8 ev_pipe[T32_LEV_PIPE_STRIDE];	/* WDR byte of the pipe: read on the forced path only */
 static struct t32_front_write ct_w[T32_CTUP_MAX_WRITES];
@@ -208,7 +210,7 @@ void t32_ctup_bcsh_set(u32 ch, u32 which, u8 v)
 }
 
 /* stream-on, CLM section 20 (after the one-shot t32_clm_init): the block state tisp_clm_init leaves */
-int t32_ctup_attach_clm(const u8 *sec, u32 len, u32 avail)
+int t32_ctup_attach_clm(const u8 *sec, u32 len, u32 avail, u32 mode)
 {
 	u32 need = len > 0x23 ? (u32)sec[0x23] * (T32_CLM_ZONE_BYTES + T32_CLM_TABLE) : 0;
 	int ret = -EINVAL;
@@ -225,12 +227,94 @@ int t32_ctup_attach_clm(const u8 *sec, u32 len, u32 avail)
 		/* tisp_clm_init: ct 5000, zone 0xff, threshold 1, then the forced interp at 5000 K */
 		clm.ct = T32_CLM_CT;
 		clm.zone = T32_CLMCT_ZONE_INIT;
+		/* tisp_csc_api_get: the CSC module's mode and matrices (the vendor has no CSC dn refresh) */
+		clm.mode = mode < 6 ? mode : 0;
+		memcpy(clm_m1, t32_csc_modes[clm.mode].m, sizeof(clm_m1));
+		(void)t32_csc_inverse(clm.mode, clm.csc);
 		(void)t32_clm_ct_interp(&clm, T32_CLMCT_THR, T32_CLM_CT, 1);	/* -1: tables kept, as the vendor */
 		clm_on = true;
 		ret = 0;
 	}
 	mutex_unlock(&ctup_lock);
 	return ret;
+}
+
+/* one copy of a new bin's section and its knots: NULL when absent, too short or the knots missing */
+static u8 *ct_dn_copy(const u8 *bin, u32 bytes, unsigned int idx, u32 need_sec, u32 cnt_off, u32 per,
+		      u32 *len, u32 *knots)
+{
+	u32 off = t32_iq_section(bin, bytes, idx, len);
+
+	if (!off || !T32_IQ_SEC_OK(*len, need_sec) || *len <= cnt_off)
+		return NULL;
+	*knots = (u32)bin[off + cnt_off] * per;
+	if (!*knots)
+		return NULL;
+	return ct_copy(bin + off, *len, *knots, bytes - off - *len);
+}
+
+/*
+ * lib_tisp_refresh_para's colour blocks (openimp #534) in the vendor order, on the states the ct / EV fan-out
+ * keeps.  The vendor re-points each state at tparamsP + its offset, which tisp_bin_data_parse rewrote with the
+ * new bin (section and the knot payload behind it); here a copy of the new section + knots replaces the old.
+ *  - tisp_ccm_dn_params_refresh (vendor tx-isp-t32.ko 0x894c0): sec = tuning base + 0x7e40, byte 0x361 = 0,
+ *    interp_by_ct (state ct, forced), interp_by_ev (state EV, forced), calc_para_refresh, write_reg(0).
+ *  - tisp_clm_dn_params_refresh (0x8680c): sec = tuning base + 0xd608, tisp_csc_api_get, write_csc_para,
+ *    tisp_clm_ct_interp(state ct +0x60, forced), write_lut (cfgMode 0), calc_para_refresh, write_reg.
+ *  - tisp_bcsh_dn_params_refresh: sec = tuning base + 0xd154, get_new_para, interp_by_ev / _by_ct (state),
+ *    calc_para_refresh(0), write request; the request goes out at once here (as the CT / EV paths do).
+ * Returns the number of blocks refreshed.  A block without its state (not attached / bypassed) is skipped.
+ */
+int t32_ctup_dn_refresh(const u8 *bin, u32 bytes)
+{
+	u32 len = 0, need = 0;
+	unsigned int n;
+	int done = 0;
+	u8 *m;
+
+	mutex_lock(&ctup_lock);
+	if (ccm_on && (m = ct_dn_copy(bin, bytes, T32_SEC_CCM, T32_CCM_SEC_BYTES, 0x364, 40, &len, &need))) {
+		kfree(ccm_mem);
+		ccm_mem = m;
+		ccm.lut = m + len;
+		ccm.lutbytes = need;
+		ct_flush(t32_ccm_dn_params_refresh(&ccm, m - 0x7e40, ct_w));
+		done++;
+	}
+	if (clm_on && (m = ct_dn_copy(bin, bytes, T32_SEC_CLM, T32_CLM_SEC_BYTES, 0x23,
+				      T32_CLM_ZONE_BYTES + T32_CLM_TABLE, &len, &need))) {
+		kfree(clm_mem);
+		clm_mem = m;
+		clm.sec = m;
+		clm.lut = m + len;
+		clm.lutbytes = need;
+		n = 0;
+		t32_clm_csc_para(&clm, clm_m1, ct_w, &n);
+		ct_flush((int)n);
+		(void)t32_clm_ct_interp(&clm, T32_CLMCT_THR, clm.ct, 1);
+		n = 0;
+		t32_clm_lut(&clm, ct_w, &n);
+		ct_flush((int)n);
+		t32_clm_ratio((int)t32_tp_le16(clm.sec + 0x1c) - (int)t32_tp_le16(clm.sec + 0x1a),
+			      &clm.ratio[0], &clm.shift[0]);
+		t32_clm_ratio((int)t32_tp_le16(clm.sec + 0x20) - (int)t32_tp_le16(clm.sec + 0x1e),
+			      &clm.ratio[1], &clm.shift[1]);
+		n = 0;
+		t32_clm_regs(&clm, clm_m1, ct_w, &n);
+		ct_flush((int)n);
+		done++;
+	}
+	if (bcsh_on && (m = ct_dn_copy(bin, bytes, T32_SEC_BCSH, T32_BCSH_SEC_BYTES, 0x4af, 40, &len, &need))) {
+		kfree(bcsh_mem);
+		bcsh_mem = m;
+		bcsh.lut = m + len;
+		bcsh.lutbytes = need;
+		t32_bcsh_dn_params_refresh(&bcsh, 0, m - 0xd154);
+		ct_flush(t32_bcsh_frame_done(&bcsh, ct_w));
+		done++;
+	}
+	mutex_unlock(&ctup_lock);
+	return done;
 }
 
 void t32_ctup_detach(void)

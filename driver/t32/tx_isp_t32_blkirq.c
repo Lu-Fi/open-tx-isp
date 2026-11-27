@@ -206,6 +206,29 @@ void t32_blk_lce_top_change_state(u8 *st)
 	t32_lcetcs_top_change_state(&ops, 0, &l);
 }
 
+/*
+ * tisp_lce_dn_params_refresh (vendor tx-isp-t32.ko 0x694b0, openimp #534) on the stream's LCE state st with its
+ * section sec (the caller copied the new bin's section over it, as tisp_bin_data_parse rewrites tparamsP in
+ * place): state word 0 = the section, mode byte +0x22830 = 3, tisp_lce_par_to_used (t32_lce_par_to_used),
+ * tisp_lce_curve_init_default (default curves, curve buffer second half, control registers; lce_frame_flag
+ * is 1 while streaming).  No lock, as the vendor.  Caller: tx_isp_t32_tisp.c under its lock.
+ */
+int t32_blk_lce_dn_refresh(u8 *st, u8 *sec)
+{
+	static const struct t32_lcetcs_ops ops = { drv_wr, drv_sync };
+	u8 flag = 1;
+	struct t32_lcetcs l = { st, blk_buf[0], 0, &flag };
+
+	if (!st || !sec || !blk_buf[0] || !READ_ONCE(blk_lce_on))
+		return -ENODEV;
+	l.curve_pa = (u32)virt_to_phys(blk_buf[0]);
+	t32_lcetg_wr32(st, (u32)(uintptr_t)sec);
+	st[T32_LCETCS_MODE] = 3;
+	t32_lce_par_to_used(st, sec);
+	t32_lcetcs_curve_init_default(&ops, 0, &l);
+	return 0;
+}
+
 /* tx_isp_t32_tmo.c: the TMO handlers of bits 9 / 31 (system_irq_func_set of tisp_tmo_init), NULL = off */
 void t32_blk_tmo_set(u32 (*tmo)(u32 ch), u32 (*fbf)(u32 ch))
 {

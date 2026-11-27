@@ -860,7 +860,7 @@ static u8 *pf_dn_sec(const u8 *bin, u32 bytes, unsigned int idx, u32 need)
 		done++;								\
 	} while (0)
 
-int t32_pf_dn_refresh(const u8 *bin, u32 bytes, u32 mode)
+int t32_pf_dn_refresh(const u8 *bin, u32 bytes, u32 mode, enum t32_pf_dn_stage stage)
 {
 	int done = 0, n;
 	u8 *os;
@@ -870,6 +870,10 @@ int t32_pf_dn_refresh(const u8 *bin, u32 bytes, u32 mode)
 		mutex_unlock(&pf_lock);
 		return 0;
 	}
+	if (stage == T32_PF_DN_RGB)
+		goto rgb;
+	if (stage == T32_PF_DN_YUV)
+		goto yuv;
 	/* tisp_dpc_dn_params_refresh(ch, mode): wide 0 with this front end (t32_dpc_init) */
 	PF_DN(T32_PP_DPC, T32_SEC_DPC, T32_DPC_SEC_BYTES,
 	      (os = pf.dpc.sec, pf_flush(t32_dpc_dn_params_refresh(&pf.dpc, 0, ns - 0x59c0, 0, mode, pf_w)), os));
@@ -881,6 +885,8 @@ int t32_pf_dn_refresh(const u8 *bin, u32 bytes, u32 mode)
 		pf_flush(n);
 		done++;
 	}
+	goto out;
+rgb:
 	PF_DN(T32_PP_DMSC, T32_SEC_DMSC, T32_DMSC_SEC_BYTES,
 	      (os = pf.dmsc.sec, pf_flush(t32_dmsc_dn_params_refresh(&pf.dmsc, ns - 27612, pf_w)), os));
 	/*
@@ -916,6 +922,8 @@ int t32_pf_dn_refresh(const u8 *bin, u32 bytes, u32 mode)
 			}
 		}
 	}
+	goto out;
+yuv:
 	if (pf.have[T32_PP_YSP] && pf.ysp_dn)
 		PF_DN(T32_PP_YSP, T32_SEC_YSP, T32_YSP_SEC_BYTES,
 		      (os = pf.ysp.sec, pf_flush(t32_ysp_dn_params_refresh(&pf.ysp, 0, ns - 0xd630, pf.ysp_dn, pf_w)), os));
@@ -928,6 +936,20 @@ int t32_pf_dn_refresh(const u8 *bin, u32 bytes, u32 mode)
 	      (os = pf.sdns.sec, pf_flush(t32_sdns_dn_params_refresh(&pf.sdns, 0, ns - 0xe588, pf_w)), os));
 	PF_DN(T32_PP_CDNS, T32_SEC_CDNS, T32_CDNS_SEC_BYTES,
 	      (os = pf.cdns.sec, pf_flush(t32_cdns_dn_params_refresh(&pf.cdns, 0, ns - 0xcfa0, pf_w)), os));
+	/* tisp_defog_dn_params_refresh(ch, mode) on the new section (tx_isp_t32_defogd.c, #854) */
+	done += t32_defog_dn_refresh(bin, bytes, mode);
+	/*
+	 * tisp_lce_dn_params_refresh (vendor 0x694b0): state word 0 = tuning base + 0x8494 (the section
+	 * tisp_bin_data_parse rewrote in place: here the new section over the stream's copy), mode byte
+	 * +0x22830 = 3, tisp_lce_par_to_used, tisp_lce_curve_init_default (curves, control registers).
+	 */
+	if (pf.have[T32_PP_LCE] && pf.lce_st && pf.lce_sec &&
+	    (os = pf_dn_sec(bin, bytes, T32_SEC_LCE, T32_LCE_SEC_BYTES))) {
+		memcpy(pf.lce_sec, os, T32_LCE_SEC_BYTES);
+		kfree(os);
+		if (!t32_blk_lce_dn_refresh(pf.lce_st, pf.lce_sec))
+			done++;
+	}
 	if (pf.have[T32_PP_RDNS] && (os = pf_dn_sec(bin, bytes, T32_SEC_RDNS, T32_RDNS_SEC_BYTES))) {
 		if (t32_rdns_rows_ok(os)) {
 			u8 *ns = os;
@@ -938,10 +960,9 @@ int t32_pf_dn_refresh(const u8 *bin, u32 bytes, u32 mode)
 		}
 		kfree(os);
 	}
-	/* tisp_defog_dn_params_refresh(ch, mode) on the new section (tx_isp_t32_defogd.c, #854) */
-	done += t32_defog_dn_refresh(bin, bytes, mode);
 	t32_pf_stats.dn_runs++;
-	t32_pf_stats.dn_blocks = done;
+out:
+	t32_pf_stats.dn_blocks = (stage == T32_PF_DN_FRONT ? 0 : t32_pf_stats.dn_blocks) + done;
 	mutex_unlock(&pf_lock);
 	return done;
 }

@@ -99,6 +99,7 @@ struct t32_aec_drv_stats {
 	u32 face_sets, face_en, face_zone, face_target;	/* tisp_ae_face_set on the live AE (#686) */
 	u32 syncs, sync_fps;	/* TX_ISP_EVENT_SYNC_SENSOR_ATTR on the live AE, S + 0x38 after it (#724) */
 	u32 hists;		/* tisp_ae_interrupt_hist unpacks (#859) */
+	u32 dn_refreshes;	/* api_ae_dn_par_refresh of the bin switch (#534) */
 #endif
 };
 extern struct t32_aec_drv_stats t32_aec_stats;
@@ -123,6 +124,7 @@ struct t32_awbc_drv_stats {
 	u32 frames, writes, refused;
 	u32 ct, gain_r, gain_b;		/* the last frame */
 	u32 ev_updates, tgain_updates;	/* AE inputs (events 6 / 4) */
+	u32 dn_refreshes;		/* tisp_awb_dn_params_refresh of the bin switch (#534) */
 };
 extern struct t32_awbc_drv_stats t32_awbc_stats;
 int t32_awbc_attach(const u8 *sec, u32 width, u32 height, const u8 *bufs);
@@ -140,7 +142,7 @@ struct t32_ctup_drv_stats {
 extern struct t32_ctup_drv_stats t32_ctup_stats;
 int t32_ctup_attach_ccm(const u8 *sec, u32 len, u32 avail);
 int t32_ctup_attach_bcsh(const u8 *sec, u32 len, u32 avail, const u8 *csc);
-int t32_ctup_attach_clm(const u8 *sec, u32 len, u32 avail);
+int t32_ctup_attach_clm(const u8 *sec, u32 len, u32 avail, u32 mode);
 void t32_ctup_detach(void);
 void t32_ctup_ev(u32 lo, u32 hi, u32 x, u32 y);
 void t32_ctup_run(u32 ct);
@@ -170,7 +172,13 @@ int t32_pf_attach_ae(const u8 *sec, u32 width, u32 height);
 struct t32_lsc;
 void t32_pf_attach_lsc(const u8 *sec, const struct t32_lsc *s, u32 width, u32 height, u32 bayer, u32 ct);
 void t32_pf_attach_lce(const u8 *sec, u32 width, u32 height);
-int t32_pf_dn_refresh(const u8 *bin, u32 bytes, u32 mode);	/* lib_tisp_refresh_para's block refreshes (#534) */
+/* lib_tisp_refresh_para's block refreshes on the per-frame contexts (#534), in three parts of the vendor order:
+ * FRONT dpc gib | (ae awb lsc tmo elsewhere) | RGB dmsc gamma | (ccm clm bcsh: ctup) | YUV ysp .. rdns */
+enum t32_pf_dn_stage { T32_PF_DN_FRONT, T32_PF_DN_RGB, T32_PF_DN_YUV };
+int t32_pf_dn_refresh(const u8 *bin, u32 bytes, u32 mode, enum t32_pf_dn_stage stage);
+int t32_ctup_dn_refresh(const u8 *bin, u32 bytes);	/* tisp_ccm / clm / bcsh_dn_params_refresh (#534) */
+int t32_aec_dn_refresh(const u8 *sec, u32 len);		/* api_ae_dn_par_refresh on the live AE (#534) */
+int t32_awbc_dn_refresh(const u8 *sec, u32 len);	/* tisp_awb_dn_params_refresh on the live AWB (#534) */
 void t32_core_bin_switch(const void *req);	/* tx_isp_t32_hw.c: SET_TIZIANO_PAR while streaming, T32 (#534) */
 
 /* tx_isp_t32_lscct.c: the LSC colour temperature path (tisp_lsc_ct_update, list run at the LSC frame done),
@@ -219,6 +227,7 @@ void t32_blk_lce_bufs(void *curve, void *stat, void *hist);
 void t32_blk_lce_attach(u8 *st, u32 width, u32 height);
 void t32_blk_lce_detach(void);
 void t32_blk_lce_top_change_state(u8 *st);	/* tisp_lce_top_change_state on the stream's LCE state (#717) */
+int t32_blk_lce_dn_refresh(u8 *st, u8 *sec);	/* tisp_lce_dn_params_refresh on the stream's LCE state (#534) */
 void t32_blk_exit(void);
 void t32_blk_tmo_set(u32 (*tmo)(u32 ch), u32 (*fbf)(u32 ch));
 void t32_blk_defog_set(u32 (*defog)(u32 ch));

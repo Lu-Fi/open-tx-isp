@@ -2645,6 +2645,7 @@ void t33_core_bin_switch(const void *req)
 static struct {
 	u32 calls, holds, ipc_waits, ipc_timeouts, refreshes, blocks, csccr_skipped, csccr[2];
 } t32_binsw_st;
+static u8 t32_top_dn_par[T32_TOP_BYTES];	/* vendor stTopCfg[0]: the top section of the last dn refresh */
 
 static void t32_binsw_vic_ctrl(u32 vic, u32 val)
 {
@@ -2671,16 +2672,93 @@ static void t32_binsw_print(u32 level, u32 line)
 	isp_printf(level, "[%s %u] IPC Read timeout !!!\n", "tx_isp_tisp_refresh_para", line);
 }
 
+/*
+ * tisp_top_api_dn_par_refresh (vendor tx-isp-t32.ko, Ghidra t32 0x39420): the new top section (100 bytes) into
+ * stTopCfg[ch], then 0x40 = the module enable bytes +4 .. +35 (bit i = byte 4 + i), 0x60 = the OR of the
+ * channels' top_sta_save (bytes +0x44 .. +0x4d, | 4 when deir_en[ch & 1]) for the channels whose
+ * top_init_flag is 1 (one channel here, initialised while streaming), 0x6c = bytes +0x24 .. +0x43 (direct mode).
+ * deir_en: the RGB-IR bayer orders, as t32_top_init.  Returns 1 when written.
+ */
+static int t32_top_dn_refresh(const u8 *bin, u32 bytes)
+{
+	struct t32_front_write w[3];
+	u32 off, len, code;
+	unsigned int n, i;
+	int bayer;
+
+	off = t32_iq_section(bin, bytes, T32_IQ_SEC_TOP, &len);
+	if (!off || !T32_IQ_SEC_OK(len, T32_TOP_BYTES) || t32_core_sensor_mbus(&code))
+		return 0;
+	bayer = t32_mbus_to_bayer(code);
+	if (bayer < 0)
+		return 0;
+	n = t32_top_api_dn_par_refresh(0, t32_top_dn_par, bin + off, (bayer & 0x1f) < 4 ? 0 : 1, 1, w);
+	for (i = 0; i < n; i++)
+		isp_wr(w[i].reg, w[i].val);
+	return 1;
+}
+
+/*
+ * tisp_csccr_dn_params_refresh (vendor Ghidra t32 0x9fc24): csccr_para word 0 = tuning base + 0x6bc8 (the new
+ * section), byte 14 = 1, para_refresh_by_mode(byte 4), sync_api_para(1), update_para,
+ * switch_params_write_reg (0x14040 / 0x14044 / 0x14050, 0x14010; no UV clip: lib_tisp_set_csccr does that).
+ * The T32 build keeps no CSCCR context after the stream-on init: the derived and API blocks are rebuilt here
+ * from the new section (sync_api_para(1) copies it when byte 15 is 1).  update_para takes the section's
+ * ranges for byte 13 == 1, or 0 with byte 14 < 2 (here 1); other byte 13 values take the API block, which
+ * this driver does not keep: skipped (counted).  Returns 1 when written.
+ */
+static int t32_csccr_dn_refresh(const u8 *bin, u32 bytes)
+{
+	struct t32_front_write w[4];
+	u8 par[T32_CSCCR_BYTES], aux[14] = { 0 }, api[12] = { 0 };
+	struct t32_csccr_ctx c = { par, aux, api };
+	u32 off, len;
+	int n, i;
+
+	off = t32_iq_section(bin, bytes, T32_IQ_SEC_CSCCR, &len);
+	if (!off || !T32_IQ_SEC_OK(len, T32_CSCCR_BYTES))
+		return 0;
+	if (bin[off + 13] > 1) {
+		t32_binsw_st.csccr_skipped++;
+		return 0;
+	}
+	memcpy(par, bin + off, T32_CSCCR_BYTES);
+	n = t32_csccr_dn_params_refresh(&c, 0, par - 27592, w);
+	for (i = 0; i < n; i++)
+		isp_wr(w[i].reg, w[i].val);
+	return n > 0;
+}
+
+/*
+ * lib_tisp_refresh_para (vendor 0xc0714) after tisp_bin_data_parse, ispInitFinish == 1: the blocks' dn refreshes
+ * in the vendor order top, dpc, gib, ae, awb, lsc, tmo, dmsc, gamma, ccm, clm, bcsh, ysp, mdns, ydns, sdns, cdns,
+ * defog, lce, rdns, decmp, csccr, each on the live state of its module.  Not run here (counted in /proc):
+ * lsc (PRJ007 day / night LSC sections and tables are identical), tmo, decmp (the T32 stream-on does not
+ * program DECMP: no state to refresh).
+ */
 static void t32_binsw_refresh(const u8 *req)
 {
 	const u8 *bin;
-	u32 bytes;
+	u32 bytes, off, len, mode = req[12];
+	int blocks = 0;
 
-	(void)req;	/* tisp_bin_data_parse: the bin t32_set_tiziano_par recorded */
+	/* tisp_bin_data_parse: the bin t32_set_tiziano_par recorded */
 	if (t32_core_iq_bin(&bin, &bytes))
 		return;
 	t32_binsw_st.refreshes++;
-	t32_binsw_st.blocks = (u32)t32_pf_dn_refresh(bin, bytes, req[12]);
+	blocks += t32_top_dn_refresh(bin, bytes);
+	blocks += t32_pf_dn_refresh(bin, bytes, mode, T32_PF_DN_FRONT);
+	off = t32_iq_section(bin, bytes, T32_IQ_SEC_AE, &len);
+	if (off)
+		blocks += t32_aec_dn_refresh(bin + off, len);
+	off = t32_iq_section(bin, bytes, T32_IQ_SEC_AWB, &len);
+	if (off)
+		blocks += t32_awbc_dn_refresh(bin + off, len);
+	blocks += t32_pf_dn_refresh(bin, bytes, mode, T32_PF_DN_RGB);
+	blocks += t32_ctup_dn_refresh(bin, bytes);
+	blocks += t32_pf_dn_refresh(bin, bytes, mode, T32_PF_DN_YUV);
+	blocks += t32_csccr_dn_refresh(bin, bytes);
+	t32_binsw_st.blocks = (u32)blocks;
 }
 
 /*
@@ -5037,7 +5115,7 @@ static void t32_tisp_init(void)
 		mode = bin[coff + 0x5b];
 		t32_tisp_flush("clm", t32_clm_init(bin + off, bin + off + len, bytes - off - len, mode,
 						   t32_csc_modes[mode].m, tisp_w));
-		if (t32_pp_on(T32_PP_CT) && t32_ctup_attach_clm(bin + off, len, bytes - off - len))
+		if (t32_pp_on(T32_PP_CT) && t32_ctup_attach_clm(bin + off, len, bytes - off - len, mode))
 			isp_printf(2, "tx-isp-t32: CLM state for the ct fan-out refused\n");
 	}
 	if (!t32_core_sensor_size(&width, &height))

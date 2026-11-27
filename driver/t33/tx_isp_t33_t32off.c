@@ -59,7 +59,7 @@ void t32_blk_exit(void) { }
 void t32_blk_lce_bufs(void *curve, void *stat, void *hist) { }
 int t32_ctup_attach_bcsh(const u8 *sec, u32 len, u32 avail, const u8 *csc) { return -ENODEV; }
 int t32_ctup_attach_ccm(const u8 *sec, u32 len, u32 avail) { return -ENODEV; }
-int t32_ctup_attach_clm(const u8 *sec, u32 len, u32 avail) { return -ENODEV; }
+int t32_ctup_attach_clm(const u8 *sec, u32 len, u32 avail, u32 mode) { return -ENODEV; }
 void t32_ctup_detach(void) { }
 void t32_lsc_drv_attach(const u8 *blk, const struct t32_lsc *s, const struct t32_lsc_work *wk,
 			u32 width, u32 height, u32 bayer, u32 ct) { }
