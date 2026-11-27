@@ -4,6 +4,9 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD[-rcN]` are set on the `aperto` branch, the same tag in open-tx-isp and OpenIMP: RC1 `v2026.10.11-rc1`, RC2 `v2026.10.25-rc2`, RC3 `v2026.11.07-rc3` (2026-11-07). Gate SoCs of RC3 and Release 1: T10, T20, T21, T23, T30, T31, T40, T41 (T32/T33 planned, QEMU only); release notes: [docs/releases/ in OpenIMP](https://github.com/Lu-Fi/openimp/blob/next/docs/releases/README.md). Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-11-27: T23 direct-mode ISR frame-drop counter wrap (open-tx-isp #5)
+- The frame-start ISR (`ispcore_interrupt_service_routine`) stepped the frame-drop counter at +478 and then stored 0 unconditionally: the lifted `beqzl v0,6b930` (delay slot `sb zero,478(s0)` @0x6b92c runs only when the counter passed the period at +477) was untranslated. Now `if (!v0) counter = 0` like the vendor (`ko_all.c:54209-54216`: ++ctr; if (period + 1 <= ctr) ctr = 0). Only matters after `IMP_ISP_SetFrameDrop` in direct mode (OpenIMP does not call it on T23). Guard `tests/check_t23_framedrop_wrap.sh`; T23 module builds (rc 0), no device run.
+
 ## 2026-11-27: low findings of the 2026-11-26 code check (openimp #919)
 - L1 (T23): a failing `request_irq` (or map) in the IVDC probe left the mapping, the memory region (a later insmod got -EBUSY) and the subdev clocks / pads behind; both failure paths now release them.
 - L2 (T23): the "IVDC gated" interrupt gate follows only the clocks the driver itself enables (`direct_enable_clks`); with that bring-up parameter off the stock path owns the clocks and the gate answered IRQ_NONE without the W1C ack (the #910 storm). Production builds do not have the parameter.

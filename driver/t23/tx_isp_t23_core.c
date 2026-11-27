@@ -103893,9 +103893,16 @@ ispcore_interrupt_service_routine0xf0:
     /* fragment 31: Unknown */
     /* unmatched fragment 31 (Unknown): no deterministic matcher for Unknown */
     /* asm: 6b928:	50400001 	beqzl	v0,6b930 <ispcore_interrupt_service_routine+0x14c> */
+    /*
+     * beqzl: the delay slot (sb zero,478(s0) @0x6b92c) runs only when v0 == 0, i.e.
+     * counter >= period + 1: the counter wraps.  Vendor ko_all.c:54209-54216
+     * (++ctr; if (period + 1 <= ctr) ctr = 0).  The lift stored 0 unconditionally,
+     * so the frame-drop mask only ever tested bit 0 (openimp-tx #5).
+     */
+    if (!v0)
+        *(uint8_t *)((char *)s0 + 478) = 0;
 
     /* fragment 32: MemoryAccess */
-    *(uint8_t *)((char *)s0 + 478) = 0;
     v0 = *(uint8_t *)((char *)s0 + 478);
     s4 = 1;
     v1 = *(uint32_t *)((char *)s0 + 480);
