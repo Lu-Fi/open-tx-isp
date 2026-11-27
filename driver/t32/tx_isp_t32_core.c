@@ -119,6 +119,10 @@ struct t32_alloc {
 	u32 pa;
 	u32 size;
 	unsigned int order;
+#ifdef TX_ISP_T33
+	u32 cap;	/* bytes the pages were allocated for (vendor mem[i].size, >= 150 KB) */
+	bool used;	/* vendor mem_used[i]: handed to libimp, not yet MEMORY_FREEd */
+#endif
 };
 
 struct t32_vi {
@@ -421,6 +425,103 @@ static struct t32_alloc *t32_alloc_find_pa(u32 pa)
 	return NULL;
 }
 
+#ifdef TX_ISP_T33
+/*
+ * #928 (SDK 2.1.0 PRJ008, tx_isp_unlocked_ioctl MEMORY_MALLOC / MEMORY_FREE, drv .dis 0x19508 / 0x19658; the
+ * 16 slots mem[] at core +368 (12 bytes each) and mem_used[] at +560, tx-isp-device.h:285): MEMORY_MALLOC takes
+ * the first slot with mem_used == 0 (-ENOMEM when all 16 are in use); a slot that still owns a buffer smaller
+ * than the request frees it, an empty one allocates max(request, 153600) bytes (0x19ae4); then mem_used = 1 and
+ * {vaddr, paddr} are handed out.  MEMORY_FREE only clears mem_used, the buffer stays; the 2.1.0 tx_isp_release
+ * does not free it either (2.0.0 did) and tx_isp_remove frees all slots.  So a streamer restart reuses the same
+ * order-6 block instead of allocating a new one (fragmentation, #684 / #690 / #732 class).
+ * Deviation, small: the last close also clears mem_used of every slot (the vendor leaves a killed client's slot
+ * in use, 16 such kills would end in -ENOMEM); no client is left at that point, the buffers stay.
+ */
+#define T33_MEM_SLOTS		16
+#define T33_MEM_MIN_BYTES	153600U
+
+static int t32_malloc(struct t32_buf_info *bi)
+{
+	struct t32_alloc *a, *slot = NULL;
+	unsigned int n = 0;
+	unsigned long p;
+
+	if (!bi->size || bi->size > (16U << 20))
+		return -EINVAL;
+	list_for_each_entry(a, &core.allocs, node) {
+		n++;
+		if (!slot && !a->used)
+			slot = a;
+	}
+	if (slot && slot->cap < bi->size) {
+		/* too small: free the buffer, the slot allocates again below */
+		T32_ALLOC_LOCK();
+		if (core.tiziano_pa >= slot->pa && core.tiziano_pa < slot->pa + slot->size)
+			core.tiziano_pa = 0;
+		list_del(&slot->node);
+		T32_ALLOC_UNLOCK();
+		free_pages((unsigned long)slot->kva, slot->order);
+		kfree(slot);
+		slot = NULL;
+		n--;
+	}
+	if (!slot) {
+		if (n >= T33_MEM_SLOTS) {
+			isp_printf(2, "tx-isp-t33: no free MEMORY_MALLOC slot\n");
+			return -ENOMEM;
+		}
+		slot = kzalloc(sizeof(*slot), GFP_KERNEL);
+		if (!slot)
+			return -ENOMEM;
+		slot->cap = max_t(u32, bi->size, T33_MEM_MIN_BYTES);
+		slot->order = get_order(slot->cap);
+		p = t32_dma_zpages(slot->order);	/* ISP DMA memory: zero lines written back (openimp #530) */
+		if (!p) {
+			kfree(slot);
+			return -ENOMEM;
+		}
+		slot->kva = (void *)p;
+		slot->pa = virt_to_phys(slot->kva);
+		T32_ALLOC_LOCK();
+		list_add_tail(&slot->node, &core.allocs);
+		T32_ALLOC_UNLOCK();
+	}
+	T32_ALLOC_LOCK();
+	slot->size = bi->size;
+	slot->used = true;
+	T32_ALLOC_UNLOCK();
+	bi->word0 = (u32)(unsigned long)slot->kva;
+	bi->word1 = slot->pa;
+	return 0;
+}
+
+static int t32_free(const struct t32_buf_info *bi)
+{
+	struct t32_alloc *a = t32_alloc_find_kva(bi->word0);
+
+	if (!a)
+		return -EINVAL;
+	/* the blocks read the driver's copy of the bin (openimp #628, #684); the buffer stays for the next MALLOC */
+	T32_ALLOC_LOCK();
+	if (core.tiziano_pa >= a->pa && core.tiziano_pa < a->pa + a->size)
+		core.tiziano_pa = 0;
+	a->used = false;
+	T32_ALLOC_UNLOCK();
+	return 0;
+}
+
+/* last close: no client left, every slot is free again (the buffers stay) */
+static void t32_release_slots(void)
+{
+	struct t32_alloc *a;
+
+	T32_ALLOC_LOCK();
+	list_for_each_entry(a, &core.allocs, node)
+		a->used = false;
+	core.tiziano_pa = 0;
+	T32_ALLOC_UNLOCK();
+}
+#else
 static int t32_malloc(struct t32_buf_info *bi)
 {
 	struct t32_alloc *a;
@@ -464,6 +565,9 @@ static int t32_free(const struct t32_buf_info *bi)
 	kfree(a);
 	return 0;
 }
+
+static inline void t32_release_slots(void) { }
+#endif
 
 static void t32_free_all(void)
 {
@@ -1642,8 +1746,14 @@ static int t32_isp_release(struct inode *inode, struct file *file)
 		 * slot libimp left (16 slots at core + 0x170 / + 0x168); here the whole list.  Before, a killed
 		 * streamer's buffers stayed until rmmod (T33 #690, T32 #694).  T32: the IQ bin is read in place only
 		 * by the init paths under core.lock, which a later open runs again after the next SET_TIZIANO_PAR.
+		 * T33 (#928, SDK 2.1.0 tx_isp_release no longer frees them): the slots are only released, the buffers
+		 * stay for the next MEMORY_MALLOC and are freed at rmmod (tx_isp_remove).
 		 */
+#ifdef TX_ISP_T33
+		t32_release_slots();
+#else
 		t32_free_all();
+#endif
 	}
 	mutex_unlock(&core.lock);
 	return 0;
@@ -2038,16 +2148,19 @@ static int t32_proc_show(struct seq_file *m, void *v)
 #ifdef TX_ISP_T33
 	{
 		struct t32_alloc *al;
-		u32 n = 0, kb = 0;
+		u32 n = 0, kept = 0, kb = 0;
 
 		T32_ALLOC_LOCK();
 		list_for_each_entry(al, &core.allocs, node) {
-			n++;
+			if (al->used)
+				n++;
+			else
+				kept++;
 			kb += (PAGE_SIZE << al->order) >> 10;
 		}
 		T32_ALLOC_UNLOCK();
-		seq_printf(m, "memory malloc: live %u (%u KB), iq bin copy %u bytes, copies %u\n",
-			   n, kb, t33_bin_cur_bytes, t33_bin_copies);
+		seq_printf(m, "memory malloc: live %u kept %u (%u KB), iq bin copy %u bytes, copies %u\n",
+			   n, kept, kb, t33_bin_cur_bytes, t33_bin_copies);
 	}
 #endif
 	seq_printf(m, "irqs isp %u vic %u frame ends %u stream ons %u\n",
