@@ -13,7 +13,7 @@ the per-SoC constants are in `../t32/tx_isp_t32_soc.h`:
 | DEFAULT_BIN buffer (`IMPISPBinInfo`) size / version / soc offset | 880 / 863 / 871 | 880 / 863 / 871 (what the camera libimp 2.0.2.1 reads; the header suggests 856) |
 | Clocks | div_isp, div_isps, div_ldc, div_ispa, div_vpu + mux_* parents | no div_isps, no mux_*; parents on the dividers, gate_ldc / gate_vpu |
 | Sensor subdev offsets (kernel) | 4.4.94: notify 0x98 | 3.10.14: notify 0x94 (miscdevice 4 bytes shorter) |
-| ISP / LDC / VPU clock | 219 / 588 / 500 MHz | 340 / 357 / 340 MHz |
+| ISP / LDC / VPU clock | 200 / 588 / 500 MHz | 350 / 357 / 340 MHz |
 | Block programming | direct writes, one stream-on list (LSC) | one register list per block, started at stream-on |
 | Interrupts | masked at probe | no ISP access before the first open; list-done word 0x300c0 used |
 

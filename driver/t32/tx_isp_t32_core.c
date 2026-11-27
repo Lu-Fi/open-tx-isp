@@ -1426,12 +1426,14 @@ struct t32_clk_parent {
  * dividers themselves.  Vendor defaults measured: div_isp 325 MHz (mpll,
  * 340 asked), div_ldc 325 (mpll, 357 asked), div_vpu 316.7 (sclka, 340
  * asked), div_ispa 475 (sclka); gate_ldc and gate_vpu are opened too.
+ * #928: defaults of SDK 2.1.0 (tx-isp-funcs.c:71 / :92-106): clk_name "sclka" (2.0.0 "mpll"), PRJ008 isp_clk 350
+ * MHz (340) and isp_clka 525 MHz (500), PRJ007 isp_clk 200 MHz (219); the probe-time rates are unchanged.
  */
 static struct t32_clk t32_clks[] = {
 	{ "div_isp", T32_CLK_ISP_PROBE, T32_CLK_ISP, &isp_clk },
 	{ "div_ldc", T32_CLK_LDC_PROBE, T32_CLK_LDC, &isp_clkl },
 	{ "gate_isp" },
-	{ "div_ispa", 500000000, 500000000, &isp_clka },
+	{ "div_ispa", 500000000, T32_CLK_ISPA, &isp_clka },
 	{ "div_vpu", T32_CLK_VPU_PROBE, T32_CLK_VPU, &isp_clkv },
 	{ "gate_ivdc" },
 	{ "gate_csi" },
@@ -1440,7 +1442,7 @@ static struct t32_clk t32_clks[] = {
 };
 
 static const struct t32_clk_parent t32_clk_parents[] = {
-	{ "div_isp", "mpll", &clk_name }, { "div_ldc", "mpll", &clkl_name },
+	{ "div_isp", "sclka", &clk_name }, { "div_ldc", "mpll", &clkl_name },
 	{ "div_ispa", "sclka", &clka_name }, { "div_vpu", "sclka", &clkv_name },
 };
 #else
@@ -1449,14 +1451,14 @@ static struct t32_clk t32_clks[] = {
 	{ "div_isps", 476000000, 476000000, &isp_clks },
 	{ "div_ldc", T32_CLK_LDC_PROBE, T32_CLK_LDC, &isp_clkl },
 	{ "gate_isp" },
-	{ "div_ispa", 500000000, 500000000, &isp_clka },
+	{ "div_ispa", 500000000, T32_CLK_ISPA, &isp_clka },
 	{ "div_vpu", T32_CLK_VPU_PROBE, T32_CLK_VPU, &isp_clkv },
 	{ "gate_ivdc" },
 	{ "gate_csi" },
 };
 
 static const struct t32_clk_parent t32_clk_parents[] = {
-	{ "mux_isp", "mpll", &clk_name }, { "mux_isps", "mpll", &clks_name },
+	{ "mux_isp", "sclka", &clk_name }, { "mux_isps", "mpll", &clks_name },
 	{ "mux_ldc", "mpll", &clkl_name }, { "mux_ispa", "sclka", &clka_name },
 	{ "mux_vpu", "sclka", &clkv_name },
 };
