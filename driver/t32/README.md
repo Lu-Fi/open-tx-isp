@@ -69,6 +69,15 @@ generation-shared come from the shared code instead:
   0x14010 = 0xffffffff (openimp #853). The vendor writes the day values one / two frames later from
   `tisp_top_frame_count` (0xafbc4); the T32 frame count is not wired, so they are written at once inside
   the VIC hold of the switch.
+- Day/night bin switch, block refreshes (openimp #534): `lib_tisp_refresh_para` (vendor 0xc0714) runs
+  the blocks' dn refreshes in the vendor order on the live T32 states: top (0x40 / 0x60 / 0x6c), dpc,
+  gib, AE (zone registers, deflicker, `ae_cache + 0x505`), AWB (`t32_awb_dn_params_refresh`), TMO, dmsc,
+  gamma, CCM, CLM, BCSH (ct fan-out states), ysp, mdns, ydns, sdns, cdns, defog, LCE, rdns, CSCCR. The
+  vendor rewrites tparamsP in place (`tisp_bin_data_parse`); the driver copies the new bin's section (and
+  its knot payload) over the block's own copy. Not refreshed: LSC (PRJ007 day / night LSC data are
+  identical), DECMP (the T32 stream-on does not program it), TMO in ADR mode (vendor tables not carried).
+  `/proc/jz/isp/isp-m0` lines `t32 binsw` / `t32 binsw dn` count them. CSCCR modes above 2 use the
+  section's own ranges at stream-on too (vendor .rodata 0x2620 = 01 01 01 00).
 - Defog (`tx_isp_t32_defogd.c`, openimp #854, `t32_ported_paths` bit 20): the
   vendor flow on the oracle-proven ports. Stream-on runs `tisp_defog_init` on a
   copy of IQ section 14 (656 bytes, tuning base + 0x8204) with the sensor size:
