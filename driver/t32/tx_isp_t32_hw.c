@@ -550,6 +550,9 @@ static unsigned long t33_mod_page[T33_MODULES];
 static u64 t33_mod_built;
 u32 t33_rcfg_runs, t33_rcfg_timeouts;
 #ifdef TX_ISP_T33
+static bool t33_rcfg_failed;	/* last stream-on list wait timed out: no 0x1040 (#927) */
+#endif
+#ifdef TX_ISP_T33
 u32 t33_msca_vendor_starts, t33_msca_direct_starts;	/* channel starts on the vendor path / direct (g17-2) */
 extern u32 t33_bst_bad;					/* tisp_reg_write_t33 refusals (tx_isp_t33_bst.h) */
 #endif
@@ -1155,6 +1158,27 @@ static void t33_rcfg_write_all(void)
 #ifdef TX_ISP_T33
 wait:
 #endif
+#ifdef TX_ISP_T33
+	/*
+	 * SDK 2.1.0 PRJ008 lib_tisp_stream_on: up to 1001 rounds of {read 0x22010 and
+	 * 0x22014; both 0: done; else write 0x22028 = 0 and 0x2202c = 0, msleep(5)}
+	 * (about 5 s), no ISP start (0x1040) on timeout (SDK 2.0.0: unbounded).
+	 * Process context (stream-on holds no lock) so the wait may sleep (#927).
+	 */
+	for (i = 0; i < 1001; i++) {
+		if (!isp_rd(T33_RCFG_TRIG) && !isp_rd(T33_RCFG_TRIG_HI))
+			break;
+		isp_wr(T33_RCFG_CLR28, 0);
+		isp_wr(T32_RDMA_IRQ_CLR, 0);
+		msleep(5);
+	}
+	if (i == 1001) {
+		t33_rcfg_timeouts++;
+		t33_rcfg_failed = true;
+		isp_printf(2, "tx-isp-t33: register lists did not finish (%#x %#x), ISP not started\n",
+			   isp_rd(T33_RCFG_TRIG), isp_rd(T33_RCFG_TRIG_HI));
+	}
+#else
 	for (i = 0; i < 1000; i++) {
 		if (!isp_rd(T33_RCFG_TRIG) && !isp_rd(T33_RCFG_TRIG_HI))
 			break;
@@ -1165,6 +1189,7 @@ wait:
 		isp_printf(2, "tx-isp-t33: register lists did not finish (%#x %#x)\n",
 			   isp_rd(T33_RCFG_TRIG), isp_rd(T33_RCFG_TRIG_HI));
 	}
+#endif
 	t33_rcfg_runs++;
 #ifdef TX_ISP_T33
 	/*
@@ -5564,6 +5589,9 @@ void t32_hw_stream_on(void)
 			t32_ldc_stream_on();
 		}
 #endif
+#ifdef TX_ISP_T33
+		t33_rcfg_failed = false;
+#endif
 		t33_rcfg_write_all();
 		/* lib_tisp_msca_chx_reg_stream_off for the three channels */
 		for (ch = 0; ch < 3; ch++)
@@ -5576,6 +5604,9 @@ void t32_hw_stream_on(void)
 		t32_defog_unwired_bypass();
 #endif
 	}
+#ifdef TX_ISP_T33
+	if (!t33_rcfg_failed)
+#endif
 	isp_wr(0x1040, 1);
 	t32_vic_wr(0, T32_VIC_INT_MSK, 0);
 	t32_vic_wr(0, T32_VIC_INT_MSK2, 0);

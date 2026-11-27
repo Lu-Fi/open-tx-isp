@@ -34,6 +34,7 @@
 #include "tx_isp_t32_front.h"
 
 #define T33_RCFG_TRIG		0x22010U	/* bit N: start list N (N < 32) */
+#define T33_RCFG_CLR28	0x22028U	/* written 0 while the stream-on wait polls (SDK 2.1.0, #927) */
 #define T33_RCFG_TRIG_HI	0x22014U	/* bit N: start list 32 + N */
 #define T33_RCFG_TABLE		0x22020U
 #define T33_RCFG_CTRL		0x22024U	/* 1 after the table is set */

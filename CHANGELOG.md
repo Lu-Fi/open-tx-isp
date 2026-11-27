@@ -4,6 +4,9 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD[-rcN]` are set on the `aperto` branch, the same tag in open-tx-isp and OpenIMP: RC1 `v2026.10.11-rc1`, RC2 `v2026.10.25-rc2`, RC3 `v2026.11.07-rc3` (2026-11-07). Gate SoCs of RC3 and Release 1: T10, T20, T21, T23, T30, T31, T40, T41 (T32/T33 planned, QEMU only); release notes: [docs/releases/ in OpenIMP](https://github.com/Lu-Fi/openimp/blob/next/docs/releases/README.md). Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-11-27: T33 stream-on register-list wait like SDK 2.1.0 (openimp #927)
+- `t33_rcfg_write_all` waited at most 1000 x udelay(1) (~1 ms) for the list trigger words 0x22010 / 0x22014 and then started the ISP (0x1040 = 1) with lists still loading. SDK 2.1.0 PRJ008 `lib_tisp_stream_on`: up to 1001 rounds of {both words 0: done; else write 0x22028 = 0 and 0x2202c = 0, msleep(5)} (~5 s), no 0x1040 on timeout. T33 now does the same (process context, no lock held); T32 keeps its short wait. Guard `tests/check_t33_streamon_wait.sh`. Built for T33 and T32 (rc 0); not run on a device or in QEMU (code-level fix; check `t33_rcfg_timeouts` stays 0 over a restart series).
+
 ## 2026-11-27: low findings of the 2026-11-26 code check (openimp #919)
 - L1 (T23): a failing `request_irq` (or map) in the IVDC probe left the mapping, the memory region (a later insmod got -EBUSY) and the subdev clocks / pads behind; both failure paths now release them.
 - L2 (T23): the "IVDC gated" interrupt gate follows only the clocks the driver itself enables (`direct_enable_clks`); with that bring-up parameter off the stock path owns the clocks and the gate answered IRQ_NONE without the W1C ack (the #910 storm). Production builds do not have the parameter.
