@@ -118,6 +118,49 @@ static inline void t33_tmo_ddrv_pack(const u8 *info, u32 *out)
 	}
 }
 
+/*
+ * tisp_tmo_hvflip (SDK 2.1.0 PRJ008, drv disassembly 0xf6dc4..0xf6f1c): the V table of tmoInfo +10832 is 15
+ * blocks of 400 bytes (25 rows of four words).  flip == 1: the order of the 15 blocks is reversed (block k with
+ * block 14 - k, k = 0..6, whole 100 words each); mirror == 1: in every block the 25 rows are reversed (row j with
+ * row 24 - j, j = 0..11, four words each, the words of a row keep their order).  Both are involutions and
+ * commute.  The vendor then syncs the 6000 bytes to the device (private_dma_cache_sync (0, tab, 6000, 1)) and
+ * tail-calls tisp_tmo_ramV_vi23_reg_refresh; the caller does the sync (this function is memory only).
+ */
+#define T33_TMO_V_BLOCKS	15U
+#define T33_TMO_V_BLOCK_WORDS	100U
+
+static inline void t33_tmo_hvflip_table(u32 *tab, u32 flip, u32 mirror)
+{
+	u32 k, j, w;
+
+	if (flip == 1) {
+		for (k = 0; k < T33_TMO_V_BLOCKS / 2; k++) {
+			u32 *a = tab + k * T33_TMO_V_BLOCK_WORDS;
+			u32 *b = tab + (T33_TMO_V_BLOCKS - 1 - k) * T33_TMO_V_BLOCK_WORDS;
+
+			for (w = 0; w < T33_TMO_V_BLOCK_WORDS; w++) {
+				u32 t = a[w];
+
+				a[w] = b[w];
+				b[w] = t;
+			}
+		}
+	}
+	if (mirror == 1) {
+		for (k = 0; k < T33_TMO_V_BLOCKS; k++) {
+			u32 *blk = tab + k * T33_TMO_V_BLOCK_WORDS;
+
+			for (j = 0; j < 12; j++)
+				for (w = 0; w < 4; w++) {
+					u32 t = blk[4 * j + w];
+
+					blk[4 * j + w] = blk[4 * (24 - j) + w];
+					blk[4 * (24 - j) + w] = t;
+				}
+		}
+	}
+}
+
 /* hardware / other-block callees of the frame-done interrupt */
 struct t33_tmo_fd_ops {
 	int (*reg_write)(u32 ch, u32 a1, u32 val, u32 a3);	/* tisp_reg_write_t33 */

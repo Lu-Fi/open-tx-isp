@@ -548,7 +548,8 @@ int t32_tx_os_tisp_s_hv_flip(u32 ch, void *flags)
 int t32_tx_os_tisp_lsc_hvflip(u32 ch, u32 a, u32 b, u32 h, u32 v)
 {
 	(void)a; (void)b;
-	return t33_lsc_hvflip(ch, h, v);
+	t33_lsc_hvflip_defer(ch, h, v);	/* #928: applied with the sensor flip at the frame end (SDK 2.1.0) */
+	return 0;
 }
 #else
 /* T32 (openimp #722): tisp_lsc_hvflip -> tisp_lsc_mirror_flip(ch, a, b, h, v) on the live LSC (tx_isp_t32_lscct.c) */

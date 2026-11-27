@@ -2146,6 +2146,34 @@ static void t33_g16_tmo_ramy(u32 ch)
 	t33_tmo_ramy_refresh(&t33_g16_r13a_init, t33_g16_tmo_info, t33_bst_cfg_mode, ch & 3);
 }
 
+/*
+ * #928 (SDK 2.1.0 PRJ008): the sensor flip also mirrors the TMO V table (tisp_tmo_hvflip, tx_isp_t33_tmoA.h,
+ * called from ispcore_core_ops_ioctl at the frame end after the sensor flip with the previous and the new mode;
+ * the flips are involutions, so the pair of calls equals one call with the difference).  t33_tmo_flip_cur =
+ * the mode (bit 0 mirror, bit 1 flip) the table carries now.
+ */
+static u32 t33_tmo_flip_cur;
+
+void t33_tmo_hvflip(u32 ch, u32 mode)
+{
+	const u8 *info = t33_g16_tmo_info[ch & 3];
+	u32 *tab, d = (mode ^ t33_tmo_flip_cur) & 3;
+
+	if (ch)
+		return;
+	t33_tmo_flip_cur = mode & 3;
+	tab = info ? (u32 *)(unsigned long)t33_le32(info + T33_TMOA_DDRV_PTR) : NULL;
+	if (!tab || !d)
+		return;
+	t33_tmo_hvflip_table(tab, (d >> 1) & 1, d & 1);
+	dma_cache_wback_inv((unsigned long)tab, T33_TMO_V_BYTES);	/* private_dma_cache_sync (0, tab, 6000, 1) */
+	/*
+	 * the vendor's tail call tisp_tmo_ramV_vi23_reg_refresh (V table words into list 8 slots 199 + k) is the
+	 * multi-sensor path (stIspInitPar mode >= 2, not reached here, see t33_g16_tmo_v23): a single sensor reads
+	 * the V ram from the tone buffer (tisp_tmo_ramV_vi0_reg_refresh).
+	 */
+}
+
 /* tisp_tmo_s2s3_ddrV_init: the packed V table into the buffer, private_dma_cache_sync (0, buf, 6000, 1) */
 static void t33_g16_tmo_ddrv(u32 ch)
 {
@@ -2155,6 +2183,7 @@ static void t33_g16_tmo_ddrv(u32 ch)
 	if (!out)
 		return;
 	t33_tmo_ddrv_pack(info, out);
+	t33_tmo_flip_cur = 0;	/* #928: a fresh table is unflipped (as t33_lsc_mf = 0 for fresh LSC tables, #728) */
 	dma_cache_wback_inv((unsigned long)out, T33_TMO_V_BYTES);
 }
 
@@ -2412,6 +2441,8 @@ static DECLARE_WORK(t33_stats_w, t33_stats_work);
  */
 static DEFINE_SPINLOCK(t33_flip_lock);
 static u32 t33_flip_pend, t33_flip_mode;
+static u32 t33_lsc_flip_h, t33_lsc_flip_v;	/* #928: LSC flip of the pending sensor flip (SDK 2.1.0: at the frame end) */
+static bool t33_lsc_flip_pend;
 static int t33_vic_hold;		/* VIC frame starts left before 0x4440 (vic +2384) */
 #ifndef TX_ISP_T33
 static u32 t32_flip_vic_rel = 0x4440;	/* T32 release value: 0x4410 for sensor data type 2 */
@@ -2462,6 +2493,10 @@ static void t33_flip_work(struct work_struct *w)
 	unsigned long fl;
 	u32 mode, frames = 0;
 	int ret;
+#ifdef TX_ISP_T33
+	u32 lh, lv;
+	bool lsc_pend;
+#endif
 
 	(void)w;
 	if (!ACCESS_ONCE(t33_flip_pend) || !isp_base)
@@ -2489,6 +2524,21 @@ static void t33_flip_work(struct work_struct *w)
 	t32_vic_wr(0, 0x1a8, 0x4444);
 	t32_vic_wr(1, 0x1a8, 0x4444);
 	ret = t32_core_sensor_flip(0, mode, &frames);
+#ifdef TX_ISP_T33
+	/*
+	 * #928: SDK 2.1.0 ispcore_core_ops_ioctl (frame end, after the sensor flip; drv disassembly 0x11b9a4..0x11baa8)
+	 * runs tisp_lsc_hvflip (before 2.1.0: at the 0x73 control itself) and tisp_tmo_hvflip with the sensor flip.
+	 */
+	spin_lock_irqsave(&t33_flip_lock, fl);
+	lsc_pend = t33_lsc_flip_pend;
+	lh = t33_lsc_flip_h;
+	lv = t33_lsc_flip_v;
+	t33_lsc_flip_pend = false;
+	spin_unlock_irqrestore(&t33_flip_lock, fl);
+	if (lsc_pend)
+		t33_lsc_hvflip(0, lh, lv);
+	t33_tmo_hvflip(0, mode);
+#endif
 	spin_lock_irqsave(&t33_flip_lock, fl);
 	t33_flip_pend = 0;
 	t33_vic_hold = (int)frames > 0 ? (int)frames : 1;	/* core event 0x1000007 { max(msg[1], 1), .. } */
@@ -2532,6 +2582,22 @@ void t33_hw_flip_stop(void)
 #endif
 }
 static DECLARE_WORK(t33_flip_w, t33_flip_work);
+
+#ifdef TX_ISP_T33
+/* 0x73: the LSC part of the flip waits for the frame end with the sensor flip (#928), the latest request wins */
+void t33_lsc_hvflip_defer(u32 ch, u32 h, u32 v)
+{
+	unsigned long fl;
+
+	if (ch)
+		return;
+	spin_lock_irqsave(&t33_flip_lock, fl);
+	t33_lsc_flip_h = h;
+	t33_lsc_flip_v = v;
+	t33_lsc_flip_pend = true;
+	spin_unlock_irqrestore(&t33_flip_lock, fl);
+}
+#endif
 
 /* 0x73 (tx_isp_t32_tunctl.c): the vendor's +1340 / +1344 entry of input ch; one input on T33 */
 void t33_core_flip_request(u32 ch, u32 mode)

@@ -284,6 +284,7 @@ void t32_snapldc_exit(void);
 long t32_snap_ioctl(unsigned int cmd, unsigned long arg);
 long t32_ldc_online_ioctl(unsigned int cmd, unsigned long arg, u32 ldc_mode);
 long t32_ldc_ctl_ioctl(unsigned int cmd, unsigned long arg, u32 ldc_mode);	/* T33: LDC bypass state / LUT refresh (snapldc.c) */
+void t33_lsc_hvflip_defer(u32 ch, u32 flip, u32 mirror);	/* #928: queued, applied at the next frame end */
 int t33_lsc_hvflip(u32 ch, u32 flip, u32 mirror);	/* T33: tisp_lsc_hvflip (tx_isp_t32_hw.c, openimp #727) */
 int t33_bin_ldc_par(u32 ch, u8 *par);	/* T33: lib_tisp_ldc_get_par (tx_isp_t32_hw.c) */
 void t32_snap_isp_irq(u32 sta2, u32 sta3);
