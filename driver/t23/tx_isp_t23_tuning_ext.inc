@@ -685,11 +685,10 @@ static long t23x_switch_bin_prelock(uint32_t uptr)
  * (_light_src + 76: 1 for mode 1, 0 for modes 0 and 2), logs "Can not
  * support this awb algo mode" for any other mode, and reprograms the four
  * AWB threshold registers (0xb028..0xb034).  The control always returns 0.
- * The flag is stored the same way here.  The registers are not rewritten:
- * the AWB this driver runs sets the wide thresholds that stock mode 1
- * writes at every start and has no IQ-threshold window to switch to, so
- * the setting has no effect on it (the control is accepted, as stock does,
- * instead of failing).  There is no getter in stock (-1).
+ * The same here: the flag is stored and t23x_awb_set_hardware_param
+ * rewrites the thresholds (mode 1: whole range; modes 0 / 2: the IQ window
+ * or the low-light window by ModeFlag, #1013).  The bin value comes back
+ * with the next bank refresh, as in stock.  There is no getter in stock (-1).
  */
 static long t23x_wb_algo_set(uint32_t mode)
 {
@@ -702,6 +701,8 @@ static long t23x_wb_algo_set(uint32_t mode)
 		return 0;
 	}
 	memcpy(_light_src + 76, &flag, sizeof(flag));
+	if (regtrace_t23_core_started && regtrace_t23_source_awb_stats_init)
+		t23x_awb_set_hardware_param();
 	return 0;
 }
 

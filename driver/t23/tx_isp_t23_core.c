@@ -10500,6 +10500,17 @@ static uint regtrace_t23_source_ccm_runtime_ct = 5084U;
 static uint regtrace_t23_source_ccm_last_ct = 5084U;
 static uint regtrace_t23_source_ccm_event_count;
 static uint regtrace_t23_source_ccm_last_saturation = 150U;
+/*
+ * Stock CCM gates (pike T23 1.3.0 7695c89c, #1016): tisp_ccm_ev_update
+ * @0x331c8 recomputes when |(ev >> 10) - last| > DAT_000c8fec (0x28, set
+ * by tiziano_ccm_init @0x33480) and then stores the new last EV;
+ * tisp_ccm_ct_update @0x3323c when |ct - old| > DAT_000c8ff4 (jz_isp_ccm
+ * @0x32fc8 sets it to 100 on every run; 0x20 only before the first one).
+ * jz_isp_ccm keeps the saturation unless ccm_real or the EV gate is open.
+ */
+#define REGTRACE_T23_CCM_EV_GATE 0x28U
+#define REGTRACE_T23_CCM_CT_GATE 100U
+static uint regtrace_t23_source_ccm_last_ev = 0xffffffffU;
 static bool regtrace_t23_source_dmsc_tuning_init = true;
 /* Sharpen loads its curves from the active IQ bank (OEM tiziano_sharpen_init). */
 static bool regtrace_t23_source_sharpen_tuning_init = true;
@@ -13731,6 +13742,8 @@ int32_t tisp_lsc_mirror_flip(uint32_t unused, uint32_t width,
                              uint32_t height, uint32_t flip,
                              uint32_t mirror);
 static int regtrace_t23_source_ccm_commit(uint32_t ct, uint32_t ev_q10);
+static int regtrace_t23_source_ccm_commit_gated(uint32_t ct, uint32_t ev_q10,
+                                                bool real);
 int32_t cm_control(int32_t *arg1, int32_t arg2, int32_t *arg3);
 int32_t tiziano_gib_params_refresh(void);
 int32_t tiziano_gib_lut_parameter(void);
@@ -13924,6 +13937,10 @@ static void regtrace_t23_source_awb_write_static_startup(void)
            regtrace_t23_source_awb_kept ? "kept" : "neutral", rvalue, bvalue);
 }
 
+static void t23x_awb_set_hardware_param(void);
+static uint32_t t23x_awb_algo_flag(void);
+static bool t23x_awb_stock_th;
+static bool t23x_awb_hw_valid;
 static void regtrace_t23_source_awb_write_stats_startup(void)
 {
     uint32_t input_cfg;
@@ -13946,14 +13963,8 @@ static void regtrace_t23_source_awb_write_stats_startup(void)
         return;
     }
     processed_tap = !!(input_cfg & BIT(16));
-    system_reg_write(0xb000U, 1U);
-    system_reg_write(0xb028U, 0x0fff0001U);
-    system_reg_write(0xb000U, 1U);
-    system_reg_write(0xb02cU, 0x0fff0001U);
-    system_reg_write(0xb000U, 1U);
-    system_reg_write(0xb030U, 0x00000100U);
-    system_reg_write(0xb000U, 1U);
-    system_reg_write(0xb034U, 0xffff0100U);
+    /* 0xb028..0xb034: stock tiziano_awb_set_hardware_param (#1013) */
+    t23x_awb_set_hardware_param();
     system_reg_write(0xb000U, 1U);
     system_reg_write(0xb038U, 0x0001f005U);
 
@@ -13967,10 +13978,12 @@ static void regtrace_t23_source_awb_write_stats_startup(void)
     }
     regtrace_t23_source_awb_hlil_reset();
     printk(KERN_WARNING
-           "t23: source AWB statistics grid committed for %ux%u tap=%s thresholds=wide\n",
+           "t23: source AWB statistics grid committed for %ux%u tap=%s thresholds=%s mode=%lu\n",
            regtrace_t23_source_sensor_width,
            regtrace_t23_source_sensor_height,
-           processed_tap ? "t23-selector-1" : "selector-0");
+           processed_tap ? "t23-selector-1" : "selector-0",
+           (t23x_awb_stock_th && t23x_awb_hw_valid && !t23x_awb_algo_flag()) ?
+               "iq" : "wide", (unsigned long)ModeFlag);
 }
 
 static void regtrace_t23_source_awb_apply_gains(uint32_t rgain,
@@ -14373,7 +14386,35 @@ static uint32_t regtrace_t23_ccm_saturation(uint32_t ev_q10)
         ARRAY_SIZE(regtrace_t23_ccm_profile_sat) - 1U];
 }
 
+static uint32_t regtrace_t23_absdiff_u32(uint32_t a, uint32_t b)
+{
+    return a > b ? a - b : b - a;
+}
+
+/* stock jz_isp_ccm with ccm_real = 1 (init, bank switch, SetCCMAttr) */
 static int regtrace_t23_source_ccm_commit(uint32_t ct, uint32_t ev_q10)
+{
+    return regtrace_t23_source_ccm_commit_gated(ct, ev_q10, true);
+}
+
+/* stock tisp_ccm_ev_update */
+static void regtrace_t23_source_ccm_ev_update(uint32_t ev_q10)
+{
+    if (!regtrace_t23_source_ccm_events ||
+        !regtrace_t23_source_ccm_tuning_init)
+        return;
+    if (regtrace_t23_source_ccm_last_ev != 0xffffffffU &&
+        regtrace_t23_absdiff_u32(ev_q10 >> 10,
+                                 regtrace_t23_source_ccm_last_ev) <=
+        REGTRACE_T23_CCM_EV_GATE)
+        return;
+    regtrace_t23_source_ccm_commit_gated(regtrace_t23_source_ccm_runtime_ct,
+                                         ev_q10, false);
+    regtrace_t23_source_ccm_last_ev = ev_q10 >> 10;
+}
+
+static int regtrace_t23_source_ccm_commit_gated(uint32_t ct, uint32_t ev_q10,
+                                                bool real)
 {
     int32_t matrix[9];
     int32_t saturated_matrix[9];
@@ -14385,7 +14426,13 @@ static int regtrace_t23_source_ccm_commit(uint32_t ct, uint32_t ev_q10)
     if (ct < 1500U || ct > 10000U)
         return -EINVAL;
     region = regtrace_t23_ccm_interpolate(ct, matrix);
-    saturation = regtrace_t23_ccm_saturation(ev_q10);
+    if (real || regtrace_t23_source_ccm_last_ev == 0xffffffffU ||
+        regtrace_t23_absdiff_u32(ev_q10 >> 10,
+                                 regtrace_t23_source_ccm_last_ev) >
+        REGTRACE_T23_CCM_EV_GATE)
+        saturation = regtrace_t23_ccm_saturation(ev_q10);
+    else
+        saturation = regtrace_t23_source_ccm_last_saturation;
     cm_control(matrix, saturation, saturated_matrix);
     for (i = 0; i < ARRAY_SIZE(registers); ++i)
         registers[i] = (uint32_t)saturated_matrix[i] & 0x3fffU;
@@ -14428,6 +14475,8 @@ static int regtrace_t23_source_ccm_write_tuning_startup(void)
         regtrace_t23_ae_ev_q10());
     if (ret)
         return ret;
+    /* stock tiziano_ccm_init: DAT_000c8fe8 = _ev >> 10 */
+    regtrace_t23_source_ccm_last_ev = regtrace_t23_ae_ev_q10() >> 10;
 
     dp_difference = regtrace_t23_ccm_profile_dp[1] >=
                     regtrace_t23_ccm_profile_dp[2] ?
@@ -14512,6 +14561,9 @@ static int regtrace_t23_source_ccm_select_bank(const void *bank)
     if (!ret) {
         /* stock tiziano_awb_dn_params_refresh: cluster / trend objects */
         regtrace_t23_awb_api_load_bank();
+        /* ... and tiziano_awb_set_hardware_param (#1013) */
+        if (regtrace_t23_core_started && regtrace_t23_source_awb_stats_init)
+            t23x_awb_set_hardware_param();
         return 0;
     }
 

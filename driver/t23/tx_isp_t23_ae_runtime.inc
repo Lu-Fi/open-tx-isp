@@ -468,12 +468,7 @@ static void regtrace_t23_source_ae_hlil_work_body(struct work_struct *work)
             regtrace_t23_source_ae_hlil_ev = rung->ev_q10;
             regtrace_t23_source_ae_hlil_updates++;
             regtrace_t23_ae_hlil_resume = true;
-            if (regtrace_t23_source_ccm_events &&
-                regtrace_t23_source_ccm_tuning_init &&
-                regtrace_t23_ccm_saturation(rung->ev_q10) !=
-                regtrace_t23_source_ccm_last_saturation)
-                regtrace_t23_source_ccm_commit(
-                    regtrace_t23_source_ccm_runtime_ct, rung->ev_q10);
+            regtrace_t23_source_ccm_ev_update(rung->ev_q10);
             regtrace_t23_ae_ev_adr_defog(rung->ev_q10, 0);
             if (regtrace_t23_source_bcsh_events) {
                 tisp_bcsh_ev_update(rung->ev_q10, 0);

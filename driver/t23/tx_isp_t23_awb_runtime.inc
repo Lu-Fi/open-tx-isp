@@ -101,6 +101,139 @@ static noinline void t23x_awb_set_lum_th_freq(void)
 }
 
 /*
+ * AWB statistics thresholds 0xb028..0xb034 and the low-light AWB mode
+ * (#1013), stock pike T23 1.3.0 tx-isp-t23.ko 7695c89c:
+ *
+ * tiziano_awb_set_hardware_param @0x2ff84 (tiziano_awb_init, the day/night
+ * and bin switch refresh, tiziano_s_wb_algo):
+ *   _light_src[76] != 0: 0xb028 = 0xb02c = 0x0fff0001, 0xb030 = 0x100,
+ *                        0xb034 = 0xffff0100 (whole range);
+ *   else ModeFlag 1:     0xb028 = _awb_lowlight_rg_th[1] << 16 | [0],
+ *                        0xb02c = 0x03ff0001;
+ *        ModeFlag 0:     0xb028 = par[35] << 16 | par[34],
+ *                        0xb02c = par[37] << 16 | par[36];
+ *   then 0xb030 = par[39] << 16 | par[38], 0xb034 = par[41] << 16 | par[40]
+ *   (par = _awb_parameter words, IQ 0x1028).
+ *
+ * JZ_Isp_Awb @0x2f6bc, every AWB run after Tiziano_awb_fpga, only while
+ * _light_src[76] == 0: EV > _awb_mode[2] << 10 and ModeFlag 0 -> ModeFlag 1
+ * and the low-light pair; EV <= that and ModeFlag 1 -> ModeFlag 0 and the
+ * parameter pair.  ModeFlag changes also while awb_frz, only the write is
+ * skipped (as in stock).  The EV is the AWB EV (stock tisp_awb_ev_update).
+ *
+ * The IQ words are read with the bank (stock tiziano_awb_params_refresh
+ * copies _awb_parameter, _awb_lowlight_rg_th, _awb_mode and _light_src from
+ * the bin).  source_awb_stock_th=0 keeps the old whole-range thresholds.
+ */
+#define T23X_AWB_HW_TH_OFFSET  (0x1028U + 136U)       /* par[34..41] */
+#define T23X_AWB_LL_TH_OFFSET  (0x1028U + 184U)       /* _awb_lowlight_rg_th */
+#define T23X_AWB_LL_EV_OFFSET  (0x1028U + 232U + 8U)  /* _awb_mode[2] */
+#define T23X_AWB_ALGO_OFFSET   (0x1028U + 260U + 76U) /* _light_src[76] */
+static bool t23x_awb_stock_th = true;
+module_param_named(source_awb_stock_th, t23x_awb_stock_th, bool, 0644);
+MODULE_PARM_DESC(source_awb_stock_th,
+                 "AWB statistics thresholds 0xb028..0xb034 and low-light mode like stock (default 1); 0 = whole range");
+static uint32_t t23x_awb_hw_th[8];
+static uint32_t t23x_awb_ll_th[2];
+static uint32_t t23x_awb_ll_ev;
+static bool t23x_awb_hw_valid;
+static uint t23x_awb_mode_switches;
+static uint t23x_awb_mode_flag_ro;
+module_param_named(awb_mode_switches, t23x_awb_mode_switches, uint, 0444);
+MODULE_PARM_DESC(awb_mode_switches, "AWB low-light ModeFlag changes (stock JZ_Isp_Awb)");
+module_param_named(awb_mode_flag, t23x_awb_mode_flag_ro, uint, 0444);
+MODULE_PARM_DESC(awb_mode_flag, "AWB ModeFlag: 1 = low-light statistics thresholds");
+
+static void t23x_awb_hw_load_bank(void)
+{
+    uint32_t th[8], ll[2], ev, algo;
+
+    if (regtrace_t23_read_tuning_data(T23X_AWB_HW_TH_OFFSET, th, sizeof(th)) ||
+        regtrace_t23_read_tuning_data(T23X_AWB_LL_TH_OFFSET, ll, sizeof(ll)) ||
+        regtrace_t23_read_tuning_data(T23X_AWB_LL_EV_OFFSET, &ev, sizeof(ev)) ||
+        regtrace_t23_read_tuning_data(T23X_AWB_ALGO_OFFSET, &algo,
+                                      sizeof(algo))) {
+        t23x_awb_hw_valid = false;
+        return;
+    }
+    memcpy(t23x_awb_hw_th, th, sizeof(th));
+    memcpy(t23x_awb_ll_th, ll, sizeof(ll));
+    t23x_awb_ll_ev = ev;
+    /* stock tisp_awb_param_array_set copies _light_src from the bin: a
+     * SetWB_ALGO mode lasts until the next refresh, as in stock */
+    memcpy(_light_src + 76, &algo, sizeof(algo));
+    t23x_awb_hw_valid = true;
+}
+
+static void t23x_awb_write(uint32_t reg, uint32_t val)
+{
+    /* stock system_reg_write_awb(1, ...): 0xb000 = 1 before the write */
+    system_reg_write(0xb000U, 1U);
+    system_reg_write(reg, val);
+}
+
+static void t23x_awb_write_lowlight_pair(void)
+{
+    t23x_awb_write(0xb028U, (t23x_awb_ll_th[1] << 16) | t23x_awb_ll_th[0]);
+    t23x_awb_write(0xb02cU, 0x03ff0001U);
+}
+
+static void t23x_awb_write_param_pair(void)
+{
+    t23x_awb_write(0xb028U, (t23x_awb_hw_th[1] << 16) | t23x_awb_hw_th[0]);
+    t23x_awb_write(0xb02cU, (t23x_awb_hw_th[3] << 16) | t23x_awb_hw_th[2]);
+}
+
+static uint32_t t23x_awb_algo_flag(void)
+{
+    uint32_t flag;
+
+    memcpy(&flag, _light_src + 76, sizeof(flag));
+    return flag;
+}
+
+/* stock tiziano_awb_set_hardware_param, the 0xb028..0xb034 part */
+static void t23x_awb_set_hardware_param(void)
+{
+    if (!t23x_awb_stock_th || !t23x_awb_hw_valid || t23x_awb_algo_flag()) {
+        t23x_awb_write(0xb028U, 0x0fff0001U);
+        t23x_awb_write(0xb02cU, 0x0fff0001U);
+        t23x_awb_write(0xb030U, 0x00000100U);
+        t23x_awb_write(0xb034U, 0xffff0100U);
+        return;
+    }
+    if (ModeFlag == 1U)
+        t23x_awb_write_lowlight_pair();
+    else if (ModeFlag == 0U)
+        t23x_awb_write_param_pair();
+    t23x_awb_write(0xb030U, (t23x_awb_hw_th[5] << 16) | t23x_awb_hw_th[4]);
+    t23x_awb_write(0xb034U, (t23x_awb_hw_th[7] << 16) | t23x_awb_hw_th[6]);
+}
+
+/* stock JZ_Isp_Awb, the ModeFlag block after Tiziano_awb_fpga */
+static void t23x_awb_lowlight_switch(uint32_t ev_q10)
+{
+    if (!t23x_awb_stock_th || !t23x_awb_hw_valid || t23x_awb_algo_flag())
+        return;
+    if (ev_q10 > (t23x_awb_ll_ev << 10)) {
+        if (ModeFlag != 0U)
+            return;
+        ModeFlag = 1U;
+        t23x_awb_mode_switches++;
+        if (!ACCESS_ONCE(awb_frz))
+            t23x_awb_write_lowlight_pair();
+    } else {
+        if (ModeFlag != 1U)
+            return;
+        ModeFlag = 0U;
+        t23x_awb_mode_switches++;
+        if (!ACCESS_ONCE(awb_frz))
+            t23x_awb_write_param_pair();
+    }
+    t23x_awb_mode_flag_ro = ModeFlag;
+}
+
+/*
  * The cluster and trend objects from the active IQ bank, as stock
  * tiziano_awb_params_refresh (stream start, day/night switch): the IQ
  * status word and block become *_api_status[0] and *_api_para, the pending
@@ -118,6 +251,7 @@ static void regtrace_t23_awb_api_load_bank(void)
 
     /* stock tiziano_awb_params_refresh also reloads _awb_parameter */
     t23x_awb_lum_load_bank();
+    t23x_awb_hw_load_bank();
     if (regtrace_t23_read_tuning_data(REGTRACE_T23_AWB_CLUSTER_STATUS_OFFSET,
                                       &cl_status, sizeof(cl_status)) ||
         regtrace_t23_read_tuning_data(REGTRACE_T23_AWB_CLUSTER_OFFSET, cl,
@@ -733,6 +867,9 @@ static void regtrace_t23_source_awb_hlil_work_body(struct work_struct *work)
     ret = regtrace_t23_awb_hlil_calculate(
         &regtrace_t23_awb_hlil_snapshot_data, &result);
     regtrace_t23_source_awb_hlil_runs++;
+    /* stock JZ_Isp_Awb: the low-light ModeFlag switch after
+     * Tiziano_awb_fpga, whatever the fpga result (#1013) */
+    t23x_awb_lowlight_switch(regtrace_t23_ae_ev_q10());
     /* stock JZ_Isp_Awb: complete(&awb_algo_comp) while tawb_custom_en == 1 */
     if (ACCESS_ONCE(t23_algo_awb_on))
         complete(&t23_algo_awb_comp);
@@ -825,9 +962,10 @@ static void regtrace_t23_source_awb_hlil_work_body(struct work_struct *work)
                 regtrace_t23_source_ccm_last_ct - result.ct :
                 result.ct - regtrace_t23_source_ccm_last_ct;
 
-            if (delta > 0x20U)
-                regtrace_t23_source_ccm_commit(
-                    result.ct, regtrace_t23_ae_ev_q10());
+            /* stock tisp_ccm_ct_update: gate 100 (#1016) */
+            if (delta > REGTRACE_T23_CCM_CT_GATE)
+                regtrace_t23_source_ccm_commit_gated(
+                    result.ct, regtrace_t23_ae_ev_q10(), false);
         }
         if (regtrace_t23_source_lsc_events &&
             regtrace_t23_source_lsc_tuning_init &&
