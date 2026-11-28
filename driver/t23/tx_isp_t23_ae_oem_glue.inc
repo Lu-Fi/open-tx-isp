@@ -525,6 +525,24 @@ static const struct {
 #define T23_AELIFT_STATE_BYTES (37752U)
 static uint8_t *t23_aelift_saved;
 static bool t23_aelift_inited;
+/*
+ * openimp #1014: set by the first /dev/tx-isp open of an IMP session
+ * (regtrace_tx_isp_open).  Stock runs tisp_init -> tiziano_ae_init once per
+ * session (ispcore_core_ops_init(sd, 1), vendor 1.3.0 tx-isp-t23.ko .text
+ * 0x6a7d8; tisp_init 0x16ef0 calls tiziano_ae_init), which clears the AE
+ * control block and histories (memset tisp_ae_ctrls 0xb0, ae_ctrls 0x10,
+ * tisp_ae_hist 0x41c -> tisp_ae_hist_last, a zeroed ae_show_info) and
+ * re-derives the parameters from tparams; the exposure (_ae_result) and the
+ * other AE objects stay.  So the first stream start of a session is a fresh
+ * tiziano_ae_init on the kept objects (no state restore); later stream
+ * restarts inside the session keep the whole AE state as before.
+ */
+static bool t23_aelift_new_session;
+
+static void t23_aelift_session_open(void)
+{
+	t23_aelift_new_session = true;
+}
 static uint32_t t23_aelift_init_w, t23_aelift_init_h, t23_aelift_init_fps;
 static uint32_t t23_aelift_tgain;		/* last event-4 total gain, Q16 */
 static uint32_t t23_aelift_ev_q10;		/* last event-6 scene EV, Q10 */
@@ -584,7 +602,8 @@ static void t23_aelift_start(void)
 	flush_work(&t23_aelift_work);
 	if (!t23_aelift_saved)
 		t23_aelift_saved = kmalloc(T23_AELIFT_STATE_BYTES, GFP_KERNEL);
-	resume = t23_aelift_inited && t23_aelift_saved && it && again &&
+	resume = !t23_aelift_new_session &&
+		 t23_aelift_inited && t23_aelift_saved && it && again &&
 		 width == t23_aelift_init_w && height == t23_aelift_init_h &&
 		 fps == t23_aelift_init_fps;
 	mutex_lock(&t23_aelift_mutex);
@@ -593,6 +612,7 @@ static void t23_aelift_start(void)
 	ret = t23_aelift_init(width, height, fps);
 	if (!ret) {
 		t23_aelift_inited = true;
+		t23_aelift_new_session = false;
 		t23_aelift_init_w = width;
 		t23_aelift_init_h = height;
 		t23_aelift_init_fps = fps;

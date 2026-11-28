@@ -16385,6 +16385,8 @@ static int regtrace_tx_isp_open(struct inode *inode, struct file *file)
         memset(regtrace_tx_isp_private, 0, sizeof(regtrace_tx_isp_private));
         /* new IMP session: OEM tisp_init BCSH defaults (kept across streams) */
         regtrace_t23_bcsh_user_defaults();
+        /* new IMP session: stock tisp_init runs tiziano_ae_init (#1014) */
+        t23_aelift_session_open();
     }
     regtrace_t23_pin_sensor_owner();
     if (file)
