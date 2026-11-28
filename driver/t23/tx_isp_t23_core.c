@@ -19162,6 +19162,100 @@ static void regtrace_t23_scratch_settle(const char *reason)
     }
 }
 
+/*
+ * #800: vendor private_reset_tx_isp_module(0) (tx-isp-t23.ko 1.3.0 0x11f34),
+ * called by ispcore_core_ops_init (0x6a84c) before tisp_init on every core
+ * enable: CPM 0xb00000c4 (SRBC) |= 0x200000 (stop the ISP bus master), wait
+ * for the ack bit 0x100000 (500 x 2 ms), then clear the stop bit and pulse
+ * the soft reset 0x400000.  This resets 0xd040 and the MSCA address FIFOs
+ * that neither a core restart nor a module reload resets, so an output kept
+ * from the last session (msca_keep_enabled) cannot carry stale or cleared
+ * (address 0) FIFO entries into the next input start.  Before this the
+ * session release cleared such a FIFO instead (tisp_channel_main_fifo_clear,
+ * which stock never calls), and the first frame of the next session went
+ * to physical address 0 over the exception vectors: silent WDT reset at
+ * PC 0x80000194 (QC3, 1 in ~30 streamer restarts; UV of channel 0, stride
+ * 1280, found at phys 0x43b7-0xffff after the 2026-11-28 reset).
+ * isp_block_reset=0 restores the release with the FIFO clear (debug).
+ */
+static bool regtrace_t23_isp_block_reset = true;
+module_param_named(isp_block_reset, regtrace_t23_isp_block_reset, bool, 0644);
+MODULE_PARM_DESC(isp_block_reset,
+                 "1 (default, stock): ISP block stop/ack/soft reset before each core start; 0 release kept outputs with a FIFO clear (debug, #800)");
+static uint regtrace_t23_isp_block_resets[3];
+module_param_array_named(isp_block_resets, regtrace_t23_isp_block_resets,
+                         uint, NULL, 0444);
+MODULE_PARM_DESC(isp_block_resets,
+                 "ISP block resets done, ack timeouts, skipped (read only, #800)");
+
+#define T23_CPM_SRBC		((void __iomem *)0xb00000c4UL)
+#define T23_SRBC_ISP_STOP	0x200000U
+#define T23_SRBC_ISP_ACK	0x100000U
+#define T23_SRBC_ISP_RESET	0x400000U
+
+/* Returns true when the ISP block was reset.  Stream lock held, input
+ * stopped, no frame channel streaming. */
+static bool regtrace_t23_isp_block_reset_run(const char *reason)
+{
+    unsigned long flags;
+    uint32_t d040;
+    uint32_t v;
+    int i;
+
+    /* libimp sends tx-isp STREAMON twice per session: nothing to do on
+     * the repeat */
+    if (!regtrace_t23_isp_block_reset || regtrace_t23_txisp_streaming)
+        return false;
+    if (regtrace_t23_core_started || regtrace_t23_vic_streaming ||
+        regtrace_t23_msca_ch_en || regtrace_framechan_stream_mask ||
+        !regtrace_t23_core_clks_enabled || !regtrace_t23_core_sd) {
+        regtrace_t23_isp_block_resets[2]++;
+        printk(KERN_WARNING "t23: ISP block reset skipped (%s) core=%d vic=%d ch_en=0x%x mask=0x%x clks=%d\n",
+               reason ? reason : "?", regtrace_t23_core_started,
+               regtrace_t23_vic_streaming, regtrace_t23_msca_ch_en,
+               regtrace_framechan_stream_mask,
+               regtrace_t23_core_clks_enabled);
+        return false;
+    }
+    d040 = system_reg_read(0xd040U);
+    local_irq_save(flags);
+    writel(readl(T23_CPM_SRBC) | T23_SRBC_ISP_STOP, T23_CPM_SRBC);
+    local_irq_restore(flags);
+    for (i = 500; i > 0; i--) {
+        if (readl(T23_CPM_SRBC) & T23_SRBC_ISP_ACK)
+            break;
+        private_msleep(2);
+    }
+    if (!i) {
+        /* stock returns -1 here and leaves the stop bit set; do not leave
+         * the bus master stopped, fall back to the session release */
+        local_irq_save(flags);
+        writel(readl(T23_CPM_SRBC) & ~T23_SRBC_ISP_STOP, T23_CPM_SRBC);
+        local_irq_restore(flags);
+        regtrace_t23_isp_block_resets[1]++;
+        printk(KERN_ERR "t23: ISP block stop not acknowledged (%s), no reset\n",
+               reason ? reason : "?");
+        return false;
+    }
+    local_irq_save(flags);
+    v = readl(T23_CPM_SRBC);
+    writel((v & ~T23_SRBC_ISP_STOP) | T23_SRBC_ISP_RESET, T23_CPM_SRBC);
+    writel(readl(T23_CPM_SRBC) & ~T23_SRBC_ISP_RESET, T23_CPM_SRBC);
+    local_irq_restore(flags);
+    spin_lock_irqsave(&regtrace_t23_msca_lock, flags);
+    regtrace_t23_msca_kept = 0;
+    memset(regtrace_t23_msca_live_valid, 0,
+           sizeof(regtrace_t23_msca_live_valid));
+    regtrace_t23_msca_parked = 0;
+    regtrace_t23_scratch_pending = 0;
+    spin_unlock_irqrestore(&regtrace_t23_msca_lock, flags);
+    regtrace_t23_isp_block_resets[0]++;
+    t23_crumb(T23C_ISP_RESET, d040);
+    printk(KERN_WARNING "t23: ISP block reset at session start (%s) d040 0x%x -> 0x%x\n",
+           reason ? reason : "?", d040, system_reg_read(0xd040U));
+    return true;
+}
+
 /* tx-isp STREAMON/STREAMOFF; caller holds regtrace_framechan_stream_lock. */
 static int regtrace_t23_txisp_stream_locked(int enable, const char *reason)
 {
@@ -19180,17 +19274,24 @@ static int regtrace_t23_txisp_stream_locked(int enable, const char *reason)
     if (enable) {
         int ret;
 
+        bool reset;
+
         regtrace_t23_enable_stream_clks();
-        /* #800: switch off outputs kept from the last session before the
-         * core starts (it ran with 0xd040 = 3 between prestart and the
-         * release below); the second call below is then a no-op */
-        regtrace_t23_msca_release_stale(reason);
+        /* #800: stock resets the ISP block before tisp_init; that clears
+         * every output kept from the last session and its FIFO.  Only when
+         * it did not run, switch kept outputs off before the core starts
+         * (it ran with 0xd040 = 3 between prestart and the release below);
+         * the second call below is then a no-op */
+        reset = regtrace_t23_isp_block_reset_run(reason);
+        if (!reset)
+            regtrace_t23_msca_release_stale(reason);
         ret = regtrace_t23_tisp_prestart(reason);
         if (ret)
             return ret;
         /* vendor ivdc_core_ops_init(sd, 1) at the enable (#800) */
         regtrace_t23_ivdc_reassert(reason, false);
-        regtrace_t23_msca_release_stale(reason);
+        if (!reset)
+            regtrace_t23_msca_release_stale(reason);
         regtrace_t23_source_input_stream(1, reason);
         regtrace_t23_direct_vic_input_stream(1, reason);
         regtrace_t23_tisp_stream_regs(1, -1, reason);
@@ -19389,10 +19490,17 @@ static void regtrace_framechan_stream_off_locked(int channel,
     last = !regtrace_framechan_stream_mask;
     /*
      * chan_stop_keep_input: like stock, the input started by a tx-isp
-     * STREAMON keeps running until tx-isp STREAMOFF / last close.
+     * STREAMON keeps running until tx-isp STREAMOFF / last close.  #800:
+     * not when /dev/tx-isp is no longer open: a killed streamer closes its
+     * fds in order, tx-isp first, whose last close then left the input to
+     * the frame channels (still streaming), and this keep left it running
+     * with no owner until the next session: kept outputs wrote on into the
+     * freed buffers, and the next session started on a running core
+     * (no ISP block reset possible).
      */
     if (last && regtrace_t23_chan_stop_keep_input &&
-        regtrace_t23_txisp_streaming)
+        regtrace_t23_txisp_streaming &&
+        atomic_read(&regtrace_tx_isp_open_count) > 0)
         last = false;
     regtrace_framechan_set_streaming(channel, false);
     if (last)
