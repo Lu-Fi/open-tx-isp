@@ -405,6 +405,8 @@ The defaults are the release set; the switches are debug escape hatches.
 | `msca_restart_skip` | 1 | 0: reload on every STREAMON (stock) |
 | `msca_session_release` | 1 | 0: no release of left-enabled outputs at tx-isp STREAMON (d28a0177) |
 | `msca_releases` | (0444) | outputs released at a session start |
+| `isp_block_reset` | 1 | vendor ISP block stop/ack/soft reset at each tx-isp session start (#800); 0: session release with FIFO clear (debug) |
+| `isp_block_resets` | (0444) | block resets done, ack timeouts, skipped |
 | `chan_stop_keep_input` | 1 | 0: input stops with the last channel (before; hangs with `msca_fifo_rearm=1`) |
 | `msca_fifo_rearm` | 0 | 1: clear and refill the FIFO at STREAMON (1911bb83, debug) |
 | `chan_stop_drain` | 21 | STREAMOFF drain wait in 10 ms steps (stock), 0 off |
@@ -469,6 +471,22 @@ DDR 0: the silent resets at a timps restart with `RESET ERROR PC
 
 Debug aid: physical 0x4000-0xffff (below `_text`, reserved, unused) can hold
 a canary; a later picture pattern there is a DMA into DDR 0.
+
+Since 2026-11-28 (the 11-28 reset left channel 0 UV, stride 1280, at
+physical 0x43b7-0xffff, i.e. a channel 0 frame to address 0):
+
+- every tx-isp session start runs the vendor ISP block reset first
+  (`private_reset_tx_isp_module(0)`, 1.3.0 0x11f34, called by
+  `ispcore_core_ops_init` 0x6a84c before `tisp_init`): CPM 0xb00000c4
+  |= 0x200000, wait for 0x100000, then 0x400000 pulse.  It clears 0xd040
+  and the MSCA address FIFOs, so the session release (and its
+  `tisp_channel_main_fifo_clear`, which the vendor never calls) no longer
+  runs; `isp_block_reset=0` brings the release back (debug).  Counters
+  `isp_block_resets` = done, ack timeouts, skipped (read only);
+- a killed streamer closes /dev/tx-isp before the frame channels; the last
+  frame channel stop then stops the input (before, `chan_stop_keep_input`
+  left input, core and the kept outputs running with no owner until the
+  next session, which then could not reset the block).
 
 ## Historical recovery log
 

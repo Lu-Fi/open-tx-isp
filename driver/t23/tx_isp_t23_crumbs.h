@@ -68,6 +68,7 @@ enum t23_crumb_step {
 	T23C_FIFO_CLEAR,	/* MSCA address FIFO clear, arg channel */
 	T23C_LAST_CLOSE,	/* tx-isp last close */
 	T23C_RELEASE,		/* kept output released at session start, arg channel */
+	T23C_ISP_RESET,		/* ISP block reset at session start, arg 0xd040 before (#800) */
 };
 
 static inline void t23_crumb_reset(volatile u32 *w, u32 session)
