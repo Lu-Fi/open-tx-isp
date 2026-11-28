@@ -12776,7 +12776,7 @@ static void regtrace_t23_core_dma_disable(const char *reason)
     system_reg_write(0xa04cU, 0);
     system_reg_write(0xa84cU, 0);
     system_reg_write(0xb04cU, 0);
-    system_reg_write(0x44a4U, 0);
+    system_reg_write(0x4490U, 0);
     system_reg_write(0x5b80U, 0);
     system_reg_write(0xb8b8U, 0);
     wmb();
@@ -12879,7 +12879,15 @@ static int regtrace_t23_program_core_dma(void)
     system_reg_write(0x4498U, p + 0x1000U);
     system_reg_write(0x449cU, p + 0x2000U);
     system_reg_write(0x44a0U, p + 0x3000U);
-    system_reg_write(0x44a4U, 3U);
+    /*
+     * The ADR ring control is 0x4490 (stock tisp_init, vendor 1.3.0
+     * tx-isp-t23.ko .text 0x176dc: system_reg_write(0x4490, 3)), like the
+     * defog one at 0x5b80 in front of its addresses.  Before openimp #987
+     * this wrote 0x44a4 (never written by stock): 0x4490 stayed 0, the ADR
+     * statistics DMA never rotated (0x44b0 stuck on bank 0) and the lifted
+     * stock ADR ran on stale histograms (slow luma drift after a scene step).
+     */
+    system_reg_write(0x4490U, 3U);
 
     p = regtrace_t23_core_dma_bufs[4].phys;
     system_reg_write(0x5b84U, p + 0x0000U);
