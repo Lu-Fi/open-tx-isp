@@ -193,6 +193,7 @@ t23_lost_words_check:
 
 t23_param_own_check:
 	sh ./check_t23_param_own.sh ../driver/t23
+	sh ./check_t23_ae_max_route.sh ../driver/t23
 	sh ./check_t23_qc3_1123.sh ../driver/t23
 	sh ./check_t33_streamon_wait.sh ../driver/t32
 	sh ./check_t23_framedrop_wrap.sh ../driver/t23
