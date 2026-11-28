@@ -105537,6 +105537,19 @@ static long regtrace_t23_tuning_cid(bool get, uint32_t id, uint32_t *value)
         mutex_lock(&regtrace_t23_sensor_fps_lock);
         ret = regtrace_t23_ae_set_max_again(v);
         mutex_unlock(&regtrace_t23_sensor_fps_lock);
+        /*
+         * The lifted stock AE0 owns the exposure: stock
+         * apical_isp_core_ops_s_ctrl -> tisp_s_max_again (0x76e08) ->
+         * tiziano_ae_s_max_again (0x58a90) sets ae_exp_th[1] =
+         * 2^(v/32) Q10 with the reload flag, so 0 caps at 1x (#985).
+         * Its range check (sensor max << 11) takes every log2 value, so a
+         * request above the sensor maximum (timps 160 = 32x on a 29.3x
+         * sensor) still sets the AE limit as stock.
+         */
+        if (regtrace_t23_source_ae_oem && v <= 0xffffU) {
+            t23_aelift_s_max_gain(1U, 0x14U, v);
+            return 0;
+        }
         return ret;
     case REGTRACE_TISP_CTRL_MAX_DGAIN:
         if (get) {
@@ -105548,6 +105561,12 @@ static long regtrace_t23_tuning_cid(bool get, uint32_t id, uint32_t *value)
         mutex_lock(&regtrace_t23_sensor_fps_lock);
         ret = regtrace_t23_ae_set_max_dgain(v);
         mutex_unlock(&regtrace_t23_sensor_fps_lock);
+        /* stock tisp_s_max_isp_dgain (0x76e18) -> tiziano_ae_s_max_isp_dgain
+         * (0x58b14): ae_exp_th[3] = 2^(v/32) Q10 on the lifted AE0 (#987) */
+        if (regtrace_t23_source_ae_oem && v <= 0xffffU) {
+            t23_aelift_s_max_gain(3U, 0x1cU, v);
+            return 0;
+        }
         return ret;
     case REGTRACE_TISP_CTRL_AE_IT_MAX:
         if (get) {

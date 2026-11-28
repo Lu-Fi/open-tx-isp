@@ -781,13 +781,14 @@ static int regtrace_t23_ae_hlil_retime_force(uint32_t max_it,
  * AE limits set through the tuning API (OEM tisp_s_ae_it_max,
  * tiziano_ae_s_max_again).  The ladder is built from the smaller of the
  * sensor's own limit and the user limit; the sensor limit is kept so a
- * frame-rate change or clearing the user limit restores it.  0 = no user
+ * frame-rate change or clearing the user limit restores it.  IT: 0 = no user
  * limit.
  */
 static uint32_t regtrace_t23_ae_sensor_max_it;      /* lines */
 static uint32_t regtrace_t23_ae_user_max_it;        /* lines */
 static uint32_t regtrace_t23_ae_sensor_max_again;   /* log2, Q16 */
 static uint32_t regtrace_t23_ae_user_max_again;     /* log2, Q16 */
+static bool regtrace_t23_ae_user_max_again_set;     /* 0 = 1x is a cap (#985) */
 
 static uint32_t regtrace_t23_ae_cap_it(uint32_t sensor_max_it)
 {
@@ -803,7 +804,8 @@ static uint32_t regtrace_t23_ae_cap_again(uint32_t sensor_max_again)
 {
     uint32_t cap = regtrace_t23_ae_user_max_again;
 
-    return (cap && cap < sensor_max_again) ? cap : sensor_max_again;
+    return (regtrace_t23_ae_user_max_again_set && cap < sensor_max_again) ?
+               cap : sensor_max_again;
 }
 
 /* Sensor limits as resolved from the sensor attributes. */
@@ -853,6 +855,7 @@ static int regtrace_t23_ae_set_max_again(uint32_t log2_q5)
     uint32_t q16 = log2_q5 << 11;
     uint32_t old_user;
     uint32_t old_max;
+    bool old_set;
     int ret;
 
     if (log2_q5 > 0xffffU ||
@@ -860,8 +863,10 @@ static int regtrace_t23_ae_set_max_again(uint32_t log2_q5)
          q16 > regtrace_t23_ae_sensor_max_again))
         return -EINVAL;
     old_user = regtrace_t23_ae_user_max_again;
+    old_set = regtrace_t23_ae_user_max_again_set;
     old_max = regtrace_t23_source_sensor_max_again;
     regtrace_t23_ae_user_max_again = q16;
+    regtrace_t23_ae_user_max_again_set = true;
     if (!regtrace_t23_source_sensor_configured)
         return 0;
     regtrace_t23_source_sensor_max_again =
@@ -870,6 +875,7 @@ static int regtrace_t23_ae_set_max_again(uint32_t log2_q5)
         regtrace_t23_source_sensor_max_it, "max-again", true);
     if (ret) {
         regtrace_t23_ae_user_max_again = old_user;
+        regtrace_t23_ae_user_max_again_set = old_set;
         regtrace_t23_source_sensor_max_again = old_max;
     }
     return ret;
