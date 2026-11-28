@@ -5824,6 +5824,7 @@ static u32 t33_msca_direct, t33_msca_listed;
  */
 int t32_fs_msca_attr(int ch, u32 in_w, u32 in_h, u32 *a);	/* tx_isp_t32_fs.c */
 int t33_msca_chx_start(u32 ch, const u32 *a);			/* tx_isp_t33_osd.c */
+void t33_msca_dma_stride(u32 ch, u32 stride);			/* tx_isp_t33_osd.c */
 
 static bool t33_msca_list_start(int ch, u32 w, u32 h, u32 stride, u32 in_w, u32 in_h)
 {
@@ -5839,6 +5840,10 @@ static bool t33_msca_list_start(int ch, u32 w, u32 h, u32 stride, u32 in_w, u32 
 	}
 	t33_msca_listed |= 1U << ch;
 	t33_msca_vendor_starts++;
+	if (stride != t33_msca_stride((u32)ch, a[6], ch == 0 ? isp_rd(0x100) : 0)) {
+		t33_msca_dma_stride((u32)ch, stride);	/* #1007 beyond vendor: the joint buffer pitch */
+		r = 1;
+	}
 	if (r)
 		t33_msca_refresh = 1;	/* tispMscaRefresh (chx_stream_on) */
 	return true;
