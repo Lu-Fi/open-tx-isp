@@ -5813,9 +5813,18 @@ static u32 t33_msca_direct, t33_msca_listed;
  * direct mode channel 0 (stride 0x1000) went direct and took channel 1 with it; the next list 23 run (an ISP
  * OSD / mask / draw request) then wrote the list's idle channel words (0xf0040 = 0, channel 1 at the input
  * size) and channel 1 stopped.
+ * #1007: a buffer stride WIDER than the vendor's (a FrameSource Joint: chn 1 640 wide in a 960-stride joint
+ * buffer) takes the list path too.  The vendor ignores the QBUF stride on one sensor: ispcore_pad_event_handle
+ * (0x3000003, priv +1192 == 1, objdump 0xffab4) runs channel_start + chx_stream_on only, the
+ * lib_tisp_api_set_msca_dma_stride call (0xff968, QBUF stride = buffer +180) is on the other branch and
+ * refused by stIspInitPar word 226 == 1 anyway; tisp_msca_t33_ctrl_reg_write writes ALIGN16(attr +14) to
+ * 0xf0140 + ch * 0x100 / 0xf0160 (0xd17a4 / 0xd17dc; vendor QEMU joint run: 0xf0240 = 0x280, 0xf0340 =
+ * 0x140 for 960-stride buffers).  Only a NARROWER stride (the vendor's pitch would overrun the buffer) keeps
+ * the direct fallback.  Before, the wider stride went direct and the joint channels got no frames (#680).
  */
 int t32_fs_msca_attr(int ch, u32 in_w, u32 in_h, u32 *a);	/* tx_isp_t32_fs.c */
 int t33_msca_chx_start(u32 ch, const u32 *a);			/* tx_isp_t33_osd.c */
+void t33_msca_dma_stride(u32 ch, u32 stride);			/* tx_isp_t33_osd.c */
 
 static bool t33_msca_list_start(int ch, u32 w, u32 h, u32 stride, u32 in_w, u32 in_h)
 {
@@ -5823,7 +5832,7 @@ static bool t33_msca_list_start(int ch, u32 w, u32 h, u32 stride, u32 in_w, u32 
 	int r;
 
 	if (!l || t33_msca_direct || l[0] < 0x12d || !t32_fs_msca_attr(ch, in_w, in_h, a) || a[6] != w ||
-	    a[7] != h || stride != t33_msca_stride((u32)ch, a[6], ch == 0 ? isp_rd(0x100) : 0) ||
+	    a[7] != h || stride < t33_msca_stride((u32)ch, a[6], ch == 0 ? isp_rd(0x100) : 0) ||
 	    (r = t33_msca_chx_start((u32)ch, a)) < 0) {
 		t33_msca_direct |= 1U << ch;
 		t33_msca_direct_starts++;
@@ -5831,6 +5840,10 @@ static bool t33_msca_list_start(int ch, u32 w, u32 h, u32 stride, u32 in_w, u32 
 	}
 	t33_msca_listed |= 1U << ch;
 	t33_msca_vendor_starts++;
+	if (stride != t33_msca_stride((u32)ch, a[6], ch == 0 ? isp_rd(0x100) : 0)) {
+		t33_msca_dma_stride((u32)ch, stride);	/* #1007 beyond vendor: the joint buffer pitch */
+		r = 1;
+	}
 	if (r)
 		t33_msca_refresh = 1;	/* tispMscaRefresh (chx_stream_on) */
 	return true;

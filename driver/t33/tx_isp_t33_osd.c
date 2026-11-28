@@ -294,6 +294,28 @@ int t33_msca_chx_start(u32 ch, const u32 *a)
 	return r;
 }
 
+/*
+ * #1007 (beyond vendor, proposal): the QBUF stride of a channel whose buffer is wider than the vendor pitch
+ * (a FrameSource Joint), ALIGN16(stride) on the stride words of tisp_msca_t33_ctrl_reg_write (stIspInitPar
+ * word 226 == 1: system_reg_write 0xf0140 / 0xf0160 + ch * 0x100, else the list 23 slots / registers).  The
+ * one-sensor vendor start never writes it (the joint rows land at the channel-width pitch there).
+ */
+void t33_msca_dma_stride(u32 ch, u32 stride)
+{
+	u32 v = t33_msca_stride_value(0, stride), c = ch & 0xff, b = 30 * c, d = c << 8;
+	unsigned long fl;
+
+	spin_lock_irqsave(&t33_attr_lock, fl);
+	if (t33_st_isp_init_par_mode[226] == 1) {
+		system_reg_write(d + 0xf0140, v);
+		system_reg_write(d + 0xf0160, v);
+	} else {
+		tisp_reg_write_t33(0, 23, mscaCfgMode ? b + 0x29 : d + 0xf0140, v);
+		tisp_reg_write_t33(0, 23, mscaCfgMode ? b + 0x31 : d + 0xf0160, v);
+	}
+	spin_unlock_irqrestore(&t33_attr_lock, fl);
+}
+
 int t33_msca_chx_stream_set(u32 ch, u32 on)
 {
 	unsigned long fl;
