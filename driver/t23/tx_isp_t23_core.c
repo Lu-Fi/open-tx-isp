@@ -105573,9 +105573,20 @@ static long regtrace_t23_tuning_cid(bool get, uint32_t id, uint32_t *value)
         return ret;
     case REGTRACE_TISP_CTRL_AE_IT_MAX:
         if (get) {
-            *value = regtrace_t23_source_sensor_max_it;
+            if (!t23_aelift_g_it_max(value))
+                *value = regtrace_t23_source_sensor_max_it;
             return 0;
         }
+        /*
+         * openimp #1008: with the lifted stock AE0 this is the stock no-op.
+         * 1.3.0 tisp_s_ae_it_max (.text 0x66f68) copies tisp_ae_ctrls to
+         * the stack, stores the value in the copy and calls
+         * tisp_ae_min_max_set (0x49eec), which only spills a2/a3 and
+         * returns 0: no AE limit changes, the call returns 0.  The open
+         * ladder below is not in charge then.
+         */
+        if (regtrace_t23_source_ae_oem)
+            return 0;
         mutex_lock(&regtrace_t23_sensor_fps_lock);
         ret = regtrace_t23_ae_set_max_it(v);
         mutex_unlock(&regtrace_t23_sensor_fps_lock);

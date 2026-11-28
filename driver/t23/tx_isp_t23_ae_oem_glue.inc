@@ -1064,6 +1064,20 @@ static bool t23_aelift_g_max(unsigned int word, uint32_t *value)
 }
 
 /*
+ * AE_IT_MAX read-back while the lifted AE runs (openimp #1008): stock
+ * tisp_g_ae_it_max (1.3.0 .text 0x66ffc) returns tisp_ae_ctrls word 7.
+ */
+static bool t23_aelift_g_it_max(uint32_t *value)
+{
+	if (!regtrace_t23_source_ae_oem || !t23_aelift_inited)
+		return false;
+	mutex_lock(&t23_aelift_mutex);
+	*value = ((const uint32_t *)(const void *)oem_tisp_ae_ctrls)[7];
+	mutex_unlock(&t23_aelift_mutex);
+	return true;
+}
+
+/*
  * Emulator entry points (audit/aelift_emu.py drives these against the
  * stock functions of the same name); unused in the kernel.
  */
