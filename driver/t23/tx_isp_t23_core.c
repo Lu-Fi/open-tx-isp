@@ -11468,14 +11468,17 @@ static void regtrace_t23_enable_stream_clks(void)
  * ISP core interrupt enable word (0xb0, 1 = the source raises the line).
  * The core ISR consumes status bits 0 (frame done), 18 (ADR), 20 (defog),
  * 26/27 (AE), 30 (AWB) and 31 (AF); the MSCA completion FIFOs are drained on
- * any interrupt and fill together with the group 17..22.  The sources 12,
- * 13 and 16 each raised an interrupt of their own once per frame (15/s of
- * the 82/s on the T23 test camera) that the ISR only acknowledged, so they
- * are left masked.  Everything else (1, 14, 17..25, ...) always fires in
- * the same interrupt as a bit that is used and stays on.  0xffffffff is the
+ * any interrupt and fill together with the group 17..22.  The sources 12
+ * and 16 each raised an interrupt of their own once per frame that the ISR
+ * only acknowledged, so they are left masked.  Bit 13 (IPC frame done)
+ * stays on: as stock (its callback wakes the IRQ thread) it sends the AE
+ * exposure latched by the last AE run to the sensor (openimp #988,
+ * t23_aelift_fs_irq); a sensor with expo_fs = 1 unmasks bit 12 (frame start)
+ * for the same.  Everything else (1, 14, 17..25, ...) always fires in the
+ * same interrupt as a bit that is used and stays on.  0xffffffff is the
  * stock value; writable at run time (takes effect at once while streaming).
  */
-#define T23_ISR_UNUSED (BIT(12) | BIT(13) | BIT(16))
+#define T23_ISR_UNUSED (BIT(12) | BIT(16))
 static unsigned int t23_isr_enable = 0xffffffffU & ~T23_ISR_UNUSED;
 /* 0xb0 is written under this lock by the stream path and the parameter, so a
  * parameter write cannot re-enable the sources after a disable (issue 108) */
@@ -11508,7 +11511,7 @@ static const struct kernel_param_ops t23_isr_enable_ops = {
 };
 module_param_cb(t23_isr_enable, &t23_isr_enable_ops, &t23_isr_enable, 0644);
 MODULE_PARM_DESC(t23_isr_enable,
-                 "ISP core interrupt enable word (0xb0); default masks the unused sources 12, 13, 16, stock is 0xffffffff");
+                 "ISP core interrupt enable word (0xb0); default masks the unused sources 12, 16, stock is 0xffffffff");
 
 static void regtrace_t23_set_irq_enabled(const char *name,
                                          unsigned char *sd,

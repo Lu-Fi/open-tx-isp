@@ -110,6 +110,102 @@ static bool t23_aelift_expo_dirty;
 static void t23_aelift_work_fn(struct work_struct *work);
 TX_LS_TIMED_WORK(t23_aelift_work_timed, t23_aelift_work_fn, T23_LS_WORK_AE_LIFT)
 static DECLARE_WORK(t23_aelift_work, t23_aelift_work_timed);
+
+/*
+ * openimp #988: the sensor gets the exposure of an AE run at the stock time.
+ * Stock sensor_set_integration_time / _analog_gain (@0x1fdfc / @0x1fe80)
+ * only latch the value in the ispcore object (+0x19c / +0x184 flag, +0x1b4
+ * flag + 0x1b8 packed word); it reaches the sensor (0x2000007 / 0x2000005 /
+ * 0x2000016) from
+ *  - sensor attr expo_fs (+0xf4) == 1: ispcore_irq_fs_work (@0x781c8), the
+ *    work the frame-start interrupt (status bit 12) schedules
+ *    (ispcore_interrupt_service_routine @0x7b6b4);
+ *  - expo_fs == 0 (sc2336p and most T23 sensors): ispcore_irq_thread_handle
+ *    (@0x78bb0), the threaded core IRQ handler; isp_irq_handle (@0x1b0c0)
+ *    wakes it when an irq_func_cb returns 2: tisp_ipc_frame_done_interrupt_
+ *    static (bit 13, @0x749e0) and ae0_interrupt_hist (bit 27, @0x54cf8,
+ *    which also queues the AE run itself, so its own exposure goes out at
+ *    the next wake-up).
+ * The stock AE models the sensor apply delays of the attribute (sc2336p:
+ * integration time 2, again 2 frames) on that timing.  Writing at once from
+ * the AE work made the new exposure visible one frame early: smaller steps,
+ * an early slow phase (comp 40 -> 200 settled in 11 s instead of 6 s).
+ * Counters (t23_ae_fs_counts): wake-ups with an exposure pending, writes
+ * from them, fallback writes (no wake-up between two AE runs).
+ */
+static DEFINE_SPINLOCK(t23_aelift_fs_lock);
+static bool t23_aelift_expo_fs;
+static uint32_t t23_aelift_fs_packed;
+static bool t23_aelift_fs_pending;
+static unsigned int t23_aelift_fs_seen, t23_aelift_fs_seen_latch;
+static unsigned int t23_aelift_fs_counts[3];
+module_param_array_named(t23_ae_fs_counts, t23_aelift_fs_counts, uint, NULL,
+			 0444);
+MODULE_PARM_DESC(t23_ae_fs_counts,
+		 "AE exposure at the stock time: wake-ups with a pending exposure, writes from them, fallback writes");
+
+static void t23_aelift_fs_work_fn(struct work_struct *work)
+{
+	unsigned long flags;
+	uint32_t packed;
+	bool go;
+
+	spin_lock_irqsave(&t23_aelift_fs_lock, flags);
+	go = t23_aelift_fs_pending;
+	packed = t23_aelift_fs_packed;
+	t23_aelift_fs_pending = false;
+	spin_unlock_irqrestore(&t23_aelift_fs_lock, flags);
+	if (!go || !ACCESS_ONCE(t23_aelift_ready))
+		return;
+	t23_aelift_fs_counts[1]++;
+	regtrace_t23_call_sensor_exposure(packed, "ae-oem-fs");
+}
+TX_LS_TIMED_WORK(t23_aelift_fs_work_timed, t23_aelift_fs_work_fn, T23_LS_WORK_FS)
+static DECLARE_WORK(t23_aelift_fs_work, t23_aelift_fs_work_timed);
+
+/* AE work: latch the exposure for the next frame start (stock sensor_set_*) */
+static void t23_aelift_fs_latch(uint32_t packed)
+{
+	unsigned long flags;
+	bool now;
+
+	spin_lock_irqsave(&t23_aelift_fs_lock, flags);
+	/* still pending and no frame start since the last latch: none comes */
+	now = t23_aelift_fs_pending &&
+	      t23_aelift_fs_seen == t23_aelift_fs_seen_latch;
+	t23_aelift_fs_seen_latch = t23_aelift_fs_seen;
+	t23_aelift_fs_packed = packed;
+	t23_aelift_fs_pending = !now;
+	spin_unlock_irqrestore(&t23_aelift_fs_lock, flags);
+	if (now) {
+		t23_aelift_fs_counts[2]++;
+		regtrace_t23_call_sensor_exposure(packed, "ae-oem");
+	}
+}
+
+/* a direct exposure write (resume, stream start) supersedes a latched one */
+static void t23_aelift_fs_drop(void)
+{
+	unsigned long flags;
+
+	spin_lock_irqsave(&t23_aelift_fs_lock, flags);
+	t23_aelift_fs_pending = false;
+	spin_unlock_irqrestore(&t23_aelift_fs_lock, flags);
+}
+
+/* core ISR: stock fs_work (expo_fs 1) / IRQ thread wake-up (expo_fs 0) */
+static void t23_aelift_fs_irq(uint32_t status)
+{
+	if (!(status & (t23_aelift_expo_fs ? BIT(12) : BIT(13) | BIT(27))))
+		return;
+	spin_lock(&t23_aelift_fs_lock);
+	t23_aelift_fs_seen++;
+	if (t23_aelift_fs_pending) {
+		t23_aelift_fs_counts[0]++;
+		schedule_work(&t23_aelift_fs_work);
+	}
+	spin_unlock(&t23_aelift_fs_lock);
+}
 /*
  * Process-context users of the lifted AE state: the AE work
  * (tisp_ae0_process), stream start (tiziano_ae_init, state copy), the
@@ -323,6 +419,10 @@ static int t23_aelift_init(uint32_t width, uint32_t height, uint32_t fps)
 	info[3] = (uint32_t)(uintptr_t)regtrace_t23_core_dma_bufs[0].virt;
 	info[6] = info[3] + 0x4000U;
 	t23_aelift_fill_sensor_info(attr, width, height, fps);
+	/* stock: sensor attribute expo_fs (+0xf4) picks the exposure writer */
+	t23_aelift_expo_fs = regtrace_t23_get_le32(attr + 0xf4) == 1U;
+	if (t23_aelift_expo_fs)
+		ACCESS_ONCE(t23_isr_enable) |= BIT(12);
 	T23_AELIFT_CALL(LA_tiziano_ae_init, 0, 0,
 			*(uint16_t *)(void *)(oem_sensor_info + 0x3c), 0);
 	t23_aelift_ready = true;
@@ -519,6 +619,7 @@ static void t23_aelift_start(void)
 		t23_aelift_it = it;
 		t23_aelift_again = again;
 		t23_aelift_expo_dirty = false;
+		t23_aelift_fs_drop();
 		regtrace_t23_call_sensor_exposure((again << 16) | it,
 						  "ae-oem-resume");
 		if (t23_aelift_tgain)
@@ -675,6 +776,7 @@ static bool t23_aelift_irq(uint32_t status)
 {
 	if (!regtrace_t23_source_ae_oem || !t23_aelift_ready)
 		return false;
+	t23_aelift_fs_irq(status);
 	spin_lock(&t23_aelift_irq_lock);
 	if (!t23_aelift_busy) {
 		if (status & BIT(26))
@@ -795,8 +897,7 @@ static void t23_aelift_work_fn(struct work_struct *work)
 			printk(KERN_WARNING
 			       "t23: ae-oem exposure it=%u again=%u\n",
 			       t23_aelift_it, t23_aelift_again);
-		regtrace_t23_call_sensor_exposure(
-			(t23_aelift_again << 16) | t23_aelift_it, "ae-oem");
+		t23_aelift_fs_latch((t23_aelift_again << 16) | t23_aelift_it);
 	}
 	spin_lock_irqsave(&t23_aelift_ev_lock, flags);
 	n = t23_aelift_ev_count;
@@ -837,6 +938,8 @@ static void t23_aelift_sync(void)
 {
 	t23_aelift_halt();
 	cancel_work_sync(&t23_aelift_work);
+	cancel_work_sync(&t23_aelift_fs_work);
+	t23_aelift_fs_drop();
 }
 
 /* module exit, after t23_aelift_sync */
