@@ -87,6 +87,7 @@ as follows:
 | stock flow | here | counters |
 |---|---|---|
 | AE0: bit 26/27 `ae0_interrupt_*`, event 1 `tisp_ae0_process` | lifted stock code, ISR + work item (`tx_isp_t23_ae_oem_glue.inc`, `source_ae_oem=1`) | - |
+| AE exposure write: stock `sensor_set_*` latch, `ispcore_irq_thread_handle` (sensor `expo_fs` 0: IRQ thread woken by bit 13 / 27) or `ispcore_irq_fs_work` (`expo_fs` 1: bit 12) | AE work latches, the core ISR sends it on bit 13 / 27 (or 12) like stock (openimp #988) | `t23_ae_fs_counts` (wake-ups with an exposure pending, writes, fallback writes) |
 | ADR / defog: bit 18 / 20 `tiziano_*_interrupt_static`, events 2 / 3 `tisp_adr_process` / `tisp_defog_process` | lifted stock code, ISR + work item (`tx_isp_t23_adr_oem_glue.inc`, `source_adr_oem=1`) | `adr_oem_runs` (adr irq, adr process, defog irq, defog process) |
 | AWB: bit 30 `awb_interrupt_static` (statistics, `tiziano_awb_set_lum_th_freq`), event 9 `JZ_Isp_Awb`, event 8 `tisp_ct_update` | statistics snapshot + `t23x_awb_set_lum_th_freq` in the ISR, HLIL AWB work (every `source_awb_hlil_interval`-th interrupt, default 1 = every interrupt like stock, openimp #233) calling the CT updates directly | `awb_lum_th_runs`, `awb_lum_th_last` (0444) |
 
