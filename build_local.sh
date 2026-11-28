@@ -59,8 +59,12 @@ fi
 
 # The SDK headers (tx-isp-vic.h etc.) live in the external/ingenic-sdk submodule.
 # Without it t10/t20 fail with "tx-isp-vic.h: No such file" (openimp #842).
-[ -f "$HERE/external/ingenic-sdk/3.10.14/isp/${SOC:-t31}/tx-isp-vic.h" ] || [ -d "$HERE/external/ingenic-sdk/3.10.14/isp/${SOC:-t31}" ] || {
-	echo "external/ingenic-sdk submodule is empty: run 'git submodule update --init' in $HERE"; exit 1; }
+# Only for SoCs whose Kbuild includes the SDK: the SDK has no t32/t33 dir and their drivers never use it
+# (openimp #1007: the check refused every SOC=t33 build).
+if grep -q "ingenic-sdk" "$HERE/driver/${SOC:-t31}/Kbuild" 2>/dev/null; then
+	[ -f "$HERE/external/ingenic-sdk/3.10.14/isp/${SOC:-t31}/tx-isp-vic.h" ] || [ -d "$HERE/external/ingenic-sdk/3.10.14/isp/${SOC:-t31}" ] || {
+		echo "external/ingenic-sdk submodule is empty: run 'git submodule update --init' in $HERE"; exit 1; }
+fi
 
 echo "ROOT=$ROOT"
 echo "KDIR=$KDIR"
